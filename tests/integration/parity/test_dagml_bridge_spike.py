@@ -98,8 +98,11 @@ def test_vertical_slice_controller_manifests_validate() -> None:
     # consumes OOF predictions. The other node kinds each have one controller.
     assert {(m["controller_id"], m["operator_kind"]) for m in manifests} == {
         ("controller:nirs4all.merge_concat", "prediction_join"),
+        ("controller:nirs4all.prediction_feature_join", "prediction_join"),
+        ("controller:nirs4all.feature_join", "feature_join"),
         ("controller:nirs4all.meta_model", "model"),
         ("controller:nirs4all.model", "model"),
+        ("controller:nirs4all.residual_learner", "model"),
         ("controller:nirs4all.transform", "transform"),
         ("controller:nirs4all.y_transform", "y_transform"),
     }

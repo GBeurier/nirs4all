@@ -258,6 +258,7 @@ def test_runtime_list_controller_manifests() -> None:
         "controller:nirs4all.merge_concat",
         "controller:nirs4all.meta_model",
         "controller:nirs4all.model",
+        "controller:nirs4all.prediction_feature_join",
         "controller:nirs4all.residual_learner",
         "controller:nirs4all.transform",
         "controller:nirs4all.y_transform",
