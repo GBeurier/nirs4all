@@ -11,6 +11,7 @@ import io
 import json
 import warnings
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -144,6 +145,15 @@ def predict_general_archive(
         adapter = _NamedOutputAdapter(loaded["artifact"]["estimator"], output)
         loaded = {**loaded, "artifact": {**loaded["artifact"], "estimator": adapter},
                   "pipeline": [{"model": adapter}]}
+    source_sample_ids = None
+    if isinstance(data, Mapping) and isinstance(named_outputs, list):
+        if output is None:
+            raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict")
+        model = loaded["artifact"]["estimator"]
+        assert isinstance(model, _NamedOutputAdapter)
+        named_data = data
+        data = model.model.aligned_source_matrix(named_data)
+        source_sample_ids = list(named_data["sample_ids"])
     values, metadata = predict_captured_artifact(
         loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
         target_names=loaded["manifest"].get("target_names", ["y"]),
@@ -155,6 +165,8 @@ def predict_general_archive(
     })
     if output is not None:
         metadata["selected_output"] = output
+    if source_sample_ids is not None:
+        metadata["source_sample_ids"] = source_sample_ids
     return PredictResult(y_pred=values, metadata=metadata, model_name=loaded["model_name"])
 
 

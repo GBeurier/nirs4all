@@ -181,6 +181,13 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         with pytest.raises(ValueError, match="multiple named outputs"):
             nirs4all.predict(archive, full_x)
         public_selected = nirs4all.predict(archive, full_x, output=output_ids[1])
+        public_named = nirs4all.predict(archive, named_sources, output=output_ids[1])
+        np.testing.assert_allclose(
+            np.asarray(public_named.y_pred).ravel(),
+            np.asarray(named_outputs[output_ids[1]]).ravel(), atol=1e-4,
+        )
+        assert public_named.metadata["phase"] == "PREDICT"
+        assert public_named.metadata["source_sample_ids"] == named_sources["sample_ids"]
         from nirs4all.pipeline.dagml.dataset import _materialize_dataset
 
         # The public array path materializes a SpectroDataset before DAG replay;
