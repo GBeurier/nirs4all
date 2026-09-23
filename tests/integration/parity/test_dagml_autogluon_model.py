@@ -15,6 +15,7 @@ import sys
 import zipfile
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -24,8 +25,9 @@ pytest.importorskip("dag_ml")
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("syntax", ["model", "framework"])
 @pytest.mark.parity
-def test_autogluon_config_trains_refits_and_replays_archive(tmp_path, monkeypatch, mechanism: str) -> None:
+def test_autogluon_config_trains_refits_and_replays_archive(tmp_path, monkeypatch, mechanism: str, syntax: str) -> None:
     package = tmp_path / "autogluon"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
@@ -102,11 +104,13 @@ class TabularPredictor:
     rng = np.random.default_rng(13)
     x = rng.normal(size=(12, 4)).astype(np.float32)
     y = (2 * x[:, 0] - x[:, 1] + 0.5).astype(np.float32)
-    pipeline = [
-        KFold(n_splits=2, shuffle=True, random_state=4),
-        {"model": {"framework": "autogluon"}, "params": {"random_state": 9},
-         "train_params": {"time_limit": 3, "presets": "medium_quality"}},
-    ]
+    model_step: dict[str, Any] = {"params": {"random_state": 9},
+                                  "train_params": {"time_limit": 3, "presets": "medium_quality"}}
+    if syntax == "model":
+        model_step["model"] = {"framework": "autogluon"}
+    else:
+        model_step["framework"] = "autogluon"
+    pipeline = [KFold(n_splits=2, shuffle=True, random_state=4), model_step]
     legacy = nirs4all.run(pipeline, (x, y), engine="legacy", workspace_path=tmp_path / "legacy", save_charts=False, save_artifacts=False, verbose=0)
     assert np.isfinite(legacy.cv_best_score)
     from autogluon.tabular import TabularPredictor

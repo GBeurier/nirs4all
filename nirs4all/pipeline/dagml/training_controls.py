@@ -28,7 +28,7 @@ def validate_training_control_declarations(value: Any) -> None:
         metadata = {}
         for key in ("train_params", "refit_params"):
             if key in value:
-                if "model" not in value:
+                if "model" not in value and value.get("framework") != "autogluon":
                     raise ValueError(f"{key} must belong to a model step")
                 metadata[f"nirs4all_{key}"] = encode_training_controls(value[key], name=key)
         model = value.get("model")
