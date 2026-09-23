@@ -221,14 +221,15 @@ def test_private_inner_splitter_context_cannot_be_injected_by_public_config():
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_n4m_finetune_params_use_native_scoped_search_and_export(tmp_path, monkeypatch, mechanism):
+@pytest.mark.parametrize("approach", ["single", "grouped", "individual"])
+def test_n4m_finetune_params_use_native_scoped_search_and_export(tmp_path, monkeypatch, mechanism, approach):
     pytest.importorskip("n4m")
     import nirs4all
     from nirs4all.optimization.n4m_engine import N4MFinetuneManager
 
     X, y = _data()
     pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
-        "engine": "n4m", "sampler": "random", "seed": 7, "n_trials": 2,
+        "engine": "n4m", "sampler": "random", "seed": 7, "n_trials": 2, "approach": approach,
         "model_params": {"n_components": [1, 2]},
     }}]
     legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
@@ -251,6 +252,8 @@ def test_n4m_finetune_params_use_native_scoped_search_and_export(tmp_path, monke
     assert [search["scope"]["phase"] for search in history] == ["FIT_CV", "FIT_CV", "REFIT"]
     assert all(search["optimizer"]["name"] == "n4m" and len(search["trials"]) == 2 for search in history)
     for search in history:
+        assert search["evaluation"]["approach"] == approach
+        assert search["evaluation"]["inner_fold_count"] == (2 if approach == "grouped" else 1)
         assert search["selected_params"] in [trial["params"] for trial in search["trials"]]
         assert search["evaluation"]["outer_validation_used"] is False
     expected = fitted.predict(X[:4]).ravel()
