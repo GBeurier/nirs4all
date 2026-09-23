@@ -47,6 +47,7 @@ CLI::
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ from . import (  # noqa: F401
     cases_refit_predict,
     cases_tags_exclude,
 )
+from ._public_surface import surface_drift
 from ._registry import CANONICAL_KEYWORDS, PipelineCase, all_cases
 from .test_conformance_dual_engine import (
     EXPECTED_REFUSAL,
@@ -79,6 +81,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPATIBILITY_JSON = REPO_ROOT / "docs" / "compatibility.json"
 FEATURE_GAPS_JSON = Path(__file__).with_name("feature_gaps.json")
 CONTROLLER_COVERAGE_JSON = Path(__file__).with_name("controller_coverage.json")
+MODEL_CHECKPOINT_COVERAGE_JSON = Path(__file__).with_name("model_checkpoint_coverage.json")
 
 # ---------------------------------------------------------------------------
 # Bucket vocabulary.
@@ -300,11 +303,60 @@ def load_ledger_coverage_meter(path: Path = COMPATIBILITY_JSON) -> dict[str, int
         return cast("dict[str, int]", json.load(handle)["coverage_meter"])
 
 
+def checkpoint_inventory_status(path: Path = MODEL_CHECKPOINT_COVERAGE_JSON) -> tuple[bool, list[str], list[str]]:
+    """Validate reviewed model-checkpoint positions and their public evidence."""
+    inventory = json.loads(path.read_text(encoding="utf-8"))
+    open_patterns: list[str] = []
+    invalid: list[str] = []
+    seen: set[str] = set()
+    expected_stages = set(inventory["candidate_intervening_stages"])
+    observed_stages: set[str] = set()
+    for row in inventory["patterns"]:
+        identifier = row["id"]
+        if identifier in seen:
+            invalid.append(f"duplicate checkpoint pattern {identifier}")
+        seen.add(identifier)
+        stage = row["intervening_stage"]
+        if stage in observed_stages:
+            invalid.append(f"duplicate checkpoint stage {stage}")
+        observed_stages.add(stage)
+        legacy, coverage = row["legacy"], row["coverage"]
+        if (legacy == "success" and coverage not in {"verified", "gap", "unverified"}) or (legacy == "unverified" and coverage != "unverified") or (legacy == "failure" and coverage != "not_applicable") or legacy not in {"success", "unverified", "failure"}:
+            invalid.append(f"{identifier}: invalid legacy/coverage status")
+        if legacy == "unverified" or (legacy == "success" and coverage != "verified"):
+            open_patterns.append(identifier)
+            continue
+        if legacy != "failure" and coverage != "verified":
+            continue
+        if not row["evidence"]:
+            invalid.append(f"{identifier}: verified/failure status without public test evidence")
+        for reference in row["evidence"]:
+            file_name, separator, test_name = reference.partition("::")
+            file_path = REPO_ROOT / file_name
+            if not separator or not file_path.is_file():
+                invalid.append(f"{identifier}: invalid evidence {reference}")
+                continue
+            try:
+                syntax = ast.parse(file_path.read_text(encoding="utf-8"))
+            except SyntaxError:
+                invalid.append(f"{identifier}: evidence does not parse {reference}")
+                continue
+            if test_name not in {node.name for node in ast.walk(syntax) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}:
+                invalid.append(f"{identifier}: missing test function {reference}")
+    missing_stages = expected_stages - observed_stages
+    if missing_stages:
+        invalid.append(f"missing checkpoint stages: {sorted(missing_stages)}")
+    unknown_stages = observed_stages - expected_stages - {"meta_model"}
+    if unknown_stages:
+        invalid.append(f"unexpected checkpoint stages: {sorted(unknown_stages)}")
+    return bool(inventory["inventory_complete"]), open_patterns, invalid
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PYREF native-vs-refusal coverage meter (B-010 / DML-003).")
     parser.add_argument("--json", type=Path, default=None, help="write the full inventory JSON to this path")
     parser.add_argument("--md", type=Path, default=None, help="write the markdown summary to this path")
-    parser.add_argument("--check", action="store_true", help="compare the meter summary to the ledger; exit 1 on drift")
+    parser.add_argument("--check", action="store_true", help="compare the meter and legacy public surface to their reviewed snapshots; exit 1 on drift")
     parser.add_argument("--require-zero-refusals", action="store_true", help="fail if any registered case still refuses DAG-ML")
     parser.add_argument("--require-feature-complete", action="store_true", help="fail until the feature inventory is complete and all registered gaps are closed")
     args = parser.parse_args(argv)
@@ -327,6 +379,16 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"coverage_meter OK (refusal={live['refusal']}, target={live['expected_refusal_target']})")
 
+    if args.check or args.require_feature_complete:
+        drift = surface_drift()
+        if drift:
+            print(f"DAG-ML legacy surface DRIFT in {drift}; review public_surface.json and parity evidence")
+            exit_code = 1
+        checkpoint_complete, open_checkpoints, invalid_checkpoints = checkpoint_inventory_status()
+        if invalid_checkpoints:
+            print("DAG-ML model-checkpoint inventory invalid: " + "; ".join(invalid_checkpoints))
+            exit_code = 1
+
     if args.require_zero_refusals and report.summary()["refusal"]:
         refused = report.names_in(EXPECTED_REFUSAL_BUCKET) + report.names_in(UNEXPECTED_REFUSAL)
         print("DAG-ML parity gate failed; registered cases still refuse: " + ", ".join(refused))
@@ -341,8 +403,8 @@ def main(argv: list[str] | None = None) -> int:
             name for name, entry in controllers.items()
             if entry["coverage"] not in {"public", "not_pipeline"}
         )
-        if not ledger["inventory_complete"] or gaps or unverified or report.summary()["refusal"] or uncovered_controllers:
-            print(f"DAG-ML feature gate failed: inventory_complete={ledger['inventory_complete']}, open_gaps={len(gaps)}, unverified={len(unverified)}, registered_refusals={report.summary()['refusal']}, uncovered_controllers={uncovered_controllers}")
+        if not ledger["inventory_complete"] or gaps or unverified or report.summary()["refusal"] or uncovered_controllers or not checkpoint_complete or open_checkpoints:
+            print(f"DAG-ML feature gate failed: inventory_complete={ledger['inventory_complete']}, open_gaps={len(gaps)}, unverified={len(unverified)}, registered_refusals={report.summary()['refusal']}, uncovered_controllers={uncovered_controllers}, checkpoint_inventory_complete={checkpoint_complete}, open_checkpoint_patterns={open_checkpoints}")
             exit_code = 1
 
     if args.json is None and args.md is None and not args.check and not args.require_zero_refusals and not args.require_feature_complete:
