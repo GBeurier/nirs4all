@@ -54,10 +54,21 @@ def test_sequential_classification_metamodel_uses_native_oof(use_proba, mechanis
                 for block in node.get("predictions", [])
                 if str(block.get("producer_node", "")).startswith("branch:")
                 and block.get("partition") == "validation"
+                and block.get("producer_port") == "proba"
             ]
             assert probability_blocks
             assert all(len(row) == 2 and sum(row) == pytest.approx(1.0)
                        for block in probability_blocks for row in block["values"])
+            label_blocks = [
+                block for node in native._dagml_node_results
+                for block in node.get("predictions", [])
+                if str(block.get("producer_node", "")).startswith("branch:")
+                and block.get("partition") == "validation"
+                and block.get("producer_port") == "oof"
+            ]
+            assert label_blocks
+            assert all(len(row) == 1 and row[0] in {0, 1}
+                       for block in label_blocks for row in block["values"])
     assert native.cv_best["model_name"] == "MetaModel_LogisticRegression"
 
 
