@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _scores_to_run_result
 from .run_paths import _canonical_branch, _canonical_branch_step, _supported_body_steps
 from .steps import _is_split_step, _split_pipeline
+
+
+class ResidualImplicitCvWarning(UserWarning):
+    """A residual model inferred a training-only CV for its OOF targets."""
 
 
 def residual_operator(pipeline: list[Any]) -> ResidualModel | None:
@@ -56,8 +61,18 @@ def run_residual_model(
     if task_type != "regression":
         raise DagMlUnsupported("ResidualModel requires a regression target")
     _, splitter = _split_pipeline(pipeline)
+    implicit_cv = splitter is None
     if splitter is None:
-        raise DagMlUnsupported("residual model needs an explicit cross-validator")
+        from sklearn.model_selection import KFold
+
+        splitter = KFold(n_splits=2, shuffle=True, random_state=0 if random_state is None else random_state)
+        warnings.warn(
+            "ResidualModel without a splitter uses an internal two-fold training-only CV to form residual targets; "
+            "the held-out test set is evaluated only after full-training refit. Legacy used test rows as validation, "
+            "so its validation score is not comparable.",
+            ResidualImplicitCvWarning,
+            stacklevel=2,
+        )
     prefix = _supported_body_steps([step for step in pipeline[:-1] if not _is_split_step(step)])
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
     if any(step["kind"] != "transform" for step in prefix_steps):
@@ -121,7 +136,7 @@ def run_residual_model(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
         workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
         selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
-        random_state=random_state, refit=refit,
+        random_state=random_state, refit=refit or implicit_cv,
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml residual model run failed")
@@ -138,7 +153,7 @@ def run_residual_model(
         ):
             raise ValueError("native residual run omitted automatic gate calibration evidence")
         final_gates = [record["gate"] for record in gate_records if record.get("fold_id") is None]
-        if refit and len(final_gates) != 1:
+        if (refit or implicit_cv) and len(final_gates) != 1:
             raise ValueError("native residual refit needs exactly one full-training automatic gate")
         gate = float(final_gates[0]) if final_gates else None
     else:
@@ -151,5 +166,6 @@ def run_residual_model(
         "lambda": float(operator.lam),
         "gate": gate,
         **({"gate_records": gate_records} if operator.gate == "auto" else {}),
+        **({"implicit_training_cv": True} if implicit_cv else {}),
     }
     return result
