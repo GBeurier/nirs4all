@@ -58,6 +58,11 @@ def test_public_preprocessing_fit_scope_matches_legacy_and_replays(tmp_path, fit
     assert native.execution_engine == "dag-ml"
     assert legacy.best_rmse == pytest.approx(expected, abs=1e-5)
     assert native.best_rmse == pytest.approx(expected, abs=1e-5)
+    if fit_on_all is True and with_splitter:
+        # This explicit scope also makes the CV fit cohort identical in both
+        # engines. Without it, DAG-ML fits each fold locally while legacy fits
+        # the train partition once before the splitter.
+        assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
     node_results = [frame.get("result", frame) for frame in native._dagml_node_results]
     if fit_on_all is True:
         assert any(
