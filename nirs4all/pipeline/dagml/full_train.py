@@ -130,14 +130,14 @@ def run_full_train(
             "target_content_fingerprint": _array_content_fingerprint("y", spectro.y({"partition": "test"})),
         }).to_dict())
     if separation is not None:
-        if execute is None:
-            raise DagMlUnsupported("by-metadata full training requires a CLI separation phase")
         assert sample_metadata is not None
         branch_step, branch_body = separation
         return _run_full_train_separation(
             branch_step, branch_body, spectro, identity, envelope, train,
             sample_metadata, execute, metric=metric, task_type=task_type,
-            config_name=config_name,
+            config_name=config_name, cli=cli, venv_python=venv_python,
+            dataset_path=dataset_path, dataset_pickle=dataset_pickle,
+            workdir=workdir, random_state=random_state,
         )
     dsl = pipeline_to_dsl(steps, "nirs4all-full-train")
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
@@ -208,8 +208,10 @@ def run_full_train(
 def _run_full_train_separation(
     branch_step: dict[str, Any], branch_body: list[Any], spectro: Any,
     identity: IdentityMap, envelope: dict[str, Any], train: list[int],
-    sample_metadata: dict[str, dict[str, Any]], execute: Any, *,
+    sample_metadata: dict[str, dict[str, Any]], execute: Any | None, *,
     metric: str, task_type: str, config_name: str,
+    cli: str | None, venv_python: str | None, dataset_path: str | None,
+    dataset_pickle: str | None, workdir: Any, random_state: int | None,
 ) -> RunResult:
     """Fan out metadata partitions and reassemble their REFIT predictions."""
     import dag_ml
@@ -248,17 +250,39 @@ def _run_full_train_separation(
         "scores are training resubstitution or held-out test evaluation, not cross-validation.",
         NoSplitEvaluationWarning, stacklevel=2,
     )
-    outcome = json.loads(execute(
-        json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
-        training_sample_ids=[identity.to_wire(sample) for sample in train],
-    ))
+    training_ids = [identity.to_wire(sample) for sample in train]
+    if execute is None:
+        if cli is None or venv_python is None or dataset_path is None or workdir is None:
+            raise DagMlUnavailable("CLI separation refit requires a DAG-ML CLI, Python adapter, and reloadable dataset")
+        from pathlib import Path
+
+        from .cli_runner import run_refit_phase_cli
+        from .errors import _raise_run_failure
+        from .in_process_runner import _load_subprocess_refit_artifacts
+
+        cli_run = run_refit_phase_cli(
+            dsl=dsl, envelope=envelope, graph=graph, training_sample_ids=training_ids,
+            dataset_path=dataset_path, dataset_pickle=dataset_pickle,
+            sample_metadata=sample_metadata, workdir=Path(workdir),
+            dagml_cli=cli, venv_python=venv_python, random_state=random_state,
+        )
+        if cli_run["returncode"]:
+            _raise_run_failure(cli_run, "full-training separation CLI phase failed")
+        outcome = json.loads(cli_run["phase_output"].read_text())
+        artifacts = _load_subprocess_refit_artifacts(outcome["node_results"], cli_run["artifact_dir"])
+    else:
+        outcome = json.loads(execute(
+            json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
+            training_sample_ids=training_ids,
+        ))
+        artifacts = _capture_refit_artifacts(outcome["node_results"], store)
     if outcome["phase"] != "REFIT":
         raise ValueError("full-training separation runtime returned an unexpected phase")
     result = _project_full_train_separation(
         outcome, identity, train=train, model_ids=model_ids,
         dataset_name=spectro.name, model_name=_model_name(body_steps),
         metric=metric, task_type=task_type, config_name=config_name,
-        artifacts=_capture_refit_artifacts(outcome["node_results"], store),
+        artifacts=artifacts,
     )
     from .native_results import separation_replay_manifest
 
@@ -360,14 +384,17 @@ def _project_full_train_separation(
 def run_by_source_auto_full_train(
     source_bodies: dict[str, list[Any]], y_steps: list[Any], spectro: Any, *,
     metric: str = "rmse", task_type: str = "regression", config_name: str = "",
+    cli: str | None = None, venv_python: str | None = None,
+    dataset_path: str | None = None, dataset_pickle: str | None = None,
+    workdir: Any = None, random_state: int | None = None,
 ) -> RunResult:
     """Fit source-local models once each for a by_source auto merge without CV."""
-    if not in_process_enabled():
-        raise DagMlUnavailable("by_source full training requires the in-process DAG phase API")
-    extension = importlib.import_module("dag_ml._dag_ml")
-    execute = getattr(extension, "execute_phase_in_process", None)
-    if not callable(execute):
-        raise DagMlUnavailable("the installed DAG-ML runtime lacks execute_phase_in_process")
+    execute = None
+    if in_process_enabled():
+        extension = importlib.import_module("dag_ml._dag_ml")
+        execute = getattr(extension, "execute_phase_in_process", None)
+        if not callable(execute):
+            raise DagMlUnavailable("the installed DAG-ML runtime lacks execute_phase_in_process")
 
     import dag_ml
 
@@ -418,13 +445,34 @@ def run_by_source_auto_full_train(
         "scores are training resubstitution or held-out test evaluation, not cross-validation.",
         NoSplitEvaluationWarning, stacklevel=2,
     )
-    outcome = json.loads(execute(
-        json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
-        training_sample_ids=[identity.to_wire(sample) for sample in train],
-    ))
+    training_ids = [identity.to_wire(sample) for sample in train]
+    if execute is None:
+        if cli is None or venv_python is None or dataset_path is None or workdir is None:
+            raise DagMlUnavailable("CLI by_source refit requires a DAG-ML CLI, Python adapter, and reloadable dataset")
+        from pathlib import Path
+
+        from .cli_runner import run_refit_phase_cli
+        from .errors import _raise_run_failure
+        from .in_process_runner import _load_subprocess_refit_artifacts
+
+        cli_run = run_refit_phase_cli(
+            dsl=dsl, envelope=envelope, graph=graph, training_sample_ids=training_ids,
+            dataset_path=dataset_path, dataset_pickle=dataset_pickle,
+            workdir=Path(workdir), dagml_cli=cli, venv_python=venv_python,
+            random_state=random_state,
+        )
+        if cli_run["returncode"]:
+            _raise_run_failure(cli_run, "full-training by_source CLI phase failed")
+        outcome = json.loads(cli_run["phase_output"].read_text())
+        artifacts = _load_subprocess_refit_artifacts(outcome["node_results"], cli_run["artifact_dir"])
+    else:
+        outcome = json.loads(execute(
+            json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
+            training_sample_ids=training_ids,
+        ))
+        artifacts = _capture_refit_artifacts(outcome["node_results"], store)
     if outcome["phase"] != "REFIT":
         raise ValueError("by_source full-training runtime returned an unexpected phase")
-    artifacts = _capture_refit_artifacts(outcome["node_results"], store)
     predictions = Predictions()
     evaluation: dict[str, Any] | None = None
     for index, (name, model_id) in enumerate(zip(names, model_ids, strict=True)):
