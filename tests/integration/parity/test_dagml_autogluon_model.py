@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 
 pytest.importorskip("dag_ml")
 
@@ -184,3 +184,116 @@ class TabularPredictor:
         with pytest.raises(ValueError, match="sidecar integrity mismatch"):
             read_native_results(run_dir)
     result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parity
+def test_autogluon_classifier_exposes_classes_and_replays_archive(tmp_path, monkeypatch, mechanism: str) -> None:
+    """The DAG host adapter preserves AutoGluon's class labels for CV and replay."""
+    package = tmp_path / "autogluon"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "tabular.py").write_text(
+        """from pathlib import Path
+import pickle
+import numpy as np
+import pandas as pd
+
+class TabularPredictor:
+    can_predict_proba = True
+
+    def __init__(self, label, path, problem_type=None, verbosity=0, eval_metric=None):
+        self.label = label
+        self.path = path
+        self.problem_type = problem_type
+
+    def fit(self, train_data, **kwargs):
+        x = train_data.drop(columns=[self.label]).to_numpy(dtype=float)
+        y = train_data[self.label].to_numpy()
+        self.class_labels = np.unique(y)
+        self.centers = np.stack([x[y == label].mean(axis=0) for label in self.class_labels])
+        self.save()
+        return self
+
+    def predict_proba(self, data):
+        x = data.to_numpy(dtype=float)
+        scores = -np.square(x[:, None, :] - self.centers[None, :, :]).sum(axis=2)
+        weights = np.exp(scores - scores.max(axis=1, keepdims=True))
+        return pd.DataFrame(weights / weights.sum(axis=1, keepdims=True), columns=self.class_labels)
+
+    def predict(self, data):
+        probabilities = self.predict_proba(data).to_numpy()
+        return self.class_labels[probabilities.argmax(axis=1)]
+
+    def save(self, path=None):
+        if path is not None:
+            self.path = path
+        directory = Path(self.path)
+        directory.mkdir(parents=True, exist_ok=True)
+        with (directory / 'predictor.pkl').open('wb') as handle:
+            pickle.dump({key: value for key, value in self.__dict__.items() if key != 'path'}, handle)
+
+    @classmethod
+    def load(cls, path):
+        with (Path(path) / 'predictor.pkl').open('rb') as handle:
+            state = pickle.load(handle)
+        predictor = cls.__new__(cls)
+        predictor.__dict__.update(state)
+        predictor.path = path
+        return predictor
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    sys.modules.pop("autogluon.tabular", None)
+    sys.modules.pop("autogluon", None)
+    importlib.invalidate_caches()
+    from nirs4all.controllers.models import autogluon_model
+    from nirs4all.utils.backend import clear_availability_cache
+
+    clear_availability_cache()
+    autogluon_model._ag_modules.clear()  # noqa: SLF001 - isolate fake optional package
+    monkeypatch.setattr(autogluon_model, "AUTOGLUON_AVAILABLE", True)
+    import nirs4all
+
+    rng = np.random.default_rng(5)
+    x = rng.normal(size=(40, 4)).astype(np.float32)
+    y = (x[:, 0] + x[:, 1] > 0).astype(int)
+    pipeline = [
+        StratifiedKFold(n_splits=2, shuffle=True, random_state=4),
+        {"model": {"framework": "autogluon"}},
+    ]
+    legacy = nirs4all.run(
+        pipeline, (x, y), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy", save_charts=False, save_artifacts=False, verbose=0,
+    )
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+    finally:
+        legacy.close()
+    native = nirs4all.run(
+        pipeline, (x, y), engine="dag-ml", allow_fallback=False,
+        workspace_path=tmp_path / mechanism, save_charts=False, save_artifacts=False, verbose=0,
+    )
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert np.isfinite(native.cv_best_score)
+        fitted = native._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001 - check native artifact
+        np.testing.assert_array_equal(fitted.classes_, [0, 1])
+        probabilities = fitted.predict_proba(x[:5])
+        assert probabilities.shape == (5, 2)
+        np.testing.assert_allclose(probabilities.sum(axis=1), 1.0, atol=1e-8)
+        archive = native.export(tmp_path / f"classifier_{mechanism}.n4a")
+        replay = np.asarray(nirs4all.predict(archive, x[:5]).y_pred).ravel()
+        np.testing.assert_array_equal(replay, np.asarray(fitted.predict(x[:5])).ravel())
+    finally:
+        native.close()
