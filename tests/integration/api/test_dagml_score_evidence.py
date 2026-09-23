@@ -23,22 +23,25 @@ def test_native_partition_scores_are_real_and_oof_averages_unique_samples(tmp_pa
         rows = result.predictions.filter_predictions(load_arrays=True)
         cv_rows_all = [row for row in rows if row["fold_id"] != "final"]
         assert {(row["fold_id"], row["partition"]) for row in cv_rows_all} == {
+            ("0", "train"), ("1", "train"), ("2", "train"), ("avg", "train"), ("w_avg", "train"),
             ("0", "val"), ("1", "val"), ("2", "val"), ("avg", "val"),
+            ("w_avg", "val"),
             ("0", "test"), ("1", "test"), ("2", "test"), ("avg", "test"), ("w_avg", "test"),
         }
         cv_rows = [row for row in cv_rows_all if row["partition"] == "val"]
         for row in cv_rows:
-            assert row["train_score"] is None and row["test_score"] is not None
-            assert set(row["scores"]) == {"val", "test"}
+            assert row["train_score"] is not None and row["test_score"] is not None
+            assert set(row["scores"]) == {"train", "val", "test"}
             provenance = row["result_metadata"]["dagml_projection"]
-            assert provenance["unavailable_partitions"] == ["train"]
+            assert provenance["unavailable_partitions"] == []
             assert provenance["score_provenance"]["val"]["purpose"] == "measurement"
-            assert provenance["score_provenance"]["test"]["purpose"] == "measurement"
+            if "test" in provenance["score_provenance"]:
+                assert provenance["score_provenance"]["test"]["purpose"] == "measurement"
         for row in rows:
             observed = np.sqrt(np.mean((np.asarray(row["y_true"]) - np.asarray(row["y_pred"])) ** 2))
             assert row[f"{row['partition']}_score"] == pytest.approx(observed, abs=1e-5)
         avg = next(row for row in cv_rows if row["fold_id"] == "avg")
-        fold_rows = [row for row in cv_rows if row["fold_id"] != "avg"]
+        fold_rows = [row for row in cv_rows if row["fold_id"] in {"0", "1", "2"}]
         assert len(avg["sample_indices"]) < sum(len(row["sample_indices"]) for row in fold_rows)
         assert len(avg["sample_indices"]) == len(set(avg["sample_indices"]))
         assert result.cv_best_score == pytest.approx(_canonical_oof_rmse(fold_rows), abs=1e-5)

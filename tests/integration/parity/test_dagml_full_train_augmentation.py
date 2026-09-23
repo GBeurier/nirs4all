@@ -439,7 +439,7 @@ def test_public_augmented_cv_without_refit_matches_legacy(
     assert native.execution_engine == "dag-ml"
     assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-9)
     assert native._dagml_refit_artifacts == []
-    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"val", "test"}
+    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"train", "val", "test"}
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
                for frame in native._dagml_node_results)
     if generator_position != "none":
@@ -481,7 +481,7 @@ def test_public_feature_branch_cv_without_refit_matches_legacy(
 
     assert native.cv_best_score == pytest.approx(legacy.cv_best_score, rel=1e-7)
     assert native._dagml_refit_artifacts == []
-    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"val", "test"}
+    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"train", "val", "test"}
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
                for frame in native._dagml_node_results)
 
