@@ -105,6 +105,12 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
             initial_package = json.loads(package_bytes)
             if not isinstance(initial_package, dict):
                 raise ValueError("general archive initial full-refit package must be an object")
+            from dag_ml import DagMlError, InitialFullRefitPackage
+
+            try:
+                InitialFullRefitPackage(initial_package)
+            except DagMlError as exc:
+                raise ValueError(f"general archive initial full-refit package is invalid: {exc}") from exc
         from .multimodal_contracts import validate_dependencies
 
         validate_dependencies(manifest)
@@ -191,6 +197,7 @@ def predict_general_archive(
             raise ValueError("general Session source archive changed after loading")
     topology = loaded["manifest"].get("dagml_independent_output_topology")
     named_outputs = topology.get("outputs") if isinstance(topology, dict) else None
+    initial_package = None
     if loaded["manifest"].get("dagml_native_export_shape") == "independent_by_source_multi":
         if (not isinstance(topology, dict)
                 or topology.get("schema_id") != "dag-ml.host_independent_outputs.v1"
@@ -219,10 +226,12 @@ def predict_general_archive(
 
             InitialFullRefitPackage(initial_package)
             output_by_node = {binding["node_id"]: binding["output_id"] for binding in initial_package["outputs"]}
+            artifact_by_node = {item["record"]["node_id"]: item["record"]["artifact"]["id"] for item in initial_package["artifacts"]}
             if len(output_by_node) != len(initial_package["outputs"]) or any(
                 item.get("dagml_output_id") != output_by_node.get(item.get("producer_node"))
+                or item.get("dagml_artifact_id") != artifact_by_node.get(item.get("producer_node"))
                 for item in named_outputs
-            ):
+            ) or len(artifact_by_node) != len(initial_package["artifacts"]):
                 raise ValueError("archive independent outputs disagree with its initial full-refit package")
         model = loaded["artifact"]["estimator"]
         manifest_axes = tuple(
@@ -251,10 +260,20 @@ def predict_general_archive(
         named_data = data
         data = model.model.aligned_source_matrix(named_data)
         source_sample_ids = list(named_data["sample_ids"])
-    values, metadata = predict_captured_artifact(
-        loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
-        target_names=loaded["manifest"].get("target_names", ["y"]),
-    )
+    if initial_package is not None and output is not None:
+        from .initial_refit_replay import predict_initial_refit_output
+
+        assert isinstance(loaded["artifact"]["estimator"], _NamedOutputAdapter)
+        values, metadata = predict_initial_refit_output(
+            initial_package, loaded["artifact"]["estimator"].model,
+            _materialize_dataset(data), topology, output,
+            loaded["manifest"].get("target_names", ["y"]),
+        )
+    else:
+        values, metadata = predict_captured_artifact(
+            loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
+            target_names=loaded["manifest"].get("target_names", ["y"]),
+        )
     metadata.update({
         "archive_fingerprint": loaded["archive_fingerprint"],
         "artifact_integrity_verified": loaded["artifact_integrity_verified"],
