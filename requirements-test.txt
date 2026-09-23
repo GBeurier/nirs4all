@@ -58,6 +58,8 @@ flax>=0.8.0
 ikpls>=1.1.0
 pyopls>=20.0
 trendfitter>=0.0.6
+# Historical AOM_lib operator remains a tested optional legacy pipeline operator.
+aompls @ git+https://github.com/GBeurier/nirs4all-aom.git@533e13f245f3491e46fb9c6bed9c281d40861cab#subdirectory=_archive/multi_lang/AOM_lib/python
 
 # Run the real AutoGluon CV/refit/archive parity oracle in CI.
 autogluon.tabular[lightgbm]>=1.6.1,<1.7
