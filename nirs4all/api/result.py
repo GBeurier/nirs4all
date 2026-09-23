@@ -2908,31 +2908,42 @@ class RunResult:
                 _DagmlExportedModel(meta_artifacts[0]["estimator"], meta_artifacts[0]["y_transform"]),
                 reduction_groups=cast(list[dict[str, Any]] | None, stages[0].get("reduction_groups")),
             )
-            fold_selection = meta_artifacts[0].get("fold_selection")
-            if fold_selection is not None:
+            for stage_index, (artifact, stage) in enumerate(zip(meta_artifacts, stages, strict=True)):
+                if stage_index:
+                    stacked_model = _DagmlNativeStackingModel(
+                        [stacked_model], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
+                        probability_base=stage["base_producers"][0]["column_block"] == "probability_values",
+                    )
+                fold_selection = artifact.get("fold_selection")
+                if fold_selection is None:
+                    continue
                 if not isinstance(fold_selection, Mapping):
                     raise ValueError("native multi-stacking fold selection is malformed")
-                fold_maps = [artifact.get("fold_estimators") for artifact in [*base_artifacts, meta_artifacts[0]]]
+                paired_artifacts = [*base_artifacts, *meta_artifacts[:stage_index + 1]]
+                fold_maps = [item.get("fold_estimators") for item in paired_artifacts]
                 if any(not isinstance(folds, Mapping) for folds in fold_maps):
                     raise ValueError("native multi-stacking fold replay lacks paired CV estimators")
                 expected_folds = set(cast(Mapping[str, Any], fold_maps[-1]))
                 if not expected_folds or any(set(cast(Mapping[str, Any], folds)) != expected_folds for folds in fold_maps):
                     raise ValueError("native multi-stacking base and meta CV fold IDs differ")
-                fold_stacks = {
-                    fold: _DagmlNativeStackingModel(
-                        [_DagmlExportedModel(cast(Mapping[str, Any], folds)[fold], artifact["y_transform"])
-                         for artifact, folds in zip(base_artifacts, fold_maps[:-1], strict=True)],
-                        _DagmlExportedModel(cast(Mapping[str, Any], fold_maps[-1])[fold], meta_artifacts[0]["y_transform"]),
+                fold_stacks = {}
+                for fold in sorted(expected_folds):
+                    fold_stack = _DagmlNativeStackingModel(
+                        [_DagmlExportedModel(cast(Mapping[str, Any], folds)[fold], item["y_transform"])
+                         for item, folds in zip(base_artifacts, fold_maps[:len(base_artifacts)], strict=True)],
+                        _DagmlExportedModel(cast(Mapping[str, Any], fold_maps[len(base_artifacts)])[fold], meta_artifacts[0]["y_transform"]),
                         reduction_groups=cast(list[dict[str, Any]] | None, stages[0].get("reduction_groups")),
                     )
-                    for fold in sorted(expected_folds)
-                }
+                    for previous_stage, previous_artifact, previous_folds in zip(
+                        stages[1:stage_index + 1], meta_artifacts[1:stage_index + 1], fold_maps[len(base_artifacts) + 1:], strict=True,
+                    ):
+                        fold_stack = _DagmlNativeStackingModel(
+                            [fold_stack],
+                            _DagmlExportedModel(cast(Mapping[str, Any], previous_folds)[fold], previous_artifact["y_transform"]),
+                            probability_base=previous_stage["base_producers"][0]["column_block"] == "probability_values",
+                        )
+                    fold_stacks[fold] = fold_stack
                 stacked_model = _DagmlFoldStackingModel(fold_stacks, fold_selection)
-            for artifact, stage in zip(meta_artifacts[1:], stages[1:], strict=True):
-                stacked_model = _DagmlNativeStackingModel(
-                    [stacked_model], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
-                    probability_base=stage["base_producers"][0]["column_block"] == "probability_values",
-                )
             provenance = _dagml_native_bundle_provenance(
                 native_manifest,
                 export_path="dagml_native_multi_stacking",

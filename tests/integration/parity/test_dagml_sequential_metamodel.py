@@ -181,6 +181,69 @@ def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, test
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
+@pytest.mark.parametrize("second_aggregation,third_aggregation", [
+    (FoldAggregation.MEAN, FoldAggregation.BEST_FOLD),
+    (FoldAggregation.BEST_FOLD, FoldAggregation.WEIGHTED_MEAN),
+])
+def test_third_named_meta_fold_aggregation_replays_paired_stacks(
+    tmp_path, mechanism, second_aggregation, third_aggregation, monkeypatch,
+):
+    """A third meta stage replays its selected full CV stacks on both transports."""
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.linear_model import Ridge
+    from sklearn.model_selection import KFold
+
+    import nirs4all
+    from nirs4all.pipeline.dagml.native_results import read_native_results
+
+    if mechanism == "cli":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "pyo3" else "0")
+    pipeline = [
+        KFold(3, shuffle=True, random_state=42),
+        PLSRegression(n_components=2), Ridge(alpha=10000),
+        {"model": MetaModel(Ridge(alpha=1), name="first")},
+        {"model": MetaModel(Ridge(alpha=2), name="second", source_models=["first"],
+                             stacking_config=StackingConfig(test_aggregation=second_aggregation))},
+        {"model": MetaModel(Ridge(alpha=3), name="third", source_models=["second"],
+                             stacking_config=StackingConfig(test_aggregation=third_aggregation))},
+    ]
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False,
+                          save_charts=False, verbose=0)
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+    finally:
+        legacy.close()
+    native = nirs4all.run(pipeline, path, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "native", save_artifacts=True,
+                         save_charts=False, verbose=0)
+    try:
+        persisted = read_native_results(native._dagml_results_dir)
+        stages = persisted["manifest"]["stacking_replay"]["stages"]
+        assert len(stages) == 3
+        artifacts = {artifact["artifact_id"]: artifact for artifact in persisted["artifacts"]}
+        second = artifacts[stages[1]["meta_artifact_id"]]
+        assert set(second["fold_estimators"]) == {"fold0", "fold1", "fold2"}
+        assert "fold_selection" in second
+        dataset = DatasetConfigs(path).get_dataset_at(0)
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        y_test = np.asarray(dataset.y({"partition": "test"})).ravel()
+        archive = native.export(tmp_path / "third_meta.n4a")
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        assert np.sqrt(np.mean((y_test - replay) ** 2)) == pytest.approx(native.best_rmse, rel=1e-6, abs=1e-6)
+    finally:
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
 @pytest.mark.parametrize("first_sources", ["all", ["RandomForestClassifier", "LogisticRegression"]])
 @pytest.mark.parametrize("n_classes", [2, 3])
 def test_named_classifier_meta_probability_chain_replays_selected_class(tmp_path, mechanism, first_sources, n_classes, monkeypatch):
