@@ -16,7 +16,8 @@ from ._datasets import dataset_path
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_residual_after_prediction_feature_join_is_oof_safe_and_replays(tmp_path, monkeypatch, mechanism: str) -> None:
+@pytest.mark.parametrize("gate", [False, "auto"])
+def test_residual_after_prediction_feature_join_is_oof_safe_and_replays(tmp_path, monkeypatch, mechanism: str, gate) -> None:
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
 
@@ -33,7 +34,8 @@ def test_residual_after_prediction_feature_join_is_oof_safe_and_replays(tmp_path
             [MinMaxScaler(), {"model": Ridge(alpha=1.0)}],
         ]},
         {"merge": "predictions"},
-        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=False)},
+        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=gate,
+                                rli_threshold=1.0 if gate == "auto" else 0.0)},
     ]
     legacy = nirs4all.run(
         pipeline, source, engine="legacy", refit=False,
@@ -48,6 +50,9 @@ def test_residual_after_prediction_feature_join_is_oof_safe_and_replays(tmp_path
     )
     assert np.isfinite(native.cv_best_score)
     assert np.isfinite(native.best_rmse)
+    if gate == "auto":
+        replay_contract = native.per_dataset[next(iter(native.per_dataset))]["residual_replay"]
+        assert replay_contract["gate"] == pytest.approx(0.0)
     archive = native.export(tmp_path / "residual_prediction_features.n4a")
     dataset = DatasetConfigs(source).get_dataset_at(0)
     features = dataset.x({"partition": "test"}, layout="2d")
