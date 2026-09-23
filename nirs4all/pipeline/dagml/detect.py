@@ -1484,7 +1484,7 @@ def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = Fals
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1494,7 +1494,7 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
 
     Returns ``None`` (→ fail loud, never run wrong) for any MetaModel option this slice does not honor:
     a non-default ``source_models`` list, ``use_proba`` unless explicitly allowed by the caller,
-    a custom ``selector``, a ``finetune_space``, a
+    a ``selector`` outside the sequential producer-selection lane, a ``finetune_space``, a
     non-AUTO/non-1 stacking ``level``, OR any OTHER unsupported ``stacking_config`` field
     (``coverage_strategy``, … — silently ignored by the lowering; see
     :func:`_is_default_except_level`).
@@ -1517,7 +1517,7 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
         if (
             (model.source_models != "all" and not allow_source_models)
             or (model.use_proba and not allow_proba)
-            or model.selector is not None
+            or (model.selector is not None and not allow_selector)
             or model.finetune_space is not None
             or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
             or not _is_default_except_level(config, allow_fold_aggregation=allow_fold_aggregation)
@@ -1542,7 +1542,7 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
     wrapper = steps[-1].get("model")
     if not isinstance(wrapper, MetaModel):
         return None
-    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_fold_aggregation=True)
+    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_fold_aggregation=True, allow_selector=True)
     if learner is None:
         return None
     models: list[Any] = []
@@ -1556,19 +1556,32 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
         if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
             return None
         models.append(operator)
-    if wrapper.source_models == "all":
+    from nirs4all.operators.models.selection import ExplicitModelSelector
+
+    selector = wrapper.selector
+    names = [type(model).__name__ for model in models]
+    if selector is None:
+        requested_names = wrapper.source_models
+    elif type(selector) is ExplicitModelSelector:
+        # The selector takes precedence over source_models in the legacy
+        # controller. Preserve its requested column order and strictness.
+        requested_names = selector.model_names
+        if not selector.strict:
+            requested_names = [name for name in requested_names if name in names]
+    else:
+        return None
+    if requested_names == "all":
         branches = [[{"model": model}] for model in models]
         if wrapper.use_proba:
             return branches, learner, [{"branch": f"branch_{index}", "aggregate": "proba_mean"} for index in range(len(models))]
         return branches, learner, None
-    if not isinstance(wrapper.source_models, list) or not wrapper.source_models:
+    if not isinstance(requested_names, list) or not requested_names:
         return None
-    names = [type(model).__name__ for model in models]
-    if len(set(wrapper.source_models)) != len(wrapper.source_models) or any(name not in names for name in wrapper.source_models):
+    if len(set(requested_names)) != len(requested_names) or any(name not in names for name in requested_names):
         return None
     # ExplicitModelSelector preserves requested name order, including every
     # candidate sharing that name. Branch order fixes the meta-feature order.
-    order = [i for name in wrapper.source_models for i, candidate in enumerate(names) if candidate == name]
+    order = [i for name in requested_names for i, candidate in enumerate(names) if candidate == name]
     selected_count = len(order)
     order.extend(i for i in range(len(models)) if i not in order)
     branches = [[{"model": models[i]}] for i in order]
