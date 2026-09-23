@@ -1758,7 +1758,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     if _is_repetition_dataset(spectro):
         base_folds = _build_group_folds(splitter, spectro, base_train)
     else:
-        base_folds = [([base_train[i] for i in train_idx], [base_train[i] for i in val_idx]) for train_idx, val_idx in _split_pool(splitter, spectro, base_train)]
+        base_folds = _build_folds(splitter, spectro, base_train, set())
 
     # GLOBAL stateless augmentation (#8): fit once on the whole train (leakage-free only for stateless
     # per-sample augmenters), children shared across all folds (resolver discovers them from identity).

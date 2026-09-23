@@ -321,7 +321,7 @@ def run_cv_refit_bundle(
             "--selection-metric", selection_metric,
             *([] if refit else ["--no-refit"]),
             *([] if refit_top_k == 1 else ["--refit-top-k", str(refit_top_k)]),
-            *([] if refit else ["--oof-average-output", str(oof_average_path)]),
+            "--oof-average-output", str(oof_average_path),
             *resource_args,
             "--bundle-id", "bundle:n4a", "--plan-id", "plan:n4a",
             "--output", str(workdir / "bundle.json"), "--prediction-cache-output", str(workdir / "cache.json"),
@@ -329,7 +329,7 @@ def run_cv_refit_bundle(
         capture_output=True, text=True, env=env, check=False,
     )
     results = [json.loads(line) for line in capture.read_text().splitlines() if line.strip()] if capture.exists() else []
-    if proc.returncode == 0 and not refit:
+    if proc.returncode == 0:
         results.extend(json.loads(oof_average_path.read_text()))
     return {"returncode": proc.returncode, "stdout": proc.stdout + proc.stderr, "results": results}
 

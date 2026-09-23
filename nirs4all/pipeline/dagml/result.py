@@ -293,7 +293,8 @@ def _scores_to_run_result(
     Overlapping validation folds use DAG-ML's sample-level OOF aggregation:
     average each physical sample's predictions first, then score unique samples.
     This differs from legacy's concatenation, which weights repeated samples
-    multiple times. No weighted-average report is synthesized.
+    multiple times. Held-out test fold and ensemble reports are projected when
+    DAG-ML emits them; their scores remain native.
     """
     reports = [
         report for report in (scores or {}).get("reports", [])
@@ -507,24 +508,53 @@ def _scores_to_run_result(
         variant_final_train = by_key.get((variant_id, "final", None))
         is_final_owner = is_winner or len(cv_variant_ids) == 1 or (emit_all_refits and (variant_final_train is not None or variant_test is not None))
 
-        # A fold owns validation evidence only. Refit metrics describe a
-        # different fitted estimator and cannot be attached to a CV fold.
+        # Each CV estimator can also predict the independent held-out test cohort.
+        # Keep that measurement tied to its fold, never to the refitted estimator.
         for fold_id in fold_keys:
             fold_block = by_key[(variant_id, "validation", fold_id)]
+            fold_test = by_key.get((variant_id, "test", fold_id))
+            fold_blocks = {"val": fold_block, "test": fold_test}
+            fold_provenance = {"val": {"partition": "validation", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}}
+            if fold_test is not None:
+                fold_provenance["test"] = {"partition": "test", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}
             add(
-                _legacy_fold_id(fold_id), "val", {"val": fold_block},
+                _legacy_fold_id(fold_id), "val", fold_blocks,
                 row_config_name=variant_config_name, row_model_name=variant_model_name,
                 arrays=_row_arrays(variant_id, "validation", fold_id),
-                score_provenance={"val": {"partition": "validation", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}},
+                score_provenance=fold_provenance,
             )
+            if fold_test is not None:
+                add(
+                    _legacy_fold_id(fold_id), "test", fold_blocks,
+                    row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "test", fold_id),
+                    score_provenance=fold_provenance,
+                )
 
         if has_avg and avg is not None:
+            avg_test = by_key.get((avg_variant_id, "test", "avg"))
+            if avg_test is None and avg_variant_id is None:
+                avg_test = by_key.get((variant_id, "test", "avg"))
+            avg_blocks = {"val": avg, "test": avg_test}
+            avg_provenance = {"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}}
+            if avg_test is not None:
+                avg_provenance["test"] = {"partition": "test", "fold_id": "avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}
             add(
-                "avg", "val", {"val": avg},
+                "avg", "val", avg_blocks,
                 row_config_name=variant_config_name, row_model_name=variant_model_name,
                 arrays=_row_arrays(variant_id, "validation", "avg"),
-                score_provenance={"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}},
+                score_provenance=avg_provenance,
             )
+            if avg_test is not None:
+                add("avg", "test", avg_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "test", "avg"), score_provenance=avg_provenance)
+            weighted_test = by_key.get((avg_variant_id, "test", "w_avg"))
+            if weighted_test is None and avg_variant_id is None:
+                weighted_test = by_key.get((variant_id, "test", "w_avg"))
+            if weighted_test is not None:
+                add("w_avg", "test", {"val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "test", "w_avg"),
+                    score_provenance={"test": {"partition": "test", "fold_id": "w_avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "validation_weighted_mean_prediction_per_sample"}})
 
         # Preserve CV as selection evidence for REFIT ranking, explicitly
         # distinguished from measurements of the refitted estimator.

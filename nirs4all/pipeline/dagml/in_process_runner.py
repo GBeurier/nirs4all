@@ -310,6 +310,26 @@ def run_cv_refit_bundle_router(
     branch ignores it: it fits operators in THIS process, whose global RNG ``run_via_dagml`` already
     seeded — so re-seeding here would be redundant.
     """
+    # A held-out test cohort is a separate native authority. FIT_CV may read it
+    # through a non-fit companion view, but the ordinary training envelope and
+    # fold relations must continue to describe only the CV universe.
+    test = list(dataset.index_column("sample", {"partition": "test"})) if dataset is not None else []
+    if dataset is not None and test:
+        import dag_ml
+
+        from .envelope import build_envelope, target_names
+        from .raw_training_lowerer import _array_content_fingerprint
+
+        test_envelope = build_envelope(dataset, mint_identity(dataset), sample_ints=test)
+        cohort_builder = getattr(dag_ml, "attach_predict_cohort_to_envelope", None)
+        if not callable(cohort_builder):
+            raise RuntimeError("the installed DAG-ML runtime lacks the native test-cohort constructor")
+        envelope.update(cohort_builder(envelope, {
+            "role": "external_test", "relations": test_envelope["coordinator_relations"],
+            "target_names": target_names(dataset),
+            "data_content_fingerprint": _array_content_fingerprint("X", dataset.x({"partition": "test"}, layout="2d")),
+            "target_content_fingerprint": _array_content_fingerprint("y", dataset.y({"partition": "test"})),
+        }).to_dict())
     fold_set = (dsl.get("split_invocation") or {}).get("fold_set")
     if isinstance(fold_set, dict):
         for node in graph.get("nodes", []):

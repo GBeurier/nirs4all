@@ -1,0 +1,148 @@
+"""Held-out test predictions from fold estimators stay available without refitting."""
+
+from __future__ import annotations
+
+import json
+
+import numpy as np
+import pytest
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import KFold
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+
+from ._datasets import dataset_path
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("refit", [False, True])
+def test_cv_test_fold_and_ensemble_parity(tmp_path, monkeypatch, mechanism: str, refit: bool) -> None:
+    import nirs4all
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    pipeline = [KFold(2, shuffle=True, random_state=0), Ridge(alpha=0.5)]
+    source = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, source, engine="legacy", refit=refit, save_artifacts=False,
+                          save_charts=False, verbose=0, workspace_path=tmp_path / "legacy")
+    native = nirs4all.run(pipeline, source, engine="dag-ml", refit=refit, save_artifacts=False,
+                          save_charts=False, verbose=0, workspace_path=tmp_path / "native")
+    assert native.execution_engine == "dag-ml"
+    if not refit:
+        assert native._dagml_refit_artifacts == []  # noqa: SLF001
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+    legacy_rows = {(row["fold_id"], row["partition"]): row for row in legacy.predictions.filter_predictions(load_arrays=True)}
+    native_rows = {(row["fold_id"], row["partition"]): row for row in native.predictions.filter_predictions(load_arrays=True)}
+    for key in (("0", "test"), ("1", "test"), ("avg", "test"), ("w_avg", "test")):
+        assert key in native_rows and key in legacy_rows
+        assert native_rows[key]["test_score"] == pytest.approx(legacy_rows[key]["test_score"], abs=1e-5)
+        np.testing.assert_allclose(np.asarray(native_rows[key]["y_pred"]).ravel(),
+                                   np.asarray(legacy_rows[key]["y_pred"]).ravel(), atol=1e-5)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    if refit:
+        assert ("final", "test") in native_rows
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("preprocessing", [False, True])
+def test_fold_file_with_existing_test_keeps_fold_estimator_test_scores(tmp_path, monkeypatch, mechanism: str, preprocessing: bool) -> None:
+    import nirs4all
+    from nirs4all.data import DatasetConfigs
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    ids = list(map(int, dataset.index_column("sample", {"partition": "train"})))
+    midpoint = len(ids) // 2
+    fold_file = tmp_path / "folds.json"
+    fold_file.write_text(json.dumps([
+        {"train": ids[midpoint:], "val": ids[:midpoint]},
+        {"train": ids[:midpoint], "val": ids[midpoint:]},
+    ]), encoding="utf-8")
+    pipeline = [{"split": str(fold_file)}, *([StandardScaler()] if preprocessing else []), Ridge(alpha=0.5)]
+    legacy = nirs4all.run(pipeline, dataset, engine="legacy", refit=False, save_artifacts=False,
+                          save_charts=False, verbose=0, workspace_path=tmp_path / "legacy")
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", refit=False, save_artifacts=False,
+                          save_charts=False, verbose=0, workspace_path=tmp_path / "native")
+    assert native.execution_engine == "dag-ml"
+    if not preprocessing:
+        assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+    legacy_tests = {(row["fold_id"], row["partition"]): row for row in legacy.predictions.filter_predictions(load_arrays=True)}
+    native_tests = {(row["fold_id"], row["partition"]): row for row in native.predictions.filter_predictions(load_arrays=True)}
+    for key in (("0", "test"), ("1", "test"), ("avg", "test"), ("w_avg", "test")):
+        assert key in native_tests and key in legacy_tests
+        if not preprocessing:
+            assert native_tests[key]["test_score"] == pytest.approx(legacy_tests[key]["test_score"], abs=1e-5)
+        else:
+            assert np.isfinite(native_tests[key]["test_score"])
+    if preprocessing:
+        # Legacy applies StandardScaler to the whole train partition before CV,
+        # leaking validation rows. Native correctly fits it per fold.
+        x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"))
+        y_train = np.asarray(dataset.y({"partition": "train"})).ravel()
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        y_test = np.asarray(dataset.y({"partition": "test"})).ravel()
+        for fold, (fit_rows, val_rows) in enumerate(((slice(midpoint, None), slice(None, midpoint)), (slice(None, midpoint), slice(midpoint, None)))):
+            estimator = make_pipeline(StandardScaler(), Ridge(alpha=0.5))
+            estimator.fit(x_train[fit_rows], y_train[fit_rows])
+            val_rmse = np.sqrt(np.mean((estimator.predict(x_train[val_rows]) - y_train[val_rows]) ** 2))
+            test_rmse = np.sqrt(np.mean((estimator.predict(x_test) - y_test) ** 2))
+            assert native_tests[(str(fold), "val")]["val_score"] == pytest.approx(val_rmse, abs=1e-5)
+            assert native_tests[(str(fold), "test")]["test_score"] == pytest.approx(test_rmse, abs=1e-5)
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_augmentation_before_fold_file_preserves_test_cohort(tmp_path, monkeypatch, mechanism: str) -> None:
+    import nirs4all
+    from nirs4all.data import DatasetConfigs
+    from nirs4all.operators.augmentation import GaussianAdditiveNoise
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    source = dataset_path("regression")
+    dataset = DatasetConfigs(source).get_dataset_at(0)
+    ids = list(map(int, dataset.index_column("sample", {"partition": "train"})))
+    midpoint = len(ids) // 2
+    fold_file = tmp_path / "folds.json"
+    fold_file.write_text(json.dumps([
+        {"train": ids[midpoint:], "val": ids[:midpoint]},
+        {"train": ids[:midpoint], "val": ids[midpoint:]},
+    ]), encoding="utf-8")
+    pipeline = [
+        {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)],
+                                 "count": 1, "selection": "all", "random_state": 42}},
+        {"split": str(fold_file)}, Ridge(alpha=0.5),
+    ]
+    result = nirs4all.run(pipeline, source, engine="dag-ml", refit=False, save_artifacts=False,
+                          save_charts=False, verbose=0, workspace_path=tmp_path / "native")
+    assert result.execution_engine == "dag-ml"
+    assert np.isfinite(result.cv_best_score)
+    rows = {(row["fold_id"], row["partition"]): row for row in result.predictions.filter_predictions(load_arrays=True)}
+    assert {("0", "test"), ("1", "test"), ("avg", "test"), ("w_avg", "test")} <= rows.keys()
+    assert all(np.isfinite(rows[key]["test_score"]) for key in (("0", "test"), ("1", "test"), ("avg", "test"), ("w_avg", "test")))
+    result.close()
