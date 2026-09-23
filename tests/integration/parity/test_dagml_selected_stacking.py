@@ -1,5 +1,8 @@
 """Public parity oracles for selected and weighted stacking inputs."""
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -71,6 +74,17 @@ def test_legacy_meta_finetune_trials_are_infinite_for_nested_model_param(monkeyp
         MetaModelController()._get_model_instance(
             None, {"model_instance": MetaModel(Ridge(alpha=7))}, force_params={"model": {"alpha": 0.1}},
         )
+
+
+def test_selector_ledger_records_legacy_limits():
+    ledger = json.loads(Path(__file__).with_name("feature_gaps.json").read_text(encoding="utf-8"))
+    divergences = {entry["id"]: entry for entry in ledger["documented_divergences"]}
+    assert "test_legacy_all_previous_selector_fails_during_set_serialization" in divergences[
+        "legacy_all_previous_selector_set_serialization"
+    ]["evidence"]
+    assert "test_legacy_meta_finetune_trials_are_infinite_for_nested_model_param" in divergences[
+        "legacy_metamodel_finetune_trials_infinite"
+    ]["evidence"]
 
 
 def test_sequential_metamodel_selects_named_source(tmp_path):
