@@ -59,6 +59,9 @@ ikpls>=1.1.0
 pyopls>=20.0
 trendfitter>=0.0.6
 
+# Run the real AutoGluon CV/refit/archive parity oracle in CI.
+autogluon.tabular[lightgbm]>=1.6.1,<1.7
+
 # dag-ml execution core — native execution fails closed by default; direct
 # Python callers can select engine="legacy" explicitly during the rollback window.
 dag-ml>=0.3.26,<0.4
