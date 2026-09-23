@@ -19,7 +19,7 @@ from nirs4all.api.result import RunResult
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml_bridge import controller_manifests, pipeline_to_dsl
 
-from .cli_runner import data_bindings_for
+from .cli_runner import data_bindings_for_fitted_x_chain
 from .envelope import build_envelope, target_names
 from .errors import DagMlUnavailable, DagMlUnsupported, _reject_multi_model
 from .identity import IdentityMap, mint_identity
@@ -43,8 +43,9 @@ def run_full_train(
     """Fit one concrete pipeline once on all train rows using the DAG scheduler.
 
     No splitter, selection loop or legacy runner is introduced. Test rows are
-    never fitted. A test partition retains the historical ``val`` alias with
-    explicit provenance; without test, only training predictions are exposed.
+    fitted only by an explicit ``fit_on_all=True`` transform. A test partition
+    retains the historical ``val`` alias with explicit provenance; without test,
+    only training predictions are exposed.
     ``cv_best_score`` stays NaN in both cases because no CV occurred.
     """
     steps, splitter = _split_pipeline(normalize_model_steps(pipeline))
@@ -139,7 +140,7 @@ def run_full_train(
     if len(models) != 1:
         raise DagMlUnsupported("full-training execution needs one concrete model; expand independent public model requests before dispatch")
     model_id = models[0]["id"]
-    dsl["data_bindings"] = data_bindings_for(model_id, envelope)
+    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope)
     resolver = MaterializationResolver(spectro, identity)
     nodes = {node["id"]: node for node in graph["nodes"]}
     from nirs4all.api.general_transfer import bind_transfer_operators

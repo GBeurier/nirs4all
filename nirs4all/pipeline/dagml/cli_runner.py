@@ -98,6 +98,25 @@ def data_bindings_for_nodes(model_ids: list[str], envelope: dict[str, Any], *, s
     return [_data_binding(model_id, envelope, source_id=source_id) for model_id in model_ids]
 
 
+def data_bindings_for_fitted_x_chain(
+    graph: dict[str, Any], model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID,
+) -> list[dict[str, Any]]:
+    """Bind each X node when any step requests a native, node-local fit scope."""
+    bindings = data_bindings_for(model_id, envelope, source_id=source_id)
+    transforms = [node for node in graph["nodes"] if node["kind"] == "transform"]
+    if not any(node.get("metadata", {}).get("nirs4all_fit_on_all") is True for node in transforms):
+        return bindings
+    for node in transforms:
+        binding = _data_binding(node["id"], envelope, source_id=source_id)
+        if node.get("metadata", {}).get("nirs4all_fit_on_all") is True:
+            binding["view_policy"] = {
+                "fit_partition": "all_observations",
+                "unsafe_flags": ["allow_fit_cv_all_observations_view"],
+            }
+        bindings.append(binding)
+    return bindings
+
+
 def split_invocation_for(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, n_splits: int, shuffle: bool = True) -> dict[str, Any]:
     """A split_invocation with an embedded, materialized FoldSet (params alone are inert)."""
     return {
@@ -112,7 +131,16 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
-    dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, source_id=source_id)
+    if not any(isinstance(step, dict) and step.get("fit_on_all") is True for step in pipeline):
+        dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, source_id=source_id)
+        return dsl
+
+    # An opt-in global-fit transform is a real native task with its own scoped
+    # view. Bind every X transform in the chain so its predecessor's fitted
+    # handle reaches it through the graph edge instead of refitting at the model.
+    graph = build_dagml_plan(pipeline, plan_id="plan:probe", dsl_id=dsl_id).to_dict()["graph_plan"]["graph"]
+    model_id = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
+    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope, source_id=source_id)
     return dsl
 
 
@@ -222,6 +250,10 @@ def run_cv_refit_bundle(
     artifact_dir.mkdir(exist_ok=True)
     for stale_artifact in artifact_dir.glob("*.joblib"):
         stale_artifact.unlink()
+    fitted_x_dir = workdir / "fitted_x"
+    fitted_x_dir.mkdir(exist_ok=True)
+    for stale_chain in fitted_x_dir.glob("*.joblib"):
+        stale_chain.unlink()
     shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
 
     env = {
@@ -230,6 +262,7 @@ def run_cv_refit_bundle(
         "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
         "N4A_DAGML_RESULT_CAPTURE": str(capture),
         "N4A_DAGML_REFIT_ARTIFACT_DIR": str(artifact_dir),
+        "N4A_DAGML_FITTED_X_DIR": str(fitted_x_dir),
     }
     # The adapter PRIORITIZES N4A_DAGML_DATASET_PICKLE / N4A_DAGML_SAMPLE_META_PATH over the dataset
     # path. The child env inherits os.environ, so a stale value from an earlier run (or the caller's

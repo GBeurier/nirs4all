@@ -1007,6 +1007,13 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             if generators:
                 dsl_step["generators"] = generators
             return dsl_step
+        if "preprocessing" in step and set(step) == {"preprocessing", "fit_on_all"} and step["fit_on_all"] is True:
+            op = step["preprocessing"]
+            return {
+                "preprocessing": {"class": _qualname(op), "params": _json_safe_params(op)},
+                "metadata": {"nirs4all_fit_on_all": True},
+                "shape": {"fit_rows": "all_observations"},
+            }
         if "y_processing" in step:
             op = step["y_processing"]
             return {"y_processing": {"class": _qualname(op), "params": _json_safe_params(op)}}
