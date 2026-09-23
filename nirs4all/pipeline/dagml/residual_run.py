@@ -60,6 +60,9 @@ def run_residual_model(
     """Execute the native residual graph; host nodes only fit base/learner estimators."""
     if task_type != "regression":
         raise DagMlUnsupported("ResidualModel requires a regression target")
+    # The legacy Python controller treats True and None as requests for the
+    # automatic gate. Lower those Python aliases to DAG-ML's explicit policy.
+    gate_policy = "auto" if operator.gate is True or operator.gate is None else operator.gate
     _, splitter = _split_pipeline(pipeline)
     implicit_cv = splitter is None
     if splitter is None:
@@ -204,7 +207,7 @@ def run_residual_model(
             {"kind": "merge", "id": "merge:concat", "merge_mode": "concat", "output_as": "features", "include_original_data": False},
         ]
     learner_step = _canonical_branch_step({"model": operator.learner}, learner_id)
-    dsl = {
+    dsl: dict[str, Any] = {
         "id": "nirs4all-residual-model",
         "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
         "steps": [
@@ -223,7 +226,7 @@ def run_residual_model(
                     "residual_target_execution": "nested_oof_v1",
                     "stacking_refit_oof": "partitioned_inner_v1",
                     "residual_lambda": operator.lam,
-                    "residual_gate": operator.gate,
+                    "residual_gate": gate_policy,
                     "residual_rli_threshold": operator.rli_threshold,
                     **({"nirs4all_train_params": encode_training_controls(operator.train_params, name="train_params")} if operator.train_params else {}),
                     **({
@@ -280,7 +283,7 @@ def run_residual_model(
         producer=fusion_id, config_name=config_name, results=outcome["results"],
         identity=identity, refit_artifacts=outcome["refit_artifacts"],
     )
-    if operator.gate == "auto":
+    if gate_policy == "auto":
         gate_records = outcome.get("residual_gates") or []
         if not isinstance(gate_records, list) or not gate_records or any(
             not isinstance(record, dict) or not isinstance(record.get("gate"), (int, float))
@@ -292,7 +295,7 @@ def run_residual_model(
             raise ValueError("native residual refit needs exactly one full-training automatic gate")
         gate = float(final_gates[0]) if final_gates else None
     else:
-        gate = float(1.0 if operator.gate is False else operator.gate)
+        gate = float(1.0 if gate_policy is False else gate_policy)
     result.per_dataset[spectro.name]["residual_replay"] = {
         "schema_version": 1,
         "producer_node": fusion_id,
@@ -301,7 +304,7 @@ def run_residual_model(
         "lambda": float(operator.lam),
         "gate": gate,
         **({"feature_producer_nodes": prediction_model_order} if prediction_model_order else {}),
-        **({"gate_records": gate_records} if operator.gate == "auto" else {}),
+        **({"gate_records": gate_records} if gate_policy == "auto" else {}),
         **({"implicit_training_cv": True} if implicit_cv else {}),
     }
     return result
