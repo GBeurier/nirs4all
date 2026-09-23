@@ -25,6 +25,7 @@ from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _scores_to_run_result
 from .run_paths import _canonical_branch, _canonical_branch_step, _supported_body_steps
 from .steps import _is_split_step, _split_pipeline
+from .training_controls import encode_training_controls
 
 
 class ResidualImplicitCvWarning(UserWarning):
@@ -113,6 +114,7 @@ def run_residual_model(
                     "residual_lambda": operator.lam,
                     "residual_gate": operator.gate,
                     "residual_rli_threshold": operator.rli_threshold,
+                    **({"nirs4all_train_params": encode_training_controls(operator.train_params, name="train_params")} if operator.train_params else {}),
                     **({
                         "nirs4all_finetune_params": learner_finetune,
                         "nirs4all_finetune_model_param_order": list(learner_finetune["model_params"]),
