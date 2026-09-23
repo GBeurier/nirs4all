@@ -72,11 +72,14 @@ def test_feature_gap_ledger_has_unique_traceable_rows() -> None:
     assert isinstance(ledger["inventory_complete"], bool)
     identifiers = [gap["id"] for gap in ledger["gaps"]]
     identifiers.extend(probe["id"] for probe in ledger["unverified"])
+    qualified = ledger["qualified_families"]
+    identifiers.extend(family["id"] for family in qualified)
     assert len(identifiers) == len(set(identifiers))
     for gap in ledger["gaps"]:
         assert gap["priority"] in {"P0", "P1", "P2"}
         assert all(gap[key] for key in ("legacy", "dagml", "evidence"))
     assert all(probe["reason"] for probe in ledger["unverified"])
+    assert all(family["qualification"] and family["evidence"] for family in qualified)
 
 
 def test_meter_summary_matches_authority_recomputation() -> None:
