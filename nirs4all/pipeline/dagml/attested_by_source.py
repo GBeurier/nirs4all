@@ -122,6 +122,17 @@ def execute_attested_by_source_cv(
         request, data_envelopes, signed_envelope["coordinator_relations"], influence, callback,
         outcome_id=f"outcome:{dsl['id']}", run_id=f"run:{dsl['id']}", bundle_id=f"bundle:{dsl['id']}",
     )
+    # Core retains the exact per-sample OOF averages used for its selected
+    # validation reports. Surface these as ordinary result frames so the
+    # existing row projector can pair y_pred and y_true by sample identity.
+    # No fold aggregation or score calculation belongs to the Python host.
+    portable_outcome = training.outcome.to_dict()
+    for average in portable_outcome.get("oof_averages", []):
+        frames.append({
+            "variant_id": portable_outcome["selected_variant_id"],
+            "aggregated_predictions": [average["predictions"]],
+            "regression_targets": [average["y_true"]],
+        })
     package = training.export_portable_predictor_package(f"predictor:{dsl['id']}")
     if {item["binding"]["binding_id"] for item in training.outputs} != {
         output["output_id"] for output in output_requests
