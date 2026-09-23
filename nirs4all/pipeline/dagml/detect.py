@@ -1457,15 +1457,14 @@ def _is_simple_predictions_merge_step(step: Any) -> bool:
     return isinstance(step, dict) and step.get("merge") == "predictions"
 
 
-def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = False) -> bool:
+def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = False, allowed_branch_scope: Any = None) -> bool:
     """Check the fields honored by this lowering, optionally including native best-fold test features.
 
     A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` may
     select AUTO / LEVEL_1 (the single base→meta level produced by the dag-ml lowering);
-    every other field (``coverage_strategy``, ``branch_scope``, ``allow_no_cv``,
-    ``min_coverage_ratio``, ``allow_meta_sources``, ``max_level``, ``relation_profile``) is SILENTLY
-    IGNORED by the lowering. Fold-based test aggregation is allowed only when the caller requests
-    the native fold-scored test feature path. So an unsupported non-default value must reject
+    other fields are rejected unless their semantics are explicitly enabled by the caller.
+    Fold-based test aggregation and selected branch scopes are allowed only when the caller routes
+    the corresponding native feature/source path. An unsupported non-default value must reject
     the stacking shape (fail loud) rather than run with the option dropped. Comparison is field-exhaustive
     by construction: clone the config with ``level`` reset to the default and compare to a fresh default,
     so any future ``StackingConfig`` field is covered without enumerating them here.
@@ -1481,10 +1480,12 @@ def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = Fals
     normalized = dataclasses.replace(config, level=StackingConfig().level)
     if allow_fold_aggregation and normalized.test_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
         normalized = dataclasses.replace(normalized, test_aggregation=StackingConfig().test_aggregation)
+    if allowed_branch_scope is not None and normalized.branch_scope == allowed_branch_scope:
+        normalized = dataclasses.replace(normalized, branch_scope=StackingConfig().branch_scope)
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False, allowed_branch_scope: Any = None) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1520,7 +1521,7 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
             or (model.selector is not None and not allow_selector)
             or model.finetune_space is not None
             or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
-            or not _is_default_except_level(config, allow_fold_aggregation=allow_fold_aggregation)
+            or not _is_default_except_level(config, allow_fold_aggregation=allow_fold_aggregation, allowed_branch_scope=allowed_branch_scope)
         ):
             return None
         return model.model
@@ -1532,7 +1533,7 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
 
 def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None] | None:
     """Sequential base estimators followed by a selected numeric MetaModel."""
-    from nirs4all.operators.models.meta import MetaModel
+    from nirs4all.operators.models.meta import BranchScope, MetaModel
 
     if len([step for step in pipeline if _is_split_step(step)]) != 1:
         return None
@@ -1542,7 +1543,7 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
     wrapper = steps[-1].get("model")
     if not isinstance(wrapper, MetaModel):
         return None
-    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_fold_aggregation=True, allow_selector=True)
+    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_fold_aggregation=True, allow_selector=True, allowed_branch_scope=BranchScope.SPECIFIED)
     if learner is None:
         return None
     models: list[Any] = []
@@ -1844,6 +1845,40 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
         # native fold plan fits its own prefix on precisely its training view.
         branches = [[*shared_transforms, *branch] for branch in branches]
     return branches, meta_learner
+
+
+def _detect_all_branches_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], Any] | None:
+    """Legacy's duplication branch followed by an all-branches MetaModel."""
+    from nirs4all.operators.models.meta import BranchScope, MetaModel
+
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(model_steps) != 1 or len([step for step in pipeline if _is_split_step(step)]) != 1:
+        return None
+    branch_step, model_step = branch_steps[0], model_steps[0]
+    wrapper = model_step.get("model")
+    if not isinstance(wrapper, MetaModel) or wrapper.stacking_config.branch_scope != BranchScope.ALL_BRANCHES:
+        return None
+    learner = _meta_learner(model_step, allowed_branch_scope=BranchScope.ALL_BRANCHES)
+    if learner is None:
+        return None
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None or any(sum(isinstance(sub, dict) and "model" in sub for sub in branch) != 1 for branch in branches):
+        return None
+    shared_transforms: list[Any] = []
+    before_branch = True
+    for step in pipeline:
+        if step is branch_step:
+            before_branch = False
+        elif step is model_step or _is_split_step(step):
+            continue
+        elif before_branch and hasattr(step, "fit") and hasattr(step, "transform") and not hasattr(step, "predict"):
+            shared_transforms.append(step)
+        else:
+            return None
+    if pipeline.index(branch_step) > pipeline.index(model_step):
+        return None
+    return [[*shared_transforms, *branch] for branch in branches], learner
 
 
 def _detect_proba_mean_stacking_branch(
