@@ -109,6 +109,10 @@ API failures.
 `feature_gaps.json` records legacy-successful compositions reproduced by the
 audit, including gaps the case registry has not yet captured, and tracks
 plausible gaps that still need a public legacy reproduction under `unverified`.
+`qualified_families` records tested functional contracts and their exact scope;
+an unbounded set of possible host estimator pairs is not itself a reproducible
+parity failure. A new pair enters `gaps` when a finite legacy-successful public
+pipeline reproducibly fails through DAG-ML.
 Run
 `.venv/bin/python -m tests.integration.parity.coverage_meter
 --require-feature-complete` before a release: it fails while the inventory is
