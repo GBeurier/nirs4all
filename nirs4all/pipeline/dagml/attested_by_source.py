@@ -127,7 +127,7 @@ def execute_attested_by_source_cv(
     # existing row projector can pair y_pred and y_true by sample identity.
     # No fold aggregation or score calculation belongs to the Python host.
     portable_outcome = training.outcome.to_dict()
-    for average in portable_outcome.get("oof_averages", []):
+    for average in [*portable_outcome.get("oof_averages", []), *portable_outcome.get("ensemble_averages", [])]:
         frames.append({
             "variant_id": portable_outcome["selected_variant_id"],
             "aggregated_predictions": [average["predictions"]],

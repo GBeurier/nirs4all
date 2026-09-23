@@ -543,12 +543,19 @@ def _scores_to_run_result(
                 )
 
         if has_avg and avg is not None:
-            avg_train = by_key.get((avg_variant_id, "train", "avg"))
-            if avg_train is None and avg_variant_id is None:
-                avg_train = by_key.get((variant_id, "train", "avg"))
-            avg_test = by_key.get((avg_variant_id, "test", "avg"))
-            if avg_test is None and avg_variant_id is None:
-                avg_test = by_key.get((variant_id, "test", "avg"))
+            def average_report(
+                partition: str, fold_id: str,
+                owners: tuple[Any, ...] = (avg_variant_id, variant_id, None) if is_winner else (avg_variant_id,),
+            ) -> dict[str, float] | None:
+                # A selected native training outcome can retain its concrete
+                # variant on validation averages while core-owned train/test
+                # ensembles use the untagged winner identity. Both refer to
+                # this winner; never borrow an untagged row for a loser.
+                return next((by_key[(owner, partition, fold_id)] for owner in dict.fromkeys(owners)
+                             if (owner, partition, fold_id) in by_key), None)
+
+            avg_train = average_report("train", "avg")
+            avg_test = average_report("test", "avg")
             avg_blocks = {"train": avg_train, "val": avg, "test": avg_test}
             avg_provenance = {"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}}
             if avg_train is not None:
@@ -567,15 +574,9 @@ def _scores_to_run_result(
             if avg_test is not None:
                 add("avg", "test", avg_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name,
                     arrays=_row_arrays(variant_id, "test", "avg"), score_provenance=avg_provenance)
-            weighted_test = by_key.get((avg_variant_id, "test", "w_avg"))
-            if weighted_test is None and avg_variant_id is None:
-                weighted_test = by_key.get((variant_id, "test", "w_avg"))
-            weighted_train = by_key.get((avg_variant_id, "train", "w_avg"))
-            if weighted_train is None and avg_variant_id is None:
-                weighted_train = by_key.get((variant_id, "train", "w_avg"))
-            weighted_val = by_key.get((avg_variant_id, "validation", "w_avg"))
-            if weighted_val is None and avg_variant_id is None:
-                weighted_val = by_key.get((variant_id, "validation", "w_avg"))
+            weighted_test = average_report("test", "w_avg")
+            weighted_train = average_report("train", "w_avg")
+            weighted_val = average_report("validation", "w_avg")
             if weighted_train is not None:
                 add("w_avg", "train", {"train": weighted_train, "val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
                     arrays=_row_arrays(variant_id, "train", "w_avg"),
