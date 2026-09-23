@@ -54,3 +54,31 @@ def test_residual_target_preprocessing_refit_and_replay(tmp_path, monkeypatch, m
     replay = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
     assert np.sqrt(np.mean((expected - np.asarray(replay.y_pred).ravel()) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
     native.close()
+
+
+@pytest.mark.parity
+def test_residual_learner_train_params_reach_native_fit(tmp_path, monkeypatch) -> None:
+    """The legacy submodel receives train_params as estimator overrides."""
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    pipeline = [
+        KFold(2, shuffle=True, random_state=1),
+        {"model": ResidualModel(
+            base=PLSRegression(n_components=2), learner=Ridge(alpha=0.1), gate=False,
+            train_params={"alpha": 4.0},
+        )},
+    ]
+    legacy = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy-params", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    native = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="dag-ml", refit=True,
+        workspace_path=tmp_path / "native-params", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    learner = next(artifact["estimator"] for artifact in native._dagml_refit_artifacts if artifact["controller_id"] == "controller:nirs4all.residual_learner")
+    assert learner.get_params()["alpha"] == pytest.approx(4.0)
+    assert learner._nirs4all_training_controls["model_params"]["alpha"] == pytest.approx(4.0)
+    native.close()
