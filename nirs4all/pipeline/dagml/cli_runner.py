@@ -270,6 +270,8 @@ def run_cv_refit_bundle(
     capture.unlink(missing_ok=True)
     oof_average_path = workdir / "oof_average.json"
     oof_average_path.unlink(missing_ok=True)
+    node_results_path = workdir / "native_node_results.json"
+    node_results_path.unlink(missing_ok=True)
     artifact_dir = workdir / "refit_artifacts"
     artifact_dir.mkdir(exist_ok=True)
     for stale_artifact in artifact_dir.glob("*.joblib"):
@@ -322,6 +324,7 @@ def run_cv_refit_bundle(
             *([] if refit else ["--no-refit"]),
             *([] if refit_top_k == 1 else ["--refit-top-k", str(refit_top_k)]),
             "--oof-average-output", str(oof_average_path),
+            "--node-results-output", str(node_results_path),
             *resource_args,
             "--bundle-id", "bundle:n4a", "--plan-id", "plan:n4a",
             "--output", str(workdir / "bundle.json"), "--prediction-cache-output", str(workdir / "cache.json"),
@@ -330,6 +333,14 @@ def run_cv_refit_bundle(
     )
     results = [json.loads(line) for line in capture.read_text().splitlines() if line.strip()] if capture.exists() else []
     if proc.returncode == 0:
+        # Adapter capture only sees Python callbacks. The native scheduler also creates
+        # results (e.g. residual_fusion); expose those exact frames for host projection.
+        adapter_nodes = {
+            frame.get("result", frame).get("node_id") for frame in results
+            if isinstance(frame, dict) and isinstance(frame.get("result", frame), dict)
+        }
+        results.extend(frame for frame in json.loads(node_results_path.read_text())
+                       if frame.get("node_id") not in adapter_nodes)
         results.extend(json.loads(oof_average_path.read_text()))
     return {"returncode": proc.returncode, "stdout": proc.stdout + proc.stderr, "results": results}
 
