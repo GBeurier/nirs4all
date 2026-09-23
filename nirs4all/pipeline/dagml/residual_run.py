@@ -31,6 +31,19 @@ class ResidualImplicitCvWarning(UserWarning):
     """A residual model inferred a training-only CV for its OOF targets."""
 
 
+def _model_fit_capacity(model: Any) -> dict[str, int]:
+    """Declare a host model's conservative structural minimum fit scope.
+
+    The native planner checks real nested folds against this bound. It cannot
+    guarantee the estimator's numerical rank or convergence from row counts.
+    """
+    from sklearn.cross_decomposition import PLSRegression
+
+    if isinstance(model, PLSRegression):
+        return {"min_fit_samples": max(4, int(model.n_components) + 2)}
+    return {"min_fit_samples": 1}
+
+
 def residual_operator(pipeline: list[Any]) -> ResidualModel | None:
     """Recognize the public single residual-model pipeline form."""
     residuals = []
@@ -183,6 +196,12 @@ def run_residual_model(
     prediction_model_order: list[str] = []
     if prediction_branch_bodies is not None:
         source_branches = [_canonical_branch(body, index) for index, body in enumerate(prediction_branch_bodies)]
+        for branch, body in zip(source_branches, prediction_branch_bodies, strict=True):
+            source_step = branch["steps"][-1]
+            source_step["metadata"] = {
+                **source_step.get("metadata", {}),
+                "fit_capacity": _model_fit_capacity(body[-1]["model"]),
+            }
         prediction_model_order = [branch["steps"][-1]["id"] for branch in source_branches]
         prediction_model_ids = set(prediction_model_order)
         prediction_steps = [
@@ -209,14 +228,30 @@ def run_residual_model(
             {"kind": "merge", "id": "merge:concat", "merge_mode": "concat", "output_as": "features", "include_original_data": False},
         ]
     learner_step = _canonical_branch_step({"model": operator.learner}, learner_id)
+    base_branch = _canonical_branch([{"model": operator.base}], len(prediction_branch_bodies) if prediction_branch_bodies else 0)
+    if prediction_branch_bodies is not None:
+        learner_step["metadata"] = {
+            **learner_step.get("metadata", {}),
+            "fit_capacity": _model_fit_capacity(operator.learner),
+        }
+        base_step = base_branch["steps"][0]
+        base_step["metadata"] = {
+            **base_step.get("metadata", {}),
+            "fit_capacity": _model_fit_capacity(operator.base),
+        }
+    inner_cv = (
+        {"kind": "capacity_kfold", "min_splits": 2, "max_splits": 10, "shuffle": False, "seed": random_state}
+        if prediction_branch_bodies is not None else
+        {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state}
+    )
     dsl: dict[str, Any] = {
         "id": "nirs4all-residual-model",
-        "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
+        "inner_cv": inner_cv,
         "steps": [
             *prefix_steps,
             *metadata_steps,
             *prediction_steps,
-            {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch([{"model": operator.base}], len(prediction_branch_bodies) if prediction_branch_bodies else 0)]},
+            {"kind": "branch", "mode": "duplication", "branches": [base_branch]},
             {
                 "kind": "merge_model", "id": learner_id,
                 "operator": {**learner_step["operator"], "ref": _RESIDUAL_LEARNER_REF},
