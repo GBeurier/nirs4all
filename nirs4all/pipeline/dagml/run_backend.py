@@ -235,8 +235,8 @@ def _reject_unsupported_run_options(*, refit: Any, project: str | None, session:
     Unsupported refit/cache/runner options remain explicit parity gaps, never
     invitations to run a different engine after failure.
     """
-    if refit is not True:
-        raise DagMlUnsupported(f"engine='dag-ml' always runs native CV+refit on the single CV winner and cannot honor refit={refit!r} (disable / custom top-k / ranking selection).")
+    if refit is not True and refit is not False:
+        raise DagMlUnsupported(f"engine='dag-ml' cannot honor custom refit selection {refit!r}; use refit=True or refit=False.")
     if session is not None:
         session._prepare_dagml_run()
     if cache is not None:
@@ -446,6 +446,7 @@ def run_via_dagml(
             save_charts=save_charts,
             plots_visible=plots_visible,
             resolved_config_name=resolved_config_name,
+            refit=cast(bool, refit),
         )
         from .envelope import target_names
 
@@ -818,6 +819,7 @@ def _dispatch_run(
     save_charts: bool = True,
     plots_visible: bool = False,
     resolved_config_name: str | None = None,
+    refit: bool = True,
 ) -> RunResult:
     """Route the materialized run to the matching native dag-ml path and map its scores.
 
@@ -904,6 +906,24 @@ def _dispatch_run(
 
     pipeline = normalize_model_steps(pipeline)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
+    if refit is False and any(_is_split_step(step) for step in pipeline):
+        if _is_repetition_dataset(spectro):
+            raise DagMlUnsupported("refit=False with repetition data requires grouped CV lowering")
+        if _generation_kind(list(pipeline)) != "none":
+            raise DagMlUnsupported("refit=False with a model or operator sweep requires CV-only variant projection")
+
+        scores, model_name, results, identity, artifacts = _run_concrete_scores(
+            pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
+            base_dir / "cv_only", dataset_pickle=host_pickle, random_state=random_state,
+            refit=False,
+        )
+        result = _scores_to_run_result(
+            scores, spectro.name, model_name, metric, task_type,
+            config_name=config_name, results=results, identity=identity,
+            refit_artifacts=artifacts,
+        )
+        result.per_dataset[spectro.name]["refit_enabled"] = False
+        return result
     comparison = _detect_branch_only_model_comparison(pipeline)
     if comparison is not None:
         if _is_repetition_dataset(spectro):
