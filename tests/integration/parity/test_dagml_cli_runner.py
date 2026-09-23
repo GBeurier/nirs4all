@@ -1896,6 +1896,7 @@ def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> No
 
     def _fake_run(args, **kwargs):  # noqa: ANN001, ANN003 - test stub mirroring subprocess.run
         captured["env"] = kwargs["env"]
+        Path(args[args.index("--oof-average-output") + 1]).write_text("[]")
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr(cli_runner.subprocess, "run", _fake_run)
