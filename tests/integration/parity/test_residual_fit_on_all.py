@@ -62,6 +62,17 @@ def test_residual_preprocessing_fit_on_all_runs_and_replays(
         archive = native.export(tmp_path / "residual_fit_on_all.n4a")
         replay = nirs4all.predict(archive, x_test)
         y_test = np.asarray(native_data.y({"partition": "test"})).ravel()
+        rows = native.predictions.filter_predictions()
+        for fold_id in (0, 1):
+            validation = next(row for row in rows if row["partition"] == "val"
+                              and str(row["fold_id"]) == str(fold_id))
+            assert len(validation["y_pred"]) == 15
+            assert np.isfinite(np.asarray(validation["y_pred"])).all()
+        final = next(row for row in rows if row["partition"] == "test"
+                     and row["fold_id"] == "final")
+        np.testing.assert_allclose(np.asarray(final["y_pred"]).ravel(),
+                                   np.asarray(replay.y_pred).ravel(), atol=1e-5)
+        assert final["test_score"] == pytest.approx(native.best_rmse, abs=1e-5)
         replay_rmse = np.sqrt(np.mean((y_test - np.asarray(replay.y_pred).ravel()) ** 2))
         assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
     finally:
