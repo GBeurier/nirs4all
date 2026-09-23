@@ -17,14 +17,12 @@ Example:
     >>> print(f"New RMSE: {result.best_rmse:.4f}")
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import Any, TypeAlias, cast
 
 import numpy as np
 
@@ -33,9 +31,6 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.dagml.rt import RtError
 
 from .result import RunResult
-
-if TYPE_CHECKING:
-    from .native_refit_result import NativeMethodsRefitResult
 from .retrain_capabilities import (
     PYTHON_LIBRARY_RETRAIN_PLUGIN,
     RetrainCapabilityDecision,
@@ -289,7 +284,7 @@ def retrain(
     verbose: int = 1,
     save_artifacts: bool = True,
     **kwargs: Any
-) -> RunResult | NativeMethodsRefitResult:
+) -> RunResult:
     """Retrain a pipeline on new data.
 
     This function enables retraining trained pipelines with various modes,
@@ -461,7 +456,9 @@ def retrain(
             )
         _ = verbose
         result: NativeMethodsRefitResult = refit_native_methods(source, data, name=name)
-        return result
+        # Preserve the published retrain() signature; the native V3 result is
+        # a separate runtime result type exposed through the same entry point.
+        return cast(RunResult, result)
 
     # PipelineRunner is reachable only through the explicit Python-library
     # transfer plugin or the explicitly selected ADR-24 rollback lane.
