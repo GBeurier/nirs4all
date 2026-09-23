@@ -21,27 +21,24 @@ def validate_chart_projection(pipeline: list[Any], spectro: Any) -> None:
     """Check that requested chart stages have an unambiguous captured prefix."""
     from .detect import _is_augmentation_step
     from .run_backend import _is_chart_step
-    from .run_paths import _augmentation_is_leakage_free
     from .steps import _is_split_step
 
     uncertain_stage = False
     transformed = False
     augmentation_seen = False
     has_augmentation = any(_is_augmentation_step(step) for step in pipeline)
-    for step in pipeline:
+    for index, step in enumerate(pipeline):
         if _is_chart_step(step):
-            if uncertain_stage or (transformed and spectro.is_multi_source()):
+            if (uncertain_stage or (transformed and spectro.is_multi_source())
+                    or (has_augmentation and transformed and not augmentation_seen)
+                    or (augmentation_seen and transformed and any(_is_augmentation_step(later) for later in pipeline[index + 1:]))):
                 raise NotImplementedError("This chart stage needs a captured branch/source snapshot; a raw-data substitute would be misleading.")
         elif _is_split_step(step) or step is None:
             continue
         elif _is_augmentation_step(step):
-            # The runner mutates the host dataset for global, stateless
-            # augmentation. Its final state is an honest chart snapshot only
-            # after the single augmentation step; before it we retain a copy
-            # of the original dataset. Fold-local and repeated augmentation
-            # need their own stage-scoped captures.
-            if augmentation_seen or transformed or not _augmentation_is_leakage_free(step):
-                uncertain_stage = True
+            # Every augmentation captures its own full-train stage during the
+            # actual materialization/refit pass, including fold-local runs.
+            transformed = False
             augmentation_seen = True
         elif isinstance(step, dict):
             if set(step) == {"preprocessing"}:
@@ -53,10 +50,6 @@ def validate_chart_projection(pipeline: list[Any], spectro: Any) -> None:
         elif hasattr(step, "transform"):
             transformed = True
         else:
-            uncertain_stage = True
-        if has_augmentation and transformed and not augmentation_seen:
-            # A preprocessing step materialized before augmentation is absent
-            # from the native refit chain used by the chart presenter.
             uncertain_stage = True
 
 
@@ -126,31 +119,38 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
     prefix = 0
     after_split = False
     processed_target = False
-    augmentation_seen = False
+    augmentation_count = 0
+    prefix_at_last_augmentation = 0
+    augmentation_snapshots = getattr(result, "_dagml_chart_aug_snapshots", None)
+    expected_augmentations = sum(_is_augmentation_step(step) for step in pipeline)
+    if expected_augmentations and (augmentation_snapshots is None or len(augmentation_snapshots) != expected_augmentations):
+        raise RuntimeError("Chart augmentation stages are missing from the scored full-training pass.")
     output_paths: list[str] = []
     for index, step in enumerate(pipeline):
         if not _is_chart_step(step):
             if _is_split_step(step):
                 after_split = True
             elif _is_augmentation_step(step):
-                augmentation_seen = True
+                augmentation_count += 1
+                prefix_at_last_augmentation = prefix
             elif isinstance(step, dict) and "y_processing" in step:
                 processed_target = True
             elif (isinstance(step, dict) and set(step) == {"preprocessing"}) or (not isinstance(step, dict) and hasattr(step, "transform") and not hasattr(step, "predict")):
                 prefix += 1
             continue
-        snapshot = copy.deepcopy(spectro if augmentation_seen or original_spectro is None else original_spectro)
+        snapshot = copy.deepcopy(augmentation_snapshots[augmentation_count - 1] if augmentation_count else (original_spectro or spectro))
         snapshot.set_folds(_folds_from_scores(result) if after_split else [])
-        if prefix:
-            if prefix > len(fitted_steps):
+        pending_prefix = prefix - prefix_at_last_augmentation if augmentation_count else prefix
+        if pending_prefix:
+            if pending_prefix > len(fitted_steps):
                 raise RuntimeError("Chart transform prefix is missing from the scored refit artifact.")
             values = np.asarray(snapshot.x({}, layout="2d"))
-            for _, transformer in fitted_steps[:prefix]:
+            for _, transformer in fitted_steps[:pending_prefix]:
                 values = transformer.transform(values)
-            snapshot.add_merged_features(values, processing_name=f"refit_stage_{prefix}")
+            snapshot.add_merged_features(values, processing_name=f"refit_stage_{pending_prefix}")
         parsed = StepParser().parse(step)
         context = ExecutionContext(metadata=StepMetadata(keyword=parsed.keyword, step_id=str(index)))
-        context = context.with_partition(None)
+        context = context.with_partition("train" if augmentation_count else None)
         context = context.with_processing([snapshot.features_processings(source) for source in range(snapshot.features_sources())])
         if processed_target and artifact and artifact["y_transform"] is not None:
             target = np.asarray(snapshot.y({})).reshape(snapshot.num_samples, -1)
@@ -158,11 +158,11 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
             context = context.with_y("chart_refit")
         controller = next(cls for cls in CONTROLLER_REGISTRY if cls.__module__.startswith("nirs4all.controllers.charts.") and cls.matches(step, parsed.operator, parsed.keyword))
         _, output = controller().execute(parsed, snapshot, context, runtime)
-        scope = "captured full-training REFIT transforms; not out-of-fold features" if prefix else (
-            "observed and synthetic augmentation features" if augmentation_seen else "original observed features"
-        )
+        scope = ("full-training REFIT augmentation view; not out-of-fold features; observed and synthetic augmentation features"
+                 if augmentation_count else ("captured full-training REFIT transforms; not out-of-fold features" if prefix else "original observed features"))
         target_scope = "captured REFIT target transform" if processed_target else "original numeric targets"
-        summary = f"{parsed.keyword}: {snapshot.num_samples} samples; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
+        plotted_count = len(snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=False))
+        summary = f"{parsed.keyword}: {plotted_count} samples; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
         if directory is None:
             print(summary)
         else:

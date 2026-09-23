@@ -449,6 +449,10 @@ def run_via_dagml(
     # is set only when the adapter cannot faithfully reload from a path (in-memory inputs, or a path
     # whose re-load diverges from the host identity), and ships the byte-identical host dataset.
     dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
+    if chart_original_spectro is not None:
+        # Capture each augmentation stage during the real full-train pass. The
+        # snapshots stay on the result, never in the adapter's pickled dataset.
+        spectro._dagml_capture_aug_charts = True
 
     # When WE allocated `base_dir` (no caller `workdir`), it holds only run scratch — the host pickle,
     # the per-path shim/JSON artifacts, and dag-ml's bundle.json (read into memory before we return).

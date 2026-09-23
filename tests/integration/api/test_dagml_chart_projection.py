@@ -131,7 +131,33 @@ def test_charts_on_both_sides_of_augmentation_use_their_own_sample_universe(tmp_
     assert "observed and synthetic augmentation features" in by_step[2].read_text()
 
 
-def test_fold_local_augmentation_chart_requires_refit_stage_capture(tmp_path):
+def test_repeated_global_augmentation_charts_use_stage_scoped_samples(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import nirs4all
+
+    rng = np.random.default_rng(214)
+    X = rng.normal(size=(24, 5))
+    y = X @ np.arange(1.0, 6.0)
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    pipeline = ["chart_2d", augmentation, "chart_2d", augmentation, "chart_2d", KFold(2), Ridge()]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, (X, y), engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    assert np.isfinite(native.cv_best_score)
+    reports = [Path(path) for item in native.per_dataset.values() for path in item["chart_reports"]]
+    assert len(reports) == 3
+    for report, expected_count in zip(reports, (24, 48, 72), strict=True):
+        with report.with_suffix(".csv").open() as stream:
+            samples = {int(row["sample_index"]) for row in csv.DictReader(stream)}
+        assert len(samples) == expected_count
+
+
+def test_fold_local_augmentation_chart_uses_only_full_train_refit_children(tmp_path):
     import nirs4all
 
     rng = np.random.default_rng(7)
@@ -144,5 +170,50 @@ def test_fold_local_augmentation_chart_requires_refit_stage_capture(tmp_path):
     pipeline = [augmentation, "chart_2d", KFold(2), Ridge()]
     legacy = nirs4all.run(pipeline, (X, y), engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
     assert np.isfinite(legacy.cv_best_score)
-    with pytest.raises(Exception, match="captured branch/source snapshot"):
-        nirs4all.run(pipeline, (X, y), engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, (X, y), engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
+    assert np.isfinite(native.cv_best_score)
+    assert len(native._dagml_chart_aug_snapshots) == 1
+    snapshot = native._dagml_chart_aug_snapshots[0]
+    refit_train = set(snapshot.index_column("sample", {"partition": "train"}))
+    report = Path(next(iter(native.per_dataset.values()))["chart_reports"][0])
+    with report.with_suffix(".csv").open() as stream:
+        plotted = {int(row["sample_index"]) for row in csv.DictReader(stream)}
+    assert plotted == refit_train
+    assert "full-training REFIT augmentation view" in report.read_text()
+    assert "not out-of-fold" in report.read_text()
+
+
+def test_interleaved_fold_local_augmentation_charts_capture_each_refit_stage(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from sklearn.cross_decomposition import PLSRegression
+
+    import nirs4all
+    from nirs4all.data.config import DatasetConfigs
+    from tests.integration.parity._datasets import PARSER_FIXTURES
+
+    configs = DatasetConfigs(str(PARSER_FIXTURES["with_metadata"]))
+    balanced = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "balance": "y", "max_factor": 2.0, "random_state": 42,
+    }}
+    standard = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.02)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    pipeline = [balanced, "chart_2d", StandardScaler(), standard, "chart_2d", KFold(3), PLSRegression(n_components=3)]
+    legacy = nirs4all.run(pipeline, configs, engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, configs, engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    assert np.isfinite(native.cv_best_score)
+    snapshots = native._dagml_chart_aug_snapshots
+    assert len(snapshots) == 2
+    reports = [Path(path) for item in native.per_dataset.values() for path in item["chart_reports"]]
+    assert len(reports) == 2
+    for report, snapshot, expected_count in zip(reports, snapshots, (78, 126), strict=True):
+        with report.with_suffix(".csv").open() as stream:
+            samples = {int(row["sample_index"]) for row in csv.DictReader(stream)}
+        assert samples == set(snapshot.index_column("sample", {"partition": "train"}))
+        assert len(samples) == expected_count
+        assert "full-training REFIT augmentation view" in report.read_text()
