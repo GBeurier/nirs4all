@@ -15,7 +15,7 @@ from nirs4all.pipeline.dagml_bridge import (
     controller_manifests,
 )
 
-from .cli_runner import data_bindings_for_nodes, split_invocation_for
+from .cli_runner import data_bindings_for_fitted_x_chain, data_bindings_for_nodes, split_invocation_for
 from .envelope import build_envelope
 from .errors import DagMlUnsupported, _raise_run_failure
 from .folds import _build_folds, _split_group_grain
@@ -301,6 +301,10 @@ def run_residual_model(
     else:
         bindings = data_bindings_for_nodes([base_id, learner_id], envelope)
         bindings[1]["input_name"] = "x_original"
+        if any(node["kind"] == "transform" and node.get("metadata", {}).get("nirs4all_fit_on_all") is True
+               for node in graph["nodes"]):
+            fitted_bindings = data_bindings_for_fitted_x_chain(graph, base_id, envelope)
+            bindings.extend(binding for binding in fitted_bindings if binding["node_id"] != base_id)
     dsl["data_bindings"] = bindings
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
     if groups:
