@@ -13,7 +13,7 @@ from nirs4all.pipeline.dagml.detect import _detect_sequential_metamodel
 from ._datasets import dataset_path
 
 
-@pytest.mark.parametrize("option", ["allow_meta_sources", "relation_profile"])
+@pytest.mark.parametrize("option", ["allow_meta_sources", "relation_profile", "allow_no_cv"])
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_base_stacking_options_preserve_legacy_and_replay(tmp_path, monkeypatch, option, mechanism):
     if mechanism == "subprocess":
