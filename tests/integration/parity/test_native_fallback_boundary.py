@@ -65,6 +65,20 @@ def test_meter_summary_matches_compatibility_ledger() -> None:
     )
 
 
+def test_feature_gap_ledger_has_unique_traceable_rows() -> None:
+    """Release blockers must be identifiable and linked to a concrete code/test boundary."""
+    ledger = json.loads(M.FEATURE_GAPS_JSON.read_text(encoding="utf-8"))
+    assert ledger["schema_version"] == 1
+    assert isinstance(ledger["inventory_complete"], bool)
+    identifiers = [gap["id"] for gap in ledger["gaps"]]
+    identifiers.extend(probe["id"] for probe in ledger["unverified"])
+    assert len(identifiers) == len(set(identifiers))
+    for gap in ledger["gaps"]:
+        assert gap["priority"] in {"P0", "P1", "P2"}
+        assert all(gap[key] for key in ("legacy", "dagml", "evidence"))
+    assert all(probe["reason"] for probe in ledger["unverified"])
+
+
 def test_meter_summary_matches_authority_recomputation() -> None:
     """The meter summary equals an independent registry recomputation + exposes every ledger key."""
     summary = M.build_report().summary()
