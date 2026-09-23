@@ -184,11 +184,32 @@ def _fold_file_folds(splitter: FoldFileDagMlSplitStep, spectro: Any, pool: list[
         if len(missing_ids) > len(all_fold_ids) * 0.1:
             raise ValueError(f"Fold file contains {len(missing_ids)} sample IDs not in dataset: {sorted(missing_ids)[:10]}")
         folds = [([sample for sample in train if sample in pool_set], [sample for sample in val if sample in pool_set]) for train, val in folds]
-    if len(folds) == 1 and not len(spectro.index_column("sample", {"partition": "test"})):
-        from .errors import DagMlUnsupported
-
-        raise DagMlUnsupported("a single fold file without a test partition moves validation rows to test in legacy; DAG-ML has not lowered that partition change")
     return [([int(sample) for sample in train if sample not in excluded], [int(sample) for sample in val]) for train, val in folds]
+
+
+def lower_fold_file_holdout(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list[int] | None]:
+    """Turn a lone file fold into the train/test partition used by legacy.
+
+    A holdout is not cross-validation: the native full-training phase owns the
+    fit and held-out score, while the host owns parsing the file and updating
+    its dataset partition before a CLI adapter snapshot is taken.
+    """
+    from .steps import _is_split_step, _split_pipeline
+
+    if sum(_is_split_step(step) for step in pipeline) != 1:
+        return pipeline, None
+    steps, splitter = _split_pipeline(pipeline)
+    if not isinstance(splitter, FoldFileDagMlSplitStep) or spectro.index_column("sample", {"partition": "test"}):
+        return pipeline, None
+    pool = [int(sample) for sample in spectro.index_column("sample", {"partition": "train"})]
+    folds = _fold_file_folds(splitter, spectro, pool, set())
+    if len(folds) != 1 or not folds[0][1]:
+        return pipeline, None
+    train, test = folds[0]
+    if not train or len(train) != len(set(train)) or len(test) != len(set(test)) or set(train) & set(test):
+        raise ValueError("single-fold holdout requires non-empty, unique, disjoint train and validation sample IDs")
+    spectro._indexer.update_by_indices(test, {"partition": "test"})
+    return steps, train
 
 
 def _is_repetition_dataset(spectro: Any) -> bool:

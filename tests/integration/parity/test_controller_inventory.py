@@ -72,6 +72,67 @@ def test_fold_file_loader_imports_sample_ids_into_native_foldset(tmp_path, monke
     native.close()
 
 
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("omit_train_rows", [False, True])
+@pytest.mark.parity
+def test_single_fold_file_becomes_test_holdout_with_native_replay(tmp_path, monkeypatch, mechanism: str, omit_train_rows: bool) -> None:
+    """A single file fold is a held-out test, even when it omits train rows."""
+    import nirs4all
+    from nirs4all.data.dataset import SpectroDataset
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+
+    features = np.arange(60, dtype=float).reshape(15, 4) / 20
+    features[:, 1] = np.sin(features[:, 1])
+    target = 1 + features[:, 0] * 2 + features[:, 1] * 3
+    dataset = SpectroDataset("single_fold_holdout")
+    dataset.add_samples(features, {"partition": "train"}, headers=[str(column) for column in range(4)])
+    dataset.add_targets(target.reshape(-1, 1))
+    sample_ids = list(map(int, dataset.index_column("sample", {"partition": "train"})))
+    train_ids = sample_ids[:8] if omit_train_rows else sample_ids[:10]
+    test_ids = sample_ids[10:]
+    fold_file = tmp_path / "one_fold.json"
+    fold_file.write_text(json.dumps([{"train": train_ids, "val": test_ids}]), encoding="utf-8")
+    pipeline = [{"split": str(fold_file)}, {"model": Ridge(alpha=1.0)}]
+
+    legacy = nirs4all.run(
+        pipeline, dataset, engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    legacy_train = legacy.predictions.filter_predictions(partition="train", load_arrays=True)[0]
+    legacy_test = legacy.predictions.filter_predictions(partition="test", load_arrays=True)[0]
+    assert legacy_train["sample_indices"] == train_ids
+    assert legacy_test["sample_indices"] == test_ids
+    assert np.isnan(legacy.cv_best_score)
+    legacy.close()
+
+    native = nirs4all.run(
+        pipeline, dataset, engine="dag-ml", refit=False,
+        workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0,
+    )
+    native_train = native.predictions.filter_predictions(partition="train", load_arrays=True)[0]
+    native_test = native.predictions.filter_predictions(partition="test", load_arrays=True)[0]
+    assert native.execution_engine == "dag-ml"
+    assert native_train["sample_indices"] == train_ids
+    assert native_test["sample_indices"] == test_ids
+    assert np.isnan(native.cv_best_score)  # no fictitious OOF score
+    assert native.best_rmse == pytest.approx(legacy_test["test_score"], abs=1e-6)
+    np.testing.assert_allclose(np.asarray(native_test["y_pred"]).ravel(), np.asarray(legacy_test["y_pred"]).ravel(), atol=1e-6)
+    assert native.per_dataset[dataset.name]["fold_file_holdout"] is True
+
+    archive = native.export(tmp_path / "single_fold.n4a")
+    replay = nirs4all.predict(archive, features[10:])
+    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(native_test["y_pred"]).ravel(), atol=1e-6)
+    native.close()
+
+
 @pytest.mark.parity
 @pytest.mark.parametrize("gate", [False, 0.25])
 @pytest.mark.parametrize("preprocessing", [False, True])
