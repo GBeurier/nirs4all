@@ -94,7 +94,7 @@ def test_metadata_branch_cv_without_refit_matches_legacy(monkeypatch: pytest.Mon
     assert native.cv_best_score == pytest.approx(legacy.cv_best_score, rel=1e-6)
     assert native._dagml_refit_artifacts == []
     rows = native.predictions.filter_predictions(load_arrays=True)
-    assert {row["partition"] for row in rows} == {"val"}
+    assert {row["partition"] for row in rows} == {"val", "test"}
     assert {row["branch_name"] for row in rows} == {"site_A", "site_B"}
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
                for frame in native._dagml_node_results)
@@ -156,7 +156,7 @@ def test_by_source_auto_cv_without_refit_matches_direct_oracle(monkeypatch: pyte
     assert legacy.num_predictions > 0
     assert native._dagml_refit_artifacts == []
     rows = native.predictions.filter_predictions(load_arrays=True)
-    assert {row["partition"] for row in rows} == {"val"}
+    assert {row["partition"] for row in rows} == {"val", "test"}
     assert {row["branch_name"] for row in rows} == {"source_0", "source_1"}
     folds = _build_folds(splitter, dataset, dataset.index_column("sample", {"partition": "train"}), set())
     for source_index in range(2):
@@ -174,7 +174,7 @@ def test_by_source_auto_cv_without_refit_matches_direct_oracle(monkeypatch: pyte
             [expected[sample][0] for sample in sample_ids],
             [expected[sample][1] for sample in sample_ids],
         )))
-        average = next(row for row in rows if row["branch_name"] == f"source_{source_index}" and row["fold_id"] == "avg")
+        average = next(row for row in rows if row["partition"] == "val" and row["branch_name"] == f"source_{source_index}" and row["fold_id"] == "avg")
         assert average["val_score"] == pytest.approx(oracle, abs=1e-9)
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
                for frame in native._dagml_node_results)
