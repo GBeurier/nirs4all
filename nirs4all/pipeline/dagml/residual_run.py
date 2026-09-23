@@ -78,8 +78,16 @@ def run_residual_model(
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
     if any(step["kind"] not in {"transform", "y_transform"} for step in prefix_steps):
         raise DagMlUnsupported("residual prefix requires X or target preprocessing steps")
-    if sum(step["kind"] == "y_transform" for step in prefix_steps) > 1:
-        raise DagMlUnsupported("residual prefix supports one target preprocessing step")
+    target_steps = [(index, step) for index, step in enumerate(prefix_steps) if step["kind"] == "y_transform"]
+    if len(target_steps) > 1:
+        from sklearn.pipeline import Pipeline
+
+        from .operator_routing import route_graph_node
+
+        chain = Pipeline([(f"target_{index}", route_graph_node(step)) for index, step in target_steps])
+        prefix_steps = [step for step in prefix_steps if step["kind"] != "y_transform"]
+        first_index = target_steps[0][0]
+        prefix_steps.insert(first_index, _canonical_branch_step({"y_processing": chain}, f"residual.prefix:{first_index}"))
     learner_finetune: dict[str, Any] = {}
     if operator.finetune_space:
         from .host_finetune import validate_host_finetune
