@@ -1578,11 +1578,17 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
     selector = wrapper.selector
     names = [type(model).__name__ for model in models]
     if type(selector) is TopKByMetricSelector:
-        if selector.per_class or wrapper.use_proba:
+        if wrapper.use_proba:
             return None
-        select: dict[str, Any] = {"fold_candidates_top_k": selector.k}
+        select: dict[str, Any] = (
+            {"diverse_fold_candidates": {"max_per_class": selector.k, "preferred_classes": []}}
+            if selector.per_class else {"fold_candidates_top_k": selector.k}
+        )
         if selector.ascending is not None:
-            select["ascending"] = selector.ascending
+            if selector.per_class:
+                select["diverse_fold_candidates"]["ascending"] = selector.ascending
+            else:
+                select["ascending"] = selector.ascending
         return [[{"model": model}] for model in models], learner, [
             {"select": select, "metric": selector.metric}
         ]
