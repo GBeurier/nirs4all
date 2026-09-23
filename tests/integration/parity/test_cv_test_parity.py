@@ -16,6 +16,47 @@ from ._datasets import dataset_path
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_single_fold_file_with_existing_test_keeps_validation_and_test(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    """A pre-existing test partition prevents one file fold becoming a holdout."""
+    import nirs4all
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    rng = np.random.default_rng(4)
+    x = rng.normal(size=(30, 6))
+    y = x[:, 0] - 0.2 * x[:, 1]
+    fold_file = tmp_path / "one_fold.json"
+    fold_file.write_text(json.dumps([{"train": list(range(12, 24)), "val": list(range(12))}]), encoding="utf-8")
+    pipeline = [{"split": str(fold_file)}, Ridge()]
+    legacy = nirs4all.run(pipeline, (x, y, {"train": 24}), engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
+    native = nirs4all.run(pipeline, (x, y, {"train": 24}), engine="dag-ml", allow_fallback=False, refit=False,
+                          workspace_path=tmp_path / mechanism, save_artifacts=False, save_charts=False, verbose=0)
+    try:
+        assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+        assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+        expected_partitions = {("0", "train"), ("0", "val"), ("0", "test")}
+        legacy_rows = {(row["fold_id"], row["partition"]): row for row in legacy.predictions.filter_predictions(load_arrays=True)}
+        native_rows = {(row["fold_id"], row["partition"]): row for row in native.predictions.filter_predictions(load_arrays=True)}
+        assert legacy_rows.keys() == native_rows.keys() == expected_partitions
+        for key in expected_partitions:
+            np.testing.assert_allclose(np.asarray(native_rows[key]["y_pred"]).ravel(),
+                                       np.asarray(legacy_rows[key]["y_pred"]).ravel(), atol=1e-5)
+    finally:
+        legacy.close()
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("fold_format", ["json", "yaml", "csv", "txt"])
 def test_fold_file_formats_keep_native_cv_and_test_rows(tmp_path, monkeypatch, mechanism: str, fold_format: str) -> None:
     """Every legacy fold-file format must produce the same native fold/test contract."""
