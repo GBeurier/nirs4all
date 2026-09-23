@@ -85,6 +85,17 @@ def _run_module(
     )
     env["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
     env["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+    # Modules run concurrently. Letting each native numerical library create
+    # one thread per core oversubscribes CI and can stall the full-suite gate.
+    for variable in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+    ):
+        env[variable] = "1"
     env.pop("PYTEST_ADDOPTS", None)
     command = [
         sys.executable,
