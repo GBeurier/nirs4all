@@ -69,7 +69,7 @@ from .finetune_lowering import (
     lower_deterministic_finetune_params_to_generators,
     reject_native_training_param_overrides,
 )
-from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
+from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool, lower_fold_file_holdout
 from .native_results import native_results_enabled, write_native_results
 from .result import _project_operator_sweep, _scores_to_run_result, _variant_cv_score
 from .run_paths import (
@@ -437,6 +437,9 @@ def run_via_dagml(
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
     # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
     spectro = _materialize_dataset(dataset)
+    execution_pipeline, holdout_train_sample_ids = lower_fold_file_holdout(pipeline, spectro)
+    if holdout_train_sample_ids is not None and resolved_config_name is None:
+        resolved_config_name = _derive_config_name(pipeline, name)
     requested_charts = isinstance(pipeline, list) and any(_is_chart_step(step) for step in pipeline)
     chart_original_spectro = None
     if requested_charts and (save_charts or plots_visible):
@@ -466,7 +469,7 @@ def run_via_dagml(
     resource_token = bind_execution_resources(execution_resources)
     try:
         result = _dispatch_run(
-            pipeline,
+            execution_pipeline,
             spectro,
             base_dir,
             dataset_arg,
@@ -480,7 +483,11 @@ def run_via_dagml(
             resolved_config_name=resolved_config_name,
             refit=_native_refit_enabled(refit),
             refit_top_k=_native_refit_top_k(refit),
+            holdout_train_sample_ids=holdout_train_sample_ids,
         )
+        if holdout_train_sample_ids is not None:
+            for metadata in result.per_dataset.values():
+                metadata["fold_file_holdout"] = True
         if refit is False:
             for metadata in result.per_dataset.values():
                 metadata["refit_enabled"] = False
@@ -899,6 +906,7 @@ def _dispatch_run(
     resolved_config_name: str | None = None,
     refit: bool = True,
     refit_top_k: int = 1,
+    holdout_train_sample_ids: list[int] | None = None,
 ) -> RunResult:
     """Route the materialized run to the matching native dag-ml path and map its scores.
 
@@ -1061,11 +1069,14 @@ def _dispatch_run(
             config_name=config_name, cli=cli, venv_python=venv_python or sys.executable,
             dataset_path=dataset_arg, dataset_pickle=host_pickle,
             workdir=base_dir / "by_source_auto_full_train", random_state=random_state,
+            train_sample_ids=holdout_train_sample_ids,
         )
     if not any(_is_split_step(step) for step in pipeline):
         from .full_train import run_full_train
 
         if any(_is_augmentation_step(step) for step in pipeline):
+            if holdout_train_sample_ids is not None:
+                raise DagMlUnsupported("single-fold file holdout with augmentation needs a train-scoped augmentation lowering")
             return _run_augmentation_full_train(
                 pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
                 base_dir / "augmentation_full_train", metric=metric,
@@ -1076,6 +1087,7 @@ def _dispatch_run(
             cli=cli, venv_python=venv_python or sys.executable,
             dataset_path=dataset_arg, dataset_pickle=host_pickle,
             workdir=base_dir / "full_train", random_state=random_state,
+            train_sample_ids=holdout_train_sample_ids,
         )
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an

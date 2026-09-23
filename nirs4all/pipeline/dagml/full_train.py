@@ -42,8 +42,9 @@ def run_full_train(
     cli: str | None = None, venv_python: str | None = None,
     dataset_path: str | None = None, dataset_pickle: str | None = None,
     workdir: Any = None, random_state: int | None = None,
+    train_sample_ids: list[int] | None = None,
 ) -> RunResult:
-    """Fit one concrete pipeline once on all train rows using the DAG scheduler.
+    """Fit one concrete pipeline once on selected train rows using the DAG scheduler.
 
     No splitter, selection loop or legacy runner is introduced. Test rows are
     fitted only by an explicit ``fit_on_all=True`` transform. A test partition
@@ -96,6 +97,10 @@ def run_full_train(
         mode, key = ("by_metadata", criterion["by_metadata"]) if "by_metadata" in criterion else ("by_tag", criterion["by_tag"])
         metadata_by_sample, sample_metadata = _branch_metadata(spectro, identity, mode, key)
     train_all = spectro.index_column("sample", {"partition": "train"})
+    if train_sample_ids is not None:
+        if not train_sample_ids or len(train_sample_ids) != len(set(train_sample_ids)) or not set(train_sample_ids) <= set(train_all):
+            raise ValueError("full-training sample IDs must be a non-empty unique subset of the train partition")
+        train_all = list(train_sample_ids)
     train = train_all
     if train_pool is not None:
         train = [sample for sample in train_all if int(sample) in train_pool]
@@ -150,12 +155,15 @@ def run_full_train(
     dsl["data_bindings"] = data_bindings_for_fitted_x_chain(
         graph, model_id, envelope, force=needs_dynamic_feature_axis(steps),
     )
-    message = (
-        "No splitter provided: fitting all training rows once; the test set is also used as validation. "
-        "There is no cross-validation or independent model-selection holdout."
-        if test else
-        "No splitter or test set provided: fitting all training rows once; scores are training resubstitution only, not independent validation."
-    )
+    if train_sample_ids is not None:
+        message = "Single-fold file: fitting its train IDs once and evaluating its validation IDs as a test holdout; no cross-validation occurred."
+    elif test:
+        message = (
+            "No splitter provided: fitting all training rows once; the test set is also used as validation. "
+            "There is no cross-validation or independent model-selection holdout."
+        )
+    else:
+        message = "No splitter or test set provided: fitting all training rows once; scores are training resubstitution only, not independent validation."
     if execute is None:
         if cli is None or venv_python is None or dataset_path is None or workdir is None:
             raise DagMlUnavailable("CLI full training requires a DAG-ML CLI, Python adapter, and reloadable dataset")
@@ -391,6 +399,7 @@ def run_by_source_auto_full_train(
     cli: str | None = None, venv_python: str | None = None,
     dataset_path: str | None = None, dataset_pickle: str | None = None,
     workdir: Any = None, random_state: int | None = None,
+    train_sample_ids: list[int] | None = None,
 ) -> RunResult:
     """Fit source-local models once each for a by_source auto merge without CV."""
     execute = None
@@ -422,6 +431,10 @@ def run_by_source_auto_full_train(
 
     identity = mint_identity(spectro)
     train = spectro.index_column("sample", {"partition": "train"})
+    if train_sample_ids is not None:
+        if not train_sample_ids or len(train_sample_ids) != len(set(train_sample_ids)) or not set(train_sample_ids) <= set(train):
+            raise ValueError("full-training sample IDs must be a non-empty unique subset of the train partition")
+        train = list(train_sample_ids)
     test = spectro.index_column("sample", {"partition": "test"})
     envelope = build_envelope(spectro, identity, sample_ints=train)
     if test:
@@ -445,6 +458,8 @@ def run_by_source_auto_full_train(
         return run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform)
 
     warnings.warn(
+        "Single-fold file: fitting each source model on its declared train IDs once; validation IDs are a test holdout, not cross-validation."
+        if train_sample_ids is not None else
         "No splitter provided: fitting each source model on all training rows once; "
         "scores are training resubstitution or held-out test evaluation, not cross-validation.",
         NoSplitEvaluationWarning, stacklevel=2,
