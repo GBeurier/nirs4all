@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from nirs4all.operators.models.base import BaseModelOperator
+from nirs4all.operators.models.residual import ResidualModel
 
 
 def normalize_model_steps(steps: list[Any]) -> list[Any]:
@@ -57,7 +58,16 @@ def _is_linear_subpipeline(steps: list[Any]) -> bool:
     for step in steps:
         if isinstance(step, dict) and "model" in step and set(step) <= {"model", "train_params", "refit_params"}:
             model = step["model"]
-            if not callable(getattr(model, "fit", None)) or not callable(getattr(model, "predict", None)):
+            if not isinstance(model, BaseModelOperator) and (
+                not callable(getattr(model, "fit", None)) or not callable(getattr(model, "predict", None))
+            ):
+                return False
+            seen_model = True
+        elif isinstance(step, dict) and set(step) == {"residual"}:
+            operator = step["residual"]
+            if not isinstance(operator, ResidualModel) and not (
+                isinstance(operator, dict) and {"base", "learner"} <= set(operator)
+            ):
                 return False
             seen_model = True
         elif seen_model or not _is_bare_transform(step):

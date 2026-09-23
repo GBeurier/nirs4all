@@ -14,9 +14,9 @@ from ._dagml_cli import dagml_cli_path
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-@pytest.mark.parametrize("syntax", ["direct", "residual_instance"])
+@pytest.mark.parametrize("syntax", ["direct", "residual_instance", "nested_direct", "nested_model", "nested_residual_dict"])
 def test_residual_public_instance_forms_refit_and_replay(tmp_path, monkeypatch, mechanism: str, syntax: str) -> None:
-    """Both legacy instance forms retain a native residual fusion and archive."""
+    """Legacy instance and one-level subpipeline forms retain native replay."""
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
@@ -37,7 +37,16 @@ def test_residual_public_instance_forms_refit_and_replay(tmp_path, monkeypatch, 
 
     def pipeline() -> list:
         operator = ResidualModel(base=Ridge(alpha=1.0), learner=Ridge(alpha=1.0), gate=False)
-        step = operator if syntax == "direct" else {"residual": operator}
+        if syntax == "direct":
+            step = operator
+        elif syntax == "residual_instance":
+            step = {"residual": operator}
+        elif syntax == "nested_direct":
+            step = [operator]
+        elif syntax == "nested_model":
+            step = [{"model": operator}]
+        else:
+            step = [{"residual": {"base": Ridge(alpha=1.0), "learner": Ridge(alpha=1.0), "gate": False}}]
         return [KFold(2, shuffle=True, random_state=1), step]
 
     legacy = nirs4all.run(pipeline(), dataset(), engine="legacy", refit=False,
