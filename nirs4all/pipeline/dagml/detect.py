@@ -1321,6 +1321,21 @@ def _model_step_is_plain_estimator(model_step: dict[str, Any]) -> bool:
     return not any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model")
 
 
+def _selected_duplication_feature_branches(branches: list[list[Any]], merge_step: dict[str, Any]) -> list[list[Any]] | None:
+    """Apply the legacy feature-merge branch selector without changing order."""
+    feature_spec = merge_step["merge"]
+    if not isinstance(feature_spec, dict) or "features" not in feature_spec:
+        return branches
+    selection = feature_spec["features"]
+    if isinstance(selection, dict):
+        selection = selection.get("branches", "all")
+    if isinstance(selection, list):
+        if not selection or any(type(index) is not int or index < 0 or index >= len(branches) for index in selection):
+            return None
+        return [branches[index] for index in selection]
+    return branches if selection in (True, "all") else None
+
+
 def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], str] | None:
     """Detect the handled duplication-branch merge shapes, else ``None`` (fail-loud).
 
@@ -1393,16 +1408,9 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
         return None
     if merge_mode == "all" and not all(branch_has_model):
         return None
-    feature_spec = merge_step["merge"]
-    if merge_mode == "features" and isinstance(feature_spec, dict) and "features" in feature_spec:
-        selection = feature_spec["features"]
-        if isinstance(selection, dict):
-            selection = selection.get("branches", "all")
-        if isinstance(selection, list):
-            if not selection or any(type(index) is not int or index < 0 or index >= len(branches) for index in selection):
-                return None
-            branches = [branches[index] for index in selection]
-        elif selection not in (True, "all"):
+    if merge_mode == "features":
+        branches = _selected_duplication_feature_branches(branches, merge_step)
+        if branches is None:
             return None
     return branches, merge_mode
 

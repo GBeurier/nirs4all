@@ -74,7 +74,28 @@ def run_residual_model(
             ResidualImplicitCvWarning,
             stacklevel=2,
         )
-    prefix = _supported_body_steps([step for step in pipeline[:-1] if not _is_split_step(step)])
+    prefix = [step for step in pipeline[:-1] if not _is_split_step(step)]
+    branch_positions = [index for index, step in enumerate(prefix) if isinstance(step, dict) and "branch" in step]
+    if branch_positions:
+        from .detect import _duplication_branch_bodies, _selected_duplication_feature_branches, _simple_duplication_merge_mode
+        from .run_paths import _branch_merge_transformer_step
+
+        if len(branch_positions) != 1 or branch_positions[0] + 1 >= len(prefix):
+            raise DagMlUnsupported("residual branch prefix requires one duplication branch and feature merge")
+        branch_index = branch_positions[0]
+        merge_step = prefix[branch_index + 1]
+        merge_mode = _simple_duplication_merge_mode(merge_step)
+        if merge_mode not in {"features", "all"}:
+            raise DagMlUnsupported("residual branch prefix requires merge='features' or merge='all'")
+        branches = _duplication_branch_bodies(prefix[branch_index])
+        if branches is None:
+            raise DagMlUnsupported("residual feature merge requires duplication branch bodies")
+        if merge_mode == "features":
+            branches = _selected_duplication_feature_branches(branches, merge_step)
+            if branches is None:
+                raise DagMlUnsupported("residual feature merge has an invalid branch selection")
+        prefix = [*prefix[:branch_index], _branch_merge_transformer_step(branches, merge_mode), *prefix[branch_index + 2:]]
+    prefix = _supported_body_steps(prefix)
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
     if any(step["kind"] not in {"transform", "y_transform"} for step in prefix_steps):
         raise DagMlUnsupported("residual prefix requires X or target preprocessing steps")
