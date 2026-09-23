@@ -135,6 +135,33 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
 
 
 @pytest.mark.parity
+def test_legacy_by_source_auto_archive_has_no_replayable_model(tmp_path) -> None:
+    """Legacy writes an archive for independent source outputs, but it cannot replay it."""
+    import nirs4all
+    from nirs4all.pipeline.bundle.loader import BundleLoader
+
+    from .test_dagml_cli_runner import _two_source_distinct_dataset
+
+    dataset = _two_source_distinct_dataset()
+    pipeline = [
+        {"branch": {"by_source": True, "steps": {
+            "source_0": [{"model": Ridge(alpha=1.0)}],
+            "source_1": [{"model": Ridge(alpha=1.0)}],
+        }}},
+        {"merge": "auto"},
+    ]
+    legacy = nirs4all.run(
+        pipeline, dataset, engine="legacy", workspace_path=tmp_path / "workspace",
+        save_charts=False, verbose=0,
+    )
+    archive = legacy.export(tmp_path / "independent_sources.n4a")
+    source_x = dataset.x({"partition": "test"}, "2d", concat_source=False)[0]
+    with pytest.raises(RuntimeError, match="No model step found in bundle"):
+        BundleLoader(archive).predict(np.asarray(source_x))
+    legacy.close()
+
+
+@pytest.mark.parity
 def test_no_splitter_cli_by_metadata_concat_matches_legacy_and_archive(tmp_path, monkeypatch) -> None:
     import nirs4all
 
