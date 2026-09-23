@@ -11,6 +11,7 @@ import shutil
 import sys
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -21,7 +22,8 @@ from sklearn.model_selection import KFold, StratifiedKFold
 @pytest.mark.slow
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("task", ["regression", "classification"])
-def test_real_autogluon_cv_refit_and_portable_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str, task: str) -> None:
+@pytest.mark.parametrize("syntax", ["model", "framework"])
+def test_real_autogluon_cv_refit_and_portable_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str, task: str, syntax: str) -> None:
     """A saved directory replays after its original AutoGluon path disappears."""
     # The protocol-double tests may have populated these optional-import caches.
     sys.modules.pop("autogluon.tabular", None)
@@ -52,14 +54,16 @@ def test_real_autogluon_cv_refit_and_portable_archive(tmp_path: Path, monkeypatc
     else:
         y = (2 * x[:, 0] - x[:, 1] + 0.1 * rng.normal(size=100)).astype(np.float32)
         splitter = KFold(n_splits=2, shuffle=True, random_state=4)
-    pipeline = [
-        splitter,
-        {"model": {"framework": "autogluon"}, "train_params": {
-            "hyperparameters": {"GBM": {"num_boost_round": 10}},
-            "presets": "medium_quality", "time_limit": 30,
-        }},
-    ]
-    if mechanism == "in_process":
+    model_step: dict[str, Any] = {"train_params": {
+        "hyperparameters": {"GBM": {"num_boost_round": 10}},
+        "presets": "medium_quality", "time_limit": 30,
+    }}
+    if syntax == "model":
+        model_step["model"] = {"framework": "autogluon"}
+    else:
+        model_step["framework"] = "autogluon"
+    pipeline = [splitter, model_step]
+    if mechanism == "in_process" and syntax == "model":
         legacy = nirs4all.run(
             pipeline, (x, y), engine="legacy", workspace_path=tmp_path / "legacy",
             save_charts=False, verbose=0,

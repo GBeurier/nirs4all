@@ -24,6 +24,8 @@ def normalize_model_steps(steps: list[Any]) -> list[Any]:
             normalized.append(normalize_model_steps(step))
         elif isinstance(step, dict) and "branch" in step:
             normalized.append({**step, "branch": _normalize_branch(step["branch"])})
+        elif isinstance(step, dict) and step.get("framework") == "autogluon" and "model" not in step:
+            normalized.append({**step, "model": {"framework": "autogluon"}})
         elif not isinstance(step, dict) and callable(getattr(step, "fit", None)) and callable(getattr(step, "predict", None)):
             normalized.append({"model": step})
         else:
