@@ -575,3 +575,46 @@ def test_explicit_branch_model_names_and_archive_replay(tmp_path, monkeypatch, m
         assert np.sqrt(np.mean((y_test - replay) ** 2)) == pytest.approx(native.best_rmse, rel=1e-6, abs=1e-6)
     finally:
         native.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_explicit_merge_model_order_survives_native_fit_and_archive(tmp_path, monkeypatch, mechanism):
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    pipeline = [
+        KFold(3, shuffle=True, random_state=42),
+        {"branch": [
+            [{"model": PLSRegression(n_components=2)}, {"model": Ridge(alpha=10000)}],
+            [{"model": DecisionTreeRegressor(max_depth=3, random_state=42)}],
+        ]},
+        {"merge": {"predictions": [
+            {"branch": 0, "select": ["Ridge", "PLSRegression"]},
+            {"branch": 1, "select": ["DecisionTreeRegressor"]},
+        ]}},
+        {"model": Ridge(alpha=0.1)},
+    ]
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "train", save_artifacts=False,
+                         save_charts=False, verbose=0)
+    try:
+        assert native._dagml_stacking_source_orders["merge:stack"] == [
+            "branch:0.node:1", "branch:0.node:0", "branch:1.node:0",
+        ]
+        archive = native.export(tmp_path / "ordered.n4a")
+        dataset = DatasetConfigs(path).get_dataset_at(0)
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        y_test = np.asarray(dataset.y({"partition": "test"})).ravel()
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        assert np.sqrt(np.mean((y_test - replay) ** 2)) == pytest.approx(native.best_rmse, rel=1e-6, abs=1e-6)
+    finally:
+        native.close()

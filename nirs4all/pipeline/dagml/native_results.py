@@ -465,14 +465,15 @@ def _stacking_replay_manifest(
             if selector.get("select", "all") != "all":
                 from dag_ml import select_stacking_producers_json  # type: ignore[attr-defined]  # PyO3 export has no Python stub
 
-                selected_nodes = set(json.loads(select_stacking_producers_json(json.dumps({
+                selected_nodes = json.loads(select_stacking_producers_json(json.dumps({
                     "producer_nodes": [base_producers[index]["producer_node"] for index in selected],
                         "select": selector["select"], "metric": selector.get("metric") or "rmse",
                         "reports": reports,
                         "fold_ids": outer_fold_ids or [],
                         "producer_classes": producer_classes or {},
-                }))))
-                selected = [index for index in selected if base_producers[index]["producer_node"] in selected_nodes]
+                })))
+                selected_by_node = {base_producers[index]["producer_node"]: index for index in selected}
+                selected = [selected_by_node[node] for node in selected_nodes]
                 if not selected:
                     return None
             aggregate = selector.get("aggregate")
@@ -509,7 +510,8 @@ def _stacking_replay_manifest(
             if aggregate == "proba_mean" or selector.get("metadata", {}).get("prediction_output") == "proba":
                 group["proba"] = True
             replay_groups.append(group)
-        replay_groups.sort(key=lambda group: group["key"])
+        if target_node not in (source_orders or {}):
+            replay_groups.sort(key=lambda group: group["key"])
 
     return {
         "schema_version": 1,
