@@ -1606,7 +1606,7 @@ def _run_augmentation_full_train(
     return _attach_pre_augmentation_replay(result, replay_stages)
 
 
-def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None, capture: dict[str, Any] | None = None) -> RunResult:
+def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None, capture: dict[str, Any] | None = None, refit: bool = True) -> RunResult:
     """Run a ``sample_augmentation`` pipeline as ONE native dag-ml CV+refit on augmented train.
 
     Adds the synthetic train rows (real augmentation machinery), builds BASE-grain folds (each base
@@ -1691,6 +1691,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 
     separation = _detect_separation_branch(steps)
     if separation is not None:
+        if not refit:
+            raise DagMlUnsupported("refit=False with augmentation and a separation branch requires CV-only fan-out lowering")
         if allowed_base is not None:
             raise DagMlUnsupported("separation branch with post-augmentation exclusion needs branch-scoped exclusion views")
     else:
@@ -1787,7 +1789,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     pickle_path.write_bytes(pickle.dumps({"dataset": spectro, "fold_children": fold_children, "fold_feature_views": fold_feature_views} if fold_local else spectro))
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children, fold_feature_views=fold_feature_views, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children, fold_feature_views=fold_feature_views, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml augmentation run failed")

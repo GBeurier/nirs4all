@@ -1095,7 +1095,7 @@ def _dispatch_run(
                     variant, copy.deepcopy(spectro), dataset_arg, cli, venv_python or sys.executable,
                     base_dir / f"augmentation_variant_{index}", metric, task_type,
                     config_name=variant_config_names[index] if index < len(variant_config_names) else "",
-                    random_state=random_state, capture=capture,
+                    random_state=random_state, capture=capture, refit=refit,
                 )
                 if not capture:
                     raise DagMlUnsupported("generator before augmentation with a separation branch needs variant-scoped data views")
@@ -1131,9 +1131,8 @@ def _dispatch_run(
         or detected_by_source_stacking is not None
         or detected_rep_fusion is not None
         or detected_source_concat is not None
-        or augmentation_steps
     ):
-        raise DagMlUnsupported("refit=False with branch, source fusion, stacking, or augmentation requires CV-only lowering for that composition")
+        raise DagMlUnsupported("refit=False with branch, source fusion, or stacking requires CV-only lowering for that composition")
 
     # Remaining finetune declarations were preflighted as scoped host proposals;
     # the native model task owns their outer-training boundary.
@@ -1196,7 +1195,7 @@ def _dispatch_run(
         if augmentation_steps:
             return _run_augmentation(
                 list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable,
-                base_dir / "augment", metric, task_type, config_name=config_name, random_state=random_state,
+                base_dir / "augment", metric, task_type, config_name=config_name, random_state=random_state, refit=refit,
             )
         return _run_repetition(
             list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state, refit=refit
@@ -1428,7 +1427,7 @@ def _dispatch_run(
     # is augmented FOLD-LOCALLY (#32, fit inside each fold's train only + a full-train refit pass), so it
     # never sees a fold's validation rows.
     if augmentation_steps:
-        return _run_augmentation(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "augment", metric, task_type, config_name=config_name, random_state=random_state)
+        return _run_augmentation(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "augment", metric, task_type, config_name=config_name, random_state=random_state, refit=refit)
 
     if (reason := _unsupported_fallback_reason(list(pipeline))) is not None:
         raise DagMlUnsupported(reason)
