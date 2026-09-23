@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "inventory_complete": false,
+  "scope": "Candidate ordered positions of two model checkpoints around each state-changing pipeline stage. Classify legacy validity first; every legacy-successful row then needs a dual-engine PyO3/CLI oracle before the inventory can close.",
+  "candidate_intervening_stages": ["none", "preprocessing", "y_processing", "sample_augmentation", "feature_augmentation", "splitter", "branch", "merge", "exclude", "concat_transform"],
+  "patterns": [
+    {
+      "id": "model_then_metamodel",
+      "pipeline": "KFold -> base model -> MetaModel",
+      "intervening_stage": "meta_model",
+      "legacy": "success",
+      "coverage": "verified",
+      "evidence": ["tests/integration/parity/test_dagml_sequential_metamodel.py::test_named_metamodel_chain_uses_native_nested_oof_and_archive"]
+    },
+    {
+      "id": "model_then_augmentation_then_model",
+      "pipeline": "KFold -> PLSRegression -> sample_augmentation -> Ridge",
+      "intervening_stage": "sample_augmentation",
+      "legacy": "success",
+      "coverage": "gap",
+      "evidence": [],
+      "reason": "Legacy keeps the upstream PLS checkpoint and trains downstream Ridge after augmentation; DAG-ML currently refuses the upstream model checkpoint."
+    },
+    {"id": "model_then_model", "pipeline": "KFold -> model -> model", "intervening_stage": "none", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_preprocessing_then_model", "pipeline": "KFold -> model -> preprocessing -> model", "intervening_stage": "preprocessing", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_y_processing_then_model", "pipeline": "KFold -> model -> y_processing -> model", "intervening_stage": "y_processing", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_feature_augmentation_then_model", "pipeline": "KFold -> model -> feature_augmentation -> model", "intervening_stage": "feature_augmentation", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_splitter_then_model", "pipeline": "model -> splitter -> model", "intervening_stage": "splitter", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_branch_then_model", "pipeline": "KFold -> model -> branch -> model", "intervening_stage": "branch", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_merge_then_model", "pipeline": "KFold -> branch -> model -> merge -> model", "intervening_stage": "merge", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_exclude_then_model", "pipeline": "KFold -> model -> exclude -> model", "intervening_stage": "exclude", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_concat_transform_then_model", "pipeline": "KFold -> model -> concat_transform -> model", "intervening_stage": "concat_transform", "legacy": "unverified", "coverage": "unverified", "evidence": []}
+  ]
+}
