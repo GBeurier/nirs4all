@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.full_train import NoSplitEvaluationWarning
+from nirs4all.pipeline.dagml.rt import RtError
 
 from ._datasets import dataset_path
 
@@ -82,7 +83,7 @@ def test_no_splitter_cli_in_memory_training_has_no_fabricated_validation(monkeyp
 
 
 @pytest.mark.parity
-def test_no_splitter_cli_by_source_auto_matches_independent_source_models(monkeypatch) -> None:
+def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_path, monkeypatch) -> None:
     import nirs4all
 
     from ._dagml_cli import dagml_cli_path
@@ -110,7 +111,7 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(monkey
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
         with pytest.warns(NoSplitEvaluationWarning, match="No splitter"):
             results.append(nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0))
-    for result in results:
+    for mode, result in zip(("in_process", "cli"), results, strict=True):
         assert np.isnan(result.cv_best_score)
         assert len(result._dagml_refit_artifacts) == len(source_names)
         assert {frame["lineage"]["phase"] for frame in result._dagml_node_results} == {"REFIT"}
@@ -122,6 +123,15 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(monkey
             ).predict(np.asarray(test_blocks[index]).reshape(len(test_blocks[index]), -1))
             row = next(row for row in rows if row["branch_name"] == name)
             np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+        archive = tmp_path / f"by_source_auto_{mode}.n4a"
+        with pytest.raises(RtError, match="independent source predictions") as refused:
+            result.export(archive)
+        assert refused.value.unsupported_capability == "dagml_native_export"
+        assert "merge:mean" in refused.value.mitigation
+        assert not archive.exists()
+        with pytest.raises(RtError, match="independent source predictions"):
+            result.export(archive, compatibility="legacy-refit")
+        assert not archive.exists()
 
 
 @pytest.mark.parity

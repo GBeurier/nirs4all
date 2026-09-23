@@ -489,6 +489,7 @@ def run_by_source_auto_full_train(
     predictions.flush()
     result = RunResult(predictions=predictions, per_dataset={spectro.name: {
         "engine": "dag-ml", "execution_profile": "full_train", "evaluation": evaluation,
+        "output_topology": "independent_by_source",
     }})
     result._dagml_score_set = outcome["scores"]  # noqa: SLF001
     result._dagml_node_results = outcome["node_results"]  # noqa: SLF001
