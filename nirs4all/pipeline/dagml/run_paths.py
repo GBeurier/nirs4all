@@ -4192,9 +4192,18 @@ def _assemble_stacking_dsl(
     task_type: str, random_state: int | None, group_by_sample: dict[int, str] | None,
     source_layout: dict[str, Any] | None = None,
     prediction_aggregations: list[dict[str, Any]] | None = None,
+    selection_metric: str = "rmse",
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     """Declare the same nested OOF graph for concrete runs and whole-stack HPO."""
     meta_metadata = _stacking_model_metadata(pipeline)
+    from nirs4all.operators.models.meta import MetaModel, TestAggregation
+
+    meta_wrapper = next((step.get("model") for step in reversed(pipeline)
+                         if isinstance(step, dict) and isinstance(step.get("model"), MetaModel)), None)
+    best_fold = meta_wrapper is not None and meta_wrapper.stacking_config.test_aggregation == TestAggregation.BEST_FOLD
+    if best_fold:
+        meta_metadata["stacking_test_aggregation"] = "best"
+        meta_metadata["stacking_test_metric"] = selection_metric
     if meta_metadata.get("nirs4all_finetune_params"):
         raise DagMlUnsupported(
             "meta-model HPO requires a native whole-stack nested search; "
@@ -4206,7 +4215,8 @@ def _assemble_stacking_dsl(
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
     from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
 
-    outer_partition_mode = build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode")
+    outer_fold_set = build_fold_set(identity, folds, set_id="folds.stacking.outer")
+    outer_partition_mode = outer_fold_set.get("partition_mode")
     refit_oof = {"stacking_refit_oof": "partitioned_inner_v1"} if outer_partition_mode == "resampled" else {}
     refit_policy = "require_full_coverage"
     # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
@@ -4234,6 +4244,16 @@ def _assemble_stacking_dsl(
             },
         ],
     }
+
+    if best_fold:
+        for branch in canonical_dsl["steps"][0]["branches"]:
+            for step in branch["steps"]:
+                if step["kind"] == "model":
+                    step["metadata"] = {
+                        **step.get("metadata", {}),
+                        "nirs4all_stack_fold_capture": True,
+                        "nirs4all_stack_outer_fold_ids": [fold["fold_id"] for fold in outer_fold_set["folds"]],
+                    }
 
     if prediction_aggregations:
         selected_branches = {
@@ -4332,6 +4352,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         pipeline, branches, meta_learner, spectro, identity, pool, folds, envelope,
         task_type=task_type, random_state=random_state, group_by_sample=group_by_sample, source_layout=source_layout,
         prediction_aggregations=prediction_aggregations,
+        selection_metric=metric,
     )
 
     outcome = run_cv_refit_bundle(
@@ -4339,6 +4360,41 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml stacking run failed")
+
+    from nirs4all.operators.models.meta import MetaModel, TestAggregation
+
+    best_fold = any(
+        isinstance(step, dict) and isinstance(step.get("model"), MetaModel)
+        and step["model"].stacking_config.test_aggregation == TestAggregation.BEST_FOLD
+        for step in pipeline
+    )
+    if best_fold and outcome["refit_artifacts"]:
+        import json
+
+        import dag_ml
+
+        from .native_results import _producer_node_from_artifact_id
+        from .node_runner import _DagmlSelectedFoldEstimator
+
+        reports = outcome["scores"].get("reports", [])
+        outer_fold_ids = [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]]
+        for artifact in outcome["refit_artifacts"]:
+            producer = _producer_node_from_artifact_id(artifact.get("artifact_id"))
+            if producer not in base_model_ids:
+                continue
+            fold_estimators = artifact.pop("fold_estimators", None)
+            if not fold_estimators:
+                raise DagMlUnsupported(f"stacking best-fold replay has no captured CV estimators for {producer}")
+            if any(fold_id not in fold_estimators for fold_id in outer_fold_ids):
+                raise DagMlUnsupported(f"stacking best-fold replay is missing an outer-fold estimator for {producer}")
+            fold_estimators = {fold_id: fold_estimators[fold_id] for fold_id in outer_fold_ids}
+            selected = json.loads(dag_ml.select_stacking_fold_json(json.dumps({
+                "producer_node": producer,
+                "fold_ids": list(fold_estimators),
+                "metric": metric,
+                "reports": reports,
+            })))
+            artifact["estimator"] = _DagmlSelectedFoldEstimator(fold_estimators, selected)
 
     # List form exposes the ensemble; named form also exposes each base producer.
     model_label = f"MetaModel_{type(meta_learner).__name__}"

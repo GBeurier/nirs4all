@@ -9,7 +9,8 @@ from sklearn.model_selection import KFold
 
 import nirs4all
 from nirs4all.data.config import DatasetConfigs
-from nirs4all.operators.models.meta import MetaModel
+from nirs4all.operators.models.meta import MetaModel, StackingConfig
+from nirs4all.operators.models.meta import TestAggregation as FoldAggregation
 from nirs4all.pipeline.dagml.detect import (
     _detect_proba_mean_stacking_branch,
     _detect_sequential_metamodel,
@@ -81,6 +82,49 @@ def test_selected_source_archive_matches_native_final_test(tmp_path, monkeypatch
                          save_charts=False, verbose=0)
     try:
         archive = native.export(tmp_path / "selected.n4a")
+        dataset = DatasetConfigs(path).get_dataset_at(0)
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        y_test = np.asarray(dataset.y({"partition": "test"})).ravel()
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        assert replay.shape == y_test.shape
+        assert np.sqrt(np.mean((y_test - replay) ** 2)) == pytest.approx(native.best_rmse, rel=1e-6, abs=1e-6)
+    finally:
+        native.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_sequential_best_fold_test_features_and_archive_replay(tmp_path, monkeypatch, mechanism):
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    pipeline = [
+        KFold(3, shuffle=True, random_state=42),
+        PLSRegression(n_components=2),
+        Ridge(alpha=10000),
+        {"model": MetaModel(Ridge(alpha=1), stacking_config=StackingConfig(
+            test_aggregation=FoldAggregation.BEST_FOLD,
+        ))},
+    ]
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "train", save_artifacts=False,
+                         save_charts=False, verbose=0)
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert np.isfinite(native.best_rmse)
+        selected = [artifact["estimator"] for artifact in native._dagml_refit_artifacts
+                    if hasattr(artifact["estimator"], "selected_fold")]
+        assert len(selected) == 2
+        assert all(estimator.selected_fold in estimator.fold_estimators for estimator in selected)
+        archive = native.export(tmp_path / "best_fold.n4a")
         dataset = DatasetConfigs(path).get_dataset_at(0)
         x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
         y_test = np.asarray(dataset.y({"partition": "test"})).ravel()
