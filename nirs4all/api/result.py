@@ -918,12 +918,30 @@ class _DagmlNativeStackingModel:
 class _DagmlNativeResidualModel:
     """Replay two captured stage models with DAG-ML's fitted scalar fusion."""
 
-    def __init__(self, base: _DagmlExportedModel, learner: _DagmlExportedModel, weight: float) -> None:
+    def __init__(
+        self, base: _DagmlExportedModel, learner: _DagmlExportedModel, weight: float,
+        feature_members: list[_DagmlExportedModel] | None = None,
+    ) -> None:
         if not np.isfinite(weight):
             raise ValueError("residual replay weight must be finite")
         self.base = base
         self.learner = learner
         self.weight = float(weight)
+        self.feature_members = feature_members or []
+
+    def _features(self, X: Any, metadata: Mapping[str, Any] | None = None) -> Any:
+        if not self.feature_members:
+            return X
+        blocks = [
+            np.asarray(
+                member.predict_numeric_with_metadata(X, metadata) if metadata is not None else member.predict_numeric(X),
+                dtype=float,
+            ).reshape(len(X), -1)
+            for member in self.feature_members
+        ]
+        if any(len(block) != len(X) for block in blocks):
+            raise ValueError("residual prediction-feature replay changed sample count")
+        return np.column_stack(blocks)
 
     @property
     def metadata_key(self) -> str | None:
@@ -931,6 +949,7 @@ class _DagmlNativeResidualModel:
         return next(iter(keys)) if len(keys) == 1 else None
 
     def predict_numeric(self, X: Any) -> np.ndarray:
+        X = self._features(X)
         base = np.asarray(self.base.predict_numeric(X), dtype=float)
         learner = np.asarray(self.learner.predict_numeric(X), dtype=float)
         base = base.reshape(len(base), -1)
@@ -946,6 +965,7 @@ class _DagmlNativeResidualModel:
         return self.predict_numeric(X)
 
     def predict_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
+        X = self._features(X, metadata)
         base = np.asarray(self.base.predict_numeric_with_metadata(X, metadata), dtype=float)
         learner = np.asarray(self.learner.predict_numeric_with_metadata(X, metadata), dtype=float)
         base = base.reshape(len(base), -1)
@@ -2669,12 +2689,23 @@ class RunResult:
 
         residual = native_manifest.get("residual_replay")
         if isinstance(residual, Mapping) and residual.get("producer_node") in _native_final_producers(native):
-            if residual.get("schema_version") != 1 or len(artifacts) != 2:
+            feature_nodes = residual.get("feature_producer_nodes") or []
+            if (residual.get("schema_version") != 1 or not isinstance(feature_nodes, list)
+                    or any(not isinstance(node, str) for node in feature_nodes)
+                    or len(set(feature_nodes)) != len(feature_nodes)
+                    or len(artifacts) != 2 + len(feature_nodes)):
                 return None
             by_producer = {str(artifact.get("producer_node")): artifact for artifact in artifacts}
+            if len(by_producer) != len(artifacts):
+                return None
             base = by_producer.get(str(residual.get("base_producer_node")))
             learner = by_producer.get(str(residual.get("learner_producer_node")))
             if base is None or learner is None or base is learner:
+                return None
+            feature_artifacts = [by_producer.get(node) for node in feature_nodes]
+            if any(artifact is None for artifact in feature_artifacts) or set(by_producer) != {
+                str(residual.get("base_producer_node")), str(residual.get("learner_producer_node")), *feature_nodes,
+            }:
                 return None
             try:
                 weight = float(residual["lambda"]) * float(residual["gate"])
@@ -2684,6 +2715,7 @@ class RunResult:
                 _DagmlExportedModel(base["estimator"], base["y_transform"]),
                 _DagmlExportedModel(learner["estimator"], learner["y_transform"]),
                 weight,
+                [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in feature_artifacts],
             )
             return write_single_model_bundle(
                 residual_model,
@@ -2692,7 +2724,7 @@ class RunResult:
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
                 provenance=_dagml_native_bundle_provenance(
                     native_manifest, export_path="dagml_native_residual",
-                    artifact_count=2, export_shape="residual_base_plus_learner",
+                    artifact_count=len(artifacts), export_shape="residual_prediction_features" if feature_nodes else "residual_base_plus_learner",
                     retrain_lineage=getattr(self, "_retrain_lineage", None),
                 ),
                 train_steps=train_steps,

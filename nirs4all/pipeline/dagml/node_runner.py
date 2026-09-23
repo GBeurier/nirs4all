@@ -230,6 +230,37 @@ class _PartitionedXChain:
         return output
 
 
+class _PredictionFeatureChain:
+    """Opaque data-edge payload for a native, identity-keyed prediction matrix."""
+
+    def __init__(self, primary: dict[str, Any], off_fold: dict[str, Any] | None = None) -> None:
+        self.columns = tuple(primary["columns"])
+        self.rows: dict[str, np.ndarray] = {}
+        for matrix in (primary, off_fold):
+            if matrix is None:
+                continue
+            if tuple(matrix["columns"]) != self.columns:
+                raise ValueError("prediction feature join changed column order between fit and predict")
+            values = np.asarray(matrix["values"], dtype=float)
+            ids = matrix["sample_ids"]
+            if values.ndim != 2 or values.shape != (len(ids), len(self.columns)):
+                raise ValueError("prediction feature join received a malformed native matrix")
+            for sample_id, row in zip(ids, values, strict=True):
+                if sample_id in self.rows:
+                    raise ValueError(f"prediction feature join repeated sample {sample_id!r}")
+                self.rows[sample_id] = row
+
+    def transform_ids(
+        self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> np.ndarray:
+        if len(X) != len(sample_ids) or len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("prediction feature join requires unique aligned sample IDs")
+        try:
+            return np.stack([self.rows[sample_id] for sample_id in sample_ids])
+        except KeyError as error:
+            raise ValueError(f"prediction feature join has no attested row for {error.args[0]!r}") from error
+
+
 class _PartitionJoinedEstimator:
     """Archive-safe fitted model whose feature routing requires metadata."""
 
@@ -258,7 +289,7 @@ def _fitted_x_path(handle: int) -> Path | None:
     return Path(directory) / f"{handle}.joblib" if directory else None
 
 
-def _persist_fitted_x(handle: int, chain: _FittedXChain | _PartitionedXChain) -> None:
+def _persist_fitted_x(handle: int, chain: _FittedXChain | _PartitionedXChain | _PredictionFeatureChain) -> None:
     """Transfer a fitted data-edge payload between controller-specific CLI workers."""
     path = _fitted_x_path(handle)
     if path is None:
@@ -731,6 +762,8 @@ def _output_handles(task: dict[str, Any], handle: int) -> dict[str, Any]:
     outputs = {"out": {"handle": handle, "kind": "data", "owner_controller": controller_id}}
     if kind in ("model", "tuner"):
         outputs["oof"] = {"handle": handle, "kind": "prediction", "owner_controller": controller_id}
+    elif kind == "prediction_join" and task.get("prediction_feature_matrix") is not None:
+        outputs["x_out"] = {"handle": handle, "kind": "data", "owner_controller": controller_id}
     elif kind == "prediction_join":
         outputs["prediction"] = {"handle": handle, "kind": "prediction", "owner_controller": controller_id}
     else:
@@ -789,7 +822,7 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     }
 
 
-def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | None:
+def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _PredictionFeatureChain | None:
     payload = model_store.get(handle)
     if payload is None:
         path = _fitted_x_path(handle)
@@ -798,10 +831,10 @@ def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _Fitt
 
             payload = joblib.load(path)  # noqa: S301 - written by this run's own transform worker
             model_store[handle] = payload
-    return payload if isinstance(payload, (_FittedXChain, _PartitionedXChain)) else None
+    return payload if isinstance(payload, (_FittedXChain, _PartitionedXChain, _PredictionFeatureChain)) else None
 
 
-def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | None:
+def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _PredictionFeatureChain | None:
     """Resolve a predecessor transform through the native data-edge handle."""
     chains = []
     seen: set[int] = set()
@@ -839,6 +872,19 @@ def _run_feature_join_node(task: dict[str, Any], model_store: MutableMapping[Any
             raise ValueError(f"partition feature join input {key!r} is not a fitted X branch")
         branches.append((branch_view.get("selector") or {}, payload))
     joined = _PartitionedXChain(branches)
+    result = _build_result(task, [], [], {})
+    handle = result["outputs"]["x_out"]["handle"]
+    model_store[handle] = joined
+    _persist_fitted_x(handle, joined)
+    return result
+
+
+def _run_prediction_feature_join_node(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> dict[str, Any]:
+    """Materialize only the native matrix; row selection is owned by DAG-ML."""
+    primary = task.get("prediction_feature_matrix")
+    if not isinstance(primary, dict):
+        raise ValueError("prediction feature join is missing its native sample-keyed matrix")
+    joined = _PredictionFeatureChain(primary, task.get("prediction_feature_off_fold_matrix"))
     result = _build_result(task, [], [], {})
     handle = result["outputs"]["x_out"]["handle"]
     model_store[handle] = joined
@@ -1111,7 +1157,8 @@ def run_model_node(
     if phase == "PREDICT":
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
-        joined_chain = None
+        incoming_chain = _fitted_input_chain(task, model_store)
+        joined_chain = incoming_chain if isinstance(incoming_chain, _PredictionFeatureChain) else None
         multi_block = isinstance(estimator, _MultiBlockEstimator)
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
@@ -1138,7 +1185,7 @@ def run_model_node(
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
         fitted_chain = _fitted_input_chain(task, model_store)
-        joined_chain = fitted_chain if isinstance(fitted_chain, _PartitionedXChain) else None
+        joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _PredictionFeatureChain)) else None
         if fitted_chain is None and any(
             (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
             for upstream_id in _upstream_x_chain(node_id, edges)
@@ -1267,8 +1314,10 @@ def run_model_node(
         else:
             x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True, fold_label=fold_label)["values"])
         if joined_chain is not None:
-            if source_concat or multi_block or source_index is not None or sample_metadata is None:
-                raise ValueError("partition feature join requires a single source and sample metadata")
+            if source_concat or multi_block or source_index is not None:
+                raise ValueError("joined prediction/feature data requires one feature source")
+            if isinstance(joined_chain, _PartitionedXChain) and sample_metadata is None:
+                raise ValueError("partition feature join requires sample metadata")
             x_train = joined_chain.transform_ids(x_train, fit_ids, sample_metadata)
         target_block = resolver.resolve_targets(resolver.target_sample_ids(fit_ids))
         y_train = np.asarray(target_block["values"], dtype=float)
@@ -1336,7 +1385,7 @@ def run_model_node(
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
         if joined_chain is not None:
-            if sample_metadata is None:
+            if isinstance(joined_chain, _PartitionedXChain) and sample_metadata is None:
                 raise ValueError("partition feature join requires sample metadata")
             x = joined_chain.transform_ids(x, ids, sample_metadata)
         return x, options
@@ -1460,7 +1509,7 @@ def run_model_node(
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
         model_store[artifact_handle] = {
-            "estimator": _PartitionJoinedEstimator(estimator, joined_chain, joined_chain.metadata_key()) if joined_chain is not None else estimator,
+            "estimator": _PartitionJoinedEstimator(estimator, joined_chain, joined_chain.metadata_key()) if isinstance(joined_chain, _PartitionedXChain) else estimator,
             "y_transform": y_transform,
             "target_decoder": resolver.target_decoder(),
         }
@@ -1713,6 +1762,8 @@ def run_node(
         return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata)
     if kind == "feature_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("merge_mode") == "concat":
         return _run_feature_join_node(task, model_store)
+    if kind == "prediction_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("prediction_feature_execution") == "native_oof_v1":
+        return _run_prediction_feature_join_node(task, model_store)
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)

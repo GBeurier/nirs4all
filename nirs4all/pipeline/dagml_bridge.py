@@ -38,6 +38,7 @@ _META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
 _META_MODEL_REF = "nirs4all.meta_model"
 _RESIDUAL_LEARNER_CONTROLLER_ID = "controller:nirs4all.residual_learner"
 _RESIDUAL_LEARNER_REF = "nirs4all.residual_learner"
+_PREDICTION_FEATURE_CONTROLLER_ID = "controller:nirs4all.prediction_feature_join"
 
 # Every nirs4all generation keyword (mirrors config._generator.keywords.GENERATION_KEYWORDS). Used
 # to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
@@ -1258,6 +1259,21 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "artifact_policy": "serializable",
         },
         {
+            "controller_id": _PREDICTION_FEATURE_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "prediction_join",
+            "priority": 10,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "data_requirements": None,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "consumes_oof_predictions"],
+            "operator_selectors": [],
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
             # Stacking meta-model (backlog #10). The meta-node compiles to a `model`-kind node (it fits
             # a real estimator) but is distinguished from a base model by `metadata.controller_id` set to
             # this id (dag-ml's `requested_controller` binds it directly). It declares
@@ -1348,6 +1364,15 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "controller_version": _NIRS4ALL_VERSION,
             "operator_kind": "prediction_join",
             "priority": 20,
+        },
+        {
+            "controller_id": _PREDICTION_FEATURE_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "prediction_join",
+            "priority": 10,
+            "added_capabilities": ["consumes_oof_predictions"],
+            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
         },
         {
             "controller_id": "controller:nirs4all.meta_model",
