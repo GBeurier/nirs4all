@@ -84,3 +84,49 @@ def test_residual_learner_train_params_reach_native_fit(tmp_path, monkeypatch) -
     assert learner.get_params()["alpha"] == pytest.approx(4.0)
     assert learner._nirs4all_training_controls["model_params"]["alpha"] == pytest.approx(4.0)
     native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("merge_mode", ["features", "all", "selected"])
+def test_residual_after_duplication_feature_merge_refit_and_replay(tmp_path, monkeypatch, mechanism: str, merge_mode: str) -> None:
+    """Reuse the fold-local feature-merge transformer before both residual stages."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    branches = (
+        [[StandardScaler(), {"model": Ridge(alpha=0.1)}], [MinMaxScaler(), {"model": Ridge(alpha=1.0)}]]
+        if merge_mode == "all" else [[StandardScaler()], [MinMaxScaler()]]
+    )
+    merge = {"features": [0]} if merge_mode == "selected" else merge_mode
+    pipeline = [
+        KFold(2, shuffle=True, random_state=1),
+        {"branch": branches},
+        {"merge": merge},
+        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=False)},
+    ]
+    source = dataset_path("regression")
+    legacy = nirs4all.run(
+        pipeline, source, engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy-branch", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    native = nirs4all.run(
+        pipeline, source, engine="dag-ml", refit=True,
+        workspace_path=tmp_path / "native-branch", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(native.cv_best_score)
+    assert np.isfinite(native.best_rmse)
+    archive = native.export(tmp_path / "residual_branch_features.n4a")
+    dataset = DatasetConfigs(source).get_dataset_at(0)
+    expected = np.asarray(dataset.y({"partition": "test"})).ravel()
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    assert np.sqrt(np.mean((expected - np.asarray(replay.y_pred).ravel()) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
+    native.close()
