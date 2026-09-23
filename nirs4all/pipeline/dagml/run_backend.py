@@ -518,13 +518,16 @@ def run_via_dagml(
                 metadata["refit_enabled"] = False
         record_execution_lane(result, result_lane_record(result))
         from .envelope import target_names
+        from .public_batch import DagMLBatchResult
 
         result._dagml_target_names = target_names(spectro)
+        views = [result, *result.runs] if isinstance(result, DagMLBatchResult) else [result]
         for key in ("relation_replay_manifest", "relation_materialization_manifest", "data_provider_evidence"):
             relation = getattr(spectro, "_" + key, None)
             if isinstance(relation, dict):
-                for metadata in result.per_dataset.values():
-                    metadata[key] = copy.deepcopy(relation)
+                for view in views:
+                    for metadata in view.per_dataset.values():
+                        metadata[key] = copy.deepcopy(relation)
         check_cancellation()
         _attach_export_spec(result, pipeline, dataset, name, random_state)
         workspace_path = None
