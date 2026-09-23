@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -72,6 +73,20 @@ def source_order(dataset: SpectroDataset) -> list[str]:
     except Exception:  # noqa: BLE001 - match legacy's defensive fallback
         return [f"source_{index}" for index in range(n_sources)]
     return names
+
+
+def _numeric_feature_axis(dataset: SpectroDataset, source_index: int) -> list[str] | None:
+    """Return cm⁻¹ coordinates only when this source has valid spectral headers."""
+    if dataset.headers(source_index) is None or dataset.header_unit(source_index) not in ("cm-1", "nm"):
+        return None
+    try:
+        wavelengths = dataset.wavelengths_cm1(source_index)
+        if len(wavelengths) != _num_wavelengths(dataset, source_index):
+            return None
+        coordinates = [float(value) for value in wavelengths]
+    except (ValueError, TypeError, OverflowError):
+        return None
+    return [str(value) for value in coordinates] if all(math.isfinite(value) for value in coordinates) else None
 
 
 def _params_fingerprint(transform_id: str) -> str:
@@ -596,12 +611,9 @@ def build_envelope(
     # data plan. DAG-ML validates/carries them on each DataBinding, while the
     # materialization provider remains the authority for actual feature rows.
     feature_axes = {
-        source: [str(value) for value in wavelengths]
+        source: axis
         for index, source in enumerate(sources)
-        if dataset.headers(index) is not None
-        and dataset.header_unit(index) in ("cm-1", "nm")
-        and (wavelengths := dataset.wavelengths_cm1(index)) is not None
-        and len(wavelengths) == _num_wavelengths(dataset, index)
+        if (axis := _numeric_feature_axis(dataset, index)) is not None
     }
     if feature_axes:
         out["_host_feature_axes"] = feature_axes

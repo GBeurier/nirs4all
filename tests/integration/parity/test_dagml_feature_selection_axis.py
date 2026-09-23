@@ -120,3 +120,19 @@ def test_selection_accepts_mixed_numeric_and_index_source_axes(tmp_path, monkeyp
     assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
     archive = native.export(tmp_path / "mixed_selected_axes.n4a")
     assert np.asarray(nirs4all.predict(archive, np.hstack([first[24:], second[24:]])).y_pred).shape == (6,)
+
+
+def test_selection_with_invalid_numeric_headers_uses_indices(monkeypatch):
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    rng = np.random.default_rng(44)
+    x = rng.normal(size=(30, 20))
+    y = 3 * x[:, 2] - x[:, 9] + rng.normal(size=30) * 0.1
+    headers = [f"feature_{index}" for index in range(20)]
+    dataset = SpectroDataset("invalid_spectral_headers")
+    dataset.add_samples(x[:24], {"partition": "train"}, headers=headers, header_unit="cm-1")
+    dataset.add_samples(x[24:], {"partition": "test"}, headers=headers, header_unit="cm-1")
+    dataset.add_targets(y)
+    pipeline = [CARS(n_components=2, n_sampling_runs=10, random_state=42), KFold(2), {"model": Ridge()}]
+    legacy = nirs4all.run(pipeline, dataset, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
