@@ -75,12 +75,17 @@ def _folds_from_scores(result: Any) -> list[tuple[list[int], list[int]]]:
     return [(group["train"], group["val"]) for group in groups.values() if "train" in group and "val" in group]
 
 
-def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, summary: str, image_name: str, *, include_excluded: bool) -> None:
+def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, summary: str, image_name: str, *,
+                       include_excluded: bool, source_index: int | None = None, color_column: str | None = None) -> None:
     """Expose exact plotted inputs without requiring interpretation of colors."""
     sample_indices = snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=include_excluded)
     arrays = snapshot.x(context.selector, "3d", False, include_excluded=include_excluded)
     arrays = arrays if isinstance(arrays, list) else [arrays]
     targets = np.asarray(snapshot.y(context, include_excluded=include_excluded)).reshape(len(sample_indices), -1)
+    origins = [snapshot._indexer.get_origin_for_sample(int(sample_id)) for sample_id in sample_indices]
+    colors = None
+    if color_column is not None:
+        colors = np.asarray(snapshot.metadata_column(color_column, context.selector, include_augmented=True)).reshape(len(sample_indices), -1)
     data_name = f"{stem}.csv"
     excluded = {
         int(row["sample"]): str(row.get("exclusion_reason") or "")
@@ -88,13 +93,19 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
     }
     with (directory / data_name).open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["sample_index", "excluded", "exclusion_reason", "source", "processing", "feature_index", "value", *[f"target_{i}" for i in range(targets.shape[1])]])
+        writer.writerow(["sample_index", "origin_sample_index", "synthetic", "excluded", "exclusion_reason", "source", "processing", "feature_index", "value",
+                         *[f"target_{i}" for i in range(targets.shape[1])], *([f"color_{color_column}_{i}" for i in range(colors.shape[1])] if colors is not None else [])])
         for source, array in enumerate(arrays):
+            if source_index is not None and source != source_index:
+                continue
             for sample, sample_data in enumerate(array):
                 for processing, values in enumerate(sample_data):
                     for feature, value in enumerate(values):
                         sample_id = int(sample_indices[sample])
-                        writer.writerow([sample_id, sample_id in excluded, excluded.get(sample_id, ""), source, processing, feature, float(value), *targets[sample].tolist()])
+                        origin = origins[sample]
+                        writer.writerow([sample_id, origin, origin is not None and origin != sample_id,
+                                         sample_id in excluded, excluded.get(sample_id, ""), source, processing, feature,
+                                         float(value), *targets[sample].tolist(), *(colors[sample].tolist() if colors is not None else [])])
     (directory / f"{stem}.json").write_text(json.dumps({"summary": summary, "folds": snapshot.folds}, indent=2), encoding="utf-8")
     excluded_table = ""
     if excluded:
@@ -198,6 +209,7 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
             context = context.with_y("chart_refit")
         controller = next(cls for cls in CONTROLLER_REGISTRY if cls.__module__.startswith("nirs4all.controllers.charts.") and cls.matches(step, parsed.operator, parsed.keyword))
         _, output = controller().execute(parsed, snapshot, context, runtime)
+        color_column = parsed.keyword[5:] if parsed.keyword.startswith("fold_") and parsed.keyword != "fold_chart" else None
         scope = ("full-training REFIT augmentation view; not out-of-fold features; observed and synthetic augmentation features"
                  if augmentation_count else ("captured full-training REFIT transforms; not out-of-fold features" if prefix else "original observed features"))
         target_scope = "captured REFIT target transform" if processed_target else "original numeric targets"
@@ -207,7 +219,8 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
             chart_subject = f"{parsed.keyword}: {plotted_count - excluded_count} included and {excluded_count} excluded samples in {chart_partition or 'all'} partition"
         else:
             chart_subject = f"{parsed.keyword}: {plotted_count} samples"
-        summary = f"{chart_subject}; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
+        color_scope = f" Color coding uses metadata column {color_column!r}." if color_column is not None else ""
+        summary = f"{chart_subject}; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds.{color_scope} Numeric inputs and fold memberships are supplied alongside the image."
         if directory is None:
             print(summary)
         else:
@@ -216,7 +229,9 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
                 stem = f"step_{index:03d}_{number:02d}"
                 image_path = directory / f"{stem}.{extension}"
                 image_path.write_bytes(data)
-                _write_alternative(directory, stem, snapshot, context, summary, image_path.name, include_excluded=include_excluded)
+                source_index = number if controller.use_multi_source() and len(output.outputs) == snapshot.features_sources() else None
+                _write_alternative(directory, stem, snapshot, context, summary, image_path.name,
+                                   include_excluded=include_excluded, source_index=source_index, color_column=color_column)
                 output_paths.append(str(directory / f"{stem}.html"))
     if plots_visible:
         import matplotlib.pyplot as plt
