@@ -77,14 +77,14 @@ def source_order(dataset: SpectroDataset) -> list[str]:
 
 def _numeric_feature_axis(dataset: SpectroDataset, source_index: int) -> list[str] | None:
     """Return cm⁻¹ coordinates only when this source has valid spectral headers."""
-    if dataset.headers(source_index) is None or dataset.header_unit(source_index) not in ("cm-1", "nm"):
-        return None
     try:
+        if dataset.headers(source_index) is None or dataset.header_unit(source_index) not in ("cm-1", "nm"):
+            return None
         wavelengths = dataset.wavelengths_cm1(source_index)
         if len(wavelengths) != _num_wavelengths(dataset, source_index):
             return None
         coordinates = [float(value) for value in wavelengths]
-    except (ValueError, TypeError, OverflowError):
+    except (IndexError, ValueError, TypeError, OverflowError):
         return None
     return [str(value) for value in coordinates] if all(math.isfinite(value) for value in coordinates) else None
 
