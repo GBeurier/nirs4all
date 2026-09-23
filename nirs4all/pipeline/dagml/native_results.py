@@ -454,7 +454,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
     if stacking_replay is not None:
         manifest["stacking_replay"] = stacking_replay
-    for key in ("relation_replay_manifest", "relation_materialization_manifest", "source_stacking", "stacking_evaluation", "separation_replay"):
+    for key in ("relation_replay_manifest", "relation_materialization_manifest", "source_stacking", "stacking_evaluation", "separation_replay", "residual_replay"):
         recorded = [metadata[key] for metadata in getattr(result, "per_dataset", {}).values() if isinstance(metadata.get(key), dict)]
         if recorded and all(value == recorded[0] for value in recorded):
             manifest[key] = recorded[0]

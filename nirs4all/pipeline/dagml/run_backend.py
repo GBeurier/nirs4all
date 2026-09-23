@@ -981,6 +981,16 @@ def _dispatch_run(
     pipeline = normalize_model_steps(pipeline)
     pipeline = _lower_step_na_replacement(list(pipeline))
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
+    from .residual_run import residual_operator, run_residual_model
+
+    residual = residual_operator(pipeline)
+    if residual is not None:
+        return run_residual_model(
+            pipeline, residual, spectro, dataset_arg, cli,
+            venv_python or sys.executable, base_dir / "residual", metric, task_type,
+            dataset_pickle=host_pickle, config_name=config_name,
+            random_state=random_state, refit=refit,
+        )
     if refit_top_k > 1 and _generation_kind(list(pipeline)) not in {"param_model", "operator"}:
         raise DagMlUnsupported("refit top_k>1 currently requires a native parameter or operator sweep")
     rep_source_branch = _detect_rep_to_sources_by_source(pipeline)

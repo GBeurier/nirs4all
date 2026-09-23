@@ -36,7 +36,7 @@ from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.pipeline import make_pipeline
 from sklearn.utils.metaestimators import available_if
 
-from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID
+from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _RESIDUAL_LEARNER_CONTROLLER_ID
 
 from .operator_routing import route_graph_node
 
@@ -986,6 +986,7 @@ def run_model_node(
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
+    residual_mode = node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID
     source_index = _source_index(graph_node)
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
     # the early-fusion concat. ``multi_block`` is true ONLY when BOTH the model is a multi-block consumer
@@ -1147,6 +1148,18 @@ def run_model_node(
             x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True, fold_label=fold_label)["values"])
         target_block = resolver.resolve_targets(resolver.target_sample_ids(fit_ids))
         y_train = np.asarray(target_block["values"], dtype=float)
+        if residual_mode:
+            residual_targets = task.get("residual_targets")
+            if not isinstance(residual_targets, dict):
+                raise ValueError("residual learner requires scheduler-derived OOF targets")
+            if len(fit_ids) != len(train_ids):
+                raise ValueError("residual learner with augmented fit rows requires native residual target expansion")
+            by_sample = dict(zip(residual_targets["sample_ids"], residual_targets["values"], strict=True))
+            if set(by_sample) != set(fit_ids):
+                raise ValueError("residual learner OOF targets do not exactly cover its fit rows")
+            y_train = np.asarray([by_sample[sample_id] for sample_id in fit_ids], dtype=float)
+            if y_transform is not None:
+                raise ValueError("residual learner cannot apply a second target transform")
         target_mask = target_block.get("validity_masks")
         if target_mask is not None:
             if not isinstance(model, MultimodalRegressor) or getattr(model, "target_policy", "complete") != "per_target":
@@ -1269,15 +1282,16 @@ def run_model_node(
                 "target_names": names,
             }
         )
-        regression_targets.append(
-            {
-                "level": "sample",
-                "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in spec_ids],
-                "values": true_values,
-                "target_names": names,
-                **({"validity_masks": target_block["validity_masks"]} if "validity_masks" in target_block else {}),
-            }
-        )
+        if not residual_mode:
+            regression_targets.append(
+                {
+                    "level": "sample",
+                    "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in spec_ids],
+                    "values": true_values,
+                    "target_names": names,
+                    **({"validity_masks": target_block["validity_masks"]} if "validity_masks" in target_block else {}),
+                }
+            )
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
@@ -1537,5 +1551,7 @@ def run_node(
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)
+        if node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID:
+            return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
         return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
     return _build_result(task, [], [], {})
