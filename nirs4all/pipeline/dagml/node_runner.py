@@ -746,6 +746,7 @@ def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, A
 def _run_fitted_transform_node(
     task: dict[str, Any], resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]], model_store: MutableMapping[Any, Any],
+    sample_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Fit one X operator on the scope chosen by its native data view."""
     if task["phase"] not in ("FIT_CV", "REFIT"):
@@ -757,6 +758,7 @@ def _run_fitted_transform_node(
     )
     if view is None:
         raise ValueError("fitted transform node has no native fit data view")
+    _filter_by_branch_view(view, sample_metadata)
     if view["partition"] == "all_observations":
         dataset = resolver._dataset  # noqa: SLF001 - host data provider owns the all-observation cohort
         samples = [int(sample) for sample in dataset.index_column("sample", {})]
@@ -1584,7 +1586,7 @@ def run_node(
     node_plan = task["node_plan"]
     kind = node_plan["kind"]
     if kind == "transform" and task.get("data_views"):
-        return _run_fitted_transform_node(task, resolver, node_lookup, model_store)
+        return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata)
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)
