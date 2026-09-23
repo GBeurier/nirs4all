@@ -1743,6 +1743,7 @@ def run_meta_model_node(
 
     fold_predictions: list[dict[str, Any]] = []
     fold_targets: list[dict[str, Any]] = []
+    fold_class_probabilities: list[dict[str, Any]] = []
     if phase == "FIT_CV":
         # The outer rows must be distinct from the inner rows just used to fit.
         # Refuse a direct/old lowering rather than silently emitting optimistic
@@ -1758,6 +1759,8 @@ def run_meta_model_node(
         target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
         fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred, target["target_names"]))
         fold_targets.append(target)
+        if probability_output:
+            fold_class_probabilities.append(_meta_probability_block(node_id, "validation", task.get("fold_id"), outer_ids, fit_estimator, x_outer))
         test_specs = _ordered_oof_specs(prediction_inputs, suffix="test")
         if test_specs:
             test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
@@ -1765,6 +1768,8 @@ def run_meta_model_node(
             test_target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
             fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", task.get("fold_id"), test_ids, test_pred, test_target["target_names"]))
             fold_targets.append(test_target)
+            if probability_output:
+                fold_class_probabilities.append(_meta_probability_block(node_id, "test", task.get("fold_id"), test_ids, fit_estimator, x_test))
         if metadata.get("nirs4all_stack_fold_capture") and fold_label in metadata.get("nirs4all_stack_outer_fold_ids", []):
             model_store[("stacking_fold_estimator", node_id, variant_label, fold_label)] = fit_estimator
 
@@ -1792,8 +1797,10 @@ def run_meta_model_node(
             target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
             fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", None, test_ids, test_pred, target["target_names"]))
             fold_targets.append(target)
+            if probability_output:
+                fold_class_probabilities.append(_meta_probability_block(node_id, "test", None, test_ids, fit_estimator, x_test))
 
-    return _build_result(task, fold_predictions, artifacts, artifact_handles, fold_targets)
+    return _build_result(task, fold_predictions, artifacts, artifact_handles, fold_targets, fold_class_probabilities)
 
 
 def _meta_prediction_block(
@@ -1809,6 +1816,25 @@ def _meta_prediction_block(
         "sample_ids": sample_ids,
         "values": [[float(value) for value in row] for row in values],
         "target_names": target_names,
+    }
+
+
+def _meta_probability_block(
+    node_id: str, partition: str, fold_id: str | None, sample_ids: list[str], estimator: Any,
+    features: np.ndarray,
+) -> dict[str, Any]:
+    """Keep the complete class distribution for native scoring of projected meta features."""
+    probabilities = np.asarray(estimator.predict_proba(features), dtype=float)
+    classes = np.asarray(estimator.classes_, dtype=float)
+    if probabilities.shape != (len(sample_ids), len(classes)) or len(classes) < 2:
+        raise ValueError(f"meta-model node {node_id!r} emitted invalid class probabilities")
+    return {
+        "producer_node": node_id,
+        "partition": partition,
+        "fold_id": fold_id,
+        "sample_ids": sample_ids,
+        "class_labels": classes.tolist(),
+        "values": probabilities.tolist(),
     }
 
 

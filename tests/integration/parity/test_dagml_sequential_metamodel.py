@@ -398,6 +398,99 @@ def test_second_named_classifier_probability_fold_aggregation_replays_paired_sta
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
+@pytest.mark.parametrize("test_aggregation", [FoldAggregation.BEST_FOLD, FoldAggregation.WEIGHTED_MEAN])
+def test_multiclass_named_probability_fold_aggregation_scores_and_replays(tmp_path, mechanism, test_aggregation, monkeypatch):
+    """Score all class probabilities while downstream stacking reads only the legacy first class."""
+    import nirs4all
+    from nirs4all.pipeline.dagml.native_results import read_native_results
+
+    if mechanism == "cli":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "pyo3" else "0")
+
+    rng = np.random.default_rng(204)
+    y_train = np.repeat(np.arange(3), 24)
+    y_test = np.repeat(np.arange(3), 6)
+    x_train = rng.normal(size=(len(y_train), 6)) + np.eye(3, 6)[y_train] * 0.8
+    x_test = rng.normal(size=(len(y_test), 6)) + np.eye(3, 6)[y_test] * 0.8
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    for split, features, labels in (("train", x_train, y_train), ("test", x_test, y_test)):
+        np.savetxt(dataset / f"X{split}.csv", features, delimiter=";", header=";".join(str(1000 + i) for i in range(6)), comments="")
+        np.savetxt(dataset / f"Y{split}.csv", labels, delimiter=";", header="class", comments="", fmt="%d")
+
+    pipeline = [
+        StratifiedKFold(2, shuffle=True, random_state=42),
+        LogisticRegression(max_iter=300), RandomForestClassifier(n_estimators=10, random_state=42),
+        {"model": MetaModel(LogisticRegression(max_iter=300), name="first", use_proba=True)},
+        {"model": MetaModel(LogisticRegression(max_iter=300), name="second", source_models=["first"],
+                             use_proba=True, stacking_config=StackingConfig(test_aggregation=test_aggregation))},
+    ]
+    legacy = nirs4all.run(pipeline, dataset, engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False,
+                          save_charts=False, verbose=0)
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+    finally:
+        legacy.close()
+
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "native", save_artifacts=True,
+                         save_charts=False, verbose=0)
+    try:
+        persisted = read_native_results(native._dagml_results_dir)
+        score_set = persisted["score_set"]["reports"]
+        first_oof = next(report for report in score_set if report["producer_node"] == "merge:stack"
+                         and report["partition"] == "validation" and report["fold_id"] == "avg")
+        # The old scalar-score path treated the first class probability as a label
+        # and reported about 0.28-0.31; the three-class argmax gives 11/24.
+        assert first_oof["metrics"]["accuracy"] == pytest.approx(11 / 24)
+        assert first_oof["metrics"]["balanced_accuracy"] == pytest.approx(11 / 24)
+        if mechanism == "pyo3":
+            distributions = [
+                block for result in native._dagml_node_results
+                for block in result.get("classification_probabilities", [])
+                if block["producer_node"] == "merge:stack"
+                and block["partition"] == "validation"
+                and block["fold_id"] in {"fold0", "fold1"}
+            ]
+            assert len(distributions) == 2
+            assert all(len(block["class_labels"]) == 3 and all(len(row) == 3 for row in block["values"])
+                       for block in distributions)
+
+        first_stage, second_stage = persisted["manifest"]["stacking_replay"]["stages"]
+        assert second_stage["base_producers"][0]["column_block"] == "probability_values"
+        by_id = {artifact["artifact_id"]: artifact for artifact in persisted["artifacts"]}
+        bases = [by_id[producer["artifact_id"]] for producer in first_stage["base_producers"]]
+        first_meta = by_id[first_stage["meta_artifact_id"]]
+        second_meta = by_id[second_stage["meta_artifact_id"]]
+        fold_probabilities = {}
+        for fold, meta in first_meta["fold_estimators"].items():
+            base_probabilities = [np.asarray(base["fold_estimators"][fold].predict_proba(x_test)) for base in bases]
+            features = np.column_stack([base_probabilities[group["members"][0]] for group in first_stage["reduction_groups"]])
+            fold_probabilities[fold] = np.asarray(meta.predict_proba(features))[:, :1]
+        selection = first_meta["fold_selection"]
+        if test_aggregation == FoldAggregation.BEST_FOLD:
+            first_test = fold_probabilities[selection["selected_fold"]]
+        else:
+            first_test = sum(float(weight) * fold_probabilities[fold]
+                             for fold, weight in selection["weights"].items())
+        expected = np.asarray(second_meta["estimator"].predict(first_test)).ravel()
+        archive = native.export(tmp_path / "multiclass_selected.n4a")
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        np.testing.assert_array_equal(replay, expected)
+        assert np.mean(replay == y_test) == pytest.approx(native.best_accuracy, abs=1e-6)
+    finally:
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
 @pytest.mark.parametrize("level_count", [2, 3])
 @pytest.mark.parametrize("regression_probability_flag", [False, True])
 def test_named_metamodel_chain_uses_native_nested_oof_and_archive(tmp_path, mechanism, level_count, regression_probability_flag, monkeypatch):
