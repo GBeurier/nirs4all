@@ -80,6 +80,55 @@ def test_residual_choices_after_prefix_refit_and_replay(tmp_path, monkeypatch, m
 
 
 @pytest.mark.parity
+@pytest.mark.xfail(strict=True, reason="DAG nested OOF can collapse PLS fit scope after prediction-feature joins")
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_residual_after_target_and_prediction_feature_join_keeps_pls_fit_scope(tmp_path, monkeypatch, mechanism: str) -> None:
+    """Legacy executes this combination; DAG nested OOF currently fails."""
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    rng = np.random.default_rng(922)
+    features = rng.normal(size=(34, 8))
+    targets = 2 * features[:, 0] - features[:, 1] + 0.1 * rng.normal(size=34)
+
+    def dataset() -> SpectroDataset:
+        result = SpectroDataset("residual_prediction_join_small")
+        result.add_samples(features[:30], {"partition": "train"}, headers=[str(index) for index in range(8)])
+        result.add_samples(features[30:], {"partition": "test"})
+        result.add_targets(targets.reshape(-1, 1))
+        return result
+
+    def pipeline() -> list:
+        return [
+            KFold(2, shuffle=True, random_state=1),
+            {"y_processing": StandardScaler()},
+            {"branch": [[{"model": Ridge(alpha=1.0)}], [{"model": Ridge(alpha=2.0)}]]},
+            {"merge": "predictions"},
+            {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate="auto")},
+        ]
+
+    legacy = nirs4all.run(pipeline(), dataset(), engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy_join", save_artifacts=False, save_charts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    native = nirs4all.run(pipeline(), dataset(), engine="dag-ml", allow_fallback=False, refit=True,
+                          workspace_path=tmp_path / "native_join", save_artifacts=False, save_charts=False, verbose=0)
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert np.isfinite(native.cv_best_score)
+        archive = native.export(tmp_path / "residual_prediction_join_small.n4a")
+        predicted = np.asarray(nirs4all.predict(archive, features[30:]).y_pred).ravel()
+        assert np.sqrt(np.mean((targets[30:] - predicted) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
+    finally:
+        native.close()
+
+
+@pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_residual_learner_search_and_training_controls_after_target_prefix(tmp_path, monkeypatch, mechanism: str) -> None:
     """Learner search and fit options keep the transformed target in native refit."""
