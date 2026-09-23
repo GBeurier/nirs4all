@@ -26,7 +26,9 @@ def _pipeline(min_ratio: float) -> list:
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_mean_policy_uses_complete_inner_oof_and_replays_with_partial_outer_coverage(tmp_path, monkeypatch, mechanism):
+@pytest.mark.parametrize("coverage_strategy", [CoverageStrategy.IMPUTE_MEAN, CoverageStrategy.IMPUTE_ZERO, CoverageStrategy.IMPUTE_FOLD_MEAN])
+def test_imputation_policy_uses_complete_inner_oof_and_replays_with_partial_outer_coverage(tmp_path, monkeypatch, mechanism, coverage_strategy):
+    """Legacy fills sparse outer OOF; DAG-ML's nested inner OOF is complete and attested."""
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
 
@@ -37,7 +39,7 @@ def test_mean_policy_uses_complete_inner_oof_and_replays_with_partial_outer_cove
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
 
     pipeline = _pipeline(0.3)
-    pipeline[-1]["model"].stacking_config.coverage_strategy = CoverageStrategy.IMPUTE_MEAN
+    pipeline[-1]["model"].stacking_config.coverage_strategy = coverage_strategy
     path = dataset_path("regression")
     legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False,
                           workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
@@ -57,7 +59,7 @@ def test_mean_policy_uses_complete_inner_oof_and_replays_with_partial_outer_cove
         final = [row for row in native.predictions._buffer
                  if row.get("partition") == "test" and row.get("fold_id") == "final"]
         assert len(final) == 1
-        archive = native.export(tmp_path / "mean_policy.n4a")
+        archive = native.export(tmp_path / f"{coverage_strategy.value}_policy.n4a")
         x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
         replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
         np.testing.assert_allclose(replay, np.asarray(final[0]["y_pred"]).ravel(), rtol=1e-5, atol=3e-4)
