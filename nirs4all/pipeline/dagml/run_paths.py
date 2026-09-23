@@ -4248,6 +4248,28 @@ def _assemble_stacking_dsl(
         ],
     }
 
+    if prediction_aggregations:
+        canonical_branches = {branch["id"]: branch for branch in canonical_dsl["steps"][0]["branches"]}
+        for selector in prediction_aggregations:
+            requested_names = selector.get("select")
+            if not isinstance(requested_names, list):
+                continue
+            branch = canonical_branches[selector["branch"]]
+            models = [step for step in branch["steps"] if step["kind"] == "model"]
+            selected_ids = [
+                step["id"]
+                for name in requested_names
+                for step in models
+                if step["operator"]["class"].rsplit(".", 1)[-1] == name
+            ]
+            # Legacy skips unknown names. Preserve that behavior while making
+            # an entirely unmatched selection an explicit unsupported shape.
+            if not selected_ids:
+                raise DagMlUnsupported(
+                    f"merge branch {selector['branch']} has no models matching {requested_names}"
+                )
+            selector["select"] = {"models": list(dict.fromkeys(selected_ids))}
+
     if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
         for branch in canonical_dsl["steps"][0]["branches"]:
             for step in branch["steps"]:
