@@ -603,7 +603,7 @@ def build_envelope(
         and (wavelengths := dataset.wavelengths_cm1(index)) is not None
         and len(wavelengths) == _num_wavelengths(dataset, index)
     }
-    if len(feature_axes) == len(sources):
+    if feature_axes:
         out["_host_feature_axes"] = feature_axes
     return out
 

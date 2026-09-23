@@ -86,7 +86,7 @@ class _CoordinateTransform(TransformerMixin, BaseEstimator):
         return self.transformer.transform(X)
 
 
-def _feature_axes(task: dict[str, Any]) -> list[tuple[str, ...]] | None:
+def _feature_axes(task: dict[str, Any]) -> list[tuple[str, ...] | None] | None:
     """Read the core-attested source-axis contract in materialization order."""
     view = next((value for value in task.get("data_views", {}).values() if value.get("extra", {}).get("feature_axes")), None)
     if view is None:
@@ -97,10 +97,10 @@ def _feature_axes(task: dict[str, Any]) -> list[tuple[str, ...]] | None:
         sources = [source for source, _ in sorted(source_index.items(), key=lambda item: item[1])]
     else:
         sources = list(axes)
-    return [tuple(axes[source]) for source in sources]
+    return [tuple(axes[source]) if source in axes else None for source in sources]
 
 
-def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...]] | None, source_index: int = 0) -> list[Any]:
+def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...] | None] | None, source_index: int = 0) -> list[Any]:
     """Prepare a source's required-coordinate transforms in pipeline order."""
     from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
 
@@ -115,7 +115,9 @@ def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...]] | None, sour
     current = axes[source_index]
     prepared = []
     for step in steps:
-        if _needs_wavelength_injection(step) or isinstance(step, (CARS, MCUVE)):
+        if current is None and _needs_wavelength_injection(step):
+            raise ValueError(f"wavelength-aware transform requires coordinates for source {source_index}")
+        if current is not None and (_needs_wavelength_injection(step) or isinstance(step, (CARS, MCUVE))):
             prepared.append(_CoordinateTransform(step, current, source_index))
         else:
             prepared.append(step)
@@ -123,7 +125,7 @@ def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...]] | None, sour
     return prepared
 
 
-def _axis_after_step(step: Any, current: tuple[str, ...], source_index: int) -> tuple[str, ...]:
+def _axis_after_step(step: Any, current: tuple[str, ...] | None, source_index: int) -> tuple[str, ...] | None:
     from nirs4all.operators.transforms.resampler import Resampler
 
     if isinstance(step, Resampler) and step.target_wavelengths is not None:
@@ -135,7 +137,7 @@ def _axis_after_step(step: Any, current: tuple[str, ...], source_index: int) -> 
         return tuple(f"{float(value):.2f}" for value in targets)
     from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
 
-    if isinstance(step, (CARS, MCUVE)) and hasattr(step, "selected_indices_"):
+    if current is not None and isinstance(step, (CARS, MCUVE)) and hasattr(step, "selected_indices_"):
         return tuple(f"{float(current[index]):.2f}" for index in step.selected_indices_)
     return current
 
@@ -147,7 +149,7 @@ class _FittedXChain:
         self, steps: list[Any] | None = None, *,
         source_steps: list[list[Any]] | None = None,
         source_widths: tuple[int, ...] | None = None,
-        feature_axes: list[tuple[str, ...]] | None = None,
+        feature_axes: list[tuple[str, ...] | None] | None = None,
     ) -> None:
         self.steps = steps or []
         self.source_steps = source_steps
