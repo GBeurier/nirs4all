@@ -209,9 +209,12 @@ def run_residual_model(
             {"kind": "merge", "id": "merge:concat", "merge_mode": "concat", "output_as": "features", "include_original_data": False},
         ]
     learner_step = _canonical_branch_step({"model": operator.learner}, learner_id)
+    # Prediction branches add another nested OOF level. Three inner folds keep
+    # enough fit rows for a two-component PLS base on a small valid dataset.
+    inner_splits = 3 if prediction_branch_bodies is not None else 2
     dsl: dict[str, Any] = {
         "id": "nirs4all-residual-model",
-        "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
+        "inner_cv": {"kind": "kfold", "n_splits": inner_splits, "shuffle": False, "seed": random_state},
         "steps": [
             *prefix_steps,
             *metadata_steps,
