@@ -1562,7 +1562,9 @@ def _post_augmentation_exclusion_prefix_length(steps: list[Any]) -> int:
 
 
 def _run_augmentation_full_train(
-    pipeline: list[Any], spectro: Any, *, metric: str, task_type: str, config_name: str,
+    pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str,
+    venv_python: str, run_dir: Path, *, metric: str, task_type: str,
+    config_name: str, random_state: int | None = None,
 ) -> RunResult:
     """Apply sample augmentation before a single DAG-owned full-training phase."""
     from .full_train import run_full_train
@@ -1580,9 +1582,17 @@ def _run_augmentation_full_train(
     duplication = _detect_duplication_branch(post_aug_steps)
     if duplication is not None and duplication[1] == "mean":
         post_aug_steps = [_branch_fusion_model_step(duplication[0], duplication[1], task_type)]
+    import pickle
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = run_dir / "augmented_dataset.pkl"
+    pickle_path.write_bytes(pickle.dumps(spectro))
     result = run_full_train(
         post_aug_steps, spectro, metric=metric, task_type=task_type,
         config_name=config_name, augmented_train=True,
+        cli=cli, venv_python=venv_python, dataset_path=dataset_arg,
+        dataset_pickle=str(pickle_path), workdir=run_dir / "refit",
+        random_state=random_state,
     )
     return _attach_pre_augmentation_replay(result, replay_stages)
 
