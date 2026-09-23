@@ -1077,12 +1077,11 @@ def _dispatch_run(
         from .full_train import run_full_train
 
         if any(_is_augmentation_step(step) for step in pipeline):
-            if holdout_train_sample_ids is not None:
-                raise DagMlUnsupported("single-fold file holdout with augmentation needs a train-scoped augmentation lowering")
             return _run_augmentation_full_train(
                 pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
                 base_dir / "augmentation_full_train", metric=metric,
                 task_type=task_type, config_name=config_name, random_state=random_state,
+                train_sample_ids=holdout_train_sample_ids,
             )
         return run_full_train(
             pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name,
@@ -1419,13 +1418,13 @@ def _dispatch_run(
     # (via requires_oof+requires_fold_alignment edges, leakage-safe — train predictions are refused), fits
     # the meta-learner on the per-fold OOF meta-feature matrix and emits its own scored OOF.
     if detected_sequential_metamodel is not None:
-        base_steps, meta_learner, use_proba = detected_sequential_metamodel
+        branches, meta_learner, selectors = detected_sequential_metamodel
         return _run_stacking_branch(
-            list(pipeline), [base_steps], meta_learner, spectro, dataset_arg, cli,
+            list(pipeline), branches, meta_learner, spectro, dataset_arg, cli,
             venv_python or sys.executable, base_dir / "sequential_metamodel",
             metric, task_type, dataset_pickle=host_pickle, config_name=config_name,
             random_state=random_state, refit=refit,
-            prediction_aggregations=[{"branch": "branch_0", "aggregate": "proba_mean"}] if use_proba else None,
+            prediction_aggregations=selectors,
         )
     if detected_proba_stacking is not None:
         branches, meta_learner, selectors = detected_proba_stacking

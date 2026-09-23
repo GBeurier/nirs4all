@@ -65,6 +65,56 @@ def test_fold_file_formats_keep_native_cv_and_test_rows(tmp_path, monkeypatch, m
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("preprocessing", [False, True])
+def test_single_fold_file_augments_only_its_training_partition(tmp_path, monkeypatch, mechanism: str, preprocessing: bool) -> None:
+    """A file-defined holdout remains outside augmentation and model fitting."""
+    import nirs4all
+    from nirs4all.operators.augmentation import GaussianAdditiveNoise
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    rng = np.random.default_rng(20)
+    X = rng.normal(size=(36, 8))
+    X[:18] += 8.0  # Make leakage from the holdout visible in a fitted scaler.
+    y = X[:, 0] + rng.normal(scale=0.1, size=36)
+    fold_file = tmp_path / "holdout.json"
+    fold_file.write_text(json.dumps([{"train": list(range(18, 36)), "val": list(range(18))}]), encoding="utf-8")
+    pipeline = [
+        *([StandardScaler()] if preprocessing else []),
+        {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.0)],
+                                  "count": 1, "selection": "all", "random_state": 42}},
+        {"split": str(fold_file)}, Ridge(alpha=0.5),
+    ]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0, workspace_path=tmp_path / "legacy")
+    native = nirs4all.run(pipeline, (X, y), engine="dag-ml", allow_fallback=False, refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0, workspace_path=tmp_path / "native")
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert any(row["partition"] == "test" for row in legacy.predictions.filter_predictions(load_arrays=False))
+        test = native.predictions.filter_predictions(partition="test", load_arrays=True)
+        assert len(test) == 1
+        if preprocessing:
+            scaler = StandardScaler().fit(X[18:])
+            train_x, test_x = scaler.transform(X[18:]), scaler.transform(X[:18])
+        else:
+            train_x, test_x = X[18:], X[:18]
+        expected = Ridge(alpha=0.5).fit(np.vstack([train_x, train_x]), np.concatenate([y[18:], y[18:]])).predict(test_x)
+        np.testing.assert_allclose(np.asarray(test[0]["y_pred"]).ravel(), expected, atol=1e-5)
+        assert list(test[0]["sample_indices"]) == list(range(18))
+    finally:
+        legacy.close()
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("refit", [False, True])
 def test_cv_test_fold_and_ensemble_parity(tmp_path, monkeypatch, mechanism: str, refit: bool) -> None:
     import nirs4all
