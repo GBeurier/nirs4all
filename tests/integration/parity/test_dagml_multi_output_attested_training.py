@@ -58,7 +58,7 @@ def test_by_source_cv_executes_signed_multi_output_training() -> None:
     assert len(captured["refit_artifacts"]) == len(source_names)
     assert len(package["artifact_bindings"]) == len(source_names)
     assert captured["scores"]["reports"]
-    assert {report["partition"] for report in captured["scores"]["reports"]} == {"validation", "final", "test"}
+    assert {report["partition"] for report in captured["scores"]["reports"]} == {"train", "train_pool", "validation", "final", "test"}
     assert all({block["partition"] for block in item["predictions"]} == {"final"} for item in outcome["outputs"])
     assert outcome["training_request_fingerprint"]
 
@@ -84,14 +84,21 @@ def test_public_by_source_cv_attested_capture_preserves_cli_predictions(monkeypa
     cli_result = nirs4all.run(pipeline, dataset_path("multi"), engine="dag-ml", save_artifacts=False, verbose=0)
     assert len(attested._dagml_training_outcome["outputs"]) == 3
     assert len(attested._dagml_portable_predictor_package["output_bindings"]) == 3
-    assert attested.num_predictions == cli_result.num_predictions == 18
+    expected_per_source = {
+        *((partition, str(fold)) for fold in range(3) for partition in ("train", "val", "test")),
+        *((partition, aggregate) for aggregate in ("avg", "w_avg") for partition in ("train", "val", "test")),
+        ("train", "final"), ("test", "final"),
+    }
+    assert attested.num_predictions == cli_result.num_predictions == 3 * len(expected_per_source)
     def key(row: dict) -> tuple:
         return row["branch_id"], row["partition"], row["fold_id"]
     attested_rows = sorted(attested.predictions.filter_predictions(load_arrays=True), key=key)
     cli_rows = sorted(cli_result.predictions.filter_predictions(load_arrays=True), key=key)
+    assert {(row["partition"], row["fold_id"]) for row in attested_rows if row["branch_id"] == 0} == expected_per_source
     assert [key(row) for row in attested_rows] == [key(row) for row in cli_rows]
     for actual, expected in zip(attested_rows, cli_rows, strict=True):
-        np.testing.assert_allclose(actual["y_pred"], expected["y_pred"], atol=1e-6)
+        np.testing.assert_allclose(np.asarray(actual["y_pred"]).ravel(), np.asarray(expected["y_pred"]).ravel(), atol=1e-6)
+        np.testing.assert_allclose(np.asarray(actual["y_true"]).ravel(), np.asarray(expected["y_true"]).ravel(), atol=1e-6)
     archive = attested.export(tmp_path / "by_source_cv.n4a")
     with zipfile.ZipFile(archive) as contents:
         topology = json.loads(contents.read("manifest.json"))["dagml_independent_output_topology"]
