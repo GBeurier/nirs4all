@@ -1772,6 +1772,13 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     import dag_ml
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    # Operator generators materialize one model node per choice. Bind the
+    # augmentation envelope to every candidate in the native union graph.
+    from .cli_runner import data_bindings_for_nodes
+
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if len(model_ids) > 1:
+        dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
 
     run_dir.mkdir(parents=True, exist_ok=True)
     pickle_path = run_dir / "augmented_dataset.pkl"
