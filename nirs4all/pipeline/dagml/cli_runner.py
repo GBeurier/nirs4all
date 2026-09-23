@@ -84,7 +84,10 @@ def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _
         "feature_set_id": "x",
         "source_ids": sources,
         "require_relations": True,
-        "metadata": _source_index_metadata(envelope, sources),
+        "metadata": {
+            **_source_index_metadata(envelope, sources),
+            **({"feature_axes": envelope["_host_feature_axes"]} if "_host_feature_axes" in envelope else {}),
+        },
     }
 
 

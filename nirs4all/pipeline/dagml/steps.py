@@ -48,19 +48,18 @@ class FoldFileDagMlSplitStep(DagMlSplitStep):
 
 
 def _needs_wavelength_injection(operator: Any) -> bool:
-    """True when ``operator`` *requires* a ``wavelengths=`` injection the dag-ml X-chain cannot provide.
+    """True when ``operator`` requires a source-local ``wavelengths=`` fit argument.
 
-    The dag-ml node runner fits an X-transform with only ``(X, y)`` (a plain sklearn ``make_pipeline``),
-    whereas the legacy ``TransformerMixinController`` extracts wavelengths from ``dataset.headers()`` and
-    passes them to ``fit(..., wavelengths=...)``. Only operators that *hard-require* wavelengths — i.e.
-    ``fit(X, y)`` *raises* without them — are unsupported and converted to a catchable fallback:
+    The node runner obtains coordinates through DAG-ML's validated feature-axis
+    data binding and injects them into the operator's fit. Only operators that
+    hard-require wavelengths need this adapter:
 
     * a :class:`SpectraTransformerMixin` whose ``_requires_wavelengths is True`` (strict); the ``"optional"``
       family (and feature-selection ops like CARS/MC-UVE, which merely *accept* a ``wavelengths`` kwarg and
-      fall back to index space when it is absent) run natively at parity, so they are NOT flagged; and
+      fall back to index space when it is absent) run without mandatory injection; and
     * a configured :class:`~nirs4all.operators.transforms.Resampler` (``target_wavelengths`` set), which
       raises ``Wavelengths must be provided to fit()``; an identity Resampler (no target grid) is a
-      pass-through that fits without wavelengths, so it stays supported.
+      pass-through that fits without wavelengths.
 
     The signature is *not* used as the trigger (CARS/MC-UVE declare a ``wavelengths`` param but do not
     require it) — only the explicit strict flag and the Resampler's configured-state contract are.
@@ -121,6 +120,8 @@ def _params_losslessly_serializable(operator: Any) -> bool:
                 pending.extend(value.values())
             elif isinstance(value, (list, tuple)):
                 pending.extend(value)
+            elif hasattr(value, "tolist") and type(value).__module__.startswith("numpy"):
+                pending.append(value.tolist())
             elif isinstance(value, type):
                 if not _is_fqn_importable(value):
                     return False
@@ -167,16 +168,11 @@ def _check_x_operator(operator: Any) -> None:
     """Raise a catchable :class:`DagMlUnsupported` for one X-side transform the runtime cannot run/rebuild.
 
     The single per-operator gate the top-level steps AND the nested ``concat_transform`` /
-    ``feature_augmentation`` sub-transforms both pass through, so the wavelength + routability +
-    reconstructibility checks are identical wherever a transform is fit/reconstructed.
+    ``feature_augmentation`` sub-transforms both pass through, so routability and
+    reconstructibility checks are identical wherever a transform is rebuilt.
     """
     if operator is None:
         return
-    if _needs_wavelength_injection(operator):
-        raise DagMlUnsupported(
-            f"engine='dag-ml' does not inject wavelengths into fit(), but {type(operator).__name__} "
-            "requires them (the dag-ml X-chain fits transforms with (X, y) only). Use the legacy engine."
-        )
     if not _is_routable_transform(operator):
         raise DagMlUnsupported(
             f"engine='dag-ml' cannot route {type(operator).__name__} — it is not a reconstructible "

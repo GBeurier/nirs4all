@@ -592,6 +592,19 @@ def build_envelope(
         out["final_relation_fingerprint"] = _core_relation_fingerprint(final_relations)
     if multi_source:
         out["plan"]["source_layout"] = _source_layout(dataset, sources)
+    # Host-only coordinate values are deliberately outside the fingerprinted
+    # data plan. DAG-ML validates/carries them on each DataBinding, while the
+    # materialization provider remains the authority for actual feature rows.
+    feature_axes = {
+        source: [str(value) for value in wavelengths]
+        for index, source in enumerate(sources)
+        if dataset.headers(index) is not None
+        and dataset.header_unit(index) in ("cm-1", "nm")
+        and (wavelengths := dataset.wavelengths_cm1(index)) is not None
+        and len(wavelengths) == _num_wavelengths(dataset, index)
+    }
+    if len(feature_axes) == len(sources):
+        out["_host_feature_axes"] = feature_axes
     return out
 
 

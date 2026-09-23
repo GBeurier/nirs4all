@@ -60,6 +60,80 @@ class _FrozenTransform(TransformerMixin, BaseEstimator):
         return self.transformer.transform(X)
 
 
+class _CoordinateTransform(TransformerMixin, BaseEstimator):
+    """Inject source-local feature coordinates into a host operator's fit."""
+
+    def __init__(self, transformer: Any, coordinates: tuple[str, ...], source_index: int = 0) -> None:
+        self.transformer = transformer
+        self.coordinates = coordinates
+        self.source_index = source_index
+
+    def fit(self, X: Any, y: Any = None) -> _CoordinateTransform:
+        from nirs4all.operators.transforms.resampler import Resampler
+
+        if np.asarray(X).shape[1] != len(self.coordinates):
+            raise ValueError("feature-axis coordinates no longer match the transformed feature width")
+        if isinstance(self.transformer, Resampler) and self.transformer.target_wavelengths is not None:
+            targets = self.transformer.target_wavelengths
+            if isinstance(targets, (list, tuple)) and targets and isinstance(targets[0], (list, tuple, np.ndarray)):
+                if self.source_index >= len(targets):
+                    raise ValueError("Resampler target_wavelengths is missing a source grid")
+                self.transformer.set_params(target_wavelengths=np.asarray(targets[self.source_index], dtype=float))
+        self.transformer.fit(X, y, wavelengths=np.asarray(self.coordinates, dtype=float))
+        return self
+
+    def transform(self, X: Any) -> Any:
+        return self.transformer.transform(X)
+
+
+def _feature_axes(task: dict[str, Any]) -> list[tuple[str, ...]] | None:
+    """Read the core-attested source-axis contract in materialization order."""
+    view = next((value for value in task.get("data_views", {}).values() if value.get("extra", {}).get("feature_axes")), None)
+    if view is None:
+        return None
+    axes = view["extra"]["feature_axes"]
+    source_index = view["extra"].get("source_index")
+    if source_index:
+        sources = [source for source, _ in sorted(source_index.items(), key=lambda item: item[1])]
+    else:
+        sources = list(axes)
+    return [tuple(axes[source]) for source in sources]
+
+
+def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...]] | None, source_index: int = 0) -> list[Any]:
+    """Prepare a source's required-coordinate transforms in pipeline order."""
+    from .steps import _needs_wavelength_injection
+
+    if not axes:
+        if any(_needs_wavelength_injection(step) for step in steps):
+            raise ValueError("wavelength-aware transform requires feature-axis coordinates in the DAG-ML data binding")
+        return steps
+    if source_index >= len(axes):
+        raise ValueError("feature-axis contract is missing a source")
+    current = axes[source_index]
+    prepared = []
+    for step in steps:
+        if _needs_wavelength_injection(step):
+            prepared.append(_CoordinateTransform(step, current, source_index))
+        else:
+            prepared.append(step)
+        current = _axis_after_step(step, current, source_index)
+    return prepared
+
+
+def _axis_after_step(step: Any, current: tuple[str, ...], source_index: int) -> tuple[str, ...]:
+    from nirs4all.operators.transforms.resampler import Resampler
+
+    if isinstance(step, Resampler) and step.target_wavelengths is not None:
+        targets = step.target_wavelengths
+        if isinstance(targets, (list, tuple)) and targets and isinstance(targets[0], (list, tuple, np.ndarray)):
+            targets = targets[source_index]
+        # The public legacy controller materializes these as dataset headers
+        # with two decimal places before the next operator reads the axis.
+        return tuple(f"{float(value):.2f}" for value in targets)
+    return current
+
+
 class _FittedXChain:
     """Host-owned state behind the transform node's native data output handle."""
 
@@ -67,15 +141,17 @@ class _FittedXChain:
         self, steps: list[Any] | None = None, *,
         source_steps: list[list[Any]] | None = None,
         source_widths: tuple[int, ...] | None = None,
+        feature_axes: list[tuple[str, ...]] | None = None,
     ) -> None:
         self.steps = steps or []
         self.source_steps = source_steps
         self.source_widths = source_widths
+        self.feature_axes = feature_axes
 
     def for_source(self, index: int) -> _FittedXChain:
         if self.source_steps is None:
             raise ValueError("fitted X chain has no source-scoped operators")
-        return _FittedXChain(list(self.source_steps[index]))
+        return _FittedXChain(list(self.source_steps[index]), feature_axes=[self.feature_axes[index]] if self.feature_axes else None)
 
     def transform_blocks(self, blocks: list[np.ndarray]) -> list[np.ndarray]:
         if self.source_steps is None or len(blocks) != len(self.source_steps):
@@ -699,6 +775,7 @@ def _run_fitted_transform_node(
     if y_fit.ndim > 1:
         y_fit = y_fit[:, 0]
     node_id = task["node_plan"]["node_id"]
+    current_axes = preceding.feature_axes if preceding is not None else _feature_axes(task)
 
     def partitioned_views(x_fit: np.ndarray) -> dict[str, tuple[np.ndarray, np.ndarray | None]]:
         if view["partition"] != "all_observations":
@@ -746,15 +823,22 @@ def _run_fitted_transform_node(
             # Legacy transfer selection sees all feature sources concatenated,
             # then applies the selected preprocessing independently per source.
             select_with_views(partitioned_views(np.hstack(fit_blocks)))
-        for block, steps in zip(fit_blocks, previous_steps, strict=True):
+        next_axes = list(current_axes) if current_axes else None
+        for source_index, (block, steps) in enumerate(zip(fit_blocks, previous_steps, strict=True)):
             transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+            transformer = _coordinate_chain([transformer], current_axes, source_index)[0]
             fit_selected = getattr(transformer, "fit_selected", None)
             if callable(select_with_views) and callable(fit_selected):
                 fit_selected(cast(Any, shared).recommendation_, partitioned_views(block)["train"][0])
             else:
                 fit_transformer(transformer, block)
             source_steps.append([*steps, transformer])
-        chain = _FittedXChain(source_steps=source_steps, source_widths=widths)
+            if next_axes is not None:
+                next_axes[source_index] = _axis_after_step(
+                    transformer.transformer if isinstance(transformer, _CoordinateTransform) else transformer,
+                    next_axes[source_index], source_index,
+                )
+        chain = _FittedXChain(source_steps=source_steps, source_widths=widths, feature_axes=next_axes)
     else:
         x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
         steps = list(preceding.steps) if preceding is not None else []
@@ -771,10 +855,17 @@ def _run_fitted_transform_node(
         for transformer in steps:
             x_fit = np.asarray(transformer.transform(x_fit))
         transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        transformer = _coordinate_chain([transformer], current_axes)[0]
         if channel_widths is not None:
             cast(Any, transformer).set_input_channels(channel_widths)
         fit_transformer(transformer, x_fit)
-        chain = _FittedXChain([*steps, transformer])
+        next_axes = [
+            _axis_after_step(
+                transformer.transformer if isinstance(transformer, _CoordinateTransform) else transformer,
+                current_axes[0], 0,
+            )
+        ] if current_axes else None
+        chain = _FittedXChain([*steps, transformer], feature_axes=next_axes)
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"
     handle = _stable_handle(f"{node_id}:{task['phase']}:{variant_label}:{fold_label}")
@@ -934,6 +1025,9 @@ def run_model_node(
                 route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
                 for upstream_id in _upstream_x_chain(node_id, edges)
             ]
+        feature_axes = _feature_axes(task)
+        if not (resolver.is_multi_source() and source_index is None) and fitted_chain is None:
+            upstream = _coordinate_chain(upstream, feature_axes, source_index or 0)
         best_params = _resolve_finetune_best_params(
             graph_node=graph_node,
             node_id=node_id,
@@ -963,7 +1057,13 @@ def run_model_node(
             if sampled_fit_params and hasattr(model, "set_params"):
                 model.set_params(**sampled_fit_params)
         source_chains = _source_concat_chains(graph_node)
-        source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
+        from .steps import _needs_wavelength_injection
+
+        source_concat = (
+            source_chains is not None
+            or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
+            or (resolver.is_multi_source() and any(_needs_wavelength_injection(step) for step in upstream))
+        )
         from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
 
         multimodal = isinstance(model, (MultimodalRegressor, MultimodalClassifier))
@@ -972,6 +1072,11 @@ def run_model_node(
             [[_FrozenTransform(fitted_chain.for_source(index))] for index in range(len(fitted_chain.source_steps))]
             if fitted_chain is not None and fitted_chain.source_steps is not None else None
         )
+        if source_chains is not None:
+            source_chains = [
+                _coordinate_chain(chain, feature_axes, index)
+                for index, chain in enumerate(source_chains)
+            ]
         if source_chains is not None:
             if source_templates is not None:
                 source_chains = [[*fitted, *configured] for fitted, configured in zip(source_templates, source_chains, strict=True)]
@@ -982,11 +1087,15 @@ def run_model_node(
             )
         elif multi_block:
             source_names = tuple(model.transformers) if isinstance(model, (MultimodalRegressor, MultimodalClassifier)) else None
+            if source_templates is None and feature_axes is not None:
+                source_templates = [_coordinate_chain(upstream, feature_axes, index) for index in range(len(feature_axes))]
             estimator = _MultiBlockEstimator(
                 model, [] if source_templates is not None else upstream, source_names,
                 source_chain_templates=source_templates,
             )
         elif source_concat:
+            if source_templates is None and feature_axes is not None:
+                source_templates = [_coordinate_chain(upstream, feature_axes, index) for index in range(len(feature_axes))]
             estimator = (
                 _SourceConcatEstimator(model, source_chain_templates=source_templates)
                 if source_templates is not None else _SourceConcatEstimator(model, shared_chain_template=upstream)
