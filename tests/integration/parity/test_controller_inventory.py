@@ -295,3 +295,49 @@ def test_residual_auto_gate_calibrates_on_nested_oof_and_replays(tmp_path, monke
     replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
     assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
     native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("gate", [False, "auto"])
+def test_residual_without_splitter_uses_training_only_oof_and_holdout(tmp_path, monkeypatch, mechanism, gate) -> None:
+    """A legacy no-split run succeeds; DAG-ML keeps test rows out of OOF fitting."""
+    from sklearn.cross_decomposition import PLSRegression
+
+    import nirs4all
+    from nirs4all.data import DatasetConfigs
+    from nirs4all.operators.models.residual import ResidualModel
+    from nirs4all.pipeline.dagml.residual_run import ResidualImplicitCvWarning
+
+    from ._datasets import dataset_path
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    pipeline = [{"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=gate)}]
+    legacy = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy-nosplit", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(legacy.best_rmse)
+    legacy.close()
+
+    with pytest.warns(ResidualImplicitCvWarning, match="training-only CV"):
+        native = nirs4all.run(
+            pipeline, dataset_path("regression"), engine="dag-ml", refit=False,
+            workspace_path=tmp_path / "native-nosplit", save_artifacts=False, save_charts=False, verbose=0,
+        )
+    assert native.execution_engine == "dag-ml"
+    assert np.isfinite(native.best_rmse)
+    assert native.per_dataset[next(iter(native.per_dataset))]["residual_replay"]["implicit_training_cv"] is True
+    archive = native.export(tmp_path / "residual_nosplit.n4a")
+    fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
+    replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
+    native.close()
