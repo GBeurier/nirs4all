@@ -52,6 +52,17 @@ def _materialize_dataset(dataset: Any) -> Any:
     if isinstance(dataset, (np.ndarray, tuple)):
         return _wrap_in_memory_arrays(dataset)
     if isinstance(dataset, dict) and "X" in dataset:
+        supplied_metadata = dataset.get("metadata")
+        if isinstance(supplied_metadata, dict) and set(dataset) <= {"X", "y", "metadata"}:
+            features = np.asarray(dataset["X"])
+            wrapped = _wrap_in_memory_arrays((features, np.asarray(dataset["y"])) if "y" in dataset else features)
+            if supplied_metadata:
+                columns = [str(key) for key in supplied_metadata]
+                values = [np.asarray(value).reshape(-1) for value in supplied_metadata.values()]
+                if any(len(value) != len(features) for value in values):
+                    raise ValueError("dataset metadata columns must match X row count")
+                wrapped.add_metadata(np.column_stack(values), headers=columns)
+            return wrapped
         # The public array mapping uses X/y; the file/config loader uses
         # partition-prefixed keys. In particular an unnormalized lowercase y
         # was ignored by that loader, producing an all-NaN target matrix.

@@ -564,6 +564,18 @@ class _DagmlExportedModel:
             return np.asarray(self.y_transform.inverse_numeric(pred.reshape(len(pred), -1)))
         return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)))
 
+    def predict_numeric_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
+        """Replay a fitted feature join using its required row metadata."""
+        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
+        predict = getattr(self.estimator, "predict_with_metadata", None)
+        pred = np.asarray(predict(X, metadata) if callable(predict) else self.estimator.predict(X), dtype=float)
+        if self.y_transform is None:
+            return pred
+        if isinstance(self.y_transform, CapturedTargetTransform):
+            return np.asarray(self.y_transform.inverse_numeric(pred.reshape(len(pred), -1)))
+        return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)))
+
 
 class _DagmlNativeFusionModel:
     """Predict-capable wrapper for a native branch-fusion run's captured REFIT branch models.
@@ -913,6 +925,11 @@ class _DagmlNativeResidualModel:
         self.learner = learner
         self.weight = float(weight)
 
+    @property
+    def metadata_key(self) -> str | None:
+        keys = {getattr(member.estimator, "metadata_key", None) for member in (self.base, self.learner)}
+        return next(iter(keys)) if len(keys) == 1 else None
+
     def predict_numeric(self, X: Any) -> np.ndarray:
         base = np.asarray(self.base.predict_numeric(X), dtype=float)
         learner = np.asarray(self.learner.predict_numeric(X), dtype=float)
@@ -927,6 +944,18 @@ class _DagmlNativeResidualModel:
 
     def predict(self, X: Any) -> np.ndarray:
         return self.predict_numeric(X)
+
+    def predict_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
+        base = np.asarray(self.base.predict_numeric_with_metadata(X, metadata), dtype=float)
+        learner = np.asarray(self.learner.predict_numeric_with_metadata(X, metadata), dtype=float)
+        base = base.reshape(len(base), -1)
+        learner = learner.reshape(len(learner), -1)
+        if base.shape != learner.shape:
+            raise ValueError("residual replay stages produced different prediction shapes")
+        result = base + self.weight * learner
+        if not np.all(np.isfinite(result)):
+            raise ValueError("residual replay produced non-finite predictions")
+        return result
 
 
 def _native_manifest_strings(manifest: Mapping[str, Any], key: str) -> set[str]:
