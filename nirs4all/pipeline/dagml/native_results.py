@@ -396,6 +396,17 @@ def _stacking_replay_manifest(
             ]
             if not selected:
                 return None
+            if selector.get("select", "all") != "all":
+                from dag_ml import select_stacking_producers_json
+
+                selected_nodes = set(json.loads(select_stacking_producers_json(json.dumps({
+                    "producer_nodes": [base_producers[index]["producer_node"] for index in selected],
+                    "select": selector["select"], "metric": selector.get("metric") or "rmse",
+                    "reports": reports,
+                }))))
+                selected = [index for index in selected if base_producers[index]["producer_node"] in selected_nodes]
+                if not selected:
+                    return None
             aggregate = selector.get("aggregate")
             if aggregate is None:
                 replay_groups.extend({"key": base_producers[index]["meta_feature_key"], "members": [index]}
