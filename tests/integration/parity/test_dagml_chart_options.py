@@ -25,7 +25,7 @@ def _mechanism(monkeypatch: pytest.MonkeyPatch, mechanism: str) -> None:
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
 
 
