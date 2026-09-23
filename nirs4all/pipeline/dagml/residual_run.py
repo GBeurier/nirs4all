@@ -76,25 +76,35 @@ def run_residual_model(
         )
     prefix = [step for step in pipeline[:-1] if not _is_split_step(step)]
     branch_positions = [index for index, step in enumerate(prefix) if isinstance(step, dict) and "branch" in step]
+    source_concat = False
     if branch_positions:
         from .detect import _duplication_branch_bodies, _selected_duplication_feature_branches, _simple_duplication_merge_mode
         from .run_paths import _branch_merge_transformer_step
 
-        if len(branch_positions) != 1 or branch_positions[0] + 1 >= len(prefix):
-            raise DagMlUnsupported("residual branch prefix requires one duplication branch and feature merge")
-        branch_index = branch_positions[0]
-        merge_step = prefix[branch_index + 1]
-        merge_mode = _simple_duplication_merge_mode(merge_step)
-        if merge_mode not in {"features", "all"}:
-            raise DagMlUnsupported("residual branch prefix requires merge='features' or merge='all'")
-        branches = _duplication_branch_bodies(prefix[branch_index])
-        if branches is None:
-            raise DagMlUnsupported("residual feature merge requires duplication branch bodies")
-        if merge_mode == "features":
-            branches = _selected_duplication_feature_branches(branches, merge_step)
+        branch = prefix[branch_positions[0]]["branch"]
+        if isinstance(branch, dict) and branch.get("by_source") in (True, "auto"):
+            from .detect import _is_source_concat_merge_step
+
+            if len(prefix) != 2 or branch_positions != [0] or not _is_source_concat_merge_step(prefix[1]) or spectro.features_sources() < 2 or set(branch) != {"by_source", "steps"} or not isinstance(branch["steps"], list) or not branch["steps"]:
+                raise DagMlUnsupported("residual by_source prefix requires shared preprocessing and concat on multiple sources")
+            prefix = branch["steps"]
+            source_concat = True
+        else:
+            if len(branch_positions) != 1 or branch_positions[0] + 1 >= len(prefix):
+                raise DagMlUnsupported("residual branch prefix requires one duplication branch and feature merge")
+            branch_index = branch_positions[0]
+            merge_step = prefix[branch_index + 1]
+            merge_mode = _simple_duplication_merge_mode(merge_step)
+            if merge_mode not in {"features", "all"}:
+                raise DagMlUnsupported("residual branch prefix requires merge='features' or merge='all'")
+            branches = _duplication_branch_bodies(prefix[branch_index])
             if branches is None:
-                raise DagMlUnsupported("residual feature merge has an invalid branch selection")
-        prefix = [*prefix[:branch_index], _branch_merge_transformer_step(branches, merge_mode), *prefix[branch_index + 2:]]
+                raise DagMlUnsupported("residual feature merge requires duplication branch bodies")
+            if merge_mode == "features":
+                branches = _selected_duplication_feature_branches(branches, merge_step)
+                if branches is None:
+                    raise DagMlUnsupported("residual feature merge has an invalid branch selection")
+            prefix = [*prefix[:branch_index], _branch_merge_transformer_step(branches, merge_mode), *prefix[branch_index + 2:]]
     prefix = _supported_body_steps(prefix)
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
     if any(step["kind"] not in {"transform", "y_transform"} for step in prefix_steps):
@@ -154,6 +164,10 @@ def run_residual_model(
         ],
     }
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    if source_concat:
+        for node in graph["nodes"]:
+            if node["kind"] == "model":
+                node["metadata"]["source_concat_x_chain"] = True
     model_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
     if model_ids != {base_id, learner_id} or fusion_id not in {node["id"] for node in graph["nodes"]}:
         raise ValueError("residual graph did not compile to its declared base, learner and fusion nodes")
