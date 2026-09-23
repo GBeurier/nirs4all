@@ -51,6 +51,30 @@ def _detect_rep_fusion(pipeline: list[Any]) -> dict[str, Any] | None:
     return rep_steps[0]
 
 
+def _detect_rep_to_sources_by_source(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any]] | None:
+    """Recognize repetition-to-sources followed by per-source model comparison."""
+    reps = [step for step in pipeline if isinstance(step, dict) and "rep_to_sources" in step]
+    branches = [step for step in pipeline if isinstance(step, dict) and "branch" in step]
+    merges = [step for step in pipeline if isinstance(step, dict) and "merge" in step]
+    if len(reps) != 1 or len(branches) != 1 or len(merges) != 1:
+        return None
+    branch = branches[0]["branch"]
+    if not isinstance(branch, dict) or set(branch) != {"by_source", "steps"} or branch["by_source"] is not True:
+        return None
+    body = branch["steps"]
+    if not isinstance(body, list) or not body or not (isinstance(body[-1], dict) and "model" in body[-1]):
+        return None
+    if merges[0]["merge"] != {"sources": "concat"}:
+        return None
+    if pipeline.index(reps[0]) > pipeline.index(branches[0]) or pipeline.index(branches[0]) > pipeline.index(merges[0]):
+        return None
+    if any(step is not reps[0] and step is not branches[0] and step is not merges[0] and not _is_split_step(step) for step in pipeline):
+        return None
+    if sum(_is_split_step(step) for step in pipeline) != 1:
+        return None
+    return reps[0], body
+
+
 def _source_concat_indices(source_spec: Any, n_sources: int) -> list[int] | None:
     """Resolve a ``{"merge": {"sources": ...}}`` concat spec to source indices, else ``None``.
 
@@ -830,7 +854,8 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     """Detect the EXACT handled shape, else return ``None`` (fail-loud via the bridge).
 
     Admits ONLY a pipeline that is exactly: the splitter + ONE by_metadata/by_tag separation branch
-    (a single shared ``steps`` body containing the model) + ONE ``{"merge": "concat"}`` — nothing
+    (a single shared ``steps`` body containing the model), optionally followed by
+    ONE ``{"merge": "concat"}`` — nothing
     that ``_run_separation_branch`` does not actually honor. Returns ``(branch_step, branch_body)``
     when matched. ANY deviation returns ``None`` so the bridge's raw-branch ``NotImplementedError``
     fires (the coverage-boundary fail-loud guarantee), never a silent-wrong run. Specifically REJECTED:
@@ -846,15 +871,16 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     """
     branch_steps = [step for step in pipeline if _is_separation_branch_step(step)]
     merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
-    if len(branch_steps) != 1 or len(merge_steps) != 1:
+    if len(branch_steps) != 1 or len(merge_steps) > 1:
         return None
-    branch_step, merge_step = branch_steps[0], merge_steps[0]
+    branch_step = branch_steps[0]
+    merge_step = merge_steps[0] if merge_steps else None
 
     # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps. A top-level
     # transform / tag / y_processing / exclude / model would be silently ignored (only the branch body
     # is lowered), so its presence rejects the match → fail-loud.
     for step in pipeline:
-        if step is branch_step or step is merge_step or _is_split_step(step):
+        if step is branch_step or (merge_step is not None and step is merge_step) or _is_split_step(step):
             continue
         return None
 
@@ -1428,6 +1454,16 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
     from nirs4all.operators.models.meta import MetaModel, StackingLevel
 
     model = model_step.get("model")
+    sibling_params = {key: value for key, value in model_step.items() if key not in _RESERVED_STEP_KEYS}
+    if sibling_params:
+        from sklearn.base import clone
+
+        if isinstance(model, MetaModel) or not hasattr(model, "set_params"):
+            return None
+        try:
+            model = clone(model).set_params(**sibling_params)
+        except (TypeError, ValueError):
+            return None
     if isinstance(model, MetaModel):
         config = model.stacking_config
         if (
@@ -1613,10 +1649,9 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
         return None
     branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
 
-    # The meta-model step must be a BARE {"model": <estimator>} (plus harmless reserved keys like name):
-    # any extra non-reserved sibling param OR a param-generator on the meta step is silently dropped by the
-    # bare-estimator lowering, so reject it (fail loud) rather than run the meta-model with the option lost.
-    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
+    # Concrete sibling estimator parameters are applied by ``_meta_learner``.
+    # Generator specifications still require a separate variant-selection path.
+    if any(is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
         return None
 
     # The merge must precede the meta-model. Shared transforms may precede
@@ -1675,7 +1710,7 @@ def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tu
         return None
     branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
 
-    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
+    if any(is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
         return None
     order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
     if order != [branch_step, merge_step, model_step]:

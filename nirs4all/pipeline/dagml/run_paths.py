@@ -1787,11 +1787,12 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     template = {"id": "per_partition", "steps": [_branch_compat_step(step) for step in body_steps]}
     # Always by_metadata mode: the criterion (whether nirs4all by_metadata or by_tag) is emitted as a
     # metadata column on the relations, so the native fan-out discovers its values from there.
+    has_concat_merge = any(isinstance(step, dict) and step.get("merge") == "concat" for step in pipeline)
     compat_dsl = {
         "id": "nirs4all-separation-branch",
         "pipeline": [
             {"branch": {"branches": [template]}, "mode": "by_metadata", "selector": {"metadata_key": key}, "metadata": {"auto_separate": True}},
-            {"merge": "concat", "output_as": "predictions", "id": _MERGE_NODE_ID},
+            *([{"merge": "concat", "output_as": "predictions", "id": _MERGE_NODE_ID}] if has_concat_merge else []),
         ],
     }
 
@@ -1815,12 +1816,39 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml separation-branch run failed")
 
+    winner_variant_id = next(
+        (
+            report.get("variant_id")
+            for report in (outcome["scores"] or {}).get("reports", [])
+            if report.get("partition") == "final" and report.get("fold_id") is None
+        ),
+        None,
+    )
+    results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
+
     # The concat-merge producer's reports carry both the full-universe cross-fold OOF average
     # (`cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`): dag-ml's native
     # off-fold merge handler reassembles each per-partition refit model's held-out TEST prediction
     # (the node runner emits it with `fold_id=None`) into one full-universe test block under the merge
     # node. Both scores are the separation branch's, surfaced by `_scores_to_run_result`.
-    result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])
+    if has_concat_merge:
+        result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])
+    else:
+        predictions = Predictions()
+        for branch_index, model_id in enumerate(model_ids):
+            local = _scores_to_run_result(
+                outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type,
+                producer=model_id, config_name=config_name,
+                results_by_variant=results_by_variant, identity=identity,
+            )
+            for row in local.predictions.filter_predictions(load_arrays=True):
+                row["branch_id"] = branch_index
+                row["branch_name"] = str(((next(node for node in graph["nodes"] if node["id"] == model_id).get("metadata") or {}).get("dsl_branch_selector") or {}).get("metadata", {}).get(key, branch_index))
+                predictions.extend_from_list([row])
+        predictions.flush()
+        result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+        result._dagml_score_set = outcome["scores"]  # noqa: SLF001
+        result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
     from .native_results import separation_replay_manifest
 
     replay_manifest = separation_replay_manifest(graph, key, outcome["refit_artifacts"])
@@ -3346,6 +3374,33 @@ def _source_names(spectro: Any, n_sources: int) -> list[str]:
                 name = None
         names.append(str(name) if name else f"source_{source_index}")
     return names
+
+
+def _run_rep_to_sources_by_source(
+    pipeline: list[Any], rep_step: dict[str, Any], branch_body: list[Any], spectro: Any,
+    dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str,
+    task_type: str, config_name: str = "", random_state: int | None = None,
+) -> RunResult:
+    """Materialize the legacy repetition reshape, then run native source-local models."""
+    import copy
+    import pickle
+
+    reshaped = copy.deepcopy(spectro)
+    _reshape_for_rep_fusion(rep_step, reshaped)
+    n_sources = reshaped.features_sources()
+    if n_sources < 2:
+        raise DagMlUnsupported("rep_to_sources by_source requires at least two aligned sources")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = run_dir / "reshaped_dataset.pkl"
+    pickle_path.write_bytes(pickle.dumps(reshaped))
+    source_bodies = dict.fromkeys(_source_names(reshaped, n_sources), branch_body)
+    body_pipeline = [step for step in pipeline if step is not rep_step]
+    return _run_by_source_auto_models(
+        body_pipeline, source_bodies, [], n_sources, reshaped, dataset_arg, cli,
+        venv_python, run_dir / "source_models", metric, task_type,
+        dataset_pickle=str(pickle_path), config_name=config_name,
+        random_state=random_state,
+    )
 
 
 def _run_by_source_auto_models(
