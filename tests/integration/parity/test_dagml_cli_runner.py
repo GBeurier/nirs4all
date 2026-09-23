@@ -2819,13 +2819,18 @@ def test_repetition_classification_vote_aggregation_executes_without_fallback() 
     assert len(result.predictions) > 0
 
 
-def test_adaptive_finetune_params_execute_with_native_inner_fold_scores() -> None:
-    """General Optuna proposals retain native grouped inner-CV ownership."""
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_adaptive_finetune_params_execute_with_native_inner_fold_scores(monkeypatch, mechanism: str) -> None:
+    """General Optuna proposals retain native grouped inner-CV ownership on both mechanisms."""
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import ShuffleSplit
 
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
+    if mechanism == "subprocess" and not _DAGML_CLI.exists():
+        pytest.skip(f"dag-ml-cli binary not built at {_DAGML_CLI}")
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
     configs = DatasetConfigs(dataset_path("regression"))
     pipeline = [
         ShuffleSplit(n_splits=3, random_state=42),
