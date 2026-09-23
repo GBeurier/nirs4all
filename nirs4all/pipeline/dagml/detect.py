@@ -1548,6 +1548,36 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
     return branches, learner, selectors
 
 
+def _detect_named_multi_level_metamodel(
+    pipeline: list[Any],
+) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None, dict[str, Any]] | None:
+    """Two named MetaModels where the second consumes only the first one's OOF."""
+    from nirs4all.operators.models.meta import MetaModel, StackingLevel
+
+    steps = [step for step in pipeline if not _is_split_step(step)]
+    if len(steps) < 3 or not all(isinstance(step, dict) for step in steps[-2:]):
+        return None
+    first_step, second_step = steps[-2:]
+    first = first_step.get("model")
+    second = second_step.get("model")
+    if not isinstance(first, MetaModel) or not isinstance(second, MetaModel):
+        return None
+    first_name = first_step.get("name") or first.name
+    if not isinstance(first_name, str) or second.source_models != [first_name]:
+        return None
+    if (
+        second.use_proba or second.selector is not None or second.finetune_space is not None
+        or second.stacking_config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_2)
+        or not _is_default_except_level(second.stacking_config)
+    ):
+        return None
+    first_stage = _detect_sequential_metamodel(pipeline[:-1])
+    if first_stage is None:
+        return None
+    branches, learner, selectors = first_stage
+    return branches, learner, selectors, second_step
+
+
 def _branch_local_meta_model_step(model_step: dict[str, Any]) -> dict[str, Any] | None:
     """Return a handled branch-local ``MetaModel`` step for named prediction-feature stacking.
 

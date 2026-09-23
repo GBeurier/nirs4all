@@ -180,14 +180,24 @@ def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, test
 
 
 @pytest.mark.parity
-def test_two_named_metamodel_levels_expose_native_planner_gap(tmp_path):
-    """Legacy can consume a named meta-model as the source of another level."""
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
+def test_two_named_metamodel_levels_use_native_nested_oof_and_archive(tmp_path, mechanism, monkeypatch):
+    """Both DAG transports retain the legacy named source and nested OOF scopes."""
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.datasets import make_regression
     from sklearn.linear_model import Lasso, Ridge
     from sklearn.model_selection import KFold
 
     import nirs4all
+
+    if mechanism == "cli":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "pyo3" else "0")
 
     features, targets = make_regression(
         n_samples=48, n_features=6, noise=0.1, random_state=42,
@@ -208,8 +218,35 @@ def test_two_named_metamodel_levels_expose_native_planner_gap(tmp_path):
     finally:
         legacy.close()
 
-    with pytest.raises(Exception, match="sequential MetaModel requires a supported native OOF feature contract"):
-        nirs4all.run(
-            pipeline, (features, targets), engine="dag-ml", allow_fallback=False, refit=False,
-            workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0,
-        )
+    native = nirs4all.run(
+        pipeline, (features, targets), engine="dag-ml", allow_fallback=False, refit=True,
+        workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0,
+    )
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert np.isfinite(native.cv_best_score)
+        from nirs4all.pipeline.dagml.native_results import read_native_results
+
+        persisted = read_native_results(native._dagml_results_dir)
+        replay_manifest = persisted["manifest"]["stacking_replay"]
+        assert replay_manifest["schema_version"] == 2
+        first_stage, second_stage = replay_manifest["stages"]
+        by_id = {artifact["artifact_id"]: artifact for artifact in persisted["artifacts"]}
+        assert set(by_id) == {
+            *(producer["artifact_id"] for producer in first_stage["base_producers"]),
+            first_stage["meta_artifact_id"], second_stage["meta_artifact_id"],
+        }
+        assert second_stage["base_producers"][0]["artifact_id"] == first_stage["meta_artifact_id"]
+        base_features = np.column_stack([
+            np.asarray(by_id[producer["artifact_id"]]["estimator"].predict(features[:7])).reshape(7, -1)
+            for producer in first_stage["base_producers"]
+        ])
+        first_predictions = np.asarray(by_id[first_stage["meta_artifact_id"]]["estimator"].predict(base_features)).reshape(7, -1)
+        expected = np.asarray(by_id[second_stage["meta_artifact_id"]]["estimator"].predict(first_predictions)).reshape(-1)
+        archive = native.export(tmp_path / "two-level.n4a")
+        replay = np.asarray(nirs4all.predict(archive, features[:7]).y_pred).reshape(-1)
+        assert replay.shape == (7,)
+        assert np.all(np.isfinite(replay))
+        np.testing.assert_allclose(replay, expected)
+    finally:
+        native.close()

@@ -45,6 +45,7 @@ from .detect import (
     _detect_by_source_stacking_branch,
     _detect_duplication_branch,
     _detect_named_metamodel_feature_stack,
+    _detect_named_multi_level_metamodel,
     _detect_proba_mean_stacking_branch,
     _detect_rep_fusion,
     _detect_rep_to_sources_by_source,
@@ -1115,7 +1116,8 @@ def _dispatch_run(
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
     detected_sequential_metamodel = _detect_sequential_metamodel(list(pipeline))
-    if detected_sequential_metamodel is None and not any(
+    detected_multi_level_metamodel = _detect_named_multi_level_metamodel(list(pipeline))
+    if detected_sequential_metamodel is None and detected_multi_level_metamodel is None and not any(
         isinstance(step, dict) and ("branch" in step or "merge" in step) for step in pipeline
     ):
         from nirs4all.operators.models.meta import MetaModel
@@ -1434,6 +1436,15 @@ def _dispatch_run(
     # fold-validation (held-out Validation OOF); the meta-node consumes those branches' Validation OOF
     # (via requires_oof+requires_fold_alignment edges, leakage-safe — train predictions are refused), fits
     # the meta-learner on the per-fold OOF meta-feature matrix and emits its own scored OOF.
+    if detected_multi_level_metamodel is not None:
+        branches, meta_learner, selectors, second_step = detected_multi_level_metamodel
+        return _run_stacking_branch(
+            list(pipeline), branches, meta_learner, spectro, dataset_arg, cli,
+            venv_python or sys.executable, base_dir / "sequential_multi_level_metamodel",
+            metric, task_type, dataset_pickle=host_pickle, config_name=config_name,
+            random_state=random_state, refit=refit, prediction_aggregations=selectors,
+            second_meta_step=second_step,
+        )
     if detected_sequential_metamodel is not None:
         branches, meta_learner, selectors = detected_sequential_metamodel
         return _run_stacking_branch(
