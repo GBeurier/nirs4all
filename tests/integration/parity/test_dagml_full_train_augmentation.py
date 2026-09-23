@@ -91,6 +91,67 @@ def test_public_cv_accepts_consecutive_augmentation_steps() -> None:
     assert oof_reports[0]["row_count"] == base_count
 
 
+@pytest.mark.parametrize("prefix_kind", ["y_processing", "feature_augmentation", "tag"])
+@pytest.mark.parametrize("with_splitter", [False, True])
+def test_legacy_prefix_before_sample_augmentation_runs_and_replays(tmp_path, prefix_kind: str, with_splitter: bool) -> None:
+    """A structured prefix keeps its legacy result and an exportable native refit."""
+    path = str(PARSER_FIXTURES["with_metadata"])
+    prefix = {
+        "y_processing": {"y_processing": StandardScaler()},
+        "feature_augmentation": {"feature_augmentation": [StandardNormalVariate()]},
+        "tag": {"tag": YOutlierFilter(method="iqr", threshold=2.5, tag_name="out")},
+    }[prefix_kind]
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    pipeline = [prefix, augmentation]
+    if with_splitter:
+        pipeline.append(KFold(n_splits=2, shuffle=True, random_state=42))
+    pipeline.append({"model": PLSRegression(n_components=2)})
+
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    if with_splitter:
+        native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    else:
+        with pytest.warns(NoSplitEvaluationWarning):
+            native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.execution_engine == "dag-ml"
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+
+    archive = tmp_path / f"{prefix_kind}.n4a"
+    native.export(archive)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(np.asarray(dataset.y({"partition": "test"})), np.asarray(replay.y_pred))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-9)
+
+
+def test_splitter_before_sample_augmentation_matches_legacy_and_replays(tmp_path) -> None:
+    """The splitter may be declared before the train-only sample augmentation."""
+    path = str(PARSER_FIXTURES["with_metadata"])
+    splitter = KFold(n_splits=2, shuffle=True, random_state=42)
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    model = {"model": PLSRegression(n_components=2)}
+    pipeline = [splitter, augmentation, model]
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    canonical = nirs4all.run([augmentation, splitter, model], path, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.execution_engine == "dag-ml"
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-9)
+    assert native.cv_best_score == pytest.approx(canonical.cv_best_score, abs=1e-9)
+
+    archive = tmp_path / "splitter_before_augmentation.n4a"
+    native.export(archive)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(np.asarray(dataset.y({"partition": "test"})), np.asarray(replay.y_pred))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-9)
+
+
 @pytest.mark.parametrize("with_splitter", [False, True])
 @pytest.mark.parametrize("augmentation_count", [1, 2])
 @pytest.mark.parametrize("dataset_key", ["regression", "multi"])

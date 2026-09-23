@@ -1268,9 +1268,9 @@ def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any, contex
     runtime_context.save_artifacts = False
     runtime_context.save_charts = False
     for step in pre_aug_steps:
-        is_exclude = isinstance(step, dict) and "exclude" in step
-        raw_train = np.asarray(spectro.x({"partition": "train"}, layout="2d", include_augmented=True)).copy() if not is_exclude else None
-        replay_stage = _capture_pre_augmentation_replay([step], spectro) if not is_exclude else None
+        changes_x = not (isinstance(step, dict) and any(key in step for key in ("exclude", "tag", "y_processing")))
+        raw_train = np.asarray(spectro.x({"partition": "train"}, layout="2d", include_augmented=True)).copy() if changes_x else None
+        replay_stage = _capture_pre_augmentation_replay([step], spectro) if changes_x else None
         result = runner.execute(step, spectro, context, runtime_context, prediction_store=None)
         context = result.updated_context
         _verify_pre_augmentation_replay(replay_stage, spectro, raw_train)
@@ -1318,6 +1318,9 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
     from sklearn.base import clone
     from sklearn.pipeline import make_pipeline
 
+    from nirs4all.operators.transforms.concat import FeatureConcat
+    from nirs4all.pipeline.dagml_bridge import _lower_feature_augmentation
+
     _assert_supported_operators(pre_aug_steps)
     try:
         y = np.asarray(spectro.y({"partition": "train"}, include_augmented=True))
@@ -1325,7 +1328,12 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
         blocks = raw_blocks if isinstance(raw_blocks, list) else [raw_blocks]
         chains = []
         for block in blocks:
-            chain = make_pipeline(*(clone(step) for step in pre_aug_steps))
+            transforms = [
+                FeatureConcat(**_lower_feature_augmentation(step)["params"])
+                if isinstance(step, dict) and "feature_augmentation" in step else clone(step)
+                for step in pre_aug_steps
+            ]
+            chain = make_pipeline(*transforms)
             chain.fit(np.asarray(block), y[:, 0] if y.ndim > 1 else y)
             chains.append(chain)
     except (TypeError, ValueError, AttributeError) as exc:
@@ -1506,7 +1514,10 @@ def _run_augmentation_full_train(
     after_aug = aug_indices[-1] + 1
     materialize_end = after_aug + _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
     replay_stages = _materialize_augmentation_prefix(pipeline[:materialize_end], spectro)
-    post_aug_steps = pipeline[materialize_end:]
+    # The host model still needs the Y transform: materializing the prefix for the
+    # augmentation controller does not add a Y node to the native model graph.
+    y_prefix_steps = [step for step in pipeline[:aug_indices[0]] if isinstance(step, dict) and "y_processing" in step]
+    post_aug_steps = [*y_prefix_steps, *pipeline[materialize_end:]]
     from .detect import _detect_duplication_branch
 
     duplication = _detect_duplication_branch(post_aug_steps)
@@ -1546,6 +1557,19 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     """
     import pickle
 
+    # Legacy accepts the splitter before augmentation. Native folds are built on
+    # base sample ids independently of its position, so route it after the last
+    # augmentation while preserving the order of all data-changing steps.
+    last_aug = max(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
+    early_splitters = [index for index, step in enumerate(pipeline[:last_aug]) if _is_split_step(step)]
+    if early_splitters:
+        if len(early_splitters) != 1 or any(_is_split_step(step) for step in pipeline[last_aug + 1:]):
+            raise DagMlUnsupported("sample augmentation with multiple splitters needs an explicit fold policy")
+        pipeline = list(pipeline)
+        splitter_step = pipeline.pop(early_splitters[0])
+        last_aug = max(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
+        pipeline.insert(last_aug + 1, splitter_step)
+
     aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
     interleaved = aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
     aug_steps = [pipeline[index] for index in aug_indices]
@@ -1554,6 +1578,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     from .detect import _is_exclude_step
 
     pre_aug_steps = pipeline[:aug_index]
+    y_prefix_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "y_processing" in step]
     late_exclusion_length = _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
     post_aug_steps = pipeline[after_aug + late_exclusion_length:]
     materialized_early = bool((interleaved or late_exclusion_length) and not fold_local)
@@ -1565,6 +1590,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     steps, splitter = _split_pipeline(post_aug_steps)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps = [*y_prefix_steps, *steps]
     if any(_is_exclude_step(step) for step in steps):
         from .exclude import _resolve_exclude
 
