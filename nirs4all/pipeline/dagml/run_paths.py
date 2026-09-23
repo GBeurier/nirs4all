@@ -4692,10 +4692,17 @@ def _assemble_stacking_dsl(
     if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
         meta_metadata["stacking_test_aggregation"] = "best" if fold_aggregation == TestAggregation.BEST_FOLD else "weighted"
         meta_metadata["stacking_test_metric"] = selection_metric
-    if meta_wrapper is not None and meta_wrapper.stacking_config.coverage_strategy == CoverageStrategy.DROP_INCOMPLETE:
+    if meta_wrapper is not None and meta_wrapper.stacking_config.coverage_strategy in (
+        CoverageStrategy.DROP_INCOMPLETE, CoverageStrategy.IMPUTE_MEAN,
+    ):
         meta_metadata["stacking_oof_coverage_contract"] = {
             "min_coverage_ratio": meta_wrapper.stacking_config.min_coverage_ratio,
         }
+    if meta_wrapper is not None and meta_wrapper.stacking_config.coverage_strategy == CoverageStrategy.IMPUTE_MEAN:
+        # Nested OOF is complete by construction. The core checks every input
+        # source against the requested IDs; a genuine hole is rejected until
+        # per-source mean imputation with explicit lineage is implemented.
+        meta_metadata["stacking_missing_prediction_policy"] = "complete_inner_oof_no_imputation"
     if meta_metadata.get("nirs4all_finetune_params"):
         raise DagMlUnsupported(
             "meta-model HPO requires a native whole-stack nested search; "
