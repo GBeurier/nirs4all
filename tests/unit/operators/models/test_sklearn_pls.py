@@ -52,8 +52,13 @@ def _ikpls_jax_available() -> bool:
     """Check if IKPLS exposes the JAX backend modules used by the wrapper."""
     return (
         _jax_available()
-        and _module_available("ikpls.jax_ikpls_alg_1")
-        and _module_available("ikpls.jax_ikpls_alg_2")
+        and (
+            _module_available("ikpls.jax")
+            or (
+                _module_available("ikpls.jax_ikpls_alg_1")
+                and _module_available("ikpls.jax_ikpls_alg_2")
+            )
+        )
     )
 
 

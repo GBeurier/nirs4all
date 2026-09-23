@@ -60,17 +60,25 @@ class TestIsAvailable:
         assert r_pytorch == r_torch
 
     def test_ikpls_requires_numpy_backend_submodule(self):
-        """IKPLS availability matches the wrapper's default import path."""
+        """A root package without either supported NumPy API is unavailable."""
 
         def fake_find_spec(module_name: str):
             if module_name == 'ikpls':
                 return object()
+            if module_name == 'ikpls.numpy':
+                return None
             if module_name == 'ikpls.numpy_ikpls':
                 return None
             raise AssertionError(f"unexpected module lookup: {module_name}")
 
         with patch('importlib.util.find_spec', side_effect=fake_find_spec):
             assert is_available('ikpls') is False
+
+    @pytest.mark.parametrize('module_name', ['ikpls.numpy', 'ikpls.numpy_ikpls'])
+    def test_ikpls_accepts_both_numpy_module_generations(self, module_name):
+        """Availability follows either public NumPy API supported by the wrapper."""
+        with patch('importlib.util.find_spec', side_effect=lambda name: object() if name == module_name else None):
+            assert is_available('ikpls') is True
 
     def test_case_normalised(self):
         """Backend name is lowercased before lookup."""
