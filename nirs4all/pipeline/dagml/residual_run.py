@@ -62,9 +62,6 @@ def run_residual_model(
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
     if any(step["kind"] != "transform" for step in prefix_steps):
         raise DagMlUnsupported("residual prefix currently requires X preprocessing steps")
-    if operator.gate == "auto":
-        raise DagMlUnsupported("automatic residual gate needs nested learner OOF evidence")
-
     learner_finetune: dict[str, Any] = {}
     if operator.finetune_space:
         from .host_finetune import validate_host_finetune
@@ -133,12 +130,26 @@ def run_residual_model(
         producer=fusion_id, config_name=config_name, results=outcome["results"],
         identity=identity, refit_artifacts=outcome["refit_artifacts"],
     )
+    if operator.gate == "auto":
+        gate_records = outcome.get("residual_gates") or []
+        if not isinstance(gate_records, list) or not gate_records or any(
+            not isinstance(record, dict) or not isinstance(record.get("gate"), (int, float))
+            for record in gate_records
+        ):
+            raise ValueError("native residual run omitted automatic gate calibration evidence")
+        final_gates = [record["gate"] for record in gate_records if record.get("fold_id") is None]
+        if refit and len(final_gates) != 1:
+            raise ValueError("native residual refit needs exactly one full-training automatic gate")
+        gate = float(final_gates[0]) if final_gates else None
+    else:
+        gate = float(1.0 if operator.gate is False else operator.gate)
     result.per_dataset[spectro.name]["residual_replay"] = {
         "schema_version": 1,
         "producer_node": fusion_id,
         "base_producer_node": base_id,
         "learner_producer_node": learner_id,
         "lambda": float(operator.lam),
-        "gate": float(1.0 if operator.gate is False else operator.gate),
+        "gate": gate,
+        **({"gate_records": gate_records} if operator.gate == "auto" else {}),
     }
     return result

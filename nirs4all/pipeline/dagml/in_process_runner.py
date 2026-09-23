@@ -171,6 +171,7 @@ def run_cv_refit_bundle(
         "stdout": "",
         "results": node_results,
         "scores": payload.get("scores"),
+        "residual_gates": payload.get("residual_gates", []),
         "variant_catalog": payload.get("variant_catalog", []),
         "selected_refit_variant_ids": payload.get("selected_refit_variant_ids", []),
         "classification_evidence": collect_vote_evidence(store),
@@ -382,6 +383,7 @@ def run_cv_refit_bundle_router(
     bundle_path = Path(workdir) / "bundle.json"
     bundle = json.loads(bundle_path.read_text()) if outcome["returncode"] == 0 and bundle_path.exists() else {}
     outcome["scores"] = bundle.get("scores")
+    outcome["residual_gates"] = bundle.get("metadata", {}).get("residual_gates", [])
     outcome["variant_catalog"] = bundle.get("metadata", {}).get("variant_catalog", [])
     outcome["selected_refit_variant_ids"] = bundle.get("metadata", {}).get("selected_refit_variant_ids", [])
     # The adapter serializes its fitted REFIT models to this run's private artifact directory.

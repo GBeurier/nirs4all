@@ -237,3 +237,61 @@ def test_residual_learner_finetune_search_uses_native_train_scope(tmp_path) -> N
     replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
     assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
     native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("preprocessing", [False, True])
+def test_residual_auto_gate_calibrates_on_nested_oof_and_replays(tmp_path, monkeypatch, mechanism, preprocessing) -> None:
+    """The automatic gate comes from nested learner OOF and survives refit/export."""
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import KFold
+    from sklearn.preprocessing import StandardScaler
+
+    import nirs4all
+    from nirs4all.data import DatasetConfigs
+    from nirs4all.operators.models.residual import ResidualModel
+
+    from ._datasets import dataset_path
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    pipeline = [KFold(2, shuffle=True, random_state=1), *([StandardScaler()] if preprocessing else []), {
+        "model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate="auto"),
+    }]
+    legacy = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy-auto", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    native = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="dag-ml", refit=True,
+        workspace_path=tmp_path / "native-auto", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(native.cv_best_score)
+    assert np.isfinite(native.best_rmse)
+    replay_meta = native.per_dataset[next(iter(native.per_dataset))]["residual_replay"]
+    gate = replay_meta["gate"]
+    assert isinstance(gate, float) and 0 <= gate <= 1
+    assert {record["fold_id"] for record in replay_meta["gate_records"]} == {"fold0", "fold1", None}
+    if mechanism == "in_process":
+        base_folds = {
+            prediction.get("fold_id")
+            for frame in native._dagml_node_results if frame.get("node_id") == "branch:0.node:0"
+            for prediction in frame.get("predictions", []) if prediction.get("partition") == "validation"
+        }
+        assert "fold0.inner.fold0.inner.fold0" in base_folds  # base OOF nested below learner CV
+    archive = native.export(tmp_path / "residual_auto.n4a")
+    fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
+    replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
+    native.close()
