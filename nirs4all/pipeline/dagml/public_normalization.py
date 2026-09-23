@@ -21,7 +21,16 @@ def normalize_model_steps(steps: list[Any]) -> list[Any]:
     normalized: list[Any] = []
     for step in steps:
         if isinstance(step, list):
-            normalized.append(normalize_model_steps(step))
+            substeps = normalize_model_steps(step)
+            if substeps and all(_is_bare_transform(substep) for substep in substeps):
+                # Legacy's StepRunner executes a transform-only subpipeline in
+                # order against the same dataset. DAG-ML's linear X chain has
+                # the same structure once the grouping list is removed.
+                normalized.extend(substeps)
+            else:
+                # Model subpipelines have special winner selection on replay;
+                # keep their grouping until that contract is lowered explicitly.
+                normalized.append(substeps)
         elif isinstance(step, dict) and "branch" in step:
             normalized.append({**step, "branch": _normalize_branch(step["branch"])})
         elif isinstance(step, dict) and step.get("framework") == "autogluon" and "model" not in step:
@@ -31,6 +40,15 @@ def normalize_model_steps(steps: list[Any]) -> list[Any]:
         else:
             normalized.append(step)
     return normalized
+
+
+def _is_bare_transform(step: Any) -> bool:
+    return (
+        not isinstance(step, dict)
+        and callable(getattr(step, "fit", None))
+        and callable(getattr(step, "transform", None))
+        and not callable(getattr(step, "predict", None))
+    )
 
 
 def _normalize_branch(branch: Any) -> Any:
