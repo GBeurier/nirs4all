@@ -110,3 +110,57 @@ def test_four_automatic_meta_levels_with_raised_limit_replay(tmp_path, monkeypat
     finally:
         legacy.close()
         native.close()
+
+
+@pytest.mark.parity
+def test_ten_levels_need_more_rows_for_native_nested_oof(tmp_path, monkeypatch):
+    """Legacy scores a deep chain using validation labels that native OOF excludes."""
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    features, targets = make_regression(n_samples=20, n_features=4, noise=0.1, random_state=9)
+    pipeline = [KFold(2, shuffle=True, random_state=9), Ridge()]
+    previous = "Ridge"
+    for level in range(1, 11):
+        name = f"meta{level}"
+        pipeline.append({"model": MetaModel(Ridge(), source_models=[previous], name=name,
+                                      stacking_config=StackingConfig(max_level=10))})
+        previous = name
+
+    assert _detect_named_multi_level_metamodel(pipeline) is not None
+    legacy = nirs4all.run(pipeline, (features, targets), engine="legacy", allow_fallback=False,
+                          refit=False, workspace_path=tmp_path / "legacy", save_artifacts=False,
+                          save_charts=False, verbose=0)
+
+    def fold_zero_prediction(result, model_name):
+        row = next(row for row in result.predictions.filter_predictions(model_name=model_name, load_arrays=True)
+                   if row["partition"] == "val" and row["fold_id"] == "0")
+        return np.asarray(row["y_pred"]).ravel()
+
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+        assert {row["model_name"] for row in legacy.predictions._buffer if row["partition"] == "val"} >= {
+            f"meta{level}" for level in range(1, 11)
+        }
+        base_prediction = fold_zero_prediction(legacy, "Ridge")
+        meta_prediction = fold_zero_prediction(legacy, "meta1")
+    finally:
+        legacy.close()
+
+    # Perturb one label in fold 0's validation rows. The base model's fold-0
+    # predictions stay fixed; the legacy meta model's change, proving that
+    # its training features depend on an outer-validation label.
+    validation_rows = next(KFold(2, shuffle=True, random_state=9).split(features))[1]
+    perturbed_targets = targets.copy()
+    perturbed_targets[validation_rows[0]] += 1000
+    perturbed = nirs4all.run(pipeline, (features, perturbed_targets), engine="legacy", allow_fallback=False,
+                            refit=False, workspace_path=tmp_path / "perturbed", save_artifacts=False,
+                            save_charts=False, verbose=0)
+    try:
+        np.testing.assert_allclose(fold_zero_prediction(perturbed, "Ridge"), base_prediction, rtol=0, atol=0)
+        assert np.max(np.abs(fold_zero_prediction(perturbed, "meta1") - meta_prediction)) > 1
+    finally:
+        perturbed.close()
+
+    with pytest.raises(Exception, match=r"KFold n_splits=2 exceeds sample count 1"):
+        nirs4all.run(pipeline, (features, targets), engine="dag-ml", allow_fallback=False,
+                     refit=False, workspace_path=tmp_path / "native", save_artifacts=False,
+                     save_charts=False, verbose=0)
