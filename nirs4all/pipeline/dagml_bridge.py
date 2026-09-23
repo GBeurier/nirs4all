@@ -1155,7 +1155,7 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
             "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
             "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
-            "data_requirements": None,
+            "data_requirements": _MODEL_DATA_REQUIREMENTS,
             "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng"],
             "operator_selectors": [],  # empty => bind any transform-kind node
             "fit_scope": "fold_train",
@@ -1258,6 +1258,7 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "controller_version": _NIRS4ALL_VERSION,
             "operator_kind": "transform",
             "priority": 20,
+            "data_requirements": _MODEL_DATA_REQUIREMENTS,
         },
         {
             "controller_id": "controller:nirs4all.y_transform",

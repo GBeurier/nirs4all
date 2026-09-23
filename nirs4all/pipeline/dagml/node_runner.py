@@ -63,10 +63,39 @@ class _FrozenTransform(TransformerMixin, BaseEstimator):
 class _FittedXChain:
     """Host-owned state behind the transform node's native data output handle."""
 
-    def __init__(self, steps: list[Any]) -> None:
-        self.steps = steps
+    def __init__(
+        self, steps: list[Any] | None = None, *,
+        source_steps: list[list[Any]] | None = None,
+        source_widths: tuple[int, ...] | None = None,
+    ) -> None:
+        self.steps = steps or []
+        self.source_steps = source_steps
+        self.source_widths = source_widths
+
+    def for_source(self, index: int) -> _FittedXChain:
+        if self.source_steps is None:
+            raise ValueError("fitted X chain has no source-scoped operators")
+        return _FittedXChain(list(self.source_steps[index]))
+
+    def transform_blocks(self, blocks: list[np.ndarray]) -> list[np.ndarray]:
+        if self.source_steps is None or len(blocks) != len(self.source_steps):
+            raise ValueError("fitted X chain received an incompatible source layout")
+        transformed = []
+        for block, steps in zip(blocks, self.source_steps, strict=True):
+            out = np.asarray(block)
+            for transformer in steps:
+                out = np.asarray(transformer.transform(out))
+            transformed.append(out)
+        return transformed
 
     def transform(self, X: Any) -> Any:
+        if self.source_steps is not None:
+            raw = np.asarray(X)
+            widths = self.source_widths
+            if widths is None or raw.ndim != 2 or raw.shape[1] != sum(widths):
+                raise ValueError("fitted X chain requires its original source layout")
+            blocks = list(np.split(raw, np.cumsum(widths)[:-1], axis=1))
+            return np.hstack(self.transform_blocks(blocks))
         for transformer in self.steps:
             X = transformer.transform(X)
         return X
@@ -195,7 +224,10 @@ class _MultiBlockEstimator:
     delivers sample-aligned blocks). The model's own block weights are part of the fitted artifact.
     """
 
-    def __init__(self, model: Any, chain_template: list[Any], source_names: tuple[str, ...] | None = None) -> None:
+    def __init__(
+        self, model: Any, chain_template: list[Any], source_names: tuple[str, ...] | None = None,
+        source_chain_templates: list[list[Any]] | None = None,
+    ) -> None:
         self._model = model
         self.source_names = source_names
         # The routed upstream X-transform operators in furthest-upstream-first order. One independent
@@ -204,6 +236,7 @@ class _MultiBlockEstimator:
         # estimator, so its ``check_is_fitted`` would reject ``transform`` for a stateless transformer
         # like SNV — applying the steps directly matches the operator's own fit/transform contract.
         self._chain_template = chain_template
+        self._source_chain_templates = source_chain_templates
         self._block_chains: list[list[Any]] = []
 
     @property
@@ -233,7 +266,7 @@ class _MultiBlockEstimator:
     def _source_options(self, source_masks: dict[str, np.ndarray] | None) -> dict[str, Any]:
         if source_masks is None:
             return {}
-        if self.source_names is None or self._chain_template:
+        if self.source_names is None or self._chain_template or self._source_chain_templates:
             raise ValueError("partial modalities require encoders inside a multimodal model with an explicit missing_source_policy")
         return {"source_masks": source_masks}
 
@@ -246,13 +279,28 @@ class _MultiBlockEstimator:
         options = self._source_options(source_masks)
         if target_mask is not None:
             options["target_mask"] = target_mask
-        self._block_chains = [[clone(step) for step in self._chain_template] for _ in blocks]
+        self._source_widths = tuple(np.asarray(block).shape[1] for block in blocks)
+        templates = self._source_chain_templates or [self._chain_template for _ in blocks]
+        self._block_chains = [[clone(step) for step in chain] for chain in templates]
         transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
         self._model.fit(transformed, y, **options)
         return self
 
-    def predict(self, blocks: list[np.ndarray], *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    def _restore_blocks(self, blocks: list[np.ndarray] | np.ndarray) -> list[np.ndarray]:
+        widths = getattr(self, "_source_widths", None)
+        if isinstance(blocks, list) and len(blocks) == 1 and widths is not None and len(widths) > 1:
+            blocks = np.asarray(blocks[0])
+        if isinstance(blocks, np.ndarray):
+            if widths is None or blocks.ndim != 2 or blocks.shape[1] != sum(widths):
+                raise ValueError("multi-block replay requires the fitted source layout and matching feature count")
+            return list(np.split(blocks, np.cumsum(widths)[:-1], axis=1))
+        if widths is not None and len(blocks) != len(widths):
+            raise ValueError("multi-block replay received an incompatible source count")
+        return blocks
+
+    def predict(self, blocks: list[np.ndarray] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         options = self._source_options(source_masks)
+        blocks = self._restore_blocks(blocks)
         transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
         return np.asarray(self._model.predict(transformed, **options))
 
@@ -262,9 +310,10 @@ class _MultiBlockEstimator:
         return np.asarray(self._model.classes_)
 
     @available_if(lambda self: hasattr(self._model, "predict_proba"))
-    def predict_proba(self, blocks: list[np.ndarray], *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    def predict_proba(self, blocks: list[np.ndarray] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Apply the same captured source transforms before probability inference."""
         options = self._source_options(source_masks)
+        blocks = self._restore_blocks(blocks)
         transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
         return np.asarray(self._model.predict_proba(transformed, **options))
 
@@ -616,8 +665,6 @@ def _run_fitted_transform_node(
     """Fit one X operator on the scope chosen by its native data view."""
     if task["phase"] not in ("FIT_CV", "REFIT"):
         return _build_result(task, [], [], {})
-    if resolver.is_multi_source():
-        raise ValueError("fit_on_all with multiple feature sources needs source-scoped transform artifacts")
     view = next(
         (view for view in task.get("data_views", {}).values()
          if view.get("partition") in ("fold_train", "full_train", "all_observations")),
@@ -630,8 +677,13 @@ def _run_fitted_transform_node(
         samples = [int(sample) for sample in dataset.index_column("sample", {})]
         origins = [int(origin) for origin in dataset.index_column("origin", {})]
         excluded = {int(sample) for sample in dataset.index_column("sample", {"excluded": True})}
-        ids = [resolver._identity.to_wire(sample) for sample, origin in zip(samples, origins, strict=True)  # noqa: SLF001 - wire identity
-               if sample == origin and sample not in excluded]
+        bases = [sample for sample, origin in zip(samples, origins, strict=True) if sample == origin and sample not in excluded]
+        ids = [resolver._identity.to_wire(sample) for sample in bases]  # noqa: SLF001 - host wire identity
+        if view.get("include_augmented"):
+            train_samples = {int(sample) for sample in dataset.index_column("sample", {"partition": "train"})}
+            train_ids = [resolver._identity.to_wire(sample) for sample in bases if sample in train_samples]  # noqa: SLF001
+            expanded = resolver.expand_with_augmented_children(train_ids, task.get("fold_id") or "refit")
+            ids.extend(child for child in expanded[len(train_ids):] if resolver._identity.to_int(child) not in excluded)  # noqa: SLF001
     else:
         ids = _sample_ids(view)
         if view.get("include_augmented"):
@@ -639,24 +691,48 @@ def _run_fitted_transform_node(
     if not ids:
         raise ValueError("fitted transform node received an empty fit cohort")
 
-    x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
     preceding = _fitted_input_chain(task, model_store)
     if preceding is None and any(key.startswith("transform:") for key in task.get("input_handles", {})):
         raise ValueError("fitted transform node is missing its predecessor data-edge artifact")
-    steps = list(preceding.steps) if preceding is not None else []
-    for transformer in steps:
-        x_fit = np.asarray(transformer.transform(x_fit))
     target_ids = resolver.target_sample_ids(ids)
     y_fit = np.asarray(resolver.resolve_targets(target_ids)["values"])
     if y_fit.ndim > 1:
         y_fit = y_fit[:, 0]
     node_id = task["node_plan"]["node_id"]
-    transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
-    transformer.fit(x_fit, y_fit)
+    if resolver.is_multi_source():
+        resolved = resolver.resolve_feature_blocks(
+            ids, include_augmented=bool(view.get("include_augmented")), fold_label=task.get("fold_id") or "refit",
+        )
+        if "source_masks" in resolved:
+            raise ValueError("source-scoped preprocessing requires complete feature sources")
+        raw_blocks = [np.asarray(block) for block in resolved["blocks"]]
+        widths = tuple(block.shape[1] for block in raw_blocks)
+        if preceding is not None:
+            if preceding.source_widths != widths:
+                raise ValueError("fitted X chain source widths changed between data-edge nodes")
+            fit_blocks = preceding.transform_blocks(raw_blocks)
+            previous_steps = preceding.source_steps
+            assert previous_steps is not None
+        else:
+            fit_blocks = raw_blocks
+            previous_steps = [[] for _ in raw_blocks]
+        source_steps = []
+        for block, steps in zip(fit_blocks, previous_steps, strict=True):
+            transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+            transformer.fit(block, y_fit)
+            source_steps.append([*steps, transformer])
+        chain = _FittedXChain(source_steps=source_steps, source_widths=widths)
+    else:
+        x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
+        steps = list(preceding.steps) if preceding is not None else []
+        for transformer in steps:
+            x_fit = np.asarray(transformer.transform(x_fit))
+        transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        transformer.fit(x_fit, y_fit)
+        chain = _FittedXChain([*steps, transformer])
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"
     handle = _stable_handle(f"{node_id}:{task['phase']}:{variant_label}:{fold_label}")
-    chain = _FittedXChain([*steps, transformer])
     model_store[handle] = chain
     _persist_fitted_x(handle, chain)
     return _build_result(task, [], [], {})
@@ -806,12 +882,13 @@ def run_model_node(
             for upstream_id in _upstream_x_chain(node_id, edges)
         ):
             raise ValueError("model node is missing a fitted preprocessing data-edge artifact")
-        upstream = (
-            [_FrozenTransform(fitted_chain)] if fitted_chain is not None else [
+        if fitted_chain is not None and fitted_chain.source_steps is not None and source_index is not None:
+            upstream = [_FrozenTransform(fitted_chain.for_source(source_index))]
+        else:
+            upstream = [_FrozenTransform(fitted_chain)] if fitted_chain is not None else [
                 route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
                 for upstream_id in _upstream_x_chain(node_id, edges)
             ]
-        )
         best_params = _resolve_finetune_best_params(
             graph_node=graph_node,
             node_id=node_id,
@@ -846,7 +923,13 @@ def run_model_node(
 
         multimodal = isinstance(model, (MultimodalRegressor, MultimodalClassifier))
         multi_block = not source_concat and _is_multi_block_model(model) and (resolver.is_multi_source() or multimodal)
+        source_templates = (
+            [[_FrozenTransform(fitted_chain.for_source(index))] for index in range(len(fitted_chain.source_steps))]
+            if fitted_chain is not None and fitted_chain.source_steps is not None else None
+        )
         if source_chains is not None:
+            if source_templates is not None:
+                source_chains = [[*fitted, *configured] for fitted, configured in zip(source_templates, source_chains, strict=True)]
             estimator = _SourceConcatEstimator(
                 model,
                 source_chains or [],
@@ -854,9 +937,15 @@ def run_model_node(
             )
         elif multi_block:
             source_names = tuple(model.transformers) if isinstance(model, (MultimodalRegressor, MultimodalClassifier)) else None
-            estimator = _MultiBlockEstimator(model, upstream, source_names)
+            estimator = _MultiBlockEstimator(
+                model, [] if source_templates is not None else upstream, source_names,
+                source_chain_templates=source_templates,
+            )
         elif source_concat:
-            estimator = _SourceConcatEstimator(model, shared_chain_template=upstream)
+            estimator = (
+                _SourceConcatEstimator(model, source_chain_templates=source_templates)
+                if source_templates is not None else _SourceConcatEstimator(model, shared_chain_template=upstream)
+            )
         else:
             estimator = make_pipeline(*upstream, model) if upstream else model
         y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None

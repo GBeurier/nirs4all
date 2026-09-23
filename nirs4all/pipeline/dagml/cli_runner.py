@@ -111,6 +111,7 @@ def data_bindings_for_fitted_x_chain(
         if node.get("metadata", {}).get("nirs4all_fit_on_all") is True:
             binding["view_policy"] = {
                 "fit_partition": "all_observations",
+                "include_augmented_train": True,
                 "unsafe_flags": ["allow_fit_cv_all_observations_view"],
             }
         bindings.append(binding)
