@@ -247,6 +247,8 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
             scope = ("full-training REFIT augmentation stage; not out-of-fold features; "
                      "only observed samples are included in this chart's envelopes")
         summary = f"{chart_subject}; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds.{color_scope} Numeric inputs and fold memberships are supplied alongside the image."
+        if exclusion_chart and isinstance(config, dict) and config.get("title"):
+            summary = f"{config['title']}. {summary}"
         if directory is None:
             print(summary)
         else:
