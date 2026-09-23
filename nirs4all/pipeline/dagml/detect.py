@@ -1520,12 +1520,11 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
         if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
             return None
         models.append(operator)
-    if wrapper.use_proba:
-        if len(models) != 1 or wrapper.source_models != "all":
-            return None
-        return [[{"model": models[0]}]], learner, [{"branch": "branch_0", "aggregate": "proba_mean"}]
     if wrapper.source_models == "all":
-        return [[{"model": model}] for model in models], learner, None
+        branches = [[{"model": model}] for model in models]
+        if wrapper.use_proba:
+            return branches, learner, [{"branch": f"branch_{index}", "aggregate": "proba_mean"} for index in range(len(models))]
+        return branches, learner, None
     if not isinstance(wrapper.source_models, list) or not wrapper.source_models:
         return None
     names = [type(model).__name__ for model in models]
@@ -1537,7 +1536,11 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
     selected_count = len(order)
     order.extend(i for i in range(len(models)) if i not in order)
     branches = [[{"model": models[i]}] for i in order]
-    selectors = [{"model": f"branch:{i}.node:0"} for i in range(selected_count)]
+    selectors = [
+        {"branch": f"branch_{i}", "aggregate": "proba_mean"} if wrapper.use_proba
+        else {"model": f"branch:{i}.node:0"}
+        for i in range(selected_count)
+    ]
     return branches, learner, selectors
 
 

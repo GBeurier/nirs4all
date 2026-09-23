@@ -70,7 +70,13 @@ def test_legacy_and_dag_support_per_branch_probability_mean(tmp_path, monkeypatc
         native.close()
 
 
-def test_score_selection_is_not_silently_dropped() -> None:
+def test_score_selection_is_lowered_or_rejected_explicitly() -> None:
     pipeline = _pipeline()
     pipeline[2]["merge"]["predictions"][0]["select"] = "best"
+    pipeline[2]["merge"]["predictions"][0]["metric"] = "accuracy"
+    detected = _detect_proba_mean_stacking_branch(pipeline)
+    assert detected is not None
+    assert detected[2][0]["select"] == "best"
+    assert detected[2][0]["metric"] == "accuracy"
+    pipeline[2]["merge"]["predictions"][0]["metric"] = "f1"
     assert _detect_proba_mean_stacking_branch(pipeline) is None
