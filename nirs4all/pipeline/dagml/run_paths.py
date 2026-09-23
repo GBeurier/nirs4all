@@ -1344,18 +1344,30 @@ def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any, contex
     runtime_context.step_runner = runner
     runtime_context.save_artifacts = False
     runtime_context.save_charts = False
-    for step in pre_aug_steps:
+    index = 0
+    while index < len(pre_aug_steps):
+        step = pre_aug_steps[index]
+        from .detect import _simple_duplication_merge_mode
+
+        branch_pair = (
+            isinstance(step, dict) and "branch" in step
+            and index + 1 < len(pre_aug_steps)
+            and _simple_duplication_merge_mode(pre_aug_steps[index + 1]) == "features"
+        )
+        replay_steps = pre_aug_steps[index:index + 2] if branch_pair else [step]
         changes_x = not (isinstance(step, dict) and any(key in step for key in ("exclude", "tag", "y_processing")))
         raw_train = np.asarray(spectro.x({"partition": "train"}, layout="2d", include_augmented=True)).copy() if changes_x else None
-        replay_stage = _capture_pre_augmentation_replay([step], spectro) if changes_x else None
-        result = runner.execute(step, spectro, context, runtime_context, prediction_store=None)
-        context = result.updated_context
+        replay_stage = _capture_pre_augmentation_replay(replay_steps, spectro) if changes_x else None
+        for replay_step in replay_steps:
+            result = runner.execute(replay_step, spectro, context, runtime_context, prediction_store=None)
+            context = result.updated_context
+            runtime_context.step_number += 1
         _verify_pre_augmentation_replay(replay_stage, spectro, raw_train)
         if replay_stage is not None:
             replay_stages.append(replay_stage)
         if changes_x and chart_capture is not None:
-            chart_capture(step, spectro)
-        runtime_context.step_number += 1
+            chart_capture(replay_steps[-1], spectro)
+        index += len(replay_steps)
     return context, replay_stages
 
 
@@ -1403,17 +1415,31 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
     from nirs4all.pipeline.dagml_bridge import _lower_feature_augmentation
 
     _assert_supported_operators(pre_aug_steps)
+    branch_merge = len(pre_aug_steps) == 2 and isinstance(pre_aug_steps[0], dict) and "branch" in pre_aug_steps[0]
+    if branch_merge:
+        from .detect import _duplication_branch_bodies, _selected_duplication_feature_branches, _simple_duplication_merge_mode
+
+        branches = _duplication_branch_bodies(pre_aug_steps[0])
+        mode = _simple_duplication_merge_mode(pre_aug_steps[1])
+        if branches is None or mode != "features":
+            raise DagMlUnsupported("pre-augmentation branch replay requires a duplication feature merge")
+        branches = _selected_duplication_feature_branches(branches, pre_aug_steps[1])
+        if branches is None:
+            raise DagMlUnsupported("pre-augmentation branch replay has an invalid feature selection")
     try:
         y = np.asarray(spectro.y({"partition": "train"}, include_augmented=True))
         raw_blocks = spectro.x({"partition": "train"}, layout="2d", concat_source=False, include_augmented=True)
         blocks = raw_blocks if isinstance(raw_blocks, list) else [raw_blocks]
         chains = []
         for source_index, block in enumerate(blocks):
-            transforms = [
-                FeatureConcat(**_lower_feature_augmentation(step)["params"])
-                if isinstance(step, dict) and "feature_augmentation" in step else clone(step)
-                for step in pre_aug_steps
-            ]
+            transforms = (
+                [_branch_merge_transformer_step(branches, "features")]
+                if branch_merge else [
+                    FeatureConcat(**_lower_feature_augmentation(step)["params"])
+                    if isinstance(step, dict) and "feature_augmentation" in step else clone(step)
+                    for step in pre_aug_steps
+                ]
+            )
             transforms = [
                 _CoordinateTransform(transform, tuple(str(value) for value in spectro.wavelengths_cm1(source_index)), source_index)
                 if _needs_wavelength_injection(transform) else transform
