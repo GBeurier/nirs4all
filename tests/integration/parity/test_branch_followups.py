@@ -102,7 +102,7 @@ def test_metadata_branch_cv_without_refit_matches_legacy(monkeypatch: pytest.Mon
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_augmented_metadata_branch_cv_without_refit(monkeypatch: pytest.MonkeyPatch, mechanism: str) -> None:
-    """The branch consumes augmented fold training rows and emits only OOF evidence."""
+    """The branch consumes augmented fold training rows and scores held-out rows."""
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
 
@@ -125,7 +125,7 @@ def test_augmented_metadata_branch_cv_without_refit(monkeypatch: pytest.MonkeyPa
     assert legacy.num_predictions > 0
     assert np.isfinite(native.cv_best_score)
     assert native._dagml_refit_artifacts == []
-    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"val"}
+    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"val", "test"}
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
                for frame in native._dagml_node_results)
 
