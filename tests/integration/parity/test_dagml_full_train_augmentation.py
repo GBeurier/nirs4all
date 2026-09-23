@@ -363,6 +363,49 @@ def test_public_augmentation_operator_generator_matches_legacy_and_replays(
     assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-9)
 
 
+@pytest.mark.parametrize("placement", ["before", "between"])
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_public_generator_before_augmentation_matches_legacy_and_replays(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, placement: str, mechanism: str,
+) -> None:
+    """Each pre-augmentation choice gets its own spectra, native score and replay chain."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    choice = {"_or_": [StandardNormalVariate(), StandardScaler()]}
+    prefix = [choice, augmentation] if placement == "before" else [augmentation, choice, augmentation]
+    pipeline = [*prefix, KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=3)}]
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+
+    assert native.execution_engine == "dag-ml"
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-9)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-9)
+    variants = {report["variant_id"] for report in native._dagml_score_set["reports"]
+                if report["partition"] == "validation" and report.get("variant_id")}
+    assert len(variants) == 2
+
+    archive = tmp_path / "pre_augmentation_generator.n4a"
+    native.export(archive)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    prediction = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(
+        np.asarray(dataset.y({"partition": "test"})), np.asarray(prediction.y_pred),
+    )
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-9)
+
+
 @pytest.mark.parametrize("prefix_kind", ["y_processing", "feature_augmentation", "tag"])
 @pytest.mark.parametrize("with_splitter", [False, True])
 def test_legacy_prefix_before_sample_augmentation_runs_and_replays(tmp_path, prefix_kind: str, with_splitter: bool) -> None:

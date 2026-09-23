@@ -70,7 +70,7 @@ from .finetune_lowering import (
 )
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
 from .native_results import native_results_enabled, write_native_results
-from .result import _project_operator_sweep, _scores_to_run_result
+from .result import _project_operator_sweep, _scores_to_run_result, _variant_cv_score
 from .run_paths import (
     _FUSION_MERGE_NODE_ID,
     _augmentation_is_leakage_free,
@@ -1071,6 +1071,52 @@ def _dispatch_run(
     detected_rep_fusion = _detect_rep_fusion(list(pipeline))
     detected_source_concat = _detect_source_concat_merge(list(pipeline), spectro.features_sources())
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
+
+    # Augmentation materializes host-owned spectra before DAG execution. A generator
+    # preceding that materialization needs one independent dataset per choice;
+    # otherwise the prefix is mistaken for one sklearn transformer. Every choice
+    # still runs and is scored by DAG-ML, with its own content-derived sample IDs.
+    if augmentation_steps:
+        last_augmentation = max(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
+        has_early_generator = any(
+            isinstance(step, dict) and ("_or_" in step or "_cartesian_" in step)
+            for step in pipeline[:last_augmentation]
+        )
+        if has_early_generator:
+            if _generation_kind(list(pipeline)) != "operator":
+                raise DagMlUnsupported("generator before sample augmentation requires finite operator choices")
+            if not any(_is_split_step(step) for step in pipeline):
+                raise DagMlUnsupported("generator before sample augmentation requires a cross-validator")
+            variants = _expand_operator_generators(list(pipeline))
+            captures: list[dict[str, Any]] = []
+            for index, variant in enumerate(variants):
+                capture: dict[str, Any] = {}
+                _run_augmentation(
+                    variant, copy.deepcopy(spectro), dataset_arg, cli, venv_python or sys.executable,
+                    base_dir / f"augmentation_variant_{index}", metric, task_type,
+                    config_name=variant_config_names[index] if index < len(variant_config_names) else "",
+                    random_state=random_state, capture=capture,
+                )
+                if not capture:
+                    raise DagMlUnsupported("generator before augmentation with a separation branch needs variant-scoped data views")
+                captures.append(capture)
+            import dag_ml
+
+            decision = dag_ml.select_candidate(
+                {"id": "select:augmentation_generator", "metric": {"name": metric, "objective": _metric_objective(metric)}},
+                [
+                    {"candidate_id": str(index), "metrics": {metric: _variant_cv_score(item["scores"], metric)}}
+                    for index, item in enumerate(captures)
+                ],
+            )
+            return _project_operator_sweep(
+                [(item["scores"], item["model_name"]) for item in captures],
+                spectro.name, metric, task_type, is_classification, variant_config_names,
+                results_by_index=[item["results"] for item in captures],
+                identities_by_index=[item["identity"] for item in captures],
+                refit_artifacts_by_index=[item["refit_artifacts"] for item in captures],
+                selected_index=int(decision["selected_candidate_id"]),
+            )
 
     if refit is False and (
         detected is not None

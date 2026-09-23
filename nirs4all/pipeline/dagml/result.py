@@ -277,6 +277,7 @@ def _scores_to_run_result(
     results: list[dict[str, Any]] | None = None,
     results_by_variant: dict[Any, list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
+    identities_by_variant: dict[Any, IdentityMap] | None = None,
     refit_artifacts: list[dict[str, Any]] | None = None,
     report_fold_ids: set[str] | None = None,
     emit_all_refits: bool = False,
@@ -344,7 +345,7 @@ def _scores_to_run_result(
     # one producer (all variants reuse the SAME node id — keying by producer alone WOULD collide). Every
     # other call site passes neither → an empty index → score-only (empty arrays) unchanged.
     sample_blocks_by_variant: dict[Any, dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any] | None]]] = {}
-    if identity is not None:
+    if identity is not None or identities_by_variant:
         variant_results = results_by_variant if results_by_variant is not None else ({"variant:base": results} if results is not None else {})
         for variant_id, variant_frames in variant_results.items():
             sample_blocks_by_variant[variant_id] = {
@@ -421,10 +422,11 @@ def _scores_to_run_result(
         flattened to 1-D arrays (legacy ``.ravel()`` shape).
         """
         pair = sample_blocks_by_variant.get(variant_id, {}).get((partition, fold_id))
-        if pair is None or identity is None:
+        variant_identity = (identities_by_variant or {}).get(variant_id, identity)
+        if pair is None or variant_identity is None:
             return None
         block, target = pair
-        sample_indices = [identity.to_int(sample_id) for sample_id in block["sample_ids"]]
+        sample_indices = [variant_identity.to_int(sample_id) for sample_id in block["sample_ids"]]
         y_pred = np.asarray(block["values"], dtype=float)
         y_pred = y_pred.ravel() if y_pred.ndim == 2 and y_pred.shape[1] == 1 else y_pred
         if target is None:
@@ -600,6 +602,8 @@ def _project_operator_sweep(
     results_by_index: list[list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
     refit_artifacts_by_index: list[list[dict[str, Any]]] | None = None,
+    identities_by_index: list[IdentityMap] | None = None,
+    selected_index: int | None = None,
 ) -> RunResult:
     """Combine each operator-expanded variant's single-variant ScoreSet into ONE per-variant projection.
 
@@ -643,7 +647,9 @@ def _project_operator_sweep(
             return float("inf")
         return -score if maximize else score
 
-    winner_index = min(range(len(scores_by_variant)), key=_rank)
+    winner_index = selected_index if selected_index is not None else min(range(len(scores_by_variant)), key=_rank)
+    if winner_index not in range(len(scores_by_variant)):
+        raise ValueError(f"selected variant index {winner_index} is outside the operator sweep")
     # Winner first, then the losers in expand order — the projection iterates / labels by variant_id, so
     # the order here only sets which reports lead, not the labels.
     ordered_indices = [winner_index] + [index for index in range(len(scores_by_variant)) if index != winner_index]
@@ -654,6 +660,7 @@ def _project_operator_sweep(
     # Per-variant-TAG frames for the direct-block value fill (2a-ii): variant `index`'s own frames keyed
     # by the SAME tag we stamp its reports with, so a row reads its OWN variant's blocks (no leakage).
     results_by_variant: dict[Any, list[dict[str, Any]]] = {}
+    identities_by_variant: dict[Any, IdentityMap] = {}
     for position, index in enumerate(ordered_indices):
         is_winner = position == 0
         variant_tag = "variant:base" if is_winner else f"variant:v{index}"
@@ -665,6 +672,8 @@ def _project_operator_sweep(
         variant_model_map[variant_tag] = model_names[index]
         if results_by_index is not None:
             results_by_variant[variant_tag] = results_by_index[index]
+        if identities_by_index is not None:
+            identities_by_variant[variant_tag] = identities_by_index[index]
         for report in scores_by_variant[index].get("reports", []):
             partition, fold_id = report.get("partition"), report.get("fold_id")
             entry = dict(report)
@@ -694,6 +703,7 @@ def _project_operator_sweep(
         variant_model_names=variant_model_map,
         results_by_variant=results_by_variant or None,
         identity=identity,
+        identities_by_variant=identities_by_variant or None,
         # Persist ONLY the WINNER's fitted REFIT estimators (the variant the projection refits + describes).
         # Every operator-expanded variant refits in its own in-process run (its own store), but the
         # standalone-refit rows — and therefore the model the RunResult describes — are the winner's, so the
