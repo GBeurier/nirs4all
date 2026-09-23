@@ -19,17 +19,30 @@ import numpy as np
 
 def validate_chart_projection(pipeline: list[Any], spectro: Any) -> None:
     """Check that requested chart stages have an unambiguous captured prefix."""
+    from .detect import _is_augmentation_step
     from .run_backend import _is_chart_step
+    from .run_paths import _augmentation_is_leakage_free
     from .steps import _is_split_step
 
     uncertain_stage = False
     transformed = False
+    augmentation_seen = False
+    has_augmentation = any(_is_augmentation_step(step) for step in pipeline)
     for step in pipeline:
         if _is_chart_step(step):
             if uncertain_stage or (transformed and spectro.is_multi_source()):
                 raise NotImplementedError("This chart stage needs a captured branch/source snapshot; a raw-data substitute would be misleading.")
         elif _is_split_step(step) or step is None:
             continue
+        elif _is_augmentation_step(step):
+            # The runner mutates the host dataset for global, stateless
+            # augmentation. Its final state is an honest chart snapshot only
+            # after the single augmentation step; before it we retain a copy
+            # of the original dataset. Fold-local and repeated augmentation
+            # need their own stage-scoped captures.
+            if augmentation_seen or transformed or not _augmentation_is_leakage_free(step):
+                uncertain_stage = True
+            augmentation_seen = True
         elif isinstance(step, dict):
             if set(step) == {"preprocessing"}:
                 transformed = True
@@ -40,6 +53,10 @@ def validate_chart_projection(pipeline: list[Any], spectro: Any) -> None:
         elif hasattr(step, "transform"):
             transformed = True
         else:
+            uncertain_stage = True
+        if has_augmentation and transformed and not augmentation_seen:
+            # A preprocessing step materialized before augmentation is absent
+            # from the native refit chain used by the chart presenter.
             uncertain_stage = True
 
 
@@ -85,13 +102,14 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
     )
 
 
-def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, workspace_path: Path | None,
+def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, original_spectro: Any | None = None, workspace_path: Path | None,
                       save_charts: bool, plots_visible: bool, verbose: int) -> list[str]:
     """Reuse library chart presenters on immutable snapshots of fitted DAG state."""
     from nirs4all.controllers.registry import CONTROLLER_REGISTRY
     from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext, StepMetadata
     from nirs4all.pipeline.steps.parser import StepParser
 
+    from .detect import _is_augmentation_step
     from .run_backend import _is_chart_step
     from .steps import _is_split_step
 
@@ -108,17 +126,20 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, workspa
     prefix = 0
     after_split = False
     processed_target = False
+    augmentation_seen = False
     output_paths: list[str] = []
     for index, step in enumerate(pipeline):
         if not _is_chart_step(step):
             if _is_split_step(step):
                 after_split = True
+            elif _is_augmentation_step(step):
+                augmentation_seen = True
             elif isinstance(step, dict) and "y_processing" in step:
                 processed_target = True
             elif (isinstance(step, dict) and set(step) == {"preprocessing"}) or (not isinstance(step, dict) and hasattr(step, "transform") and not hasattr(step, "predict")):
                 prefix += 1
             continue
-        snapshot = copy.deepcopy(spectro)
+        snapshot = copy.deepcopy(spectro if augmentation_seen or original_spectro is None else original_spectro)
         snapshot.set_folds(_folds_from_scores(result) if after_split else [])
         if prefix:
             if prefix > len(fitted_steps):
@@ -137,7 +158,9 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, workspa
             context = context.with_y("chart_refit")
         controller = next(cls for cls in CONTROLLER_REGISTRY if cls.__module__.startswith("nirs4all.controllers.charts.") and cls.matches(step, parsed.operator, parsed.keyword))
         _, output = controller().execute(parsed, snapshot, context, runtime)
-        scope = "captured full-training REFIT transforms; not out-of-fold features" if prefix else "original observed features"
+        scope = "captured full-training REFIT transforms; not out-of-fold features" if prefix else (
+            "observed and synthetic augmentation features" if augmentation_seen else "original observed features"
+        )
         target_scope = "captured REFIT target transform" if processed_target else "original numeric targets"
         summary = f"{parsed.keyword}: {snapshot.num_samples} samples; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
         if directory is None:
