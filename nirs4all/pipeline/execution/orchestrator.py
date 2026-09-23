@@ -1176,6 +1176,10 @@ class PipelineOrchestrator:
                 # Split data based on partition_info
                 self._split_and_add_data(spectro_dataset, X, y, partition_info)
 
+        # Array inputs bypass DatasetConfigs' file-loader path, which normally
+        # initializes this fast-path flag after loading. Keep the NA guards in
+        # legacy transform/model controllers active for in-memory datasets.
+        spectro_dataset._may_contain_nan = spectro_dataset.has_nan
         return DatasetConfigs.from_spectrodataset(spectro_dataset)
 
     def _wrap_dataset_list(self, datasets: list[SpectroDataset]) -> DatasetConfigs:
