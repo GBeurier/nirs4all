@@ -64,7 +64,8 @@ def test_legacy_residual_cannot_supply_a_named_meta_source(tmp_path) -> None:
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_sequential_meta_then_residual_runs_with_native_nested_oof(tmp_path, monkeypatch, mechanism: str) -> None:
+@pytest.mark.parametrize("residual_keyword", [False, True])
+def test_sequential_meta_then_residual_runs_with_native_nested_oof(tmp_path, monkeypatch, mechanism: str, residual_keyword: bool) -> None:
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
 
@@ -81,7 +82,7 @@ def test_sequential_meta_then_residual_runs_with_native_nested_oof(tmp_path, mon
         KFold(2, shuffle=True, random_state=1),
         Ridge(),
         {"model": MetaModel(model=Ridge())},
-        {"model": ResidualModel(base=Ridge(), learner=Ridge(), gate=False)},
+        {"residual" if residual_keyword else "model": ResidualModel(base=Ridge(), learner=Ridge(), gate=False)},
     ]
     legacy = nirs4all.run(
         pipeline, (features, targets), engine="legacy", refit=False,
