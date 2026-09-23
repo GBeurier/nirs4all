@@ -77,6 +77,7 @@ SKIP_CATEGORY_IDS: tuple[str, ...] = (
     "optional_env_methods",
     "optional_env_gpu",
     "runtime_na",
+    "runtime_keras_version",
     "baseline_capture",
     "lockdrop_empty",
 )
@@ -93,6 +94,7 @@ SKIP_CATEGORY_KIND: dict[str, str] = {
     "optional_env_methods": "optional_env",
     "optional_env_gpu": "optional_env",
     "runtime_na": "runtime_precondition",
+    "runtime_keras_version": "runtime_precondition",
     "baseline_capture": "workflow",
     "lockdrop_empty": "workflow",
 }
@@ -268,6 +270,8 @@ def classify_skip(*, kind: str, reason: str, func: str, condition_src: str) -> s
         )
     ):
         return "runtime_na"
+    if "Keras 3 learning-rate variable" in reason:
+        return "runtime_keras_version"
     if func == _METHODS_GUARD_FUNC:
         return "optional_env_methods"
     return UNTRACKED
