@@ -1628,6 +1628,7 @@ def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None)
                 key.endswith(":outer")
                 or key.endswith(":refit")
                 or key.endswith(":predict")
+                or key.endswith(":test")
             ):
                 selected[key] = spec
         elif key.endswith(tag):
@@ -1757,11 +1758,26 @@ def run_meta_model_node(
         target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
         fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred, target["target_names"]))
         fold_targets.append(target)
+        test_specs = _ordered_oof_specs(prediction_inputs, suffix="test")
+        if test_specs:
+            test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
+            test_pred = predict_values(fit_estimator, x_test)
+            test_target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
+            fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", task.get("fold_id"), test_ids, test_pred, test_target["target_names"]))
+            fold_targets.append(test_target)
+        if metadata.get("nirs4all_stack_fold_capture") and fold_label in metadata.get("nirs4all_stack_outer_fold_ids", []):
+            model_store[("stacking_fold_estimator", node_id, variant_label, fold_label)] = fit_estimator
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
         model_store[artifact_handle] = {"estimator": fit_estimator, "y_transform": None, "target_decoder": resolver.target_decoder()}
+        if metadata.get("nirs4all_stack_fold_capture"):
+            model_store[artifact_handle]["fold_estimators"] = {
+                key[3]: value for key, value in model_store.items()
+                if isinstance(key, tuple) and len(key) == 4
+                and key[:3] == ("stacking_fold_estimator", node_id, variant_label)
+            }
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 

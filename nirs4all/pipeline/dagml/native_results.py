@@ -184,6 +184,10 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
     for index, artifact in enumerate(refit_artifacts):
         uri = _artifact_uri(str(artifact.get("artifact_id") or f"artifact_{index}"), index)
         payload = {"estimator": artifact["estimator"], "y_transform": artifact["y_transform"]}
+        if "fold_estimators" in artifact:
+            payload["fold_estimators"] = artifact["fold_estimators"]
+        if "fold_selection" in artifact:
+            payload["fold_selection"] = artifact["fold_selection"]
         with stage_host_artifacts(payload, run_dir, f"host_artifacts/artifact_{index}") as host_artifacts:
             joblib.dump(payload, run_dir / uri)
         fingerprint, size = file_fingerprint(run_dir / uri)
@@ -870,6 +874,9 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
             "uri": uri,
             "content_fingerprint": actual,
         }
+        for key in ("fold_estimators", "fold_selection"):
+            if key in payload:
+                entry[key] = payload[key]
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])
         if ref.get("producer_node") is not None:

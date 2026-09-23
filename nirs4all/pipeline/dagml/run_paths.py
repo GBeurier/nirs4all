@@ -4463,12 +4463,29 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     if downstream_meta_steps:
         import dag_ml
 
+        from nirs4all.operators.models.meta import TestAggregation
         from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
 
         previous_meta_learner = meta_learner
         for level, step in enumerate(downstream_meta_steps, start=2):
             if step["model"].use_proba and callable(getattr(previous_meta_learner, "predict_proba", None)):
                 canonical_dsl["steps"][-1]["metadata"]["nirs4all_prediction_output"] = "proba"
+            next_aggregation = step["model"].stacking_config.test_aggregation
+            if next_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+                canonical_dsl["steps"][-1]["metadata"].update({
+                    "stacking_fold_test_capture": True,
+                    "nirs4all_stack_fold_capture": True,
+                    "nirs4all_stack_outer_fold_ids": [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]],
+                })
+                if level == 2:
+                    for branch in canonical_dsl["steps"][0]["branches"]:
+                        for base_step in branch["steps"]:
+                            if base_step["kind"] == "model":
+                                base_step["metadata"] = {
+                                    **base_step.get("metadata", {}),
+                                    "nirs4all_stack_fold_capture": True,
+                                    "nirs4all_stack_outer_fold_ids": [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]],
+                                }
             final_meta_learner = step["model"].model
             previous_meta_learner = final_meta_learner
             final_meta_node_id = f"{_META_NODE_ID}.level{level}"
@@ -4483,6 +4500,10 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                     "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
                     **refit_oof,
+                    **({
+                        "stacking_test_aggregation": "best" if next_aggregation == TestAggregation.BEST_FOLD else "weighted",
+                        "stacking_test_metric": metric,
+                    } if next_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN) else {}),
                 },
             })
         graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(
@@ -4516,7 +4537,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             producer = _producer_node_from_artifact_id(artifact.get("artifact_id"))
             if producer not in base_model_ids:
                 continue
-            fold_estimators = artifact.pop("fold_estimators", None)
+            fold_estimators = artifact.get("fold_estimators")
             if not fold_estimators:
                 raise DagMlUnsupported(f"stacking fold aggregation has no captured CV estimators for {producer}")
             if any(fold_id not in fold_estimators for fold_id in outer_fold_ids):
@@ -4536,6 +4557,37 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 artifact["estimator"] = _DagmlSelectedFoldEstimator(
                     fold_estimators, weights=dict(zip(fold_estimators, weights, strict=True)),
                 )
+
+    if downstream_meta_steps and outcome["refit_artifacts"]:
+        import json
+
+        import dag_ml
+
+        from .native_results import _producer_node_from_artifact_id
+
+        second_aggregation = downstream_meta_steps[0]["model"].stacking_config.test_aggregation
+        if second_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+            outer_fold_ids = [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]]
+            reports = outcome["scores"].get("reports", [])
+            for artifact in outcome["refit_artifacts"]:
+                producer = _producer_node_from_artifact_id(artifact.get("artifact_id"))
+                if producer not in [*base_model_ids, _META_NODE_ID]:
+                    continue
+                captured = artifact.get("fold_estimators")
+                if not isinstance(captured, dict) or any(fold not in captured for fold in outer_fold_ids):
+                    raise DagMlUnsupported(f"second-stage stacking fold aggregation lacks paired CV estimators for {producer}")
+                artifact["fold_estimators"] = {fold: captured[fold] for fold in outer_fold_ids}
+                if producer != _META_NODE_ID:
+                    continue
+                request = json.dumps({
+                    "producer_node": producer, "fold_ids": outer_fold_ids,
+                    "metric": metric, "reports": reports,
+                })
+                if second_aggregation == TestAggregation.BEST_FOLD:
+                    artifact["fold_selection"] = {"selected_fold": json.loads(dag_ml.select_stacking_fold_json(request))}
+                else:
+                    weights = json.loads(dag_ml.stacking_fold_weights_json(request))
+                    artifact["fold_selection"] = {"weights": dict(zip(outer_fold_ids, weights, strict=True))}
 
     # List form exposes the ensemble; named form also exposes each base producer.
     model_label = f"MetaModel_{type(final_meta_learner).__name__}"

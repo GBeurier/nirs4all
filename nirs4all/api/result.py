@@ -835,7 +835,7 @@ class _DagmlNativeStackingModel:
     multimodal_input_schema: dict[str, Any]
 
     def __init__(
-        self, base_members: Sequence[_DagmlExportedModel | _DagmlNativeStackingModel], meta_member: _DagmlExportedModel,
+        self, base_members: Sequence[_DagmlExportedModel | _DagmlNativeStackingModel | _DagmlFoldStackingModel], meta_member: _DagmlExportedModel,
         source_names: Sequence[str] | None = None,
         reduction_groups: Sequence[Mapping[str, Any]] | None = None,
         probability_base: bool = False,
@@ -846,7 +846,7 @@ class _DagmlNativeStackingModel:
         self.meta_member = meta_member
         self.source_names = tuple(source_names) if source_names is not None else None
         self.reduction_groups = [dict(group) for group in reduction_groups] if reduction_groups is not None else None
-        if probability_base and (len(base_members) != 1 or not isinstance(base_members[0], _DagmlNativeStackingModel)):
+        if probability_base and (len(base_members) != 1 or not isinstance(base_members[0], (_DagmlNativeStackingModel, _DagmlFoldStackingModel))):
             raise ValueError("nested probability stacking requires one preceding native stacking model")
         self.probability_base = probability_base
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
@@ -860,7 +860,7 @@ class _DagmlNativeStackingModel:
         for index, member in enumerate(self.base_members):
             source = X[index] if self.source_names is not None else X
             if self.probability_base:
-                if not isinstance(member, _DagmlNativeStackingModel):
+                if not isinstance(member, (_DagmlNativeStackingModel, _DagmlFoldStackingModel)):
                     raise ValueError("nested probability stacking requires a native stacking predecessor")
                 pred = member.predict_proba_numeric(source)
             else:
@@ -938,6 +938,47 @@ class _DagmlNativeStackingModel:
             raise ValueError("nested probability stacking requires at least two probability columns")
         column = 1 if probabilities.shape[1] == 2 else 0
         return probabilities[:, column:column + 1]
+
+
+class _DagmlFoldStackingModel:
+    """Replay selected/weighted complete CV stacks, pairing each meta with its base fold models."""
+
+    def __init__(self, folds: Mapping[str, _DagmlNativeStackingModel], selection: Mapping[str, Any]) -> None:
+        if not folds:
+            raise ValueError("fold stacking replay requires captured CV stacks")
+        selected = selection.get("selected_fold")
+        weights = selection.get("weights")
+        if (selected is None) == (weights is None):
+            raise ValueError("fold stacking replay requires one native fold selection or weight vector")
+        if selected is not None and (not isinstance(selected, str) or selected not in folds):
+            raise ValueError("selected CV stack has no matching captured fold")
+        if weights is not None and (
+            not isinstance(weights, Mapping) or set(weights) != set(folds)
+            or any(not np.isfinite(value) or float(value) < 0 for value in weights.values())
+            or not np.isclose(sum(float(value) for value in weights.values()), 1.0)
+        ):
+            raise ValueError("weighted CV stack must cover every fold with normalized weights")
+        self.folds = dict(folds)
+        self.selected_fold = selected
+        self.weights = dict(weights) if weights is not None else None
+
+    def _predict(self, method: str, X: Any) -> np.ndarray:
+        if self.selected_fold is not None:
+            return np.asarray(getattr(self.folds[self.selected_fold], method)(X), dtype=float)
+        assert self.weights is not None
+        return sum(
+            float(weight) * np.asarray(getattr(self.folds[fold], method)(X), dtype=float)
+            for fold, weight in self.weights.items()
+        )
+
+    def predict_numeric(self, X: Any) -> np.ndarray:
+        return self._predict("predict_numeric", X)
+
+    def predict_proba_numeric(self, X: Any) -> np.ndarray:
+        return self._predict("predict_proba_numeric", X)
+
+    def predict(self, X: Any) -> np.ndarray:
+        return self.predict_numeric(X)
 
 
 class _DagmlNativeResidualModel:
@@ -2839,11 +2880,31 @@ class RunResult:
             base_members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in base_artifacts]
             if any(getattr(member.estimator, "multimodal_source_name", None) is not None for member in base_members):
                 return None
-            stacked_model = _DagmlNativeStackingModel(
+            stacked_model: _DagmlNativeStackingModel | _DagmlFoldStackingModel = _DagmlNativeStackingModel(
                 base_members,
                 _DagmlExportedModel(meta_artifacts[0]["estimator"], meta_artifacts[0]["y_transform"]),
                 reduction_groups=cast(list[dict[str, Any]] | None, stages[0].get("reduction_groups")),
             )
+            fold_selection = meta_artifacts[0].get("fold_selection")
+            if fold_selection is not None:
+                if not isinstance(fold_selection, Mapping):
+                    raise ValueError("native multi-stacking fold selection is malformed")
+                fold_maps = [artifact.get("fold_estimators") for artifact in [*base_artifacts, meta_artifacts[0]]]
+                if any(not isinstance(folds, Mapping) for folds in fold_maps):
+                    raise ValueError("native multi-stacking fold replay lacks paired CV estimators")
+                expected_folds = set(cast(Mapping[str, Any], fold_maps[-1]))
+                if not expected_folds or any(set(cast(Mapping[str, Any], folds)) != expected_folds for folds in fold_maps):
+                    raise ValueError("native multi-stacking base and meta CV fold IDs differ")
+                fold_stacks = {
+                    fold: _DagmlNativeStackingModel(
+                        [_DagmlExportedModel(cast(Mapping[str, Any], folds)[fold], artifact["y_transform"])
+                         for artifact, folds in zip(base_artifacts, fold_maps[:-1], strict=True)],
+                        _DagmlExportedModel(cast(Mapping[str, Any], fold_maps[-1])[fold], meta_artifacts[0]["y_transform"]),
+                        reduction_groups=cast(list[dict[str, Any]] | None, stages[0].get("reduction_groups")),
+                    )
+                    for fold in sorted(expected_folds)
+                }
+                stacked_model = _DagmlFoldStackingModel(fold_stacks, fold_selection)
             for artifact, stage in zip(meta_artifacts[1:], stages[1:], strict=True):
                 stacked_model = _DagmlNativeStackingModel(
                     [stacked_model], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
