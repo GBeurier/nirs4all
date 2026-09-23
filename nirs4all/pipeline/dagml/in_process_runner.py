@@ -105,6 +105,7 @@ def run_cv_refit_bundle(
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
+    refit: bool = True,
 ) -> dict[str, Any]:
     """Run a CV+refit bundle IN-PROCESS; return ``{returncode, stdout, results, scores}``.
 
@@ -157,6 +158,7 @@ def run_cv_refit_bundle(
             op_callback,
             selection_metric,
             json.dumps(current_execution_resources().to_contract()),
+            refit,
         )
     )
     node_results = payload.get("node_results", [])
@@ -267,6 +269,7 @@ def run_cv_refit_bundle_router(
     fold_children: dict[str, dict[int, list[int]]] | None = None,
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
     random_state: int | None = None,
+    refit: bool = True,
 ) -> dict[str, Any]:
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
 
@@ -320,6 +323,7 @@ def run_cv_refit_bundle_router(
             dataset=dataset,
             fold_children=fold_children,
             fold_feature_views=fold_feature_views,
+            refit=refit,
         )
 
     # Subprocess branch (Mechanism A): either in-process was disabled or its extension did not load.
@@ -349,6 +353,7 @@ def run_cv_refit_bundle_router(
         sample_metadata=sample_metadata,
         dataset_pickle=dataset_pickle,
         random_state=random_state,
+        refit=refit,
     )
     # Host-only frames share the run-local capture file, not the coordinator
     # protocol. Keep them out of the native NodeResult audit trail.

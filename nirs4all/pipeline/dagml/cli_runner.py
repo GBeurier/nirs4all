@@ -178,6 +178,7 @@ def run_cv_refit_bundle(
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     dataset_pickle: str | None = None,
     random_state: int | None = None,
+    refit: bool = True,
 ) -> dict[str, Any]:
     """Write inputs + shim, run ``dag-ml-cli run-process-dsl-cv-refit-bundle``, return outputs.
 
@@ -215,6 +216,8 @@ def run_cv_refit_bundle(
     # spurious DagMlUnsupported fallback (P0 round-5 must-fix). The error_kind classification is only sound
     # over frames written by THIS subprocess.
     capture.unlink(missing_ok=True)
+    oof_average_path = workdir / "oof_average.json"
+    oof_average_path.unlink(missing_ok=True)
     artifact_dir = workdir / "refit_artifacts"
     artifact_dir.mkdir(exist_ok=True)
     for stale_artifact in artifact_dir.glob("*.joblib"):
@@ -259,6 +262,8 @@ def run_cv_refit_bundle(
             "--dsl", str(workdir / "dsl.json"), "--controllers", str(workdir / "controllers.json"),
             "--envelope", str(workdir / "envelope.json"), "--adapter", str(shim), "--persistent",
             "--selection-metric", selection_metric,
+            *([] if refit else ["--no-refit"]),
+            *([] if refit else ["--oof-average-output", str(oof_average_path)]),
             *resource_args,
             "--bundle-id", "bundle:n4a", "--plan-id", "plan:n4a",
             "--output", str(workdir / "bundle.json"), "--prediction-cache-output", str(workdir / "cache.json"),
@@ -266,4 +271,6 @@ def run_cv_refit_bundle(
         capture_output=True, text=True, env=env, check=False,
     )
     results = [json.loads(line) for line in capture.read_text().splitlines() if line.strip()] if capture.exists() else []
+    if proc.returncode == 0 and not refit:
+        results.extend(json.loads(oof_average_path.read_text()))
     return {"returncode": proc.returncode, "stdout": proc.stdout + proc.stderr, "results": results}
