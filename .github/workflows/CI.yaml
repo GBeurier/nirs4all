@@ -61,7 +61,7 @@ jobs:
   tests:
     needs: [lint, type-check]
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v6
 
@@ -110,79 +110,20 @@ jobs:
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
 
-      - name: Run complete unit and integration suite once
+      - name: Run every pytest module under DAG-ML
         shell: bash
         env:
           N4A_ENGINE: dag-ml
-        run: |
-          python -m coverage erase
-          python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py \
-            --cov=nirs4all --cov-append
-          python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append
-          N4A_DAGML_CLI="$GITHUB_WORKSPACE/dag-ml-cli-src/target/debug/dag-ml-cli" \
-            python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/parity/test_dagml_cli_runner.py \
-            tests/integration/parity/test_dagml_native_n4a_bundle.py \
-            tests/integration/parity/test_dagml_run_selector.py \
-            tests/integration/parity/test_dagml_native_export_model.py \
-            tests/integration/parity/test_dagml_native_results.py \
-            tests/integration/parity/test_rt_fallback_strict.py \
-            tests/integration/parity/test_native_single_model_bundle_export.py \
-            --cov=nirs4all --cov-append
-          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --ignore=tests/integration/parity/test_dagml_cli_runner.py \
-            --ignore=tests/integration/parity/test_dagml_native_n4a_bundle.py \
-            --ignore=tests/integration/parity/test_dagml_run_selector.py \
-            --ignore=tests/integration/parity/test_dagml_native_export_model.py \
-            --ignore=tests/integration/parity/test_dagml_native_results.py \
-            --ignore=tests/integration/parity/test_rt_fallback_strict.py \
-            --ignore=tests/integration/parity/test_native_single_model_bundle_export.py \
-            --cov=nirs4all --cov-append
-          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 2 --dist loadfile -m 'not gpu' tests/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --ignore=tests/integration/parity/test_dagml_cli_runner.py \
-            --ignore=tests/integration/parity/test_dagml_native_n4a_bundle.py \
-            --ignore=tests/integration/parity/test_dagml_run_selector.py \
-            --ignore=tests/integration/parity/test_dagml_native_export_model.py \
-            --ignore=tests/integration/parity/test_dagml_native_results.py \
-            --ignore=tests/integration/parity/test_rt_fallback_strict.py \
-            --ignore=tests/integration/parity/test_native_single_model_bundle_export.py \
-            --ignore=tests/integration/parity/test_dagml_torch_models.py \
-            --ignore=tests/integration/parity/test_dagml_model_controls.py \
-            --ignore=tests/unit/operators/models/test_pytorch.py \
-            --ignore=tests/unit/controllers/models/test_model_file_loading.py \
-            --ignore=tests/unit/pipeline/bundle/test_bundle_controller_prediction.py \
-            --ignore=tests/unit/controllers/models/test_torch_multioutput.py \
-            --ignore=tests/unit/pipeline/dagml/test_gpu_resources.py \
-            --ignore=tests/unit/pipeline/test_resolver.py \
-            --ignore=tests/integration/parity/test_dagml_gpu.py \
-            --cov=nirs4all --cov-append
-          # Keep modules that load PyTorch in a fresh process: TensorFlow/JAX and
-          # PyTorch native runtimes can crash when loaded together. The model
-          # controls module includes a torch layout oracle.
-          for test_file in \
-            tests/integration/parity/test_dagml_torch_models.py \
-            tests/integration/parity/test_dagml_model_controls.py \
-            tests/unit/operators/models/test_pytorch.py \
-            tests/unit/controllers/models/test_model_file_loading.py \
-            tests/unit/pipeline/bundle/test_bundle_controller_prediction.py \
-            tests/unit/controllers/models/test_torch_multioutput.py \
-            tests/unit/pipeline/dagml/test_gpu_resources.py \
-            tests/unit/pipeline/test_resolver.py; do
-            CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-              python -m pytest -v --timeout=300 -n 0 -m 'not gpu' "$test_file" \
-              --cov=nirs4all --cov-append
-          done
-          python -m coverage xml
+          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+        run: python scripts/ci/run_full_dagml_pytest.py --report-dir dagml-pytest-report
+
+      - name: Upload DAG-ML pytest report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dagml-pytest-report
+          path: dagml-pytest-report/
+          if-no-files-found: warn
 
       - name: Run all examples once
         run: |
