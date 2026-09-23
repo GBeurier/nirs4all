@@ -87,7 +87,14 @@ def test_feature_join_uses_native_branch_handles_and_reassembles_by_sample_id() 
     a = StandardScaler().fit([[1.0], [3.0]])
     b = StandardScaler().fit([[100.0], [200.0]])
     store = {1: node_runner._FittedXChain([a]), 2: node_runner._FittedXChain([b])}
-    result = node_runner.run_node(task, None, lambda _node_id: {"metadata": {"merge_mode": "concat"}}, store)
+    merge_metadata = {
+        "merge_mode": "concat",
+        "branch_data_inputs": [
+            {"input_name": f"branch_{index}_x", "branch": f"branch_{index}"}
+            for index in range(2)
+        ],
+    }
+    result = node_runner.run_node(task, None, lambda _node_id: {"metadata": merge_metadata}, store)
     joined = store[result["outputs"]["x_out"]["handle"]]
     sample_ids = ["b2", "a1", "b1", "a2"]
     metadata = {sample_id: {"group": sample_id[0].upper()} for sample_id in sample_ids}
