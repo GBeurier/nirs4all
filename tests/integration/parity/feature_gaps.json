@@ -2,7 +2,6 @@
   "schema_version": 1,
   "inventory_complete": false,
   "unverified": [
-    {"id": "native_methods_tuning", "reason": "Check nirs4all-methods native tuning beyond the public n4m finetune_params pipeline now covered by test_host_finetune.py."},
     {"id": "by_source_generator_archive_semantics", "reason": "DAG-ML correctly refuses .n4a export of independent source-model outputs without a replayable fusion contract. Legacy writes an archive, but predicting on concatenated raw X gives first values 193.4067, 200.9121, 202.2472 on the two_source_distinct fixture; no source-fusion prediction oracle validates this replay. Define and test the intended merge/predict semantics before enabling export."}
   ],
   "documented_divergences": [
@@ -13,6 +12,8 @@
     {"id": "legacy_exclude_metadata_concat_score", "classification": "legacy selects a group-local CV row rather than scoring the merged OOF", "pipeline": "YOutlierFilter(iqr, threshold=1.0), KFold(3), by_metadata(group, PLSRegression(3)), merge=concat on seeded 120x20 balanced-group data with one train outlier", "legacy_cv_rmse": 0.8809393773365354, "dagml_cv_rmse": 0.9142813126624925, "sklearn_fold_local_cv_rmse": 0.9142813084180439, "evidence": "test_exclude_metadata_branch.py:test_exclude_then_metadata_branch_matches_per_group_oracle", "scope": "Legacy executes and reports its best group A CV row as cv_best_score. DAG-ML scores the reassembled OOF universe, matches the direct sklearn oracle, and excludes the outlier from training."}
   ],
   "gaps": [
+    {"id": "residual_model_graph", "priority": "P1", "legacy": "ResidualModel composes base model, residual learner, gate and fusion within CV", "dagml": "composite is reconstructed as an ordinary host model and fails because base and learner are absent", "evidence": "public KFold(2) → ResidualModel(PLSRegression(2), Ridge(), gate=False), refit=False: legacy CV 23.49054 and test 17.84236, DAG callback rejects; graph oracle in progress"},
+    {"id": "resampler_wavelength_metadata", "priority": "P1", "legacy": "Resampler with source-specific target wavelengths consumes spectral axis coordinates in fold-local pipelines", "dagml": "host transform callback lacks wavelength coordinates on its data view and refuses fit", "evidence": "public 18x12 one-source monotone cm-1 dataset, Resampler(target_wavelengths=[linspace(1010,1190,8)]), KFold(2), Ridge: legacy CV 3.38210, test 1.20980; DAG refuses missing wavelengths"},
     {"id": "optuna_parallel_n_jobs", "priority": "P1", "legacy": "Optuna finetune_params with n_jobs=2 executes concurrent trials", "dagml": "host-HPO protocol currently asks, executes and tells one candidate at a time and refuses n_jobs>1", "evidence": "test_host_finetune.py public KFold(2), PLS, n_trials=2, n_jobs=2 legacy-success/DAG-refusal oracle; native provider currently uses non-Sync RefCell state"}
   ]
 }
