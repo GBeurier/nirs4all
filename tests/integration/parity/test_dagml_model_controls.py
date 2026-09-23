@@ -261,3 +261,24 @@ def test_operator_sweep_without_refit_keeps_all_cv_variants(monkeypatch, mechani
         direct[val] = make_pipeline(StandardScaler(), Ridge(alpha=0.5)).fit(x[train], y[train]).predict(x[val])
     np.testing.assert_allclose(result.cv_best_score, np.sqrt(np.mean((direct - y) ** 2)), rtol=1e-5)
     result.close()
+
+
+@pytest.mark.parametrize("refit_option,enabled", [(None, False), ({}, False), ([], False), ({"top_k": 1}, True), ([{"top_k": 1}], True)])
+@pytest.mark.parity
+def test_legacy_equivalent_refit_spellings_use_native_on_off(refit_option, enabled: bool) -> None:
+    import nirs4all
+
+    rng = np.random.default_rng(33)
+    x = rng.normal(size=(12, 6))
+    y = 0.3 * x[:, 0] + rng.normal(size=12) * 0.01
+    pipeline = [KFold(2), Ridge(alpha=0.5)]
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", refit=refit_option, save_charts=False)
+    legacy_final = sum(row["fold_id"] == "final" for row in legacy.predictions.filter_predictions())
+    legacy.close()
+
+    result = nirs4all.run(pipeline, (x, y), engine="dag-ml", refit=refit_option, save_charts=False)
+    native_final = sum(row["fold_id"] == "final" for row in result.predictions.filter_predictions())
+    assert bool(legacy_final) is enabled
+    assert bool(native_final) is enabled
+    assert bool(result._dagml_refit_artifacts) is enabled  # noqa: SLF001
+    result.close()

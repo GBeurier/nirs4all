@@ -228,6 +228,23 @@ _PERSISTENCE_REJECT_MESSAGES: dict[str, str] = {
 }
 
 
+def _native_refit_enabled(refit: Any) -> bool:
+    """Normalize legacy refit spellings that resolve to native on/off semantics."""
+    if refit is True:
+        return True
+    if refit is False or refit is None or refit == {} or refit == []:
+        return False
+    if isinstance(refit, (dict, list)):
+        from nirs4all.pipeline.execution.refit.config_extractor import parse_refit_param
+
+        criteria = parse_refit_param(refit)
+        if len(criteria) == 1 and criteria[0].top_k == 1 and criteria[0].ranking == "rmsecv":
+            # The legacy orchestrator routes this exact criterion through its
+            # ordinary single-winner refit pass, ignoring the extra fields.
+            return True
+    raise DagMlUnsupported(f"engine='dag-ml' cannot yet honor custom refit selection {refit!r}.")
+
+
 def _reject_unsupported_run_options(*, refit: Any, project: str | None, session: Any, cache: Any, runner_kwargs: dict[str, Any]) -> None:
     """Validate execution options before any operator or durable write.
 
@@ -236,8 +253,7 @@ def _reject_unsupported_run_options(*, refit: Any, project: str | None, session:
     Unsupported refit/cache/runner options remain explicit parity gaps, never
     invitations to run a different engine after failure.
     """
-    if refit is not True and refit is not False:
-        raise DagMlUnsupported(f"engine='dag-ml' cannot honor custom refit selection {refit!r}; use refit=True or refit=False.")
+    _native_refit_enabled(refit)
     if session is not None:
         session._prepare_dagml_run()
     if cache is not None:
@@ -443,7 +459,7 @@ def run_via_dagml(
             save_charts=save_charts,
             plots_visible=plots_visible,
             resolved_config_name=resolved_config_name,
-            refit=cast(bool, refit),
+            refit=_native_refit_enabled(refit),
         )
         if refit is False:
             for metadata in result.per_dataset.values():
