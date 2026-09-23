@@ -22,14 +22,14 @@ def normalize_model_steps(steps: list[Any]) -> list[Any]:
     for step in steps:
         if isinstance(step, list):
             substeps = normalize_model_steps(step)
-            if substeps and all(_is_bare_transform(substep) for substep in substeps):
-                # Legacy's StepRunner executes a transform-only subpipeline in
-                # order against the same dataset. DAG-ML's linear X chain has
-                # the same structure once the grouping list is removed.
+            if substeps and _is_linear_subpipeline(substeps):
+                # Legacy's StepRunner executes these transforms and model
+                # choices in order. DAG-ML's linear chain and model selection
+                # retain their behavior after removing the grouping list.
                 normalized.extend(substeps)
             else:
-                # Model subpipelines have special winner selection on replay;
-                # keep their grouping until that contract is lowered explicitly.
+                # Other subpipelines can carry branches or post-model
+                # transforms whose scope needs separate lowering.
                 normalized.append(substeps)
         elif isinstance(step, dict) and "branch" in step:
             normalized.append({**step, "branch": _normalize_branch(step["branch"])})
@@ -42,10 +42,28 @@ def normalize_model_steps(steps: list[Any]) -> list[Any]:
     return normalized
 
 
+def _is_linear_subpipeline(steps: list[Any]) -> bool:
+    from .steps import _is_split_step
+
+    if len(steps) > 1 and _is_split_step(steps[0]) and all(_is_bare_transform(step) for step in steps[1:]):
+        return True
+    seen_model = False
+    for step in steps:
+        if isinstance(step, dict) and set(step) == {"model"}:
+            model = step["model"]
+            if not callable(getattr(model, "fit", None)) or not callable(getattr(model, "predict", None)):
+                return False
+            seen_model = True
+        elif seen_model or not _is_bare_transform(step):
+            return False
+    return True
+
+
 def _is_bare_transform(step: Any) -> bool:
+    if isinstance(step, dict):
+        return set(step) == {"preprocessing"} and _is_bare_transform(step["preprocessing"])
     return (
-        not isinstance(step, dict)
-        and callable(getattr(step, "fit", None))
+        callable(getattr(step, "fit", None))
         and callable(getattr(step, "transform", None))
         and not callable(getattr(step, "predict", None))
     )
