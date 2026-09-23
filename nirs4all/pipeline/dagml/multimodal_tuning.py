@@ -154,6 +154,9 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
 
     def checkpoint(event: dict[str, Any]) -> Any:
         nonlocal stop_requested
+        if event["operation"] == "prepare_terminal":
+            # The optimizer is still RUNNING here; publish only after tell/fail.
+            return True
         optimizer.checkpoint(event)
         response = progress(copy.deepcopy(event)) if progress is not None else True
         if should_stop is not None and should_stop():
