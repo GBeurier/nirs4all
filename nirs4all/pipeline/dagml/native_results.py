@@ -342,6 +342,7 @@ def _stacking_replay_manifest(
     *, probability_producers: set[str] | None = None,
     source_orders: dict[str, list[str]] | None = None,
     source_ports: dict[str, dict[str, str]] | None = None, _allow_multi: bool = True,
+    outer_fold_ids: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
@@ -376,8 +377,8 @@ def _stacking_replay_manifest(
         first_refs = [ref for ref in artifact_refs if all(ref is not meta for meta in meta_refs[1:])]
         first_stage = _stacking_replay_manifest(
             score_set, first_refs, selectors,
-            probability_producers=probability_producers, source_orders=source_orders, source_ports=source_ports,
-            _allow_multi=False,
+                probability_producers=probability_producers, source_orders=source_orders, source_ports=source_ports,
+                _allow_multi=False, outer_fold_ids=outer_fold_ids,
         )
         if first_stage is None:
             return None
@@ -463,8 +464,9 @@ def _stacking_replay_manifest(
 
                 selected_nodes = set(json.loads(select_stacking_producers_json(json.dumps({
                     "producer_nodes": [base_producers[index]["producer_node"] for index in selected],
-                    "select": selector["select"], "metric": selector.get("metric") or "rmse",
-                    "reports": reports,
+                        "select": selector["select"], "metric": selector.get("metric") or "rmse",
+                        "reports": reports,
+                        "fold_ids": outer_fold_ids or [],
                 }))))
                 selected = [index for index in selected if base_producers[index]["producer_node"] in selected_nodes]
                 if not selected:
@@ -587,6 +589,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         probability_producers=getattr(result, "_dagml_stacking_probability_producers", None),
         source_orders=getattr(result, "_dagml_stacking_source_orders", None),
         source_ports=getattr(result, "_dagml_stacking_source_ports", None),
+        outer_fold_ids=getattr(result, "_dagml_stacking_outer_fold_ids", None),
     )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}

@@ -1557,10 +1557,19 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
         if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
             return None
         models.append(operator)
-    from nirs4all.operators.models.selection import ExplicitModelSelector
+    from nirs4all.operators.models.selection import ExplicitModelSelector, TopKByMetricSelector
 
     selector = wrapper.selector
     names = [type(model).__name__ for model in models]
+    if type(selector) is TopKByMetricSelector:
+        if selector.per_class or wrapper.use_proba:
+            return None
+        select: dict[str, Any] = {"fold_candidates_top_k": selector.k}
+        if selector.ascending is not None:
+            select["ascending"] = selector.ascending
+        return [[{"model": model}] for model in models], learner, [
+            {"select": select, "metric": selector.metric}
+        ]
     if selector is None:
         requested_names = wrapper.source_models
     elif type(selector) is ExplicitModelSelector:
