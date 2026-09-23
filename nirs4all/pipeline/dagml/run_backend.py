@@ -939,8 +939,8 @@ def _dispatch_run(
 
     pipeline = normalize_model_steps(pipeline)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
-    if refit_top_k > 1 and _generation_kind(list(pipeline)) != "param_model":
-        raise DagMlUnsupported("refit top_k>1 currently requires a native model-parameter sweep")
+    if refit_top_k > 1 and _generation_kind(list(pipeline)) not in {"param_model", "operator"}:
+        raise DagMlUnsupported("refit top_k>1 currently requires a native parameter or operator sweep")
     rep_source_branch = _detect_rep_to_sources_by_source(pipeline)
     if rep_source_branch is not None:
         if refit is False:
@@ -1437,9 +1437,15 @@ def _dispatch_run(
                 variant_config_names=variant_config_names,
                 random_state=random_state,
                 refit=refit,
+                refit_top_k=refit_top_k,
             )
         except _OperatorLoweringUnsupported:
+            if refit_top_k > 1:
+                raise DagMlUnsupported("refit top_k>1 requires a natively lowered operator sweep") from None
             pass  # lowering-unsupported generator → fall through to the Python expand path (stays on dag-ml)
+
+    if refit_top_k > 1:
+        raise DagMlUnsupported("refit top_k>1 requires a natively lowered operator sweep")
 
     # Expand operator-level generators (_or_/_cartesian_/param-keyed _range_/_grid_/...) into concrete,
     # flat pipelines of live operator instances (nirs4all's own serialize → expand → deserialize +
