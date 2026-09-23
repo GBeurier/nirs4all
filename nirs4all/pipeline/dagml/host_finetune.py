@@ -9,6 +9,7 @@ from typing import Any, cast
 import numpy as np
 
 _HOST_KEYS = {"n_trials", "sampler", "sample", "verbose", "seed", "storage", "phases", "pruner", "n_jobs"}
+_N4M_ENGINE_NAMES = {"n4m", "native", "methods", "libn4m"}
 TRIAL_TRAIN_PREFIX = "nirs4all_trial_fit__"
 _NATIVE_CHECKPOINT_ATTR = "nirs4all_dagml_host_hpo_checkpoint_v1"
 
@@ -35,7 +36,7 @@ def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], d
 def is_host_finetune(config: dict[str, Any]) -> bool:
     """Choose the host optimizer before execution, never after native failure."""
     engine = str(config.get("engine", "")).lower()
-    return engine in {"optuna", "n4m"} or (not engine and (bool(_HOST_KEYS & config.keys()) or config.get("approach") == "single"))
+    return engine == "optuna" or engine in _N4M_ENGINE_NAMES or (not engine and (bool(_HOST_KEYS & config.keys()) or config.get("approach") == "single"))
 
 
 def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) -> dict[str, Any]:
@@ -43,6 +44,9 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     values = dict(config)
     inner_splitter = values.pop("__dagml_inner_splitter", None) if internal else None
     engine = str(values.get("engine", "optuna")).strip().lower()
+    if engine in _N4M_ENGINE_NAMES:
+        engine = "n4m"
+        values["engine"] = engine
     manager: Any
     params: dict[str, Any]
     if engine == "n4m":

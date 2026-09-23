@@ -520,3 +520,32 @@ def test_n4m_n_jobs_matches_legacy_sequential_contract(tmp_path):
     dag = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
     assert dag.cv_best_score == pytest.approx(legacy_score)
     dag.close()
+
+
+@pytest.mark.parametrize("engine", ["native", "methods", "libn4m"])
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_legacy_n4m_engine_aliases_route_to_native_host_search(tmp_path, monkeypatch, engine, mechanism):
+    pytest.importorskip("n4m")
+    import nirs4all
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": engine, "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 1, "model_params": {"n_components": [1, 2]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    expected = legacy.cv_best_score
+    legacy.close()
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+    assert result.cv_best_score == pytest.approx(expected)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert all(search["optimizer"]["name"] == "n4m" for search in history)
+    result.close()
