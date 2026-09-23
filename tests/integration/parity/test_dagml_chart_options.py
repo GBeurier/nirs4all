@@ -11,8 +11,10 @@ import polars as pl
 import pytest
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
 
 import nirs4all
+from nirs4all.controllers.charts.spectral_distribution import SpectralDistributionController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.augmentation import GaussianAdditiveNoise
 from nirs4all.operators.filters.y_outlier import YOutlierFilter
@@ -218,6 +220,72 @@ def test_source_specific_spectra_and_envelope_reports_export_only_plotted_source
         assert {int(row["source"]) for row in rows} == {index % 2}
         values = np.asarray([float(row["value"]) for row in rows]).reshape(20, 6)
         np.testing.assert_allclose(values, left if index % 2 == 0 else right, rtol=0, atol=1e-5)
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_envelope_after_augmentation_exports_only_observed_spectra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    _mechanism(monkeypatch, mechanism)
+    rng = np.random.default_rng(298)
+    x = rng.normal(size=(20, 6))
+    y = x[:, 0] - x[:, 1]
+    pipeline = [
+        {"sample_augmentation": {
+            "transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1,
+            "selection": "all", "random_state": 42,
+        }},
+        "spectra_envelope", {"model": Ridge()},
+    ]
+    plotted_rows: list[int] = []
+    original_plot = SpectralDistributionController._plot_spectral_distribution
+
+    def observe(self, axis, train, test, *args, **kwargs):
+        plotted_rows.append(len(train))
+        return original_plot(self, axis, train, test, *args, **kwargs)
+
+    monkeypatch.setattr(SpectralDistributionController, "_plot_spectral_distribution", observe)
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy", save_charts=True, save_artifacts=False, verbose=0)
+    assert plotted_rows == [20]
+    plotted_rows.clear()
+    native = nirs4all.run(pipeline, (x, y), engine="dag-ml", allow_fallback=False, refit=False,
+                          workspace_path=tmp_path / mechanism, save_charts=True, save_artifacts=False, verbose=0)
+    assert plotted_rows == [20]
+    report, = _reports(native)
+    with report.with_suffix(".csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert {int(row["sample_index"]) for row in rows} == set(range(20))
+    assert {row["synthetic"] for row in rows} == {"False"}
+    assert "only observed samples are included" in report.read_text(encoding="utf-8")
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_fold_envelope_exports_only_first_plotted_processing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    _mechanism(monkeypatch, mechanism)
+    rng = np.random.default_rng(299)
+    x = rng.normal(size=(24, 6))
+    y = x[:, 0] - x[:, 1]
+    pipeline = [StandardScaler(), KFold(3), "spectral_distribution", {"model": Ridge()}]
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", refit=True,
+                          workspace_path=tmp_path / "legacy", save_charts=True, save_artifacts=False, verbose=0)
+    assert list((tmp_path / "legacy").rglob("spectral_distribution_3folds.png"))
+    native = nirs4all.run(pipeline, (x, y), engine="dag-ml", allow_fallback=False, refit=True,
+                          workspace_path=tmp_path / mechanism, save_charts=True, save_artifacts=False, verbose=0)
+    report, = _reports(native)
+    with report.with_suffix(".csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert {int(row["sample_index"]) for row in rows} == set(range(24))
+    assert {int(row["processing"]) for row in rows} == {0}
+    assert "Processing indices shown: [0]" in report.read_text(encoding="utf-8")
     legacy.close()
     native.close()
 
