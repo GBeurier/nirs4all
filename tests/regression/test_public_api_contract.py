@@ -73,7 +73,8 @@ EXPECTED_SIGNATURES: dict[str, str] = {
     "predict": (
         "(model: 'ModelSpec | None' = None, data: 'DataSpec | None' = None, *, "
         "chain_id: 'str | None' = None, workspace_path: 'str | Path | None' = None, "
-        "name: 'str' = 'prediction_dataset', all_predictions: 'bool' = False, "
+        "name: 'str' = 'prediction_dataset', output: 'str | None' = None, "
+        "all_predictions: 'bool' = False, "
         "session: 'Session | None' = None, verbose: 'int' = 0, "
         "coverage: 'float | list[float] | tuple[float, ...] | None' = None, "
         "save_to_workspace: 'bool' = False, workspace_metadata: 'Mapping[str, Any] | None' = None, "
