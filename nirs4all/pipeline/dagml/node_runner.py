@@ -185,12 +185,51 @@ class _FittedXChain:
         return X
 
 
+class _PartitionedXChain:
+    """Fitted branch payload behind a native feature-join data handle."""
+
+    def __init__(self, branches: list[tuple[dict[str, Any], _FittedXChain]]) -> None:
+        if len(branches) < 2:
+            raise ValueError("partition feature join requires at least two fitted branches")
+        self.branches = branches
+
+    def transform_ids(
+        self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]],
+    ) -> np.ndarray:
+        """Restore branch rows in requested sample-id order without positional joining."""
+        X = np.asarray(X)
+        if X.ndim != 2 or len(X) != len(sample_ids) or len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("partition feature join requires a 2D matrix with unique sample IDs")
+        output: np.ndarray | None = None
+        assigned = np.zeros(len(sample_ids), dtype=bool)
+        for selector, chain in self.branches:
+            positions = [index for index, sample_id in enumerate(sample_ids) if _branch_view_keep(sample_id, selector, sample_metadata)]
+            if not positions:
+                continue
+            if np.any(assigned[positions]):
+                raise ValueError("partition feature join assigned a sample to multiple branches")
+            values = np.asarray(chain.transform(X[positions]))
+            if values.ndim != 2 or len(values) != len(positions):
+                raise ValueError("partition feature join branch changed its sample count")
+            if output is None:
+                output = np.empty((len(sample_ids), values.shape[1]), dtype=values.dtype)
+            elif values.shape[1] != output.shape[1]:
+                raise ValueError("partition feature join branches produced different feature widths")
+            output[positions] = values
+            assigned[positions] = True
+        if not np.all(assigned):
+            missing = [sample_ids[index] for index in np.flatnonzero(~assigned)]
+            raise ValueError(f"partition feature join has no branch for sample IDs {missing!r}")
+        assert output is not None
+        return output
+
+
 def _fitted_x_path(handle: int) -> Path | None:
     directory = os.environ.get("N4A_DAGML_FITTED_X_DIR")
     return Path(directory) / f"{handle}.joblib" if directory else None
 
 
-def _persist_fitted_x(handle: int, chain: _FittedXChain) -> None:
+def _persist_fitted_x(handle: int, chain: _FittedXChain | _PartitionedXChain) -> None:
     """Transfer a fitted data-edge payload between controller-specific CLI workers."""
     path = _fitted_x_path(handle)
     if path is None:
@@ -721,26 +760,61 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     }
 
 
-def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | None:
+def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | None:
+    payload = model_store.get(handle)
+    if payload is None:
+        path = _fitted_x_path(handle)
+        if path is not None and path.is_file():
+            import joblib
+
+            payload = joblib.load(path)  # noqa: S301 - written by this run's own transform worker
+            model_store[handle] = payload
+    return payload if isinstance(payload, (_FittedXChain, _PartitionedXChain)) else None
+
+
+def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | None:
     """Resolve a predecessor transform through the native data-edge handle."""
     chains = []
+    seen: set[int] = set()
     for reference in task.get("input_handles", {}).values():
         if not isinstance(reference, dict) or reference.get("kind") != "data":
             continue
         handle = reference.get("handle")
-        chain = model_store.get(handle)
-        if chain is None and isinstance(handle, int):
-            path = _fitted_x_path(handle)
-            if path is not None and path.is_file():
-                import joblib
-
-                chain = joblib.load(path)  # noqa: S301 - written by this run's own transform worker
-                model_store[handle] = chain
-        if isinstance(chain, _FittedXChain):
+        if not isinstance(handle, int) or handle in seen:
+            continue
+        seen.add(handle)
+        chain = _fitted_payload(handle, model_store)
+        if chain is not None:
             chains.append(chain)
     if len(chains) > 1:
         raise ValueError("fitted transform node has multiple predecessor X chains")
     return chains[0] if chains else None
+
+
+def _run_feature_join_node(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> dict[str, Any]:
+    """Capture native incoming branch handles for a sample-keyed feature concat."""
+    if task["phase"] not in ("FIT_CV", "REFIT"):
+        return _build_result(task, [], [], {})
+    branches: list[tuple[dict[str, Any], _FittedXChain]] = []
+    for key, view in sorted(task.get("data_views", {}).items()):
+        if not key.startswith("data:") or key.endswith((":validation", ":test")):
+            continue
+        branch_view = view.get("branch_view") or {}
+        if not branch_view:
+            continue
+        reference = task.get("input_handles", {}).get(key)
+        if not isinstance(reference, dict) or not isinstance(reference.get("handle"), int):
+            raise ValueError(f"partition feature join is missing native data input {key!r}")
+        payload = _fitted_payload(reference["handle"], model_store)
+        if not isinstance(payload, _FittedXChain):
+            raise ValueError(f"partition feature join input {key!r} is not a fitted X branch")
+        branches.append((branch_view.get("selector") or {}, payload))
+    joined = _PartitionedXChain(branches)
+    result = _build_result(task, [], [], {})
+    handle = result["outputs"]["x_out"]["handle"]
+    model_store[handle] = joined
+    _persist_fitted_x(handle, joined)
+    return result
 
 
 def _run_fitted_transform_node(
@@ -1587,6 +1661,8 @@ def run_node(
     kind = node_plan["kind"]
     if kind == "transform" and task.get("data_views"):
         return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata)
+    if kind == "feature_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("merge_mode") == "concat":
+        return _run_feature_join_node(task, model_store)
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)
