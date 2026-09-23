@@ -1430,7 +1430,8 @@ def run_model_node(
                 "target_names": names,
             }
         )
-        if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and resolver._dataset.is_classification
+        if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and not proba_output
+                and resolver._dataset.is_classification
                 and callable(getattr(estimator, "predict_proba", None))):
             classes = np.asarray(estimator.classes_, dtype=float)
             features, options = _features(spec_ids, spec_include_augmented)
