@@ -1117,6 +1117,20 @@ def _dispatch_run(
             workdir=base_dir / "by_source_auto_full_train", random_state=random_state,
             train_sample_ids=holdout_train_sample_ids,
         )
+    if not any(_is_split_step(step) for step in pipeline) and pipeline and isinstance(pipeline[-1], dict):
+        from sklearn.model_selection import KFold
+
+        from nirs4all.operators.models.meta import MetaModel
+
+        meta = pipeline[-1].get("model")
+        if isinstance(meta, MetaModel) and meta.stacking_config.allow_no_cv:
+            # The opt-in unsplit legacy path uses the held-out test rows as validation.
+            # Give the native stack a deterministic, training-only fold set instead.
+            inner_splitter = KFold(2, shuffle=True, random_state=random_state if random_state is not None else 0)
+            candidate = [inner_splitter, *pipeline]
+            if _detect_sequential_metamodel(candidate) is not None:
+                pipeline = candidate
+
     if not any(_is_split_step(step) for step in pipeline):
         from .full_train import run_full_train
 
