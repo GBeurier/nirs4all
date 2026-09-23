@@ -1457,7 +1457,7 @@ def _is_simple_predictions_merge_step(step: Any) -> bool:
     return isinstance(step, dict) and step.get("merge") == "predictions"
 
 
-def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False) -> bool:
+def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_max_level: bool = False) -> bool:
     """Check the fields honored by this lowering, optionally including native best-fold test features.
 
     A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` may
@@ -1485,10 +1485,12 @@ def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = Fals
     if allow_drop_incomplete and normalized.coverage_strategy == CoverageStrategy.DROP_INCOMPLETE:
         normalized = dataclasses.replace(normalized, coverage_strategy=StackingConfig().coverage_strategy,
                                          min_coverage_ratio=StackingConfig().min_coverage_ratio)
+    if allow_max_level:
+        normalized = dataclasses.replace(normalized, max_level=StackingConfig().max_level)
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_max_level: bool = False) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1524,8 +1526,10 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
             or (model.selector is not None and not allow_selector)
             or model.finetune_space is not None
             or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
+            or config.max_level < 1
             or not _is_default_except_level(config, allow_fold_aggregation=allow_fold_aggregation,
-                                             allowed_branch_scope=allowed_branch_scope, allow_drop_incomplete=allow_drop_incomplete)
+                                             allowed_branch_scope=allowed_branch_scope, allow_drop_incomplete=allow_drop_incomplete,
+                                             allow_max_level=allow_max_level)
         ):
             return None
         return model.model
@@ -1548,7 +1552,8 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
     if not isinstance(wrapper, MetaModel):
         return None
     learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_fold_aggregation=True,
-                            allow_selector=True, allowed_branch_scope=BranchScope.SPECIFIED, allow_drop_incomplete=True)
+                            allow_selector=True, allowed_branch_scope=BranchScope.SPECIFIED,
+                            allow_drop_incomplete=True, allow_max_level=True)
     if learner is None:
         return None
     models: list[Any] = []
@@ -1653,7 +1658,8 @@ def _detect_named_multi_level_metamodel(
         if (
             current.selector is not None or current.finetune_space is not None
             or current.stacking_config.level not in allowed_levels
-            or not _is_default_except_level(current.stacking_config, allow_fold_aggregation=True)
+            or current.stacking_config.max_level < level
+            or not _is_default_except_level(current.stacking_config, allow_fold_aggregation=True, allow_max_level=True)
         ):
             return None
         current_name = current_step.get("name") or current.name

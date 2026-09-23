@@ -1236,7 +1236,7 @@ def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Se
     if meta_artifact_id is None or str(meta_artifact_id) not in by_id:
         return None
     base_producers = replay.get("base_producers")
-    if not isinstance(base_producers, Sequence) or isinstance(base_producers, (str, bytes)) or len(base_producers) < 2:
+    if not isinstance(base_producers, Sequence) or isinstance(base_producers, (str, bytes)) or not base_producers:
         return None
 
     base_artifacts: list[Mapping[str, Any]] = []

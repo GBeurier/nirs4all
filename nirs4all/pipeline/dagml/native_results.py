@@ -426,7 +426,7 @@ def _stacking_replay_manifest(
         for ref in artifact_refs
         if ref is not meta_ref and _producer_node_from_artifact_id(ref.get("artifact_id")) not in {None, _STACKING_PRODUCER_NODE}
     ]
-    if len(base_refs) < 2:
+    if not base_refs:
         return None
 
     ordered_base_refs = sorted(base_refs, key=lambda ref: str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or ""))
