@@ -670,7 +670,7 @@ def _output_handles(task: dict[str, Any], handle: int) -> dict[str, Any]:
     return outputs
 
 
-def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any], regression_targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any], regression_targets: list[dict[str, Any]] | None = None, classification_probabilities: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Assemble the schema-complete ``NodeResult`` the runtime validates (outputs + full lineage).
 
     ``regression_targets`` (the real ``y_true`` for the predicted samples) lets dag-ml score the
@@ -694,6 +694,7 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
         "node_id": node_id,
         "outputs": _output_handles(task, _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}")),
         "predictions": predictions,
+        "classification_probabilities": classification_probabilities or [],
         "shape_deltas": [],
         "artifacts": artifacts,
         "artifact_handles": artifact_handles,
@@ -1275,6 +1276,7 @@ def run_model_node(
     # Skip an empty spec (a branch partition with no validation sample in this fold).
     predictions: list[dict[str, Any]] = []
     regression_targets: list[dict[str, Any]] = []
+    classification_probabilities: list[dict[str, Any]] = []
     for spec_ids, partition, spec_fold, spec_include_augmented in specs:
         if not spec_ids:
             continue
@@ -1300,6 +1302,20 @@ def run_model_node(
                 "target_names": names,
             }
         )
+        if (phase == "FIT_CV" and partition == "test" and resolver._dataset.is_classification
+                and callable(getattr(estimator, "predict_proba", None))):
+            classes = np.asarray(estimator.classes_, dtype=float)
+            features, options = _features(spec_ids, False)
+            with _gpu_device_scope(task, estimator):
+                probabilities = np.asarray(estimator.predict_proba(features, **options), dtype=float)
+            classification_probabilities.append({
+                "producer_node": node_id,
+                "partition": "test",
+                "fold_id": spec_fold,
+                "sample_ids": spec_ids,
+                "class_labels": classes.tolist(),
+                "values": probabilities.tolist(),
+            })
         if not residual_mode and not proba_output:
             regression_targets.append(
                 {
@@ -1325,7 +1341,7 @@ def run_model_node(
     from .native_vote import capture_vote_evidence
 
     capture_vote_evidence(task, resolver, estimator, predictions, train_ids, _features, _predict, model_store)
-    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
+    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets, classification_probabilities)
 
 
 def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[list[str], np.ndarray]:
