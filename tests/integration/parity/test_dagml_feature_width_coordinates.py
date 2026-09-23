@@ -9,10 +9,93 @@ from sklearn.model_selection import KFold
 
 import nirs4all
 from nirs4all.data import SpectroDataset
+from nirs4all.operators.augmentation import GaussianAdditiveNoise
 from nirs4all.operators.transforms import CARS, MCUVE, Resampler
 from nirs4all.operators.transforms.features import CropTransformer, ResampleTransformer
 
 from ._dagml_cli import dagml_cli_path
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_resampler_before_sample_augmentation_replays_with_source_axis(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    """The pre-augmentation replay fits Resampler on the source grid, including export."""
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+
+    rng = np.random.default_rng(56)
+    x = rng.normal(size=(20, 12))
+    y = x[:, 2] - x[:, 5]
+
+    def dataset() -> SpectroDataset:
+        samples = SpectroDataset("resampler_before_augmentation")
+        samples.add_samples(x[:16], {"partition": "train"}, headers=[str(value) for value in np.linspace(1000, 1200, 12)], header_unit="cm-1")
+        samples.add_samples(x[16:], {"partition": "test"})
+        samples.add_targets(y)
+        return samples
+
+    pipeline = [
+        Resampler(target_wavelengths=np.linspace(1010, 1190, 12)),
+        {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all", "random_state": 42}},
+        KFold(2),
+        {"model": Ridge()},
+    ]
+    legacy = nirs4all.run(pipeline, dataset(), engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset(), engine="dag-ml", workspace_path=tmp_path / mechanism, save_artifacts=False, verbose=0)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    archive = native.export(tmp_path / f"resampler_before_augmentation_{mechanism}.n4a")
+    assert np.asarray(nirs4all.predict(archive, x[16:]).y_pred).shape == (4,)
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("action", ["extend", "add", "replace"])
+def test_feature_augmentation_resampler_receives_axis_and_replays(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, action: str,
+) -> None:
+    """A configured Resampler inside feature augmentation uses the source grid in both engines."""
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+
+    rng = np.random.default_rng(56)
+    x = rng.normal(size=(20, 12))
+    y = x[:, 2] - x[:, 5]
+    wavelengths = np.linspace(1000, 1200, 12)
+    targets = np.linspace(1010, 1190, 12)
+
+    def dataset() -> SpectroDataset:
+        samples = SpectroDataset("feature_augmentation_resampler")
+        samples.add_samples(x[:16], {"partition": "train"}, headers=[str(value) for value in wavelengths], header_unit="cm-1")
+        samples.add_samples(x[16:], {"partition": "test"})
+        samples.add_targets(y)
+        return samples
+
+    pipeline = [
+        {"feature_augmentation": [Resampler(target_wavelengths=[targets])], "action": action},
+        KFold(2),
+        {"model": Ridge()},
+    ]
+    legacy = nirs4all.run(pipeline, dataset(), engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset(), engine="dag-ml", workspace_path=tmp_path / mechanism, save_artifacts=False, verbose=0)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    archive = native.export(tmp_path / f"feature_augmentation_resampler_{action}_{mechanism}.n4a")
+    assert np.asarray(nirs4all.predict(archive, x[16:]).y_pred).shape == (4,)
+    legacy.close()
+    native.close()
 
 
 @pytest.mark.parity

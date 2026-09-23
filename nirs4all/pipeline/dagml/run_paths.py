@@ -1398,6 +1398,8 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
     from sklearn.pipeline import make_pipeline
 
     from nirs4all.operators.transforms.concat import FeatureConcat
+    from nirs4all.pipeline.dagml.node_runner import _CoordinateTransform
+    from nirs4all.pipeline.dagml.steps import _needs_wavelength_injection
     from nirs4all.pipeline.dagml_bridge import _lower_feature_augmentation
 
     _assert_supported_operators(pre_aug_steps)
@@ -1406,16 +1408,21 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
         raw_blocks = spectro.x({"partition": "train"}, layout="2d", concat_source=False, include_augmented=True)
         blocks = raw_blocks if isinstance(raw_blocks, list) else [raw_blocks]
         chains = []
-        for block in blocks:
+        for source_index, block in enumerate(blocks):
             transforms = [
                 FeatureConcat(**_lower_feature_augmentation(step)["params"])
                 if isinstance(step, dict) and "feature_augmentation" in step else clone(step)
                 for step in pre_aug_steps
             ]
+            transforms = [
+                _CoordinateTransform(transform, tuple(str(value) for value in spectro.wavelengths_cm1(source_index)), source_index)
+                if _needs_wavelength_injection(transform) else transform
+                for transform in transforms
+            ]
             chain = make_pipeline(*transforms)
             chain.fit(np.asarray(block), y[:, 0] if y.ndim > 1 else y)
             chains.append(chain)
-    except (TypeError, ValueError, AttributeError) as exc:
+    except (TypeError, AttributeError) as exc:
         raise DagMlUnsupported(f"cannot capture pre-augmentation transform replay: {exc}") from exc
     if len(chains) == 1:
         return chains[0]

@@ -82,7 +82,7 @@ class _Chain(BaseEstimator, TransformerMixin):
         return current
 
 
-def _build_operation(operation: Any) -> Any:
+def _build_operation(operation: Any, coordinates: tuple[str, ...] | None = None) -> Any:
     """Instantiate one ``operations`` entry: ``None`` (raw pass-through), a single ``{class, params}``, or a chain list."""
     if operation is None:
         # The feature_augmentation extend/add raw layer: keep the base matrix unchanged beside the
@@ -90,12 +90,36 @@ def _build_operation(operation: Any) -> Any:
         return "passthrough"
     if isinstance(operation, list):
         # Chain [A, B, C] → C(B(A(X))), applied sequentially before concatenation.
-        return _Chain([_build_operation(item) for item in operation])
+        return _Chain([_build_operation(item, coordinates) for item in operation])
     cls = _import_class(operation["class"])
     from nirs4all.pipeline.dagml.operator_parameters import decode_constructor_value
     from nirs4all.pipeline.dagml.operator_routing import _coerce_json_params
 
-    return cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
+    transformer = cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
+    from nirs4all.pipeline.dagml.steps import _needs_wavelength_injection
+
+    if _needs_wavelength_injection(transformer):
+        if coordinates is None:
+            raise ValueError("wavelength-aware feature augmentation requires feature-axis coordinates")
+        from nirs4all.pipeline.dagml.node_runner import _CoordinateTransform
+
+        return _CoordinateTransform(transformer, coordinates)
+    return transformer
+
+
+def _operation_needs_coordinates(operation: Any) -> bool:
+    """Detect strict wavelength requirements inside serialized feature channels."""
+    if operation is None:
+        return False
+    if isinstance(operation, list):
+        return any(_operation_needs_coordinates(item) for item in operation)
+    from nirs4all.pipeline.dagml.operator_parameters import decode_constructor_value
+    from nirs4all.pipeline.dagml.operator_routing import _coerce_json_params
+    from nirs4all.pipeline.dagml.steps import _needs_wavelength_injection
+
+    cls = _import_class(operation["class"])
+    instance = cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
+    return _needs_wavelength_injection(instance)
 
 
 def _has_learned_operation(operation: Any) -> bool:
@@ -129,20 +153,25 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
     def __init__(self, operations: list[Any] | None = None):
         self.operations = operations
 
-    def _make_union(self) -> FeatureUnion:
+    @property
+    def _requires_wavelengths(self) -> bool:
+        return any(_operation_needs_coordinates(operation) for operation in self.operations or [])
+
+    def _make_union(self, coordinates: tuple[str, ...] | None = None) -> FeatureUnion:
         if not self.operations:
             raise ValueError("FeatureConcat requires a non-empty `operations` spec")
         return FeatureUnion(
-            [(f"op{index}", _build_operation(operation)) for index, operation in enumerate(self.operations)]
+            [(f"op{index}", _build_operation(operation, coordinates)) for index, operation in enumerate(self.operations)]
         )
 
-    def fit(self, X: Any, y: Any = None) -> FeatureConcat:
+    def fit(self, X: Any, y: Any = None, wavelengths: Any = None) -> FeatureConcat:
         # Learned float32 projections can differ after joblib reload because BLAS
         # sees a different array alignment; downstream ill-conditioned models
         # amplify those few ULPs. Keep the fitted and replayed path in float64.
         self._promote_input_ = any(_has_learned_operation(op) for op in self.operations or [])
         values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
-        self.union_ = self._make_union()
+        coordinates = tuple(str(value) for value in wavelengths) if wavelengths is not None else None
+        self.union_ = self._make_union(coordinates)
         self.union_.fit(values, y)
         return self
 
