@@ -64,19 +64,20 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
         if expected_archive_fingerprint is not None and archive_fingerprint != expected_archive_fingerprint:
             raise ValueError("general Session source archive changed after loading")
         with zipfile.ZipFile(snapshot) as archive:
-            model, manifest, member, fingerprint, expected = _load_verified_archive(archive)
+            model, manifest, member, fingerprint, expected, initial_package = _load_verified_archive(archive)
     if not callable(getattr(model, "predict", None)):
         raise ValueError("general archive model is not predict-capable")
     return {
         "artifact": {"artifact_id": member, "estimator": model, "y_transform": None, "content_fingerprint": fingerprint},
         "manifest": manifest, "archive_fingerprint": archive_fingerprint,
+        "initial_full_refit_package": initial_package,
         "artifact_integrity_verified": expected is not None,
         "pipeline": [{"model": model}],
         "model_name": source.stem, "source_path": source.resolve(),
     }
 
 
-def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any], str, str, str | None]:
+def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any], str, str, str | None, dict[str, Any] | None]:
     import joblib
 
     from .host_artifacts import file_fingerprint, hydrate_host_artifacts, verify_host_artifacts
@@ -90,6 +91,20 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
         manifest = json.loads(archive.read("manifest.json"))
         if not isinstance(manifest, dict) or manifest.get("source_type") != "dagml_native":
             raise ValueError("archive is not a captured DAG host-model archive")
+        initial_package = None
+        package_ref = manifest.get("dagml_initial_full_refit_package_ref")
+        if package_ref is not None:
+            if not isinstance(package_ref, dict) or package_ref.get("path") != "dagml_initial_full_refit_package.json":
+                raise ValueError("general archive has an invalid initial full-refit package reference")
+            package_member = package_ref["path"]
+            if package_member not in names or archive.getinfo(package_member).file_size > 64 * 1024 * 1024:
+                raise ValueError("general archive initial full-refit package is missing or oversized")
+            package_bytes = archive.read(package_member)
+            if hashlib.sha256(package_bytes).hexdigest() != package_ref.get("sha256"):
+                raise ValueError("general archive initial full-refit package fingerprint mismatch")
+            initial_package = json.loads(package_bytes)
+            if not isinstance(initial_package, dict):
+                raise ValueError("general archive initial full-refit package must be an object")
         from .multimodal_contracts import validate_dependencies
 
         validate_dependencies(manifest)
@@ -143,7 +158,7 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
             raise
         if not declared:
             sidecar_owner.cleanup()
-    return model, manifest, member, fingerprint, expected
+    return model, manifest, member, fingerprint, expected, initial_package
 
 
 def predict_general_archive(
@@ -198,6 +213,17 @@ def predict_general_archive(
                     raise ValueError("archive has a non-finite independent-source spectral axis")
             except (TypeError, ValueError) as exc:
                 raise ValueError("archive has an invalid independent-source spectral axis") from exc
+        initial_package = loaded.get("initial_full_refit_package")
+        if initial_package is not None:
+            from dag_ml import InitialFullRefitPackage
+
+            InitialFullRefitPackage(initial_package)
+            output_by_node = {binding["node_id"]: binding["output_id"] for binding in initial_package["outputs"]}
+            if len(output_by_node) != len(initial_package["outputs"]) or any(
+                item.get("dagml_output_id") != output_by_node.get(item.get("producer_node"))
+                for item in named_outputs
+            ):
+                raise ValueError("archive independent outputs disagree with its initial full-refit package")
         model = loaded["artifact"]["estimator"]
         manifest_axes = tuple(
             tuple(item["feature_axis_cm1"]) if isinstance(item.get("feature_axis_cm1"), list) else None

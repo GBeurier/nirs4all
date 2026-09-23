@@ -340,6 +340,7 @@ def run_refit_phase_cli(
     dagml_cli: str, venv_python: str, dataset_pickle: str | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     random_state: int | None = None,
+    package_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one no-splitter REFIT in the native CLI with attested row order."""
     workdir.mkdir(parents=True, exist_ok=True)
@@ -396,6 +397,8 @@ def run_refit_phase_cli(
             "--training-sample-ids", str(workdir / "training_sample_ids.json"),
             "--adapter", str(shim), "--persistent",
             "--output", str(workdir / "phase.json"),
+            *(["--package-id", package_id, "--package-output", str(workdir / "initial_full_refit_package.json")]
+              if package_id is not None else []),
             *resource_args,
         ],
         capture_output=True, text=True, env=env, check=False,

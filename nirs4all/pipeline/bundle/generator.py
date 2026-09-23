@@ -75,6 +75,7 @@ def write_single_model_bundle(
     pipeline_uid: str = "",
     preprocessing_chain: str = "",
     provenance: dict[str, Any] | None = None,
+    extra_members: dict[str, bytes] | None = None,
     train_steps: list[Any] | None = None,
     compress: bool = True,
 ) -> Path:
@@ -112,6 +113,8 @@ def write_single_model_bundle(
         provenance: Optional ADDITIVE manifest fields recording the export origin (e.g. the dag-ml
             run / plan / variant ids and an ``export_path`` marker). Older loaders ignore unknown
             manifest keys (:meth:`BundleMetadata.from_dict`), so this never breaks bundle reads.
+        extra_members: Optional additional named ZIP members supplied by the caller. Names must
+            be plain root-level files distinct from the bundle's standard members.
         train_steps: Optional REPLAYABLE training pipeline steps (the JSON-serialized form produced by
             :func:`~nirs4all.pipeline.config.component_serialization.serialize_component`, one entry per
             original run step). When given they are written as an ADDITIVE ``train_pipeline.json`` member
@@ -153,6 +156,13 @@ def write_single_model_bundle(
     }
     if provenance:
         manifest.update(provenance)
+    extra_members = extra_members or {}
+    reserved = {"manifest.json", "pipeline.json", "train_pipeline.json"}
+    if any(
+        not name or "/" in name or "\\" in name or name in reserved
+        for name in extra_members
+    ):
+        raise ValueError("extra bundle members must have unique root-level filenames")
 
     pipeline_config = {
         "steps": [{"model": {"class": model_label}}],
@@ -175,6 +185,8 @@ def write_single_model_bundle(
             zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
             if train_steps is not None:
                 zf.writestr("train_pipeline.json", json.dumps({"steps": train_steps}, indent=2))
+            for name, member in extra_members.items():
+                zf.writestr(name, member)
             # The foldfinal token routes replay to the captured final model.
             zf.write(artifact_path, artifact_member)
             for directory in host_artifacts:

@@ -604,8 +604,18 @@ def write_native_results(
     # Only fitted REFIT models produce payloads; empty captures leave the capability flag false.
     artifact_refs = _write_model_artifacts(run_dir, result._dagml_refit_artifacts)  # noqa: SLF001
 
+    initial_package = result._dagml_initial_full_refit_package  # noqa: SLF001
+    if initial_package is not None:
+        from dag_ml import InitialFullRefitPackage
+
+        InitialFullRefitPackage(initial_package)
+        (run_dir / "initial_full_refit_package.json").write_text(_canonical_json(initial_package), encoding="utf-8")
+
     # manifest.json — the run header + capability flags + the ScoreSet hash + the model ArtifactRefs.
     manifest = _manifest_header(result, predictions, score_set, run_id, run_dir, artifact_refs)
+    if initial_package is not None:
+        manifest["files"]["initial_full_refit_package"] = "initial_full_refit_package.json"
+        manifest["initial_full_refit_package_fingerprint"] = initial_package["package_fingerprint"]
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
     return run_dir
@@ -682,7 +692,18 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
 
     artifacts = _rehydrate_artifacts(run_dir, manifest.get("artifacts", []))
 
-    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts}
+    initial_package = None
+    initial_path = manifest.get("files", {}).get("initial_full_refit_package")
+    if initial_path is not None:
+        if initial_path != "initial_full_refit_package.json":
+            raise ValueError("native results initial full-refit package path is invalid")
+        initial_package = json.loads((run_dir / initial_path).read_text(encoding="utf-8"))
+        from dag_ml import InitialFullRefitPackage
+
+        InitialFullRefitPackage(initial_package)
+        if initial_package["package_fingerprint"] != manifest.get("initial_full_refit_package_fingerprint"):
+            raise ValueError("native results initial full-refit package fingerprint mismatch")
+    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts, "initial_full_refit_package": initial_package}
 
 
 def _validate_portable_uri(uri: Any) -> str:
