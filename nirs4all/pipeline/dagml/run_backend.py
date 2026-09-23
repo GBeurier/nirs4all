@@ -1121,7 +1121,7 @@ def _dispatch_run(
     if refit is False and (
         detected is not None
         or detected_separation_preproc_concat is not None
-        or detected_duplication is not None
+        or (detected_duplication is not None and detected_duplication[1] != "features")
         or detected_stacking is not None
         or detected_named_metamodel_stack is not None
         or detected_by_source is not None
@@ -1253,6 +1253,7 @@ def _dispatch_run(
             dataset_pickle=host_pickle,
             config_name=config_name,
             random_state=random_state,
+            refit=refit,
         )
 
     # by_source separation branch (`{"branch": {"by_source": True, "steps": [...model...]}}`) + avg/mean

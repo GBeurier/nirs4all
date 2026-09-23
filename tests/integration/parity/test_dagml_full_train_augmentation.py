@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -444,6 +446,44 @@ def test_public_augmented_cv_without_refit_matches_legacy(
         variants = {report["variant_id"] for report in native._dagml_score_set["reports"]
                     if report["partition"] == "validation" and report.get("variant_id")}
         assert len(variants) == 2
+
+
+@pytest.mark.parametrize("with_augmentation", [False, True])
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_public_feature_branch_cv_without_refit_matches_legacy(
+    monkeypatch: pytest.MonkeyPatch, with_augmentation: bool, mechanism: str,
+) -> None:
+    """Feature-merge branch runs fold-local preprocessing without terminal refit."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    pipeline: list[Any] = []
+    if with_augmentation:
+        pipeline.append({"sample_augmentation": {
+            "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+            "count": 1, "selection": "all", "random_state": 42,
+        }})
+    pipeline.extend([
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"branch": [[StandardNormalVariate()], [StandardScaler()]]},
+        {"merge": "features"},
+        {"model": PLSRegression(n_components=3)},
+    ])
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False, save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", refit=False, save_artifacts=False, verbose=0)
+
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, rel=1e-7)
+    assert native._dagml_refit_artifacts == []
+    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"val"}
+    assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
+               for frame in native._dagml_node_results)
 
 
 @pytest.mark.parametrize("prefix_kind", ["y_processing", "feature_augmentation", "tag"])

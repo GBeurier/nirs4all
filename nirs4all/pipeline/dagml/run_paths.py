@@ -510,6 +510,7 @@ def _run_concrete(
     dataset_pickle: str | None = None,
     config_name: str = "",
     random_state: int | None = None,
+    refit: bool = True,
 ) -> RunResult:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
 
@@ -517,7 +518,7 @@ def _run_concrete(
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
     scores, model_name, results, identity, refit_artifacts = _run_concrete_scores(
-        pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
+        pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state, refit=refit
     )
     return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
 
@@ -3666,7 +3667,7 @@ def _run_by_source_stacking_branch(
     )
 
 
-def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[list[Any]], merge_mode: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None, config_name: str, random_state: int | None) -> RunResult:
+def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[list[Any]], merge_mode: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None, config_name: str, random_state: int | None, refit: bool = True) -> RunResult:
     """Run legacy duplication ``merge=features``/``merge=all`` through one concrete native model."""
     if merge_mode not in ("features", "all"):
         raise DagMlUnsupported("engine='dag-ml' supports duplication branch feature merge only for merge='features' or merge='all'")
@@ -3679,7 +3680,7 @@ def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[li
         transformer = _branch_merge_transformer_step(branches, merge_mode)
         synthetic_pipeline = [splitter, transformer, model_step]
         downstream_result = _run_concrete(
-            synthetic_pipeline, spectro, dataset_arg, cli, venv_python, run_dir / "downstream", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state
+            synthetic_pipeline, spectro, dataset_arg, cli, venv_python, run_dir / "downstream", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state, refit=refit
         )
         return downstream_result
 
@@ -3692,7 +3693,7 @@ def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[li
     return _combine_duplication_merge_all_rows(branch_results, branch_names, downstream_result, _model_name([model_step]), spectro.name)
 
 
-def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, refit: bool = True) -> RunResult:
     """Run a duplication branch (``[[A], [B], …]``) + avg/mean fusion merge as ONE native dag-ml run.
 
     Lowers each inner sub-pipeline to a canonical branch (``mode: "duplication"`` — every branch model
@@ -3716,7 +3717,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     """
     if aggregate in ("features", "all"):
         return _run_duplication_branch_feature_merge(
-            pipeline, branches, aggregate, spectro, dataset_arg, cli, venv_python, run_dir, metric, task_type, dataset_pickle, config_name, random_state
+            pipeline, branches, aggregate, spectro, dataset_arg, cli, venv_python, run_dir, metric, task_type, dataset_pickle, config_name, random_state, refit=refit
         )
 
     import dag_ml
