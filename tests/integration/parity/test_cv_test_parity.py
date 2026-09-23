@@ -16,6 +16,55 @@ from ._datasets import dataset_path
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("fold_format", ["json", "yaml", "csv", "txt"])
+def test_fold_file_formats_keep_native_cv_and_test_rows(tmp_path, monkeypatch, mechanism: str, fold_format: str) -> None:
+    """Every legacy fold-file format must produce the same native fold/test contract."""
+    import nirs4all
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    rng = np.random.default_rng(238)
+    X = rng.normal(size=(30, 6))
+    y = X[:, 0] - 0.4 * X[:, 1] + rng.normal(scale=0.02, size=30)
+    first, second = list(range(12)), list(range(12, 24))
+    fold_file = tmp_path / f"folds.{fold_format}"
+    if fold_format == "json":
+        contents = json.dumps([{"train": second, "val": first}, {"train": first, "val": second}])
+    elif fold_format == "yaml":
+        contents = f"- train: {second}\n  val: {first}\n- train: {first}\n  val: {second}\n"
+    elif fold_format == "csv":
+        contents = "sample_id,fold\n" + "".join(f"{sample},{sample // 12}\n" for sample in range(24))
+    else:
+        contents = "\n".join(",".join(map(str, rows)) for rows in (second, first, first, second)) + "\n"
+    fold_file.write_text(contents, encoding="utf-8")
+    pipeline = [{"split": str(fold_file)}, Ridge(alpha=0.5)]
+    legacy = nirs4all.run(pipeline, (X, y, {"train": 24}), engine="legacy", refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0, workspace_path=tmp_path / "legacy")
+    native = nirs4all.run(pipeline, (X, y, {"train": 24}), engine="dag-ml", allow_fallback=False,
+                          refit=False, save_artifacts=False, save_charts=False, verbose=0,
+                          workspace_path=tmp_path / "native")
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+        legacy_rows = {(row["fold_id"], row["partition"]): row for row in legacy.predictions.filter_predictions(load_arrays=True)}
+        native_rows = {(row["fold_id"], row["partition"]): row for row in native.predictions.filter_predictions(load_arrays=True)}
+        for key in (("0", "val"), ("1", "val"), ("0", "test"), ("1", "test")):
+            assert key in legacy_rows and key in native_rows
+            np.testing.assert_allclose(np.asarray(native_rows[key]["y_pred"]).ravel(),
+                                       np.asarray(legacy_rows[key]["y_pred"]).ravel(), atol=1e-5)
+    finally:
+        legacy.close()
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("refit", [False, True])
 def test_cv_test_fold_and_ensemble_parity(tmp_path, monkeypatch, mechanism: str, refit: bool) -> None:
     import nirs4all
