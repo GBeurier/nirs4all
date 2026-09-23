@@ -1692,8 +1692,6 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 
     separation = _detect_separation_branch(steps)
     if separation is not None:
-        if not refit:
-            raise DagMlUnsupported("refit=False with augmentation and a separation branch requires CV-only fan-out lowering")
         if allowed_base is not None:
             raise DagMlUnsupported("separation branch with post-augmentation exclusion needs branch-scoped exclusion views")
     else:
@@ -1749,6 +1747,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
             dataset_pickle=str(pickle_path), config_name=config_name,
             random_state=random_state, augmentation_by_sample=augmentation_by_sample_int,
             fold_children=fold_children, fold_feature_views=fold_feature_views, folds_override=base_folds,
+            refit=refit,
         )
         return _attach_pre_augmentation_replay(result, replay_stages)
 
@@ -1818,7 +1817,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 _MERGE_NODE_ID = "merge:concat"
 
 
-def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, augmentation_by_sample: dict[int, str] | None = None, fold_children: dict[str, dict[int, list[int]]] | None = None, fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None, folds_override: list[tuple[list[int], list[int]]] | None = None, cv_pool: list[int] | None = None, excluded_sample_ints: set[int] | None = None) -> RunResult:
+def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, augmentation_by_sample: dict[int, str] | None = None, fold_children: dict[str, dict[int, list[int]]] | None = None, fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None, folds_override: list[tuple[list[int], list[int]]] | None = None, cv_pool: list[int] | None = None, excluded_sample_ints: set[int] | None = None, refit: bool = True) -> RunResult:
     """Run a by_metadata/by_tag separation branch + concat merge as ONE native dag-ml fan-out run.
 
     Lowers the branch to an ``auto_separate`` template (one branch carrying the criterion + the
@@ -1900,7 +1899,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     fanned_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro, fold_children=fold_children, fold_feature_views=fold_feature_views, random_state=random_state
+        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro, fold_children=fold_children, fold_feature_views=fold_feature_views, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml separation-branch run failed")
@@ -1913,6 +1912,12 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
         ),
         None,
     )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", [])
+             if report.get("partition") == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
 
     # The concat-merge producer's reports carry both the full-universe cross-fold OOF average
@@ -3544,6 +3549,7 @@ def _run_by_source_auto_models(
     run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None,
     config_name: str = "", random_state: int | None = None,
     refit_top_k: int = 1,
+    refit: bool = True,
 ) -> RunResult:
     """Score every source-local model when auto merge has no downstream estimator."""
     import dag_ml
@@ -3584,7 +3590,7 @@ def _run_by_source_auto_models(
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
         workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
         selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
-        random_state=random_state, refit_top_k=refit_top_k,
+        random_state=random_state, refit_top_k=refit_top_k, refit=refit,
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml by_source auto model run failed")
@@ -3596,6 +3602,12 @@ def _run_by_source_auto_models(
         ),
         None,
     )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", [])
+             if report.get("partition") == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
     predictions = Predictions()
     for node in model_nodes:
