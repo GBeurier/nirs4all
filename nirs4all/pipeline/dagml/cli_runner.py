@@ -307,3 +307,69 @@ def run_cv_refit_bundle(
     if proc.returncode == 0 and not refit:
         results.extend(json.loads(oof_average_path.read_text()))
     return {"returncode": proc.returncode, "stdout": proc.stdout + proc.stderr, "results": results}
+
+
+def run_refit_phase_cli(
+    *, dsl: dict[str, Any], envelope: dict[str, Any], graph: dict[str, Any],
+    training_sample_ids: list[str], dataset_path: str, workdir: Path,
+    dagml_cli: str, venv_python: str, dataset_pickle: str | None = None,
+    random_state: int | None = None,
+) -> dict[str, Any]:
+    """Run one no-splitter REFIT in the native CLI with attested row order."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    for name, payload in (
+        ("dsl", dsl), ("controllers", controller_manifests()),
+        ("envelope", envelope), ("graph", graph),
+        ("training_sample_ids", training_sample_ids),
+    ):
+        (workdir / f"{name}.json").write_text(json.dumps(payload))
+    capture = workdir / "results.jsonl"
+    capture.unlink(missing_ok=True)
+    artifact_dir = workdir / "refit_artifacts"
+    artifact_dir.mkdir(exist_ok=True)
+    for stale_artifact in artifact_dir.glob("*.joblib"):
+        stale_artifact.unlink()
+    shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
+    env = {
+        **os.environ,
+        "N4A_DAGML_DATASET_PATH": dataset_path,
+        "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
+        "N4A_DAGML_RESULT_CAPTURE": str(capture),
+        "N4A_DAGML_REFIT_ARTIFACT_DIR": str(artifact_dir),
+    }
+    if dataset_pickle is None:
+        env.pop("N4A_DAGML_DATASET_PICKLE", None)
+    else:
+        env["N4A_DAGML_DATASET_PICKLE"] = dataset_pickle
+    env.pop("N4A_DAGML_SAMPLE_META_PATH", None)
+    if random_state is None:
+        env.pop("N4A_RANDOM_STATE", None)
+    else:
+        env["N4A_RANDOM_STATE"] = str(random_state)
+    from .resources import current_execution_resources
+
+    resources = current_execution_resources()
+    resource_args = ["--cpu-threads", str(resources.cpu_threads)]
+    for device in resources.gpu_devices:
+        resource_args.extend(("--gpu-device", device))
+    proc = subprocess.run(
+        [
+            dagml_cli, "run-process-dsl-refit-phase",
+            "--dsl", str(workdir / "dsl.json"),
+            "--controllers", str(workdir / "controllers.json"),
+            "--envelope", str(workdir / "envelope.json"),
+            "--training-sample-ids", str(workdir / "training_sample_ids.json"),
+            "--adapter", str(shim), "--persistent",
+            "--output", str(workdir / "phase.json"),
+            *resource_args,
+        ],
+        capture_output=True, text=True, env=env, check=False,
+    )
+    results = [json.loads(line) for line in capture.read_text().splitlines() if line.strip()] if capture.exists() else []
+    return {
+        "returncode": proc.returncode,
+        "stdout": proc.stdout + proc.stderr,
+        "results": results,
+        "phase_output": workdir / "phase.json",
+        "artifact_dir": artifact_dir,
+    }
