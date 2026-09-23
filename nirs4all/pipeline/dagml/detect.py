@@ -1550,32 +1550,39 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
 
 def _detect_named_multi_level_metamodel(
     pipeline: list[Any],
-) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None, dict[str, Any]] | None:
-    """Two named MetaModels where the second consumes only the first one's OOF."""
+) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None, list[dict[str, Any]]] | None:
+    """A linear chain of named MetaModels, each consuming only its predecessor."""
     from nirs4all.operators.models.meta import MetaModel, StackingLevel
 
     steps = [step for step in pipeline if not _is_split_step(step)]
-    if len(steps) < 3 or not all(isinstance(step, dict) for step in steps[-2:]):
+    trailing: list[dict[str, Any]] = []
+    for step in reversed(steps):
+        if not isinstance(step, dict) or not isinstance(step.get("model"), MetaModel):
+            break
+        trailing.append(step)
+    trailing.reverse()
+    if len(trailing) < 2:
         return None
-    first_step, second_step = steps[-2:]
-    first = first_step.get("model")
-    second = second_step.get("model")
-    if not isinstance(first, MetaModel) or not isinstance(second, MetaModel):
-        return None
-    first_name = first_step.get("name") or first.name
-    if not isinstance(first_name, str) or second.source_models != [first_name]:
-        return None
-    if (
-        second.use_proba or second.selector is not None or second.finetune_space is not None
-        or second.stacking_config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_2)
-        or not _is_default_except_level(second.stacking_config)
-    ):
-        return None
-    first_stage = _detect_sequential_metamodel(pipeline[:-1])
+    for level, (previous_step, current_step) in enumerate(zip(trailing, trailing[1:], strict=False), start=2):
+        previous = previous_step["model"]
+        current = current_step["model"]
+        previous_name = previous_step.get("name") or previous.name
+        if not isinstance(previous_name, str) or current.source_models != [previous_name]:
+            return None
+        allowed_levels = {StackingLevel.AUTO}
+        if level <= StackingLevel.LEVEL_3.value:
+            allowed_levels.add(StackingLevel(level))
+        if (
+            current.use_proba or current.selector is not None or current.finetune_space is not None
+            or current.stacking_config.level not in allowed_levels
+            or not _is_default_except_level(current.stacking_config)
+        ):
+            return None
+    first_stage = _detect_sequential_metamodel(pipeline[:-(len(trailing) - 1)])
     if first_stage is None:
         return None
     branches, learner, selectors = first_stage
-    return branches, learner, selectors, second_step
+    return branches, learner, selectors, trailing[1:]
 
 
 def _branch_local_meta_model_step(model_step: dict[str, Any]) -> dict[str, Any] | None:

@@ -356,41 +356,44 @@ def _stacking_replay_manifest(
         for ref in artifact_refs:
             producer = str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or "")
             by_producer.setdefault(producer, []).append(ref)
-        first = by_producer.get(_STACKING_PRODUCER_NODE, [])
-        second = by_producer.get(_SECOND_STACKING_PRODUCER_NODE, [])
-        if len(first) != 1 or len(second) != 1:
+        stage_nodes = [_STACKING_PRODUCER_NODE]
+        for level in range(2, len(artifact_refs) + 1):
+            node = f"{_STACKING_PRODUCER_NODE}.level{level}"
+            if node not in scored_producers:
+                break
+            stage_nodes.append(node)
+        if len(stage_nodes) < 2 or any(len(by_producer.get(node, [])) != 1 for node in stage_nodes):
             return None
-        first_refs = [ref for ref in artifact_refs if ref is not second[0]]
+        meta_refs = [by_producer[node][0] for node in stage_nodes]
+        if any(ref.get("controller_id") == _META_MODEL_CONTROLLER_ID and all(ref is not meta for meta in meta_refs) for ref in artifact_refs):
+            return None
+        first_refs = [ref for ref in artifact_refs if all(ref is not meta for meta in meta_refs[1:])]
         first_stage = _stacking_replay_manifest(score_set, first_refs, selectors, _allow_multi=False)
         if first_stage is None:
             return None
-        if any(
-            ref.get("controller_id") == _META_MODEL_CONTROLLER_ID
-            and ref is not first[0] and ref is not second[0]
-            for ref in artifact_refs
-        ):
-            return None
-        second_stage = {
-            "schema_version": 1,
-            "producer_node": _SECOND_STACKING_PRODUCER_NODE,
-            "meta_artifact_id": second[0].get("artifact_id"),
-            "base_producers": [{
-                "artifact_id": first[0].get("artifact_id"),
-                "producer_node": _STACKING_PRODUCER_NODE,
-                "meta_feature_key": f"{_STACKING_PRODUCER_NODE}.oof",
-                "column_block": "prediction_values",
-            }],
-            "meta_feature_construction": {
-                "kind": "base_prediction_column_stack",
-                "producer_order": "sorted_prediction_input_base_key",
-                "prediction_space": "original_target",
-                "column_blocks": "one block per base producer, preserving target column order",
-            },
-        }
+        stages = [first_stage]
+        for previous_node, node, ref, previous_ref in zip(stage_nodes, stage_nodes[1:], meta_refs[1:], meta_refs, strict=False):
+            stages.append({
+                "schema_version": 1,
+                "producer_node": node,
+                "meta_artifact_id": ref.get("artifact_id"),
+                "base_producers": [{
+                    "artifact_id": previous_ref.get("artifact_id"),
+                    "producer_node": previous_node,
+                    "meta_feature_key": f"{previous_node}.oof",
+                    "column_block": "prediction_values",
+                }],
+                "meta_feature_construction": {
+                    "kind": "base_prediction_column_stack",
+                    "producer_order": "sorted_prediction_input_base_key",
+                    "prediction_space": "original_target",
+                    "column_blocks": "one block per base producer, preserving target column order",
+                },
+            })
         return {
             "schema_version": 2,
-            "producer_node": _SECOND_STACKING_PRODUCER_NODE,
-            "stages": [first_stage, second_stage],
+            "producer_node": stage_nodes[-1],
+            "stages": stages,
         }
 
     meta_refs = [
