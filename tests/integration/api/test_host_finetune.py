@@ -218,3 +218,42 @@ def test_private_inner_splitter_context_cannot_be_injected_by_public_config():
     with pytest.raises(NotImplementedError, match="__dagml_inner_splitter"):
         validate_host_finetune({"approach": "grouped", "n_trials": 2, "model_params": {"alpha": [1]},
                                 "__dagml_inner_splitter": {"operator_json": "untrusted"}})
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_n4m_finetune_params_use_native_scoped_search_and_export(tmp_path, monkeypatch, mechanism):
+    pytest.importorskip("n4m")
+    import nirs4all
+    from nirs4all.optimization.n4m_engine import N4MFinetuneManager
+
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": "n4m", "sampler": "random", "seed": 7, "n_trials": 2,
+        "model_params": {"n_components": [1, 2]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    monkeypatch.setattr(N4MFinetuneManager, "finetune", lambda *args, **kwargs: pytest.fail("legacy n4m CV execution"))
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    assert np.isfinite(result.cv_best_score)
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001
+    history = fitted._nirs4all_host_hpo_history
+    assert [search["scope"]["phase"] for search in history] == ["FIT_CV", "FIT_CV", "REFIT"]
+    assert all(search["optimizer"]["name"] == "n4m" and len(search["trials"]) == 2 for search in history)
+    for search in history:
+        assert search["selected_params"] in [trial["params"] for trial in search["trials"]]
+        assert search["evaluation"]["outer_validation_used"] is False
+    expected = fitted.predict(X[:4]).ravel()
+    archive = result.export(tmp_path / "n4m_finetuned.n4a")
+    np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, expected)
+    result.close()

@@ -1,4 +1,4 @@
-"""Scoped Optuna proposals evaluated by native DAG, not a Python CV loop."""
+"""Scoped host-optimizer proposals evaluated by native DAG, not a Python CV loop."""
 
 from __future__ import annotations
 
@@ -21,20 +21,33 @@ def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], d
 def is_host_finetune(config: dict[str, Any]) -> bool:
     """Choose the host optimizer before execution, never after native failure."""
     engine = str(config.get("engine", "")).lower()
-    return engine == "optuna" or (not engine and (bool(_HOST_KEYS & config.keys()) or config.get("approach") == "single"))
+    return engine in {"optuna", "n4m"} or (not engine and (bool(_HOST_KEYS & config.keys()) or config.get("approach") == "single"))
 
 
 def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) -> dict[str, Any]:
     """Normalize the first restored host profile without ignoring controls."""
-    from nirs4all.optimization.optuna import OptunaManager
-
-    manager = OptunaManager()
-    if not manager.is_available:
-        raise ImportError("General finetuning requires the optuna installation extra")
     values = dict(config)
     inner_splitter = values.pop("__dagml_inner_splitter", None) if internal else None
-    params = manager._validate_and_normalize_finetune_params(values)  # noqa: SLF001 -- optimizer owns its grammar
+    engine = str(values.get("engine", "optuna")).strip().lower()
+    manager: Any
+    params: dict[str, Any]
+    if engine == "n4m":
+        from nirs4all.optimization.n4m_engine import N4MFinetuneManager
+
+        manager = N4MFinetuneManager()
+        if not manager.is_available:
+            raise ImportError("finetune_params.engine='n4m' requires the n4m optimizer bindings")
+        params = manager._normalize(values)  # noqa: SLF001 -- native optimizer owns its grammar
+    else:
+        from nirs4all.optimization.optuna import OptunaManager
+
+        manager = OptunaManager()
+        if not manager.is_available:
+            raise ImportError("General finetuning requires the optuna installation extra")
+        params = manager._validate_and_normalize_finetune_params(values)  # noqa: SLF001 -- optimizer owns its grammar
     allowed = {"model_params", "train_params", "n_trials", "sampler", "verbose", "seed", "approach", "metric", "direction", "eval_mode", "engine", "pruner", "n_jobs"}
+    if engine == "n4m":
+        allowed.update({"force_params", "n_startup_trials", "reduction_factor"})
     unknown = params.keys() - allowed
     if unknown:
         raise NotImplementedError(f"DAG host finetuning controls not wired yet: {sorted(unknown)}")
@@ -48,7 +61,7 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     if "train_params" in params and not isinstance(params["train_params"], dict):
         raise TypeError("finetune_params.train_params must be a parameter mapping")
     params["n_trials"] = budget
-    params["engine"] = "optuna"
+    params["engine"] = engine
     if inner_splitter is not None:
         params["__dagml_inner_splitter"] = inner_splitter
     return params
@@ -131,7 +144,6 @@ def run_scoped_finetune(
     from sklearn.model_selection import ShuffleSplit
 
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.optimization.optuna import OptunaManager
     from nirs4all.pipeline.dagml_bridge import controller_manifests
 
     from .cli_runner import assemble_cv_refit_dsl
@@ -141,8 +153,8 @@ def run_scoped_finetune(
     from .resolver import MaterializationResolver
 
     params = validate_host_finetune(config, internal=True)
-    manager = OptunaManager()
-    seed = params.setdefault("seed", 42)
+    engine = params["engine"]
+    seed = params.setdefault("seed", 0 if engine == "n4m" else 42)
     metric = params.get("metric", "balanced_accuracy" if "classif" in str(task_type) else "rmse")
     if metric not in {"rmse", "mse", "mae", "r2", "accuracy", "balanced_accuracy"}:
         raise ValueError(f"DAG host finetuning metric {metric!r} is not supported by native scoring")
@@ -155,7 +167,7 @@ def run_scoped_finetune(
     identity = mint_identity(dataset)
     pool = dataset.index_column("sample", {"partition": "train"})
     # Historical single search uses a deterministic 80/20 training-only holdout.
-    splitter = ShuffleSplit(1, test_size=0.2, random_state=seed)
+    splitter = ShuffleSplit(1, test_size=0.2, random_state=42 if engine == "n4m" else seed)
     folds = inner_cv["folds"] if inner_cv is not None else [(train.tolist(), val.tolist()) for train, val in splitter.split(x, y)]
     pipeline = [*upstream]
     if y_transform is not None:
@@ -172,8 +184,35 @@ def run_scoped_finetune(
     target_transform = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     resolver = MaterializationResolver(dataset, identity)
     store: dict[Any, Any] = {}
-    manager._configure_logging(params.get("verbose", 0))  # noqa: SLF001
-    study = manager._create_study(params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
+    manager: Any
+    study: Any = None
+    optimizer = None
+    if engine == "n4m":
+        from nirs4all.optimization import n4m_engine
+
+        manager = n4m_engine.N4MFinetuneManager()
+        space, slots, static_model, static_train = manager._compile_space(params)  # noqa: SLF001
+        flat_heads = {slot.origin_name for slot in slots if not slot.is_train and "__" not in slot.origin_name}
+        flat_heads.update(key for key in static_model if "__" not in key)
+        optimizer = n4m_engine.Optimizer(
+            space,
+            sampler=manager._native_sampler(params["sampler"]),  # noqa: SLF001
+            pruner=n4m_engine.Pruner.NONE,
+            direction=n4m_engine.Direction.MAXIMIZE if direction == "maximize" else n4m_engine.Direction.MINIMIZE,
+            n_startup_trials=int(params.get("n_startup_trials", 10)),
+            seed=int(seed or 0),
+            max_resource=0,
+            reduction_factor=int(params.get("reduction_factor", 0)),
+        )
+        if params.get("force_params"):
+            manager._enqueue_force_params(optimizer, slots, params["force_params"])  # noqa: SLF001
+        study = None
+    else:
+        from nirs4all.optimization.optuna import OptunaManager
+
+        manager = OptunaManager()
+        manager._configure_logging(params.get("verbose", 0))  # noqa: SLF001
+        study = manager._create_study(params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
     pending: dict[int, Any] = {}
     stopped = False
 
@@ -184,16 +223,23 @@ def run_scoped_finetune(
         nonlocal stopped
         stopped = True
 
-    study.stop = stop_search
+    if study is not None:
+        study.stop = stop_search
 
     def optimizer_callback(request: dict[str, Any]) -> Any:
         index = request["trial_index"]
         if request["operation"] == "ask":
-            if stopped or (hasattr(study.sampler, "is_exhausted") and study.sampler.is_exhausted(study)):
-                return None
-            trial = study.ask()
+            if optimizer is None:
+                if stopped or (hasattr(study.sampler, "is_exhausted") and study.sampler.is_exhausted(study)):
+                    return None
+                trial = study.ask()
+                values, train_params = manager.sample_hyperparameters(trial, params)
+            else:
+                trial = optimizer.ask()
+                if trial.id != index:
+                    raise ValueError("Native DAG and n4m optimizer trial IDs disagree")
+                values, train_params = manager._resolve(trial, slots, static_model, static_train, flat_heads)  # noqa: SLF001
             pending[index] = trial
-            values, train_params = manager.sample_hyperparameters(trial, params)
             if train_params:
                 available = model.get_params(deep=False) if hasattr(model, "get_params") else {}
                 unknown = sorted(set(train_params) - set(available))
@@ -211,7 +257,11 @@ def run_scoped_finetune(
             return json.loads(json.dumps(values))
         if request["operation"] != "tell" or index not in pending:
             raise ValueError("Unexpected native optimizer transition")
-        study.tell(pending.pop(index), request["score"])
+        trial = pending.pop(index)
+        if optimizer is None:
+            study.tell(trial, request["score"])
+        else:
+            optimizer.tell(trial.id, request["score"])
         return None
 
     def op_callback(task: dict[str, Any]) -> dict[str, Any]:
@@ -225,11 +275,24 @@ def run_scoped_finetune(
                "direction": direction, "optimizer_descriptor": json.loads(json.dumps(params))}
     if inner_cv is not None:
         request["fold_score_reduction"] = params.get("eval_mode", "best")
-    evidence: dict[str, Any] = native.run_host_hpo_search_in_process(
-        dsl, envelope, controller_manifests(),
-        request,
-        op_callback, optimizer_callback,
-    )
+    try:
+        evidence: dict[str, Any] = native.run_host_hpo_search_in_process(
+            dsl, envelope, controller_manifests(),
+            request,
+            op_callback, optimizer_callback,
+        )
+        if optimizer is None:
+            best_trial_number = study.best_trial.number
+            sampler_class = type(study.sampler).__name__
+        else:
+            best = optimizer.best()
+            if best is None:
+                raise RuntimeError("n4m optimizer completed without a best trial")
+            best_trial_number = best[0].id
+            sampler_class = params["sampler"]
+    finally:
+        if optimizer is not None:
+            optimizer.close()
     evidence["scope"] = scope
     if training_controls:
         from .training_controls import encode_training_controls
@@ -247,7 +310,7 @@ def run_scoped_finetune(
                                   "score_reduction": request.get("fold_score_reduction", "native_holdout")})
     if inner_cv is not None:
         evidence["inner_cv"] = inner_cv
-    evidence["optimizer"] = {"name": "optuna", "sampler_class": type(study.sampler).__name__, "best_trial_number": study.best_trial.number}
-    if evidence["selected_trial_index"] != study.best_trial.number:
+    evidence["optimizer"] = {"name": engine, "sampler_class": sampler_class, "best_trial_number": best_trial_number}
+    if evidence["selected_trial_index"] != best_trial_number:
         raise RuntimeError("Native selection and optimizer incumbent disagree")
     return dict(evidence["selected_params"]), evidence
