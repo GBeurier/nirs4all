@@ -45,6 +45,7 @@ from .detect import (
     _detect_by_source_stacking_branch,
     _detect_duplication_branch,
     _detect_named_metamodel_feature_stack,
+    _detect_proba_mean_stacking_branch,
     _detect_rep_fusion,
     _detect_rep_to_sources_by_source,
     _detect_separation_branch,
@@ -135,6 +136,7 @@ __all__ = [
     "_detect_by_source_stacking_branch",
     "_detect_duplication_branch",
     "_detect_named_metamodel_feature_stack",
+    "_detect_proba_mean_stacking_branch",
     "_detect_rep_fusion",
     "_detect_separation_branch",
     "_detect_separation_preproc_concat",
@@ -1108,6 +1110,7 @@ def _dispatch_run(
                 "sequential MetaModel requires a supported native OOF feature contract; "
                 "probability features and non-default stacking options are not yet lowered"
             )
+    detected_proba_stacking = _detect_proba_mean_stacking_branch(list(pipeline))
     detected_named_metamodel_stack = _detect_named_metamodel_feature_stack(list(pipeline))
     detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
     detected_by_source_auto = _detect_by_source_auto_models(list(pipeline), spectro.features_sources())
@@ -1422,6 +1425,14 @@ def _dispatch_run(
             venv_python or sys.executable, base_dir / "sequential_metamodel",
             metric, task_type, dataset_pickle=host_pickle, config_name=config_name,
             random_state=random_state, refit=refit,
+        )
+    if detected_proba_stacking is not None:
+        branches, meta_learner, selectors = detected_proba_stacking
+        return _run_stacking_branch(
+            list(pipeline), branches, meta_learner, spectro, dataset_arg, cli,
+            venv_python or sys.executable, base_dir / "stacking_proba_mean", metric, task_type,
+            dataset_pickle=host_pickle, config_name=config_name, random_state=random_state,
+            prediction_aggregations=selectors,
         )
     if detected_stacking is not None:
         branches, meta_learner = detected_stacking
