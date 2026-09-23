@@ -315,6 +315,14 @@ def test_session_refuses_before_constructing_runner_or_reading_training_state(
     assert session._runner is None
 
 
+def test_general_session_refuses_native_v3_refit_before_reading_state() -> None:
+    session = Session()
+    with pytest.raises(RtError) as caught:
+        session.retrain(_MustNotBeTouched(), engine="native")
+    assert caught.value.unsupported_capability == "native_refit_session"
+    assert session._runner is None
+
+
 @pytest.mark.parametrize("mode", ["full", "transfer"])
 def test_explicit_native_environment_is_not_reinterpreted_as_general_transfer(monkeypatch, mode):
     monkeypatch.setenv("N4A_ENGINE", "native")

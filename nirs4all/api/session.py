@@ -795,6 +795,16 @@ class Session:
             allow_fallback=kwargs.get("allow_fallback", False),
             session_present=False,
         ).require()
+        if decision.lane == "native":
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            raise RtError(
+                "run",
+                "unsupported_capability",
+                "Methods V3 full refit requires its native parent result, not a general Session",
+                mitigation="call nirs4all.retrain(native_result, dataset, engine='native')",
+                unsupported_capability="native_refit_session",
+            )
         if not self.is_trained:
             raise ValueError(
                 "Session must be trained before retraining. "
@@ -817,13 +827,13 @@ class Session:
 
         # Only the explicit rollback lane shares this Session's runner. Native
         # replay remains independent and reaches the real DAG-ML adapter.
-        result = retrain_api(
+        result = cast("RunResult", retrain_api(
             source,
             dataset,
             mode=mode,
             session=self if decision.lane == "legacy" else None,
             **kwargs,
-        )
+        ))
         self._last_result = result
 
         # Record in history
