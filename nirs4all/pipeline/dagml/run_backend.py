@@ -238,11 +238,22 @@ def _native_refit_enabled(refit: Any) -> bool:
         from nirs4all.pipeline.execution.refit.config_extractor import parse_refit_param
 
         criteria = parse_refit_param(refit)
-        if len(criteria) == 1 and criteria[0].top_k == 1 and criteria[0].ranking == "rmsecv":
+        if len(criteria) == 1 and criteria[0].top_k >= 1 and criteria[0].ranking == "rmsecv":
             # The legacy orchestrator routes this exact criterion through its
-            # ordinary single-winner refit pass, ignoring the extra fields.
+            # ordinary RMSECV refit pass, ignoring the extra fields.
             return True
     raise DagMlUnsupported(f"engine='dag-ml' cannot yet honor custom refit selection {refit!r}.")
+
+
+def _native_refit_top_k(refit: Any) -> int:
+    """Return the legacy RMSECV refit quota after option preflight."""
+    if isinstance(refit, (dict, list)) and refit:
+        from nirs4all.pipeline.execution.refit.config_extractor import parse_refit_param
+
+        criteria = parse_refit_param(refit)
+        if len(criteria) == 1 and criteria[0].top_k > 1:
+            return criteria[0].top_k
+    return 1
 
 
 def _reject_unsupported_run_options(*, refit: Any, project: str | None, session: Any, cache: Any, runner_kwargs: dict[str, Any]) -> None:
@@ -460,6 +471,7 @@ def run_via_dagml(
             plots_visible=plots_visible,
             resolved_config_name=resolved_config_name,
             refit=_native_refit_enabled(refit),
+            refit_top_k=_native_refit_top_k(refit),
         )
         if refit is False:
             for metadata in result.per_dataset.values():
@@ -840,6 +852,7 @@ def _dispatch_run(
     plots_visible: bool = False,
     resolved_config_name: str | None = None,
     refit: bool = True,
+    refit_top_k: int = 1,
 ) -> RunResult:
     """Route the materialized run to the matching native dag-ml path and map its scores.
 
@@ -926,6 +939,8 @@ def _dispatch_run(
 
     pipeline = normalize_model_steps(pipeline)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
+    if refit_top_k > 1 and _generation_kind(list(pipeline)) != "param_model":
+        raise DagMlUnsupported("refit top_k>1 currently requires a native model-parameter sweep")
     rep_source_branch = _detect_rep_to_sources_by_source(pipeline)
     if rep_source_branch is not None:
         if refit is False:
@@ -1364,6 +1379,7 @@ def _dispatch_run(
             variant_model_params=variant_model_params,
             random_state=random_state,
             refit=refit,
+            refit_top_k=refit_top_k,
         )
 
     # FLAT-SINGLE operator `_or_` (a bare-operator preprocessing sweep) → ONE native dag-ml operator-SELECT
