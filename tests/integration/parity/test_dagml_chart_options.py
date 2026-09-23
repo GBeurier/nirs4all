@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import numpy as np
@@ -138,10 +139,52 @@ def test_augmentation_details_and_y_layout_preserve_legacy_chart_options(
     details = next(report for report in reports if "step_001" in report.name)
     with details.with_suffix(".csv").open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
-    assert len({int(row["sample_index"]) for row in rows}) == 40
-    assert len({int(row["sample_index"]) for row in rows if row["synthetic"] == "True"}) == 20
+    assert len({int(row["sample_index"]) for row in rows}) == 16
+    assert len({int(row["sample_index"]) for row in rows if row["synthetic"] == "True"}) == 8
     assert all(int(row["origin_sample_index"]) < 20 for row in rows if row["synthetic"] == "True")
+    groups = json.loads(details.with_suffix(".json").read_text(encoding="utf-8"))["plotted_groups"]
+    assert len(groups["Original"]) == 8
+    assert sorted({sample for samples in groups.values() for sample in samples}) == sorted({int(row["sample_index"]) for row in rows})
+    assert {row["plotted_in"] for row in rows} == set(groups)
+    assert "16 spectra actually plotted" in details.read_text(encoding="utf-8")
     assert "synthetic augmentation features" in details.read_text(encoding="utf-8")
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_augmentation_overlay_alternative_matches_legacy_sample_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    _mechanism(monkeypatch, mechanism)
+    rng = np.random.default_rng(297)
+    x = rng.normal(size=(20, 6))
+    y = x[:, 0] - x[:, 1]
+    pipeline = [
+        {"sample_augmentation": {
+            "transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1,
+            "selection": "all", "random_state": 42,
+        }},
+        {"augment_chart": {"alpha_original": 0.6, "alpha_augmented": 0.2, "max_samples": 5}},
+        {"model": Ridge()},
+    ]
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", workspace_path=tmp_path / "legacy",
+                          save_charts=True, save_artifacts=False, verbose=0)
+    assert list((tmp_path / "legacy").rglob("Augmentation_Chart.png"))
+    native = nirs4all.run(pipeline, (x, y), engine="dag-ml", allow_fallback=False,
+                          workspace_path=tmp_path / mechanism, save_charts=True, save_artifacts=False, verbose=0)
+    report, = _reports(native)
+    with report.with_suffix(".csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    groups = json.loads(report.with_suffix(".json").read_text(encoding="utf-8"))["plotted_groups"]
+    expected_base = np.random.RandomState(42).choice(np.arange(20), 5, replace=False).tolist()
+    expected_augmented = np.random.RandomState(42).choice(np.arange(20, 40), 5, replace=False).tolist()
+    assert groups == {"Original": expected_base, "Augmented": expected_augmented}
+    assert {int(row["sample_index"]) for row in rows} == set(expected_base + expected_augmented)
+    assert len(rows) == 10 * x.shape[1]
+    assert {row["plotted_in"] for row in rows} == {"Original", "Augmented"}
+    assert "10 spectra actually plotted" in report.read_text(encoding="utf-8")
     legacy.close()
     native.close()
 
