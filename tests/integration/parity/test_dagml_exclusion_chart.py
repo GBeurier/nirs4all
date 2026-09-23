@@ -119,3 +119,49 @@ def test_charts_between_sequential_exclusions_keep_stage_membership(tmp_path: Pa
             rows = list(csv.DictReader(stream))
         assert {int(row["sample_index"]) for row in rows if row["excluded"] == "True"} == expected
     native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_exclusion_chart_all_partition_exports_exact_observed_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+    rng = np.random.default_rng(54)
+    features = rng.normal(size=(30, 6))
+    target = features[:, 0].copy()
+    target[0] = 20.0
+
+    def dataset() -> SpectroDataset:
+        spectra = SpectroDataset("augmented_exclusion_chart")
+        spectra.add_samples(features[:24], {"partition": "train"})
+        spectra.add_samples(features[24:], {"partition": "test"})
+        spectra.add_targets(target)
+        return spectra
+
+    pipeline = [
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.0)},
+        {"exclusion_chart": {"partition": None, "color_by": "reason", "title": "All observed spectra"}},
+        {"model": Ridge()},
+    ]
+    legacy = nirs4all.run(pipeline, dataset(), engine="legacy", save_charts=True, save_artifacts=False,
+                          workspace_path=tmp_path / "legacy", verbose=0)
+    assert list((tmp_path / "legacy").rglob("exclusion_chart_*_reason.png"))
+    native = nirs4all.run(pipeline, dataset(), engine="dag-ml", save_charts=True, save_artifacts=False,
+                          workspace_path=tmp_path / mechanism, verbose=0)
+    reports = native.per_dataset[next(iter(native.per_dataset))]["chart_reports"]
+    assert len(reports) == 1
+    report = Path(reports[0])
+    with report.with_suffix(".csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert {int(row["sample_index"]) for row in rows} == set(range(30))
+    assert not any(row["synthetic"] == "True" for row in rows)
+    excluded = {int(row["sample_index"]) for row in rows if row["excluded"] == "True"}
+    assert f"{30 - len(excluded)} included and {len(excluded)} excluded samples in all partition" in report.read_text(encoding="utf-8")
+    legacy.close()
+    native.close()
