@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from hashlib import sha256
+from typing import Any, cast
 
 import numpy as np
 
@@ -48,11 +49,29 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     allowed = {"model_params", "train_params", "n_trials", "sampler", "verbose", "seed", "approach", "metric", "direction", "eval_mode", "engine", "pruner", "n_jobs"}
     if engine == "n4m":
         allowed.update({"force_params", "n_startup_trials", "reduction_factor"})
+    else:
+        allowed.update({"storage", "study_name", "resume", "force_params"})
     unknown = params.keys() - allowed
     if unknown:
         raise NotImplementedError(f"DAG host finetuning controls not wired yet: {sorted(unknown)}")
     if params.get("pruner", "none") != "none" or params.get("n_jobs", 1) != 1:
         raise NotImplementedError("DAG host single-holdout search has no progressive pruning or parallel-trial contract yet")
+    if engine == "optuna":
+        if "storage" in params and (not isinstance(params["storage"], str) or not params["storage"].strip()):
+            raise TypeError("DAG host finetune_params.storage requires a nonempty Optuna storage URL")
+        if "study_name" in params and (not isinstance(params["study_name"], str) or not params["study_name"].strip()):
+            raise TypeError("DAG host finetune_params.study_name requires a nonempty string")
+        if "resume" in params and not isinstance(params["resume"], bool):
+            raise TypeError("DAG host finetune_params.resume must be a boolean")
+        if params.get("resume") and not params.get("storage"):
+            raise ValueError("DAG host finetune_params.resume requires durable storage")
+        if params.get("resume") and not params.get("study_name"):
+            raise ValueError("DAG host finetune_params.resume requires study_name")
+        if params.get("resume"):
+            raise NotImplementedError(
+                "DAG host Optuna resume requires a paired native DAG trial checkpoint; "
+                "an optimizer study alone cannot supply candidate evidence"
+            )
     budget = params.get("n_trials", 50)
     if type(budget) is not int or not 0 < budget <= 2**32 - 1:
         raise ValueError("finetune_params.n_trials must be a positive u32 integer")
@@ -212,7 +231,19 @@ def run_scoped_finetune(
 
         manager = OptunaManager()
         manager._configure_logging(params.get("verbose", 0))  # noqa: SLF001
-        study = manager._create_study(params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
+        study_params = dict(params)
+        if params.get("study_name"):
+            # Every outer fold and REFIT owns a separate training universe. A
+            # shared Optuna study would mix candidates evaluated on different
+            # rows, so suffix the requested name with a stable scope identity.
+            scope_key = sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()[:16]
+            study_params["study_name"] = f"{params['study_name']}:scope:{scope_key}"
+        study = manager._create_study(study_params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
+        if study.trials:
+            raise NotImplementedError(
+                "DAG host Optuna resume requires a paired native DAG trial checkpoint; "
+                "an existing optimizer study cannot be replayed as new candidate evidence"
+            )
     pending: dict[int, Any] = {}
     stopped = False
 
@@ -254,7 +285,7 @@ def run_scoped_finetune(
                 }
             # Canonical JSON restoration preserves tuple/type-token grammars in
             # configuration; concrete proposed parameters are ordinary JSON.
-            return json.loads(json.dumps(values))
+            return cast(dict[str, Any], json.loads(json.dumps(values)))
         if request["operation"] != "tell" or index not in pending:
             raise ValueError("Unexpected native optimizer transition")
         trial = pending.pop(index)
@@ -265,7 +296,7 @@ def run_scoped_finetune(
         return None
 
     def op_callback(task: dict[str, Any]) -> dict[str, Any]:
-        return run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform)
+        return cast(dict[str, Any], run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform))
 
     import importlib
 
@@ -311,6 +342,8 @@ def run_scoped_finetune(
     if inner_cv is not None:
         evidence["inner_cv"] = inner_cv
     evidence["optimizer"] = {"name": engine, "sampler_class": sampler_class, "best_trial_number": best_trial_number}
+    if study is not None and params.get("storage"):
+        evidence["optimizer"]["study_name"] = study.study_name
     if evidence["selected_trial_index"] != best_trial_number:
         raise RuntimeError("Native selection and optimizer incumbent disagree")
     return dict(evidence["selected_params"]), evidence

@@ -260,3 +260,43 @@ def test_n4m_finetune_params_use_native_scoped_search_and_export(tmp_path, monke
     archive = result.export(tmp_path / "n4m_finetuned.n4a")
     np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, expected)
     result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_storage_keeps_outer_training_scopes_separate(tmp_path, monkeypatch, mechanism):
+    pytest.importorskip("optuna")
+    import nirs4all
+
+    X, y = _data()
+    storage = f"sqlite:///{tmp_path / 'scoped_optuna.sqlite3'}"
+    base = {"engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+            "n_trials": 2, "model_params": {"n_components": [1, 2]}, "storage": storage}
+    legacy = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "legacy"}}],
+        (X, y), engine="legacy", save_charts=False,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "dag"}}]
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    names = [search["optimizer"]["study_name"] for search in history]
+    assert len(names) == len(set(names)) == 3
+    assert all(name.startswith("dag:scope:") for name in names)
+    assert np.isfinite(result.cv_best_score)
+    result.close()
+
+    with pytest.raises(Exception, match="paired native DAG trial checkpoint"):
+        nirs4all.run(
+            [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "dag", "resume": True}}],
+            (X, y), engine="dag-ml", save_charts=False,
+        )
