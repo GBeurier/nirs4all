@@ -118,6 +118,18 @@ class DagMLBatchResult(RunResult):
         """Individual results in pipeline-major, dataset-minor execution order."""
         return self._batch_results
 
+    @property
+    def cv_best(self) -> dict[str, Any]:
+        """Use the core's CV winner when this batch is a generated campaign."""
+        selected = getattr(self, "_dagml_selected_run", None)
+        return selected.cv_best if selected is not None else super().cv_best
+
+    @property
+    def best_final(self) -> dict[str, Any]:
+        """Never rerank generated refits on their held-out test scores."""
+        selected = getattr(self, "_dagml_selected_run", None)
+        return selected.best_final if selected is not None else super().best_final
+
     def _source_run(self, source: dict[str, Any] | None, chain_id: str | None = None) -> RunResult:
         selected = self.best if source is None else source
         identifier = selected.get("id") or selected.get("prediction_id")
@@ -206,19 +218,42 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
     from .full_train_variants import expand_full_train_variants
     from .steps import _is_split_step
 
+    def residual_has_choices(steps: list[Any]) -> bool:
+        """Recognize generators inside the two residual operators before lowering."""
+        from nirs4all.operators.models.residual import ResidualModel
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            residual = step.get("residual", step.get("model"))
+            if isinstance(residual, ResidualModel):
+                operands = (residual.base, residual.learner)
+            elif "residual" in step and isinstance(residual, dict):
+                operands = (residual.get("base"), residual.get("learner"))
+            else:
+                continue
+            if any(PipelineConfigs._has_gen_keys(operand) for operand in operands):
+                return True
+        return False
+
     pipeline_entries: list[tuple[Any, str, str | None]] = []
+    residual_choice_campaign = False
     for index, single_pipeline in enumerate(pipelines):
         base_name = options.get("name", "")
         pipeline_name = f"{base_name}_p{index}" if base_name else f"pipeline_{index}" if len(pipelines) > 1 else base_name
         runtime_steps = deserialize_component(single_pipeline)
         variants = []
-        if isinstance(runtime_steps, list) and not any(_is_split_step(step) for step in runtime_steps):
+        has_residual_choices = isinstance(runtime_steps, list) and residual_has_choices(runtime_steps)
+        if has_residual_choices:
+            residual_choice_campaign = True
+        if isinstance(runtime_steps, list) and (has_residual_choices or not any(_is_split_step(step) for step in runtime_steps)):
             variants = expand_full_train_variants(runtime_steps, name=pipeline_name)
-        if len(variants) > 1:
+        if has_residual_choices or len(variants) > 1:
             pipeline_entries.extend((steps, pipeline_name, variant_name) for steps, variant_name in variants)
         else:
             pipeline_entries.append((single_pipeline, pipeline_name, None))
-    if len(pipeline_entries) == len(datasets) == 1:
+    if len(pipeline_entries) == len(datasets) == 1 and not residual_choice_campaign:
         return run_child(pipelines[0], datasets[0], options)
     if not pipelines or not datasets:
         raise ValueError("A batch requires at least one pipeline and one dataset")
@@ -234,6 +269,20 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
                     child_options["workdir"] = scratch_root / f"pipeline-{index}-dataset-{dataset_index}"
                 results.append(run_child(single_pipeline, single_dataset, child_options))
         aggregate = DagMLBatchResult(results)
+        if residual_choice_campaign and len(pipelines) == len(datasets) == 1 and len(results) > 1:
+            import dag_ml
+
+            candidates = [
+                {"candidate_id": str(index), "metrics": {"rmse": result.cv_best_score}}
+                for index, result in enumerate(results)
+            ]
+            decision = dag_ml.select_candidate(
+                {"id": "residual-operator-choice", "metric": {"name": "rmse", "objective": "minimize"},
+                 "evaluation_scope": "oof", "require_finite": True},
+                candidates,
+            )
+            aggregate._dagml_selection_decision = decision
+            aggregate._dagml_selected_run = results[int(decision["selected_candidate_id"])]
         if options.get("session") is not None:
             # Keep the logical batch as the Session's result, not whichever
             # child happened to execute last. Individual histories remain exact.

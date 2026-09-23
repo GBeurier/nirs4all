@@ -341,3 +341,95 @@ def test_residual_without_splitter_uses_training_only_oof_and_holdout(tmp_path, 
     replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
     assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
     native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("syntax", ["keyword", "operator"])
+def test_residual_nested_operator_choices_select_cv_winner_and_replay(tmp_path, monkeypatch, mechanism, syntax) -> None:
+    """Legacy's base × learner choices run as independent native residual graphs."""
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.linear_model import ElasticNet
+    from sklearn.model_selection import KFold
+
+    import nirs4all
+    from nirs4all.data import DatasetConfigs
+    from nirs4all.operators.models.residual import ResidualModel
+
+    from ._datasets import dataset_path
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+
+    base = {"_or_": [PLSRegression(n_components=2), Ridge(alpha=0.5)]}
+    learner = {"_or_": [Ridge(alpha=1.0), ElasticNet(alpha=0.1)]}
+    residual = (
+        {"residual": {"base": base, "learner": learner, "gate": False}}
+        if syntax == "keyword"
+        else {"model": ResidualModel(base=base, learner=learner, gate=False)}
+    )
+    pipeline = [KFold(2, shuffle=True, random_state=1), residual]
+    legacy = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="legacy", name="choices", refit=False,
+        workspace_path=tmp_path / "legacy-choices", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    legacy_names = {
+        row["config_name"] for row in legacy.predictions.filter_predictions(load_arrays=False)
+        if row.get("config_name")
+    }
+    assert len(legacy_names) == 4
+    legacy.close()
+
+    native = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="dag-ml", name="choices", refit=True,
+        workspace_path=tmp_path / "native-choices", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert native.execution_engine == "dag-ml"
+    assert len(native.runs) == 4
+    assert {run.cv_best["config_name"] for run in native.runs} == legacy_names
+    decision = native._dagml_selection_decision
+    assert len(decision["ranked_candidates"]) == 4
+    winner = native.runs[int(decision["selected_candidate_id"])]
+    assert native.cv_best_score == pytest.approx(min(run.cv_best_score for run in native.runs))
+    assert native.best["id"] == winner.best["id"]
+    archive = native.export(tmp_path / "residual_choices.n4a")
+    fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
+    replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(winner.best_rmse, abs=1e-5)
+    native.close()
+
+
+@pytest.mark.parity
+def test_residual_nested_choices_without_refit_keep_cv_selection(tmp_path, monkeypatch) -> None:
+    """The core CV decision also controls a generated campaign without refit."""
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import KFold
+
+    import nirs4all
+
+    from ._datasets import dataset_path
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    pipeline = [KFold(2, shuffle=True, random_state=1), {
+        "residual": {
+            "base": {"_or_": [PLSRegression(n_components=2), Ridge(alpha=0.5)]},
+            "learner": Ridge(alpha=1.0),
+            "gate": False,
+        },
+    }]
+    native = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="dag-ml", refit=False,
+        workspace_path=tmp_path / "native-no-refit-choices", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert len(native.runs) == 2
+    winner = native.runs[int(native._dagml_selection_decision["selected_candidate_id"])]
+    assert native.cv_best_score == pytest.approx(winner.cv_best_score)
+    assert native.best["id"] == winner.cv_best["id"]
+    native.close()
