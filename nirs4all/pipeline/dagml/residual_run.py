@@ -78,12 +78,20 @@ def run_residual_model(
     branch_positions = [index for index, step in enumerate(prefix) if isinstance(step, dict) and "branch" in step]
     source_concat = False
     distinct_source_steps: dict[str, list[Any]] | None = None
+    metadata_branch_body: tuple[str, list[Any]] | None = None
     if branch_positions:
         from .detect import _duplication_branch_bodies, _selected_duplication_feature_branches, _simple_duplication_merge_mode
         from .run_paths import _branch_merge_transformer_step
 
         branch = prefix[branch_positions[0]]["branch"]
-        if isinstance(branch, dict) and branch.get("by_source") in (True, "auto"):
+        if isinstance(branch, dict) and "by_metadata" in branch:
+            if len(prefix) != 2 or branch_positions != [0] or prefix[1] != {"merge": "concat"} or set(branch) != {"by_metadata", "steps"} or not isinstance(branch["steps"], list):
+                raise DagMlUnsupported("residual by_metadata prefix requires one preprocessing branch followed by concat")
+            metadata_branch_body = (str(branch["by_metadata"]), _supported_body_steps(branch["steps"]))
+            if not metadata_branch_body[1]:
+                raise DagMlUnsupported("residual by_metadata branch requires at least one X transform")
+            prefix = []
+        elif isinstance(branch, dict) and branch.get("by_source") in (True, "auto"):
             from .detect import _is_source_concat_merge_step
 
             if len(prefix) != 2 or branch_positions != [0] or not _is_source_concat_merge_step(prefix[1]) or spectro.features_sources() < 2 or set(branch) != {"by_source", "steps"}:
@@ -138,7 +146,13 @@ def run_residual_model(
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
     groups = _split_group_grain(splitter, spectro, pool)
-    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=groups)
+    sample_metadata = None
+    metadata_by_sample = None
+    if metadata_branch_body is not None:
+        from .run_paths import _branch_metadata
+
+        metadata_by_sample, sample_metadata = _branch_metadata(spectro, identity, "by_metadata", metadata_branch_body[0])
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=groups, metadata_by_sample=metadata_by_sample)
     source_preprocessing = None
     if distinct_source_steps is not None:
         from .run_paths import _source_preprocessing_metadata
@@ -147,11 +161,29 @@ def run_residual_model(
     base_id = "branch:0.node:0"
     learner_id = "model:residual.learner"
     fusion_id = f"{learner_id}.residual_fusion"
+    metadata_steps: list[dict[str, Any]] = []
+    if metadata_branch_body is not None:
+        key, body = metadata_branch_body
+        branch_steps = [_canonical_branch_step(step, f"branch:metadata.node:{index}") for index, step in enumerate(body)]
+        for step in branch_steps:
+            if step["kind"] != "transform":
+                raise DagMlUnsupported("residual by_metadata branch accepts only X transforms")
+            step["metadata"] = {**step.get("metadata", {}), "nirs4all_fit_full_fold": True}
+        metadata_steps = [
+            {
+                "kind": "branch", "id": "branch:metadata", "mode": "by_metadata",
+                "selector": {"metadata_key": key},
+                "branches": [{"id": "per_partition", "steps": branch_steps}],
+                "metadata": {"auto_separate": True},
+            },
+            {"kind": "merge", "id": "merge:concat", "merge_mode": "concat", "output_as": "features", "include_original_data": False},
+        ]
     dsl = {
         "id": "nirs4all-residual-model",
         "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
         "steps": [
             *prefix_steps,
+            *metadata_steps,
             {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch([{"model": operator.base}], 0)]},
             {
                 "kind": "merge_model", "id": learner_id,
@@ -175,6 +207,8 @@ def run_residual_model(
             },
         ],
     }
+    if metadata_branch_body is not None:
+        dsl = dag_ml.fan_out_data_aware_branches(dsl, envelope).to_dict()
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     if source_concat or source_preprocessing is not None:
         for node in graph["nodes"]:
@@ -186,8 +220,15 @@ def run_residual_model(
     model_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
     if model_ids != {base_id, learner_id} or fusion_id not in {node["id"] for node in graph["nodes"]}:
         raise ValueError("residual graph did not compile to its declared base, learner and fusion nodes")
-    bindings = data_bindings_for_nodes([base_id, learner_id], envelope)
-    bindings[1]["input_name"] = "x_original"
+    if metadata_branch_body is not None:
+        incoming = {edge["target"]["node_id"] for edge in graph["edges"] if edge["contract"]["kind"] == "data"}
+        roots = [node["id"] for node in graph["nodes"] if node["kind"] == "transform" and node["id"] not in incoming]
+        if len(roots) < 2:
+            raise ValueError("metadata residual fan-out did not produce branch transform roots")
+        bindings = data_bindings_for_nodes(roots, envelope)
+    else:
+        bindings = data_bindings_for_nodes([base_id, learner_id], envelope)
+        bindings[1]["input_name"] = "x_original"
     dsl["data_bindings"] = bindings
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
     if groups:
@@ -198,7 +239,7 @@ def run_residual_model(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
         workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
         selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
-        random_state=random_state, refit=refit or implicit_cv,
+        sample_metadata=sample_metadata, random_state=random_state, refit=refit or implicit_cv,
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml residual model run failed")

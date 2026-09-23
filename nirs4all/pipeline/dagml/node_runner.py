@@ -193,6 +193,12 @@ class _PartitionedXChain:
             raise ValueError("partition feature join requires at least two fitted branches")
         self.branches = branches
 
+    def metadata_key(self) -> str:
+        keys = {key for selector, _ in self.branches for key in (selector.get("metadata") or {})}
+        if len(keys) != 1 or any(set(selector.get("metadata") or {}) != keys for selector, _ in self.branches):
+            raise ValueError("feature-join replay requires one shared metadata partition key")
+        return next(iter(keys))
+
     def transform_ids(
         self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]],
     ) -> np.ndarray:
@@ -222,6 +228,29 @@ class _PartitionedXChain:
             raise ValueError(f"partition feature join has no branch for sample IDs {missing!r}")
         assert output is not None
         return output
+
+
+class _PartitionJoinedEstimator:
+    """Archive-safe fitted model whose feature routing requires metadata."""
+
+    def __init__(self, estimator: Any, chain: _PartitionedXChain, metadata_key: str) -> None:
+        self.estimator = estimator
+        self.chain = chain
+        self.metadata_key = metadata_key
+
+    def predict(self, X: Any) -> np.ndarray:
+        raise ValueError(f"metadata column {self.metadata_key!r} is required for feature-join replay")
+
+    def predict_with_metadata(self, X: Any, metadata: dict[str, Any]) -> np.ndarray:
+        values = metadata.get(self.metadata_key)
+        if values is None or len(values) != len(X):
+            raise ValueError(f"feature-join replay requires {self.metadata_key!r} for every input row")
+        sample_ids = [f"replay:{index}" for index in range(len(X))]
+        by_sample = {sample_id: {self.metadata_key: str(value)} for sample_id, value in zip(sample_ids, values, strict=True)}
+        return np.asarray(self.estimator.predict(self.chain.transform_ids(np.asarray(X), sample_ids, by_sample)))
+
+    def predict_with_ids(self, X: Any, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]]) -> np.ndarray:
+        return np.asarray(self.estimator.predict(self.chain.transform_ids(np.asarray(X), sample_ids, sample_metadata)))
 
 
 def _fitted_x_path(handle: int) -> Path | None:
@@ -832,7 +861,8 @@ def _run_fitted_transform_node(
     )
     if view is None:
         raise ValueError("fitted transform node has no native fit data view")
-    _filter_by_branch_view(view, sample_metadata)
+    if not (node_lookup(task["node_plan"]["node_id"]).get("metadata") or {}).get("nirs4all_fit_full_fold"):
+        _filter_by_branch_view(view, sample_metadata)
     if view["partition"] == "all_observations":
         dataset = resolver._dataset  # noqa: SLF001 - host data provider owns the all-observation cohort
         samples = [int(sample) for sample in dataset.index_column("sample", {})]
@@ -1081,6 +1111,7 @@ def run_model_node(
     if phase == "PREDICT":
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
+        joined_chain = None
         multi_block = isinstance(estimator, _MultiBlockEstimator)
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
@@ -1107,18 +1138,19 @@ def run_model_node(
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
         fitted_chain = _fitted_input_chain(task, model_store)
+        joined_chain = fitted_chain if isinstance(fitted_chain, _PartitionedXChain) else None
         if fitted_chain is None and any(
             (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
             for upstream_id in _upstream_x_chain(node_id, edges)
         ):
             raise ValueError("model node is missing a fitted preprocessing data-edge artifact")
-        if fitted_chain is not None and fitted_chain.source_steps is not None and source_index is not None:
+        if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None and source_index is not None:
             upstream = [_FrozenTransform(fitted_chain.for_source(source_index))]
         else:
-            upstream = [_FrozenTransform(fitted_chain)] if fitted_chain is not None else [
+            upstream = [_FrozenTransform(fitted_chain)] if isinstance(fitted_chain, _FittedXChain) else ([] if joined_chain is not None else [
                 route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
                 for upstream_id in _upstream_x_chain(node_id, edges)
-            ]
+            ])
         feature_axes = _feature_axes(task)
         if not (resolver.is_multi_source() and source_index is None) and fitted_chain is None:
             upstream = _coordinate_chain(upstream, feature_axes, source_index or 0)
@@ -1164,7 +1196,7 @@ def run_model_node(
         multi_block = not source_concat and _is_multi_block_model(model) and (resolver.is_multi_source() or multimodal)
         source_templates = (
             [[_FrozenTransform(fitted_chain.for_source(index))] for index in range(len(fitted_chain.source_steps))]
-            if fitted_chain is not None and fitted_chain.source_steps is not None else None
+            if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None else None
         )
         if source_chains is not None:
             source_chains = [
@@ -1234,6 +1266,10 @@ def run_model_node(
             x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True, fold_label=fold_label)["values"])
         else:
             x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True, fold_label=fold_label)["values"])
+        if joined_chain is not None:
+            if source_concat or multi_block or source_index is not None or sample_metadata is None:
+                raise ValueError("partition feature join requires a single source and sample metadata")
+            x_train = joined_chain.transform_ids(x_train, fit_ids, sample_metadata)
         target_block = resolver.resolve_targets(resolver.target_sample_ids(fit_ids))
         y_train = np.asarray(target_block["values"], dtype=float)
         if residual_mode:
@@ -1299,6 +1335,10 @@ def run_model_node(
             x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label)["values"])
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
+        if joined_chain is not None:
+            if sample_metadata is None:
+                raise ValueError("partition feature join requires sample metadata")
+            x = joined_chain.transform_ids(x, ids, sample_metadata)
         return x, options
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
@@ -1309,7 +1349,12 @@ def run_model_node(
                     raise ValueError(f"classifier model {node_id!r} cannot provide probabilities for proba_mean")
                 pred = np.asarray(estimator.predict_proba(features, **options), dtype=float).reshape(len(ids), -1)
             else:
-                pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
+                if isinstance(estimator, _PartitionJoinedEstimator):
+                    if sample_metadata is None:
+                        raise ValueError("partition feature join requires sample metadata")
+                    pred = np.asarray(estimator.predict_with_ids(features, ids, sample_metadata), dtype=float).reshape(len(ids), -1)
+                else:
+                    pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
 
@@ -1410,7 +1455,7 @@ def run_model_node(
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
         model_store[artifact_handle] = {
-            "estimator": estimator,
+            "estimator": _PartitionJoinedEstimator(estimator, joined_chain, joined_chain.metadata_key()) if joined_chain is not None else estimator,
             "y_transform": y_transform,
             "target_decoder": resolver.target_decoder(),
         }
