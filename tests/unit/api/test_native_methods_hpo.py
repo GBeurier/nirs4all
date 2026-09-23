@@ -21,6 +21,12 @@ from nirs4all.pipeline.dagml.training_compiler import DagMLTrainingRequestContra
 from nirs4all.pipeline.dagml.training_contracts import DagMLTrainingRequestSpec
 
 
+@pytest.fixture(autouse=True)
+def _native_session_uses_its_default_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep native Session contract tests independent of DAG-ML env overrides."""
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+
+
 def _pipeline(finetune: dict[str, Any]) -> list[Any]:
     return [
         KFold(n_splits=3),

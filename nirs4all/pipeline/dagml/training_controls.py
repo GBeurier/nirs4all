@@ -35,6 +35,17 @@ def validate_training_control_declarations(value: Any) -> None:
         if metadata:
             from sklearn.base import clone
 
+            from .framework_estimator import DagMLFrameworkEstimator, framework_model_params
+            from .torch_estimator import DagMLTorchEstimator, torch_model_params
+
+            torch_params = torch_model_params(model)
+            if torch_params is not None:
+                model = DagMLTorchEstimator(**torch_params)
+            else:
+                framework_params = framework_model_params(model)
+                if framework_params is not None:
+                    model = DagMLFrameworkEstimator(**framework_params)
+
             apply_model_training_controls(clone(model), metadata, "FIT_CV")
             apply_model_training_controls(clone(model), metadata, "REFIT")
         for key, child in value.items():

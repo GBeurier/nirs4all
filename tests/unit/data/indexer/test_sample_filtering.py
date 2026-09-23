@@ -581,6 +581,19 @@ class TestQueryBuilderExcludedFilter:
 class TestIntegrationWithAugmentation:
     """Integration tests for exclusion with augmentation tracker."""
 
+    def test_augmentation_after_tagged_exclusion_preserves_index_schema(self):
+        """Synthetic rows leave prior filter annotations null while keeping core fields."""
+        indexer = Indexer()
+        indexer.add_samples(3, partition="train")
+        indexer._store.add_tag_column("is_outlier", "bool")
+        indexer.mark_excluded([0], reason="outlier")
+
+        children = indexer.augment_rows([1], 1, "noise")
+
+        assert len(children) == 1
+        assert indexer._store.df["is_outlier"][-1] is None
+        assert children[0] in indexer.x_indices({"partition": "train"})
+
     def test_excluded_base_sample_augmentations_also_excluded(self):
         """Test that augmentations of excluded base samples are also excluded."""
         indexer = Indexer()

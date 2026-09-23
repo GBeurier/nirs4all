@@ -31,6 +31,12 @@ _REQUIRE_ENV = "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2"
 _LIBRARY_ENV = "NIRS4ALL_CORE_LIVE_METHODS_LIBRARY"
 
 
+@pytest.fixture(autouse=True)
+def _native_archive_tests_use_native_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These archive contract tests inspect automatic native selection."""
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+
+
 def _pipeline() -> list[object]:
     return [KFold(n_splits=3), {"model": PLSRegression(n_components=1)}]
 

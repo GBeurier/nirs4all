@@ -1,9 +1,8 @@
-"""CONFORMANCE: the canonical user examples run on the explicit rollback lane.
+"""CONFORMANCE: the canonical user examples run on DAG-ML.
 
 The shipped ``examples/user/`` tutorials are the public-facing proof that
-``nirs4all.run`` works end to end. These historical tutorials intentionally pin
-``engine="legacy"`` while the native-first tutorials are developed separately,
-so this test executes each script once and verifies that explicit rollback.
+``nirs4all.run`` works end to end. This test executes each script with the
+general DAG-ML backend and verifies that the public tutorials keep working.
 
 Each example is run as a SUBPROCESS (the scripts parse argv at import and import
 matplotlib), with ``cwd=examples/`` (the scripts use dataset paths relative to
@@ -51,13 +50,13 @@ _OPTIONAL_DEP_MARKERS = (
 
 
 @pytest.mark.parametrize("example", _EXAMPLES, ids=lambda p: Path(p).stem)
-def test_example_runs_on_explicit_legacy_engine(example: str) -> None:
-    """The explicitly legacy-pinned historical example exits cleanly."""
+def test_example_runs_on_dagml_engine(example: str) -> None:
+    """The public tutorial exits cleanly with DAG-ML selected."""
     script = _EXAMPLES_DIR / example
     assert script.exists(), f"canonical example missing: {script}"
 
     env = dict(os.environ)
-    env.pop("N4A_ENGINE", None)
+    env["N4A_ENGINE"] = "dag-ml"
     env["MPLBACKEND"] = "Agg"  # headless: no interactive backend in CI
     env["PYTHONIOENCODING"] = "utf-8"
     pythonpath = [str(_PROJECT_ROOT)]
@@ -77,8 +76,8 @@ def test_example_runs_on_explicit_legacy_engine(example: str) -> None:
     if proc.returncode != 0:
         combined = proc.stderr + proc.stdout
         if any(marker in combined for marker in _OPTIONAL_DEP_MARKERS):
-            pytest.skip(f"{example} on explicit legacy engine: optional dependency not installed")
+            pytest.skip(f"{example} on DAG-ML: optional dependency not installed")
         pytest.fail(
-            f"{example} on explicit legacy engine exited {proc.returncode}:\n"
+            f"{example} on DAG-ML exited {proc.returncode}:\n"
             f"--- stderr tail ---\n{proc.stderr[-2000:]}"
         )

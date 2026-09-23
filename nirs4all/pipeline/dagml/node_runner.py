@@ -651,6 +651,15 @@ def run_model_node(
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
         model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
+        from .framework_estimator import DagMLFrameworkEstimator
+        from .torch_estimator import DagMLTorchEstimator
+
+        if isinstance(model, (DagMLTorchEstimator, DagMLFrameworkEstimator)):
+            dataset = resolver._dataset
+            model.set_params(
+                task_type=str(dataset.task_type or "regression"),
+                num_classes=dataset.num_classes if dataset.is_classification else None,
+            )
         from .training_controls import (
             apply_model_training_controls,
             apply_pipeline_folds_to_model,
@@ -679,13 +688,22 @@ def run_model_node(
             train_ids=train_ids,
             y_transform_node=y_transform_node,
         )
-        if best_params and hasattr(model, "set_params"):
+        from .host_finetune import split_trial_fit_overrides
+
+        selected_model_params, _ = split_trial_fit_overrides(best_params)
+        if selected_model_params and hasattr(model, "set_params"):
             model = clone(model)
-            model.set_params(**best_params)
+            model.set_params(**selected_model_params)
         training_controls = (
             apply_model_training_controls(model, training_metadata, phase)
             if has_training_controls else None
         )
+        # Legacy sampled finetune_params.train_params affect trial fits only.
+        # Terminal CV/refit training uses the step's train/refit_params.
+        if not best_params:
+            _, sampled_fit_params = split_trial_fit_overrides(_variant_overrides(task, node_id))
+            if sampled_fit_params and hasattr(model, "set_params"):
+                model.set_params(**sampled_fit_params)
         source_chains = _source_concat_chains(graph_node)
         source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
         from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor

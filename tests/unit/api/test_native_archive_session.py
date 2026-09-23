@@ -246,7 +246,7 @@ def test_predict_native_session_refuses_explicit_non_native_engine(
         )
 
 
-@pytest.mark.parametrize("engine", ["dag-ml", "dual", "invalid"])
+@pytest.mark.parametrize("engine", ["dual", "invalid"])
 def test_load_session_rejects_non_native_nonlegacy_engines_before_bundle_loading(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

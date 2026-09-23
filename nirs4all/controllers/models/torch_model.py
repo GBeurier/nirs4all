@@ -195,6 +195,13 @@ class PyTorchModelController(BaseModelController):
         X_train = X_train.to(device)
         y_train = y_train.to(device)
 
+        # Keep the training contract with the fitted artifact so workspace and
+        # bundle replay can distinguish class logits from regression targets and
+        # restore the feature layout used by convolutional models.
+        task_type = train_params.get('task_type')
+        model._nirs4all_task_type = getattr(task_type, 'value', task_type)
+        model._nirs4all_input_shape = tuple(X_train.shape[1:])
+
         if X_val is not None:
             X_val = X_val.to(device)
         if y_val is not None:
@@ -317,6 +324,22 @@ class PyTorchModelController(BaseModelController):
 
         device = next(model.parameters()).device
 
+        # Legacy bundle replay receives a flat matrix even when training used
+        # (samples, channels, features). Fitted artifacts record that shape.
+        # Older one-channel Conv1d artifacts can also be restored unambiguously.
+        input_shape = getattr(model, '_nirs4all_input_shape', None)
+        if input_shape is None:
+            nn = _get_nn()
+            first_conv = next((layer for layer in model.modules() if isinstance(layer, nn.Conv1d)), None)
+            if first_conv is not None and first_conv.in_channels == 1:
+                input_shape = (1, X.shape[1])
+        if X.ndim == 2 and input_shape is not None and len(input_shape) == 2:
+            if X.shape[1] != input_shape[0] * input_shape[1]:
+                raise ValueError(
+                    f"PyTorch model expects {input_shape[0]} x {input_shape[1]} features, got {X.shape[1]}"
+                )
+            X = X.reshape(X.shape[0], *input_shape)
+
         # Ensure X is a tensor
         X = PyTorchDataPreparation.prepare_features(X, str(device)) if not isinstance(X, torch.Tensor) else X.to(device)
 
@@ -325,11 +348,11 @@ class PyTorchModelController(BaseModelController):
             raw_predictions = model(X)
             predictions: np.ndarray = raw_predictions.cpu().numpy()
 
-        # Handle multiclass classification (convert logits/probs to labels)
-        if predictions.ndim == 2 and predictions.shape[1] > 1:
-             # Multi-output: likely multiclass classification with softmax/logits
-             # Convert probabilities to class predictions (encoded labels 0-N)
-             predictions = np.argmax(predictions, axis=1).reshape(-1, 1).astype(np.float32)
+        # Multiple columns are also valid regression targets. Only explicit
+        # classification context authorizes converting logits to class labels.
+        task_type = getattr(model, '_nirs4all_task_type', None)
+        if task_type in ('binary_classification', 'multiclass_classification') and predictions.ndim == 2 and predictions.shape[1] > 1:
+            predictions = np.argmax(predictions, axis=1).reshape(-1, 1).astype(np.float32)
         elif predictions.ndim == 1:
             predictions = predictions.reshape(-1, 1)
 
@@ -405,8 +428,8 @@ class PyTorchModelController(BaseModelController):
                 predictions = model(X_val)
 
                 if metric is not None:
-                    y_val_np = y_val.cpu().numpy().ravel()
-                    y_pred_np = predictions.cpu().numpy().ravel()
+                    y_val_np = y_val.cpu().numpy()
+                    y_pred_np = predictions.cpu().numpy()
                     from nirs4all.core import metrics as evaluator_mod
                     score = evaluator_mod.eval(y_val_np, y_pred_np, metric)
                     return float(score) if isinstance(score, (int, float)) else score.get(metric, float('inf'))

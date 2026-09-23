@@ -47,6 +47,13 @@ def _require_installed_runtime() -> tuple[Any, Any]:
         if _REQUIRE_N4M:
             pytest.fail(message, pytrace=True)
         pytest.skip(message)
+    try:
+        dag_ml.configure_methods_runtime(n4m.library_path())
+    except Exception as error:
+        message = f"installed dag-ml binding lacks usable Methods runtime support: {error}"
+        if _REQUIRE_N4M:
+            pytest.fail(message, pytrace=True)
+        pytest.skip(message)
     return dag_ml, n4m
 
 

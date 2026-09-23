@@ -41,11 +41,12 @@ class TestRunFunction:
             dataset=sample_regression_data_path,
             verbose=0,
             save_artifacts=False,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         # Verify result type
         assert isinstance(result, nirs4all.RunResult)
+        assert result.execution_engine == "dag-ml"
 
         # Verify predictions are available
         assert result.num_predictions > 0
@@ -74,7 +75,7 @@ class TestRunFunction:
             dataset=(X, y),
             verbose=0,
             save_artifacts=False,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         assert result.num_predictions > 0
@@ -96,7 +97,7 @@ class TestRunFunction:
             name="CustomPipelineName",
             verbose=0,
             save_artifacts=False,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         assert result.num_predictions > 0
@@ -116,7 +117,7 @@ class TestRunFunction:
             dataset=sample_regression_data_path,
             verbose=0,
             save_artifacts=False,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         # Test all accessors exist and work
@@ -158,7 +159,7 @@ class TestRunFunction:
             ShuffleSplit(n_splits=3, random_state=42),
             {"model": PLSRegression(n_components=10)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=sample_regression_data_path, verbose=0, save_artifacts=False, engine="legacy")
+        result = nirs4all.run(pipeline=pipeline, dataset=sample_regression_data_path, verbose=0, save_artifacts=False, engine="dag-ml")
 
         best = result.best
         assert best, "expected a selected model"
@@ -191,7 +192,7 @@ class TestRunFunction:
             StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
             {"model": RandomForestClassifier(n_estimators=30, max_depth=6, random_state=42, n_jobs=1)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=sample_classification_data_path, verbose=0, save_artifacts=False, engine="legacy")
+        result = nirs4all.run(pipeline=pipeline, dataset=sample_classification_data_path, verbose=0, save_artifacts=False, engine="dag-ml")
 
         best = result.best
         assert best, "expected a selected model"
@@ -205,8 +206,8 @@ class TestRunFunction:
         # best_accuracy is the SELECTED model's plain accuracy, not a reranked fold's.
         assert result.best_accuracy == pytest.approx(selected_accuracy, abs=1e-9)
 
-    def test_run_with_legacy_runner_kwargs(self, sample_regression_data_path):
-        """Test run() passes legacy PipelineRunner kwargs correctly."""
+    def test_run_with_workspace_kwargs(self, sample_regression_data_path):
+        """Test run() accepts workspace options on the DAG-ML path."""
         import nirs4all
         from nirs4all.core.logging import reset_logging
 
@@ -228,7 +229,7 @@ class TestRunFunction:
                 verbose=0,
                 save_artifacts=True,
                 workspace_path=tmpdir,
-                engine="legacy",
+                engine="dag-ml",
             )
 
             assert result.num_predictions > 0
@@ -261,7 +262,7 @@ class TestRunFunction:
             verbose=0,
             save_artifacts=False,
             random_state=42,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         result2 = nirs4all.run(
@@ -270,7 +271,7 @@ class TestRunFunction:
             verbose=0,
             save_artifacts=False,
             random_state=42,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         # With same random state, results should be similar
@@ -367,7 +368,7 @@ class TestResultClasses:
             dataset=sample_regression_data_path,
             verbose=0,
             save_artifacts=False,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         summary = result.summary()
@@ -389,7 +390,7 @@ class TestResultClasses:
             dataset=sample_regression_data_path,
             verbose=0,
             save_artifacts=False,
-            engine="legacy",
+            engine="dag-ml",
         )
 
         # __repr__ should work

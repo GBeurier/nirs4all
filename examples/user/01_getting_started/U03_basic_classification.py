@@ -122,7 +122,7 @@ print("Training Pipeline")
 print("-" * 60)
 
 result = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=pipeline,
     dataset="sample_data/binary",
     name="BasicClassification",
@@ -175,7 +175,7 @@ fig1 = analyzer.plot_confusion_matrix(
     k=4,
     rank_metric='balanced_accuracy',
     rank_partition='val',
-    display_partition='test'
+    display_partition='val'
 )
 print("   ✓ Created confusion matrices for top 4 models")
 
@@ -191,6 +191,7 @@ fig3 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
     display_metric='balanced_accuracy',
+    display_partition='val',
 )
 print("   ✓ Created heatmap: models vs preprocessing")
 

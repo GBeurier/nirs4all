@@ -208,17 +208,33 @@ def _eval_single(y_true: np.ndarray, y_pred: np.ndarray, metric: str) -> float:
     if not SKLEARN_AVAILABLE:
         raise ImportError("scikit-learn is required for metric calculations")
 
-    # Ensure arrays are numpy arrays and flattened
-    y_true = np.asarray(y_true).flatten()
-    y_pred = np.asarray(y_pred).flatten()
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    metric = metric.lower()
+
+    # Evaluate each regression target separately, then use a uniform average.
+    # Flattening mixes targets with different scales and changes metrics such
+    # as R2, RMSE, and correlations used for model selection.
+    regression_metrics = {
+        'mse', 'mean_squared_error', 'rmse', 'root_mean_squared_error',
+        'mae', 'mean_absolute_error', 'mape', 'mean_absolute_percentage_error',
+        'r2', 'r2_score', 'explained_variance', 'explained_variance_score',
+        'max_error', 'median_ae', 'median_absolute_error', 'pearson_r',
+        'spearman_r', 'bias', 'sep', 'rpd', 'consistency', 'nrmse', 'nmse', 'nmae',
+    }
+    if metric in regression_metrics and (y_true.ndim == 2 and y_true.shape[1] > 1 or y_pred.ndim == 2 and y_pred.shape[1] > 1):
+        if y_true.shape != y_pred.shape:
+            raise ValueError(f"Target shape mismatch: y_true{y_true.shape} vs y_pred{y_pred.shape}")
+        return float(np.mean([_eval_single(y_true[:, target], y_pred[:, target], metric) for target in range(y_true.shape[1])]))
+
+    y_true = y_true.flatten()
+    y_pred = y_pred.flatten()
 
     if len(y_true) == 0 or len(y_pred) == 0:
         return float('nan')
 
     if len(y_true) != len(y_pred):
         raise ValueError(f"Length mismatch: y_true({len(y_true)}) vs y_pred({len(y_pred)})")
-
-    metric = metric.lower()
 
     try:
         # Regression metrics
@@ -391,9 +407,11 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> dict[s
     if not SKLEARN_AVAILABLE:
         raise ImportError("scikit-learn is required for metric calculations")
 
-    # Ensure arrays are numpy arrays and flattened
-    y_true = np.asarray(y_true).flatten()
-    y_pred = np.asarray(y_pred).flatten()
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    if task_type.lower() != 'regression':
+        y_true = y_true.flatten()
+        y_pred = y_pred.flatten()
 
     if len(y_true) != len(y_pred):
         raise ValueError(f"Length mismatch: y_true({len(y_true)}) vs y_pred({len(y_pred)})")
@@ -656,4 +674,3 @@ def get_default_metrics(task_type: str) -> list:
 
     else:
         raise ValueError(f"Unsupported task_type: {task_type}")
-

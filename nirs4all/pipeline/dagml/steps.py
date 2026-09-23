@@ -357,7 +357,27 @@ def _taggers_from_step(step: Any) -> list[tuple[str, Any]] | None:
 
 
 # Keys on a step dict that are NOT model hyperparameters (mirrors StepParser.RESERVED_KEYWORDS).
-_RESERVED_STEP_KEYS = frozenset({"model", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
+_RESERVED_STEP_KEYS = frozenset({"model", "model_params", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
+
+
+def _apply_framework_factory_params(step: dict[str, Any], params: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep generated factory arguments with the model step until DAG lowering.
+
+    A legacy neural factory has no sklearn ``set_params`` method. The bridge
+    reconstructs it from its import path and passes ``model_params`` through
+    ``ModelFactory.prepare_and_call`` at fit time.
+    """
+    from .framework_estimator import framework_model_params
+    from .torch_estimator import torch_model_params
+
+    spec = torch_model_params(step["model"])
+    if spec is None:
+        spec = framework_model_params(step["model"])
+    if spec is None or "factory_path" not in spec:
+        return None
+    updated = {key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS}
+    updated["model_params"] = {**(step.get("model_params") or {}), **params}
+    return updated
 
 
 def _apply_model_params(steps: list[Any]) -> list[Any]:
@@ -374,6 +394,10 @@ def _apply_model_params(steps: list[Any]) -> list[Any]:
         if isinstance(step, dict) and "model" in step:
             params = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS}
             if params:
+                factory_step = _apply_framework_factory_params(step, params)
+                if factory_step is not None:
+                    out.append(factory_step)
+                    continue
                 model = step["model"]
                 # A class-model (e.g. ``PLSRegression`` rather than ``PLSRegression()``) must be
                 # instantiated before clone — ``clone`` rejects a class. The expansion path normally
@@ -533,6 +557,13 @@ def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
 
             plain = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS and not _is_native_generator_sibling(key, value)}
             if plain:
+                factory_step = _apply_framework_factory_params(step, plain)
+                if factory_step is not None:
+                    for key, value in step.items():
+                        if _is_native_generator_sibling(key, value):
+                            factory_step[key] = value
+                    out.append(factory_step)
+                    continue
                 model = step["model"]
                 # A class-model (e.g. ``PLSRegression`` not ``PLSRegression()``) — common with a step-level
                 # ``_grid_`` over a bare class — must be instantiated before ``clone`` (``clone`` rejects a

@@ -63,13 +63,13 @@ class TestExcludeBasicFunctionality:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0
         )
 
         # Pipeline should complete successfully
-        assert result is not None
-        assert hasattr(result, 'best_score') or hasattr(result, 'scores')
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert len(result.best["sample_indices"]) < n_normal + n_outliers
 
     def test_exclude_list_of_filters_mode_any(self, dataset_with_outliers):
         """Test exclude with multiple filters using mode='any'."""
@@ -90,12 +90,12 @@ class TestExcludeBasicFunctionality:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0
         )
 
         # Pipeline should complete successfully
-        assert result is not None
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
 
     def test_exclude_list_of_filters_mode_all(self, dataset_with_outliers):
         """Test exclude with multiple filters using mode='all'."""
@@ -116,12 +116,12 @@ class TestExcludeBasicFunctionality:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0
         )
 
         # Pipeline should complete successfully
-        assert result is not None
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
 
 class TestExcludeControllerDirectly:
     """Test ExcludeController directly on dataset for verification."""
@@ -223,14 +223,13 @@ class TestExcludeWithCrossValidation:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=cv_dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0
         )
 
         # Should complete successfully
-        assert result is not None
-        # Should have results for multiple folds
-        assert hasattr(result, 'scores') or hasattr(result, 'best_score')
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert np.isfinite(result.cv_best_score)
 
 class TestExcludeCascadeToAugmented:
     """Test exclude cascades to augmented samples via direct indexer test."""
@@ -312,11 +311,11 @@ class TestExcludeCascadeToAugmented:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0
         )
 
-        assert result is not None
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
 
 class TestExcludeSyntaxComparison:
     """Compare new exclude syntax functionality."""
@@ -351,11 +350,11 @@ class TestExcludeSyntaxComparison:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0
         )
 
-        assert result is not None
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
 
     def test_new_exclude_syntax_multiple(self, simple_dataset):
         """New syntax: {"exclude": [Filter1(), Filter2()], "mode": "any"}"""
@@ -373,11 +372,11 @@ class TestExcludeSyntaxComparison:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0
         )
 
-        assert result is not None
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
 
     def test_exclude_different_from_old_sample_filter_keyword(self, simple_dataset):
         """Verify old sample_filter keyword is no longer recognized."""

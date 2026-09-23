@@ -99,6 +99,7 @@ _MODEL_DATA_REQUIREMENTS: dict[str, Any] = {
 # natively (``_grid_``/dict-form/modifier sweeps stay on the Python expand path).
 _RESERVED_MODEL_KEYS = frozenset({
     "model",
+    "model_params",
     "params",
     "metadata",
     "steps",
@@ -922,7 +923,28 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             op = step["model"]
             # The model id is the fully-qualified class (like transforms), so any sklearn-style
             # estimator — regressor or classifier — resolves by import, not a hardcoded table.
-            dsl_step: dict[str, Any] = {"model": _qualname(op), "params": _json_safe_params(op)}
+            from nirs4all.pipeline.dagml.framework_estimator import DagMLFrameworkEstimator, framework_model_params
+            from nirs4all.pipeline.dagml.torch_estimator import DagMLTorchEstimator, torch_model_params
+
+            torch_params = torch_model_params(op)
+            framework_params = framework_model_params(op) if torch_params is None else None
+            dsl_step: dict[str, Any] = (
+                {"model": _qualname(DagMLTorchEstimator), "params": torch_params}
+                if torch_params is not None else
+                {"model": _qualname(DagMLFrameworkEstimator), "params": framework_params}
+                if framework_params is not None else
+                {"model": _qualname(op), "params": _json_safe_params(op)}
+            )
+            configured_model_params = step.get("model_params") or {}
+            if not isinstance(configured_model_params, dict):
+                raise TypeError("model_params must be a parameter mapping")
+            if torch_params is not None or framework_params is not None:
+                dsl_step["params"]["factory_params"] = {
+                    **(dsl_step["params"].get("factory_params") or {}),
+                    **configured_model_params,
+                }
+            else:
+                dsl_step["params"].update(configured_model_params)
             host_metadata: dict[str, Any] = {}
             if "finetune_params" in step:
                 host_metadata["nirs4all_finetune_params"] = json.loads(json.dumps(step["finetune_params"], default=repr))

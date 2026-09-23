@@ -1,5 +1,6 @@
 """Controller prediction coverage for deprecated legacy Python bundles."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -7,6 +8,7 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression
 
+from nirs4all.pipeline.bundle.generator import write_single_model_bundle
 from nirs4all.pipeline.bundle.loader import BundleLoader
 
 
@@ -42,6 +44,52 @@ def test_legacy_bundle_routes_torch_artifact_through_framework_controller() -> N
     actual = _bare_loader()._predict_legacy_model_artifact(model, X)
 
     np.testing.assert_allclose(actual, np.asarray([[-0.5], [0.5]], dtype=np.float32))
+
+
+@pytest.mark.torch
+def test_legacy_bundle_restores_old_single_channel_cnn_input() -> None:
+    torch = pytest.importorskip("torch")
+    model = torch.nn.Sequential(torch.nn.Conv1d(1, 1, kernel_size=1), torch.nn.Flatten())
+    with torch.no_grad():
+        model[0].weight.fill_(2.0)
+        model[0].bias.fill_(0.5)
+
+    X = np.asarray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+    actual = _bare_loader()._predict_legacy_model_artifact(model, X)
+
+    np.testing.assert_allclose(actual, 2 * X + 0.5)
+
+
+@pytest.mark.torch
+def test_legacy_bundle_preserves_all_regression_targets_and_saved_channel_layout() -> None:
+    torch = pytest.importorskip("torch")
+    model = torch.nn.Sequential(torch.nn.Conv1d(2, 2, kernel_size=1), torch.nn.Flatten())
+    model._nirs4all_task_type = "regression"
+    model._nirs4all_input_shape = (2, 3)
+    X = np.arange(12, dtype=np.float32).reshape(2, 6)
+
+    actual = _bare_loader()._predict_legacy_model_artifact(model, X)
+    with torch.no_grad():
+        expected = model(torch.from_numpy(X.reshape(2, 2, 3))).numpy()
+
+    assert actual.shape == (2, 6)
+    np.testing.assert_allclose(actual, expected)
+
+
+@pytest.mark.torch
+def test_serialized_legacy_cnn_bundle_replays_flat_input(tmp_path: Path) -> None:
+    torch = pytest.importorskip("torch")
+    model = torch.nn.Sequential(torch.nn.Conv1d(1, 1, kernel_size=1), torch.nn.Flatten())
+    model._nirs4all_task_type = "regression"
+    model._nirs4all_input_shape = (1, 3)
+    X = np.arange(6, dtype=np.float32).reshape(2, 3)
+    path = write_single_model_bundle(model, tmp_path / "cnn.n4a")
+
+    with torch.no_grad():
+        expected = model(torch.from_numpy(X[:, None, :])).numpy()
+    actual = BundleLoader(path).predict(X)
+
+    np.testing.assert_allclose(actual, expected)
 
 
 def test_legacy_bundle_preserves_sklearn_prediction_shape() -> None:
