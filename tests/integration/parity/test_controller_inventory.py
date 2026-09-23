@@ -73,30 +73,60 @@ def test_fold_file_loader_imports_sample_ids_into_native_foldset(tmp_path, monke
 
 
 @pytest.mark.parity
-def test_residual_model_is_legacy_success_and_native_graph_gap(tmp_path) -> None:
-    """Residual learning needs an OOF-derived target node, not a plain model call."""
-    import nirs4all
+@pytest.mark.parametrize("gate", [False, 0.25])
+def test_residual_model_native_graph_fits_oof_targets_and_fuses_predictions(tmp_path, gate) -> None:
+    """The learner fits OOF-derived residuals; DAG-ML fuses held-out predictions."""
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.model_selection import KFold
 
+    import nirs4all
     from nirs4all.operators.models.residual import ResidualModel
 
     from ._datasets import dataset_path
 
     pipeline = [
         KFold(2, shuffle=True, random_state=1),
-        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(alpha=1.0), gate=False)},
+        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(alpha=1.0), gate=gate)},
     ]
     legacy = nirs4all.run(
         pipeline, dataset_path("regression"), engine="legacy", refit=False,
-        workspace_path=tmp_path / "legacy-residual", save_artifacts=False, save_charts=False, verbose=0,
+        workspace_path=tmp_path / f"legacy-residual-{gate}", save_artifacts=False, save_charts=False, verbose=0,
     )
     assert np.isfinite(legacy.cv_best_score)
     assert np.isfinite(legacy.best_rmse)
     legacy.close()
 
-    with pytest.raises(Exception, match="ResidualModel requires both.*base.*learner"):
-        nirs4all.run(
-            pipeline, dataset_path("regression"), engine="dag-ml", refit=False,
-            workspace_path=tmp_path / "native-residual", save_artifacts=False, save_charts=False, verbose=0,
-        )
+    native = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="dag-ml", refit=True,
+        workspace_path=tmp_path / f"native-residual-{gate}", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert native.execution_engine == "dag-ml"
+    assert np.isfinite(native.cv_best_score)
+    assert np.isfinite(native.best_rmse)
+    frames = native._dagml_node_results
+    by_node_fold = {
+        (frame["node_id"], prediction["partition"], prediction.get("fold_id")): prediction
+        for frame in frames for prediction in frame.get("predictions", [])
+    }
+    fusion_id = "model:residual.learner.residual_fusion"
+    fusion_rows = 0
+    for (node_id, partition, fold_id), fused in by_node_fold.items():
+        if node_id != fusion_id or partition not in {"validation", "test"}:
+            continue
+        fusion_rows += len(fused["sample_ids"])
+        base = by_node_fold[("branch:0.node:0", partition, fold_id)]
+        learner = by_node_fold[("model:residual.learner", partition, fold_id)]
+        base_rows = dict(zip(base["sample_ids"], base["values"], strict=True))
+        learner_rows = dict(zip(learner["sample_ids"], learner["values"], strict=True))
+        for sample_id, fused_row in zip(fused["sample_ids"], fused["values"], strict=True):
+            expected = np.asarray(base_rows[sample_id]) + float(gate if gate is not False else 1) * np.asarray(learner_rows[sample_id])
+            assert fused_row == pytest.approx(expected, abs=1e-8)
+    assert fusion_rows > 0
+    from nirs4all.data import DatasetConfigs
+
+    archive = native.export(tmp_path / f"residual_{gate}.n4a")
+    fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
+    replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
+    native.close()

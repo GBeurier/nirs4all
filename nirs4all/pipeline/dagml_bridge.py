@@ -36,6 +36,8 @@ from nirs4all.pipeline.dagml.errors import DagMlUnsupported
 # operator-selector token that keeps the meta-model manifest out of the generic model-kind catch-all.
 _META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
 _META_MODEL_REF = "nirs4all.meta_model"
+_RESIDUAL_LEARNER_CONTROLLER_ID = "controller:nirs4all.residual_learner"
+_RESIDUAL_LEARNER_REF = "nirs4all.residual_learner"
 
 # Every nirs4all generation keyword (mirrors config._generator.keywords.GENERATION_KEYWORDS). Used
 # to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
@@ -1166,6 +1168,8 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
     not by its class — so a ``y_transform`` selector claiming those class names
     would wrongly re-type a bare X-scaler as a target transform.
     """
+    residual_requirements = copy.deepcopy(_MODEL_DATA_REQUIREMENTS)
+    residual_requirements["ports"][0]["name"] = "x_original"
     return [
         {
             "controller_id": "controller:nirs4all.transform",
@@ -1267,11 +1271,34 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "rng_policy": "uses_core_seed",
             "artifact_policy": "serializable",
         },
+        {
+            "controller_id": _RESIDUAL_LEARNER_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
+            "output_ports": [
+                {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+            ],
+            "data_requirements": residual_requirements,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng", "consumes_oof_predictions", "emits_predictions", "emits_artifacts", "stateful"],
+            "operator_selectors": [{"refs": [_RESIDUAL_LEARNER_REF]}],
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
     ]
 
 
 def _controller_manifest_specs() -> list[dict[str, Any]]:
     """HostControllerSpec payloads that derive to the public controller-manifest shape."""
+    residual_requirements = copy.deepcopy(_MODEL_DATA_REQUIREMENTS)
+    residual_requirements["ports"][0]["name"] = "x_original"
     return [
         {
             "controller_id": "controller:nirs4all.transform",
@@ -1307,6 +1334,19 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "added_capabilities": ["consumes_oof_predictions"],
             "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
             "operator_selectors": [{"refs": [_META_MODEL_REF]}],
+        },
+        {
+            "controller_id": _RESIDUAL_LEARNER_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "data_requirements": residual_requirements,
+            "added_capabilities": ["consumes_oof_predictions"],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
+            "operator_selectors": [{"refs": [_RESIDUAL_LEARNER_REF]}],
         },
     ]
 

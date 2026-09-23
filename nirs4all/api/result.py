@@ -734,6 +734,30 @@ class _DagmlNativeStackingModel:
         return np.asarray(self.meta_member.predict_numeric(self._meta_features(X)), dtype=float)
 
 
+class _DagmlNativeResidualModel:
+    """Replay two captured stage models with DAG-ML's fitted scalar fusion."""
+
+    def __init__(self, base: _DagmlExportedModel, learner: _DagmlExportedModel, weight: float) -> None:
+        if not np.isfinite(weight):
+            raise ValueError("residual replay weight must be finite")
+        self.base = base
+        self.learner = learner
+        self.weight = float(weight)
+
+    def predict_numeric(self, X: Any) -> np.ndarray:
+        base = np.asarray(self.base.predict_numeric(X), dtype=float)
+        learner = np.asarray(self.learner.predict_numeric(X), dtype=float)
+        if base.shape != learner.shape:
+            raise ValueError("residual replay stages produced different prediction shapes")
+        result = base + self.weight * learner
+        if not np.all(np.isfinite(result)):
+            raise ValueError("residual replay produced non-finite predictions")
+        return result
+
+    def predict(self, X: Any) -> np.ndarray:
+        return self.predict_numeric(X)
+
+
 def _native_manifest_strings(manifest: Mapping[str, Any], key: str) -> set[str]:
     value = manifest.get(key)
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
@@ -861,6 +885,7 @@ def _dagml_native_bundle_provenance(
         "source_stacking",
         "stacking_evaluation",
         "host_hpo",
+        "residual_replay",
     ):
         if isinstance(native_manifest.get(key), Mapping):
             provenance[key] = copy.deepcopy(dict(native_manifest[key]))
@@ -2308,6 +2333,37 @@ class RunResult:
                     artifact_count=1,
                     retrain_lineage=getattr(self, "_retrain_lineage", None),
                 ), **multimodal_provenance},
+                train_steps=train_steps,
+            )
+
+        residual = native_manifest.get("residual_replay")
+        if isinstance(residual, Mapping) and residual.get("producer_node") in _native_final_producers(native):
+            if residual.get("schema_version") != 1 or len(artifacts) != 2:
+                return None
+            by_producer = {str(artifact.get("producer_node")): artifact for artifact in artifacts}
+            base = by_producer.get(str(residual.get("base_producer_node")))
+            learner = by_producer.get(str(residual.get("learner_producer_node")))
+            if base is None or learner is None or base is learner:
+                return None
+            try:
+                weight = float(residual["lambda"]) * float(residual["gate"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            residual_model = _DagmlNativeResidualModel(
+                _DagmlExportedModel(base["estimator"], base["y_transform"]),
+                _DagmlExportedModel(learner["estimator"], learner["y_transform"]),
+                weight,
+            )
+            return write_single_model_bundle(
+                residual_model,
+                output_path,
+                model_label=model_names[0] if model_names else "dagml_native_residual",
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=_dagml_native_bundle_provenance(
+                    native_manifest, export_path="dagml_native_residual",
+                    artifact_count=2, export_shape="residual_base_plus_learner",
+                    retrain_lineage=getattr(self, "_retrain_lineage", None),
+                ),
                 train_steps=train_steps,
             )
 
