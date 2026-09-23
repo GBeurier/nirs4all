@@ -2521,6 +2521,8 @@ class RunResult:
             return None
         if len(artifacts) > 1:
             primary = self._dagml_top_k_primary_artifact(artifacts)
+            if primary is None:
+                primary = self._dagml_checkpoint_primary_artifact(artifacts)
             if primary is not None:
                 artifacts = [primary]
         # EXACTLY ONE concrete artifact only (D4): a multi-model / branch / stacking run captures several
@@ -2556,6 +2558,22 @@ class RunResult:
             if str(artifact.get("artifact_id", "")).endswith(f":nirs4all:refit:{selected_id}")
         ]
         return matches[0] if len(matches) == 1 else None
+
+    def _dagml_checkpoint_primary_artifact(self, artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Select the attested CV-best artifact of a multi-producer checkpoint DAG."""
+        producers = [metadata.get("checkpoint_producers") for metadata in self.per_dataset.values()
+                     if isinstance(metadata.get("checkpoint_producers"), list)]
+        if len(producers) != 1 or len(producers[0]) < 2 or not all(isinstance(node, str) for node in producers[0]):
+            return None
+        by_producer = {artifact.get("producer_node"): artifact for artifact in artifacts}
+        if len(by_producer) != len(artifacts) or set(by_producer) != set(producers[0]):
+            return None
+        winner = self.cv_best
+        if winner is None:
+            return None
+        projection = (winner.get("result_metadata") or {}).get("dagml_projection") or {}
+        producer = projection.get("producer_node")
+        return by_producer.get(producer)
 
     def _dagml_replayable_train_steps(self) -> list[Any] | None:
         """Serialize the FROZEN run pipeline into replayable training steps for the native ``.n4a``.
@@ -2796,8 +2814,12 @@ class RunResult:
                 provenance=provenance,
                 train_steps=None,  # The original multi-output pipeline is not this selected model.
             )
+        checkpoint_selected = False
         if len(artifacts) > 1:
             primary = self._dagml_top_k_primary_artifact(artifacts)
+            if primary is None:
+                primary = self._dagml_checkpoint_primary_artifact(artifacts)
+                checkpoint_selected = primary is not None
             if primary is not None:
                 artifacts = [primary]
         native_manifest = cast(Mapping[str, Any], native["manifest"])
@@ -2806,12 +2828,13 @@ class RunResult:
 
         # Replayable ORIGINAL training steps (train_pipeline.json) so retrain(mode="full") works from the
         # exported bundle; None (predict-only bundle) for generator sweeps / unserializable pipelines.
-        train_steps = self._dagml_replayable_train_steps()
+        train_steps = None if checkpoint_selected else self._dagml_replayable_train_steps()
 
         if len(artifacts) == 1:
             artifact = artifacts[0]
             model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
-            model_label = model_names[0] if model_names else type(artifact["estimator"]).__name__
+            model_label = (str(self.cv_best.get("model_name")) if checkpoint_selected and self.cv_best is not None
+                           else model_names[0] if model_names else type(artifact["estimator"]).__name__)
             from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
 
             multimodal_provenance = archive_metadata(artifact["estimator"])

@@ -43,6 +43,7 @@ from .detect import (
     _detect_by_source_concat_shared_preproc,
     _detect_by_source_distinct_preproc_concat,
     _detect_by_source_stacking_branch,
+    _detect_checkpoint_before_duplication_branch,
     _detect_duplication_branch,
     _detect_named_metamodel_feature_stack,
     _detect_named_multi_level_metamodel,
@@ -87,6 +88,7 @@ from .run_paths import (
     _run_by_source_concat_shared_preproc,
     _run_by_source_distinct_preproc_concat,
     _run_by_source_stacking_branch,
+    _run_checkpoint_before_duplication_branch,
     _run_concrete_scores,
     _run_duplication_branch,
     _run_named_metamodel_feature_stack,
@@ -1035,6 +1037,16 @@ def _dispatch_run(
             pipeline, rep_step, branch_body, spectro, dataset_arg, cli,
             venv_python or sys.executable, base_dir / "rep_source_branch", metric,
             task_type, config_name=config_name, random_state=random_state,
+        )
+    checkpoint_branch = _detect_checkpoint_before_duplication_branch(pipeline)
+    if checkpoint_branch is not None:
+        if _is_repetition_dataset(spectro):
+            raise DagMlUnsupported("checkpoint duplication branches on repetition datasets require grouped folds")
+        branches, first_model, last_model = checkpoint_branch
+        return _run_checkpoint_before_duplication_branch(
+            pipeline, branches, first_model, last_model, spectro, dataset_arg,
+            cli, venv_python or sys.executable, base_dir / "checkpoint_branch",
+            metric, task_type, host_pickle, config_name, random_state, refit,
         )
     comparison = _detect_branch_only_model_comparison(pipeline)
     if comparison is not None:
