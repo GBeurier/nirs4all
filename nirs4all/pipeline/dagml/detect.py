@@ -1583,7 +1583,7 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
 def _detect_named_multi_level_metamodel(
     pipeline: list[Any],
 ) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None, list[dict[str, Any]]] | None:
-    """A linear chain of named MetaModels, each consuming only its predecessor."""
+    """Named MetaModels whose sources are preceding base or meta checkpoints."""
     from nirs4all.operators.models.meta import MetaModel, StackingLevel
 
     steps = [step for step in pipeline if not _is_split_step(step)]
@@ -1595,11 +1595,19 @@ def _detect_named_multi_level_metamodel(
     trailing.reverse()
     if len(trailing) < 2:
         return None
-    for level, (previous_step, current_step) in enumerate(zip(trailing, trailing[1:], strict=False), start=2):
-        previous = previous_step["model"]
+    base_steps = steps[:-len(trailing)]
+    available_names = {
+        type(step.get("model") if isinstance(step, dict) else step).__name__
+        for step in base_steps
+    }
+    first_step = trailing[0]
+    first_name = first_step.get("name") or first_step["model"].name
+    if isinstance(first_name, str):
+        available_names.add(first_name)
+    for level, current_step in enumerate(trailing[1:], start=2):
         current = current_step["model"]
-        previous_name = previous_step.get("name") or previous.name
-        if not isinstance(previous_name, str) or current.source_models != [previous_name]:
+        sources = current.source_models
+        if not isinstance(sources, list) or not sources or any(name not in available_names for name in sources):
             return None
         allowed_levels = {StackingLevel.AUTO}
         if level <= StackingLevel.LEVEL_3.value:
@@ -1610,6 +1618,10 @@ def _detect_named_multi_level_metamodel(
             or not _is_default_except_level(current.stacking_config, allow_fold_aggregation=True)
         ):
             return None
+        current_name = current_step.get("name") or current.name
+        if not isinstance(current_name, str):
+            return None
+        available_names.add(current_name)
     first_stage = _detect_sequential_metamodel(pipeline[:-(len(trailing) - 1)])
     if first_stage is None:
         return None

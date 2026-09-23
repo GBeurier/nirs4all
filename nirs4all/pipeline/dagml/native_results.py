@@ -339,7 +339,8 @@ def _score_set_producer_nodes(score_set: dict[str, Any] | None, *, final_only: b
 def _stacking_replay_manifest(
     score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]],
     selectors: list[dict[str, Any]] | None = None,
-    *, probability_producers: set[str] | None = None, _allow_multi: bool = True,
+    *, probability_producers: set[str] | None = None,
+    source_orders: dict[str, list[str]] | None = None, _allow_multi: bool = True,
 ) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
@@ -374,26 +375,30 @@ def _stacking_replay_manifest(
         first_refs = [ref for ref in artifact_refs if all(ref is not meta for meta in meta_refs[1:])]
         first_stage = _stacking_replay_manifest(
             score_set, first_refs, selectors,
-            probability_producers=probability_producers, _allow_multi=False,
+            probability_producers=probability_producers, source_orders=source_orders,
+            _allow_multi=False,
         )
         if first_stage is None:
             return None
         stages = [first_stage]
-        for previous_node, node, ref, previous_ref in zip(stage_nodes, stage_nodes[1:], meta_refs[1:], meta_refs, strict=False):
+        for previous_node, node, ref, _previous_ref in zip(stage_nodes, stage_nodes[1:], meta_refs[1:], meta_refs, strict=False):
+            source_nodes = (source_orders or {}).get(node, [previous_node])
+            if len(set(source_nodes)) != len(source_nodes) or any(len(by_producer.get(source, [])) != 1 for source in source_nodes):
+                return None
             stages.append({
                 "schema_version": 1,
                 "producer_node": node,
                 "meta_artifact_id": ref.get("artifact_id"),
                 "base_producers": [{
-                    "artifact_id": previous_ref.get("artifact_id"),
-                    "producer_node": previous_node,
-                    "meta_feature_key": f"{previous_node}.oof",
-                    "column_block": "probability_values" if previous_node in (probability_producers or set()) else "prediction_values",
-                }],
+                    "artifact_id": by_producer[source][0].get("artifact_id"),
+                    "producer_node": source,
+                    "meta_feature_key": f"{source}.oof",
+                    "column_block": "probability_values" if source in (probability_producers or set()) else "prediction_values",
+                } for source in source_nodes],
                 "meta_feature_construction": {
                     "kind": "base_prediction_column_stack",
-                    "producer_order": "sorted_prediction_input_base_key",
-                    "prediction_space": "selected_class_probability" if previous_node in (probability_producers or set()) else "original_target",
+                    "producer_order": "declared_source_order" if node in (source_orders or {}) else "sorted_prediction_input_base_key",
+                    "prediction_space": "selected_class_probability" if all(source in (probability_producers or set()) for source in source_nodes) else "original_target",
                     "column_blocks": "one block per base producer, preserving target column order",
                 },
             })
@@ -577,6 +582,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
     stacking_replay = _stacking_replay_manifest(
         score_set, artifact_refs, getattr(result, "_dagml_stacking_selectors", None),
         probability_producers=getattr(result, "_dagml_stacking_probability_producers", None),
+        source_orders=getattr(result, "_dagml_stacking_source_orders", None),
     )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
