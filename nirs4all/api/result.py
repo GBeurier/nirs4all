@@ -796,12 +796,17 @@ class _DagmlNativeStackingModel:
 
     multimodal_input_schema: dict[str, Any]
 
-    def __init__(self, base_members: Sequence[_DagmlExportedModel], meta_member: _DagmlExportedModel, source_names: Sequence[str] | None = None) -> None:
+    def __init__(
+        self, base_members: Sequence[_DagmlExportedModel], meta_member: _DagmlExportedModel,
+        source_names: Sequence[str] | None = None,
+        reduction_groups: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
         if len(base_members) < 2:
             raise ValueError("native stacking export requires at least two base member models")
         self.base_members = list(base_members)
         self.meta_member = meta_member
         self.source_names = tuple(source_names) if source_names is not None else None
+        self.reduction_groups = [dict(group) for group in reduction_groups] if reduction_groups is not None else None
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
             raise ValueError("native raw stacking requires one distinct named source per base model")
 
@@ -818,7 +823,51 @@ class _DagmlNativeStackingModel:
             elif rows != expected_rows:
                 raise ValueError(f"native stacking base predictions have incompatible row counts: expected {expected_rows}, got {rows}")
             base_blocks.append(pred.reshape(rows, -1))
-        return np.column_stack(base_blocks)
+        if self.reduction_groups is None:
+            return np.column_stack(base_blocks)
+        selected_blocks: list[np.ndarray] = []
+        for group in self.reduction_groups:
+            indices = group.get("members")
+            if (not isinstance(indices, list) or not indices
+                    or any(not isinstance(index, int) or isinstance(index, bool)
+                           or not 0 <= index < len(base_blocks) for index in indices)):
+                raise ValueError("native stacking replay has invalid selected base members")
+            blocks = []
+            for index in indices:
+                if group.get("proba"):
+                    member = self.base_members[index]
+                    source = X[index] if self.source_names is not None else X
+                    block = np.asarray(member.estimator.predict_proba(source), dtype=float).reshape(expected_rows, -1)
+                else:
+                    block = base_blocks[index]
+                blocks.append(block)
+            aggregate = group.get("aggregate")
+            if aggregate is None:
+                if len(blocks) != 1:
+                    raise ValueError("unaggregated stacking replay group must select one model")
+                selected_blocks.append(blocks[0])
+                continue
+            if aggregate not in {"mean", "weighted_mean", "proba_mean"}:
+                raise ValueError("native stacking replay has an unsupported aggregation")
+            width = max(block.shape[1] for block in blocks)
+            if aggregate == "proba_mean":
+                blocks = [np.pad(block, ((0, 0), (0, width - block.shape[1]))) for block in blocks]
+            elif any(block.shape[1] != width for block in blocks):
+                raise ValueError("native stacking replay members have different prediction widths")
+            weights = group.get("weights") if aggregate == "weighted_mean" else None
+            if weights is None:
+                weights = [1.0] * len(blocks)
+            if (len(weights) != len(blocks) or any(not np.isfinite(weight) or weight < 0 for weight in weights)
+                    or sum(weights) <= 0):
+                raise ValueError("native stacking replay has invalid model weights")
+            reduced = sum(block * weight for block, weight in zip(blocks, weights, strict=True)) / sum(weights)
+            if aggregate == "proba_mean":
+                totals = reduced.sum(axis=1, keepdims=True)
+                if np.any(totals <= 0):
+                    raise ValueError("native stacking probability replay has zero row mass")
+                reduced = reduced / totals
+            selected_blocks.append(reduced)
+        return np.column_stack(selected_blocks)
 
     def predict(self, X: Any) -> np.ndarray:
         """Predict public labels or regression values from captured source models."""
@@ -2598,7 +2647,11 @@ class RunResult:
             source_names = [getattr(member.estimator, "multimodal_source_name", None) for member in base_members]
             if any(name is not None for name in source_names) and any(name is None for name in source_names):
                 raise ValueError("raw stacking archive is missing a base source binding")
-            stacked_model = _DagmlNativeStackingModel(base_members, meta_member, cast(list[str], source_names) if all(source_names) else None)
+            replay = cast(Mapping[str, Any], native_manifest["stacking_replay"])
+            stacked_model = _DagmlNativeStackingModel(
+                base_members, meta_member, cast(list[str], source_names) if all(source_names) else None,
+                cast(list[dict[str, Any]] | None, replay.get("reduction_groups")),
+            )
             if stacked_model.source_names is not None:
                 from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
 

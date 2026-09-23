@@ -1,17 +1,21 @@
 """Public parity oracles for selected and weighted stacking inputs."""
 
 import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.datasets import make_regression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
 import nirs4all
+from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.models.meta import MetaModel
 from nirs4all.pipeline.dagml.detect import (
     _detect_proba_mean_stacking_branch,
     _detect_sequential_metamodel,
 )
+
+from ._datasets import dataset_path
 
 
 def _data():
@@ -96,3 +100,32 @@ def test_branch_numeric_prediction_aggregation(tmp_path):
         not np.allclose(meta_by_aggregate["mean"][fold], meta_by_aggregate["weighted_mean"][fold])
         for fold in meta_by_aggregate["mean"]
     )
+
+
+def test_weighted_branch_archive_matches_native_final_test(tmp_path):
+    pipeline = [
+        KFold(3, shuffle=True, random_state=42),
+        {"branch": [
+            [{"model": PLSRegression(n_components=2)}, {"model": Ridge(alpha=10000)}],
+            [{"model": Ridge(alpha=1)}, {"model": Ridge(alpha=1000)}],
+        ]},
+        {"merge": {"predictions": [
+            {"branch": 0, "aggregate": "weighted_mean"},
+            {"branch": 1, "aggregate": "weighted_mean"},
+        ]}},
+        {"model": Ridge(alpha=0.1)},
+    ]
+    path = dataset_path("regression")
+    native = nirs4all.run(pipeline, path, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "train", save_artifacts=False,
+                         save_charts=False, verbose=0)
+    try:
+        archive = native.export(tmp_path / "weighted.n4a")
+        dataset = DatasetConfigs(path).get_dataset_at(0)
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        y_test = np.asarray(dataset.y({"partition": "test"})).ravel()
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        assert replay.shape == y_test.shape
+        assert np.sqrt(np.mean((y_test - replay) ** 2)) == pytest.approx(native.best_rmse, rel=1e-6, abs=1e-6)
+    finally:
+        native.close()

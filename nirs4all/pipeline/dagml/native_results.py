@@ -324,7 +324,10 @@ def _score_set_producer_nodes(score_set: dict[str, Any] | None, *, final_only: b
     return sorted(nodes)
 
 
-def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _stacking_replay_manifest(
+    score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]],
+    selectors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
     dag-ml's meta-node builds meta-features by sorting base prediction-input keys and concatenating each
@@ -373,12 +376,62 @@ def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: l
             entry["branch_index"] = int(ref["branch_index"])
         base_producers.append(entry)
 
+    replay_groups: list[dict[str, Any]] = []
+    if selectors:
+        reports = (score_set or {}).get("reports", [])
+        for selector in selectors:
+            branch = selector.get("branch")
+            model = selector.get("model")
+            selected = [
+                index for index, entry in enumerate(base_producers)
+                if (model is None or entry["producer_node"] == model)
+                and (branch is None or entry["producer_node"].startswith(f"branch:{str(branch).removeprefix('branch_')}" + "."))
+            ]
+            if not selected:
+                return None
+            aggregate = selector.get("aggregate")
+            if aggregate is None:
+                replay_groups.extend({"key": base_producers[index]["meta_feature_key"], "members": [index]}
+                                     for index in selected)
+                continue
+            if aggregate not in {"mean", "weighted_mean", "proba_mean"}:
+                return None
+            group: dict[str, Any] = {
+                "key": f"merge:stack.branch.{branch}.oof", "members": selected,
+                "aggregate": aggregate,
+            }
+            if aggregate == "weighted_mean":
+                metric = selector.get("metric") or "rmse"
+                higher_better = metric in {"r2", "accuracy", "balanced_accuracy"}
+                weights = []
+                for index in selected:
+                    producer = base_producers[index]["producer_node"]
+                    score = next((report.get("metrics", {}).get(metric) for report in reports
+                                  if report.get("producer_node") == producer
+                                  and report.get("partition") == "validation"
+                                  and report.get("fold_id") is not None
+                                  and metric in report.get("metrics", {})), None)
+                    if score is None or not np.isfinite(score):
+                        weights.append(0.0)
+                    elif higher_better:
+                        weights.append(max(float(score), 0.0))
+                    elif score >= 0:
+                        weights.append(1.0 / (float(score) + 1e-10))
+                    else:
+                        weights.append(abs(float(score)))
+                group["weights"] = weights if any(weight > 0.0 for weight in weights) else None
+            if aggregate == "proba_mean" or selector.get("metadata", {}).get("prediction_output") == "proba":
+                group["proba"] = True
+            replay_groups.append(group)
+        replay_groups.sort(key=lambda group: group["key"])
+
     return {
         "schema_version": 1,
         "producer_node": _STACKING_PRODUCER_NODE,
         "meta_artifact_id": meta_ref.get("artifact_id"),
         "meta_producer_node": str(meta_ref.get("producer_node") or _producer_node_from_artifact_id(meta_ref.get("artifact_id")) or _STACKING_PRODUCER_NODE),
         "base_producers": base_producers,
+        **({"reduction_groups": replay_groups} if selectors else {}),
         "meta_feature_construction": {
             "kind": "base_prediction_column_stack",
             "producer_order": "sorted_prediction_input_base_key",
@@ -449,7 +502,9 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
             "predictions": "predictions.parquet",
         },
     }
-    stacking_replay = _stacking_replay_manifest(score_set, artifact_refs)
+    stacking_replay = _stacking_replay_manifest(
+        score_set, artifact_refs, getattr(result, "_dagml_stacking_selectors", None)
+    )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
     if stacking_replay is not None:
