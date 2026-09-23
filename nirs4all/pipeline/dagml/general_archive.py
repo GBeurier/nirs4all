@@ -85,6 +85,8 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
         names = archive.namelist()
         if len(names) != len(set(names)):
             raise ValueError("general archive contains duplicate ZIP member names")
+        if archive.getinfo("manifest.json").file_size > 1024 * 1024:
+            raise ValueError("general archive manifest exceeds 1 MiB")
         manifest = json.loads(archive.read("manifest.json"))
         if not isinstance(manifest, dict) or manifest.get("source_type") != "dagml_native":
             raise ValueError("archive is not a captured DAG host-model archive")
@@ -109,6 +111,14 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
         if expected is None:
             warnings.warn("This older DAG host archive has no recorded artifact digest. Load only from a trusted producer; integrity provenance is unavailable.", UserWarning, stacklevel=2)
         sidecar_refs = manifest.get("host_artifacts")
+        if sidecar_refs is not None and (
+            not isinstance(sidecar_refs, list)
+            or any(not isinstance(directory, dict) or not isinstance(directory.get("files"), list)
+                   or any(not isinstance(file_ref, dict) or not isinstance(file_ref.get("uri"), str)
+                          for file_ref in directory["files"])
+                   for directory in sidecar_refs)
+        ):
+            raise ValueError("general archive has an invalid host sidecar manifest")
         declared = {file_ref["uri"] for directory in sidecar_refs or [] for file_ref in directory["files"]}
         actual_sidecars = {name for name in names if name.startswith("host_artifacts/") and not name.endswith("/")}
         if actual_sidecars != declared:
