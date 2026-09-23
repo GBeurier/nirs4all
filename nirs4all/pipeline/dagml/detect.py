@@ -1448,7 +1448,7 @@ def _is_default_except_level(config: Any) -> bool:
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1479,7 +1479,7 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False) -> A
     if isinstance(model, MetaModel):
         config = model.stacking_config
         if (
-            model.source_models != "all"
+            (model.source_models != "all" and not allow_source_models)
             or (model.use_proba and not allow_proba)
             or model.selector is not None
             or model.finetune_space is not None
@@ -1494,37 +1494,51 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False) -> A
     return None
 
 
-def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[Any], Any, bool] | None:
-    """A single base estimator followed by a default MetaModel wrapper.
-
-    Legacy accepts this spelling without an explicit branch/merge. Keep the
-    recognizer narrow: other operators, multiple bases, and non-default
-    MetaModel options need separately proven graph contracts. Probability
-    features are a one-model branch reduction over class-probability OOF.
-    """
+def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None] | None:
+    """Sequential base estimators followed by a selected numeric MetaModel."""
     from nirs4all.operators.models.meta import MetaModel
 
     if len([step for step in pipeline if _is_split_step(step)]) != 1:
         return None
     steps = [step for step in pipeline if not _is_split_step(step)]
-    if len(steps) != 2 or not isinstance(steps[-1], dict):
+    if len(steps) < 2 or not isinstance(steps[-1], dict):
         return None
     wrapper = steps[-1].get("model")
     if not isinstance(wrapper, MetaModel):
         return None
-    learner = _meta_learner(steps[-1], allow_proba=True)
+    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True)
     if learner is None:
         return None
-    base = steps[0]
-    if isinstance(base, dict):
-        if set(base) != {"model"}:
+    models: list[Any] = []
+    for base in steps[:-1]:
+        if isinstance(base, dict):
+            if set(base) != {"model"}:
+                return None
+            operator = base["model"]
+        else:
+            operator = base
+        if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
             return None
-        operator = base["model"]
-    else:
-        operator = base
-    if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
+        models.append(operator)
+    if wrapper.use_proba:
+        if len(models) != 1 or wrapper.source_models != "all":
+            return None
+        return [[{"model": models[0]}]], learner, [{"branch": "branch_0", "aggregate": "proba_mean"}]
+    if wrapper.source_models == "all":
+        return [[{"model": model}] for model in models], learner, None
+    if not isinstance(wrapper.source_models, list) or not wrapper.source_models:
         return None
-    return [{"model": operator}], learner, wrapper.use_proba
+    names = [type(model).__name__ for model in models]
+    if len(set(wrapper.source_models)) != len(wrapper.source_models) or any(name not in names for name in wrapper.source_models):
+        return None
+    # ExplicitModelSelector preserves requested name order, including every
+    # candidate sharing that name. Branch order fixes the meta-feature order.
+    order = [i for name in wrapper.source_models for i, candidate in enumerate(names) if candidate == name]
+    selected_count = len(order)
+    order.extend(i for i in range(len(models)) if i not in order)
+    branches = [[{"model": models[i]}] for i in order]
+    selectors = [{"model": f"branch:{i}.node:0"} for i in range(selected_count)]
+    return branches, learner, selectors
 
 
 def _branch_local_meta_model_step(model_step: dict[str, Any]) -> dict[str, Any] | None:
@@ -1734,11 +1748,7 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
 def _detect_proba_mean_stacking_branch(
     pipeline: list[Any],
 ) -> tuple[list[list[Any]], Any, list[dict[str, Any]]] | None:
-    """Recognize legacy per-branch probability averaging before a meta-model.
-
-    Selection by model score, weighted aggregation, and mixed feature merges
-    have separate semantics and remain on the explicit unsupported path.
-    """
+    """Recognize per-branch prediction aggregation before a meta-model."""
     branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
     merge_steps = [step for step in pipeline if isinstance(step, dict) and "merge" in step]
     model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
@@ -1759,19 +1769,32 @@ def _detect_proba_mean_stacking_branch(
     selectors: list[dict[str, Any]] = []
     seen: set[int] = set()
     for config in configs:
-        if not isinstance(config, dict) or set(config) - {"branch", "aggregate", "select", "proba", "sources"}:
+        if not isinstance(config, dict) or set(config) - {"branch", "aggregate", "select", "proba", "sources", "metric", "weight_metric"}:
             return None
         index = config.get("branch")
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(branches) or index in seen:
             return None
-        if config.get("aggregate") != "proba_mean" or config.get("select", "all") != "all":
+        aggregate = config.get("aggregate", "separate")
+        if aggregate not in {"separate", "mean", "weighted_mean", "proba_mean"} or config.get("select", "all") != "all":
             return None
-        if config.get("proba", True) is not True or config.get("sources", "all") != "all":
+        use_proba = config.get("proba", aggregate == "proba_mean")
+        if not isinstance(use_proba, bool) or (aggregate == "proba_mean" and not use_proba) or config.get("sources", "all") != "all":
             return None
         if not any(isinstance(step, dict) and "model" in step for step in branches[index]):
             return None
         seen.add(index)
-        selectors.append({"branch": f"branch_{index}", "select": "all", "aggregate": "proba_mean"})
+        selector: dict[str, Any] = {"branch": f"branch_{index}", "select": "all"}
+        if aggregate != "separate":
+            selector["aggregate"] = aggregate
+        if aggregate == "weighted_mean":
+            weight_metric = config.get("weight_metric") or config.get("metric")
+            if weight_metric is not None:
+                if not isinstance(weight_metric, str) or not weight_metric.strip():
+                    return None
+                selector["metric"] = weight_metric
+        if use_proba:
+            selector["metadata"] = {"prediction_output": "proba"}
+        selectors.append(selector)
     learner = _meta_learner(model_step)
     if learner is None:
         return None
