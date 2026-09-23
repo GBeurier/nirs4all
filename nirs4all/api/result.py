@@ -737,6 +737,10 @@ class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
             for index, (binding_id, member) in enumerate(zip(self.output_binding_ids, self.members, strict=True))
         }
 
+    def aligned_source_matrix(self, X: Mapping[str, Any]) -> np.ndarray:
+        """Build the sample-aligned host matrix for a DAG PREDICT phase."""
+        return np.concatenate(self._source_blocks(X), axis=1)
+
 
 class _DagmlNativeMetadataConcatModel:
     """Replay fanned REFIT models using the required metadata partition key."""
