@@ -239,10 +239,10 @@ def test_public_fit_on_all_after_fold_local_augmentation_refits_original_pool(tm
 
 @pytest.mark.parametrize("augmentation_count", [1, 2])
 @pytest.mark.parametrize("in_process", [True, False], ids=["in_process", "cli"])
-def test_augmentation_without_splitter_trains_on_children_and_scores_base_only(
+def test_augmentation_without_splitter_trains_and_scores_augmented_children(
     augmentation_count: int, in_process: bool, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The real controller augments train; native REFIT fits children but scores base/test."""
+    """The real controller and native REFIT both score the augmented train cohort."""
     path = dataset_path("regression")
     if not in_process:
         from ._dagml_cli import dagml_cli_path
@@ -289,7 +289,7 @@ def test_augmentation_without_splitter_trains_on_children_and_scores_base_only(
     assert {frame["lineage"]["phase"] for frame in result._dagml_node_results} == {"REFIT"}
     train_reports = [report for report in result._dagml_score_set["reports"] if report["partition"] == "final"]
     assert len(train_reports) == 1
-    assert train_reports[0]["row_count"] == len(base_train)
+    assert train_reports[0]["row_count"] == len(train_all)
 
 
 def test_public_cv_accepts_consecutive_augmentation_steps() -> None:
