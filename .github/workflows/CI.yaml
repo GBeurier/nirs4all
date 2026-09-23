@@ -12,7 +12,7 @@ on:
 # across an OS/Python matrix makes failures slower and less actionable.
 
 env:
-  N4A_DAG_ML_REF: 44e03ec2aca7210e5aac69dcae82b5ba72fd10cd
+  N4A_DAG_ML_REF: 15247844dc4bec2f4904438b7977c5e9c7c884ea
   N4A_DAG_ML_DATA_REF: ffe533704a1a0b0c7bb7d97a997caade3f4ba36e
 
 jobs:
@@ -69,7 +69,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: GBeurier/dag-ml
-          ref: 44e03ec2aca7210e5aac69dcae82b5ba72fd10cd
+          ref: 15247844dc4bec2f4904438b7977c5e9c7c884ea
           path: dag-ml-cli-src
 
       - uses: dtolnay/rust-toolchain@stable
