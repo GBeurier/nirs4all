@@ -1222,10 +1222,13 @@ def _is_native_by_source_fusion_bundle(native: Mapping[str, Any], artifacts: Seq
     return _indexed_branch_artifacts(artifacts) is not None
 
 
-def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]]) -> tuple[list[Mapping[str, Any]], Mapping[str, Any]] | None:
+def _native_stacking_artifacts(
+    native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]],
+    *, require_full_closure: bool = True,
+) -> tuple[list[Mapping[str, Any]], Mapping[str, Any]] | None:
     """Return ``(base_artifacts_in_meta_feature_order, meta_artifact)`` from ``stacking_replay``."""
     replay = native_manifest.get("stacking_replay")
-    if not isinstance(replay, Mapping) or replay.get("producer_node") != _DAGML_STACKING_PRODUCER_NODE:
+    if not isinstance(replay, Mapping) or not isinstance(replay.get("producer_node"), str):
         return None
     construction = replay.get("meta_feature_construction")
     if not isinstance(construction, Mapping) or construction.get("kind") != "base_prediction_column_stack":
@@ -1233,7 +1236,8 @@ def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Se
 
     by_id = {str(artifact.get("artifact_id")): artifact for artifact in artifacts if artifact.get("artifact_id") is not None}
     meta_artifact_id = replay.get("meta_artifact_id")
-    if meta_artifact_id is None or str(meta_artifact_id) not in by_id:
+    if (meta_artifact_id is None or str(meta_artifact_id) not in by_id
+            or by_id[str(meta_artifact_id)].get("producer_node") != replay["producer_node"]):
         return None
     base_producers = replay.get("base_producers")
     if not isinstance(base_producers, Sequence) or isinstance(base_producers, (str, bytes)) or not base_producers:
@@ -1247,6 +1251,8 @@ def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Se
         if artifact_id is None or str(artifact_id) not in by_id:
             return None
         base_artifacts.append(by_id[str(artifact_id)])
+    if require_full_closure and len({str(artifact["artifact_id"]) for artifact in [*base_artifacts, by_id[str(meta_artifact_id)]]}) != len(artifacts):
+        return None
     return base_artifacts, by_id[str(meta_artifact_id)]
 
 
@@ -1263,7 +1269,9 @@ def _native_multi_stacking_artifacts(
     first_stage = stages[0]
     if first_stage.get("schema_version") != 1 or replay.get("producer_node") != stages[-1].get("producer_node"):
         return None
-    first = _native_stacking_artifacts({"stacking_replay": first_stage}, artifacts)
+    first = _native_stacking_artifacts(
+        {"stacking_replay": first_stage}, artifacts, require_full_closure=False,
+    )
     if first is None:
         return None
     base_artifacts, first_meta = first
@@ -1568,6 +1576,9 @@ class RunResult:
     # (its child-process models are unreachable) and for a legacy result. In-memory metadata only, OFF by
     # default (the writer fires solely when native results are enabled).
     _dagml_refit_artifacts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    # Independent terminal stacking views persist only their own refit closure.
+    _dagml_stacking_replay_producer: str = field(default="merge:stack", repr=False)
+    _dagml_stacking_independent_terminal: bool = field(default=False, repr=False)
     # Signed evidence from an in-process by_source CV execute_training run.
     _dagml_training_outcome: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_portable_predictor_package: dict[str, Any] | None = field(default=None, repr=False)

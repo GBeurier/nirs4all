@@ -344,6 +344,7 @@ def _stacking_replay_manifest(
     source_ports: dict[str, dict[str, str]] | None = None, _allow_multi: bool = True,
     outer_fold_ids: list[str] | None = None,
     producer_classes: dict[str, str] | None = None,
+    target_node: str = _STACKING_PRODUCER_NODE,
 ) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
@@ -357,9 +358,9 @@ def _stacking_replay_manifest(
     # The real REFIT artifact/controller identity below attests replayability;
     # do not require a fabricated final score merely to export that estimator.
     scored_producers = _score_set_producer_nodes(score_set)
-    if _STACKING_PRODUCER_NODE not in scored_producers:
+    if target_node not in scored_producers:
         return None
-    if _allow_multi and _SECOND_STACKING_PRODUCER_NODE in scored_producers:
+    if _allow_multi and target_node == _STACKING_PRODUCER_NODE and _SECOND_STACKING_PRODUCER_NODE in scored_producers:
         by_producer: dict[str, list[dict[str, Any]]] = {}
         for ref in artifact_refs:
             producer = str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or "")
@@ -415,7 +416,8 @@ def _stacking_replay_manifest(
     meta_refs = [
         ref
         for ref in artifact_refs
-        if ref.get("controller_id") == _META_MODEL_CONTROLLER_ID or _producer_node_from_artifact_id(ref.get("artifact_id")) == _STACKING_PRODUCER_NODE
+        if _producer_node_from_artifact_id(ref.get("artifact_id")) == target_node
+        and ref.get("controller_id") == _META_MODEL_CONTROLLER_ID
     ]
     if len(meta_refs) != 1:
         return None
@@ -424,7 +426,7 @@ def _stacking_replay_manifest(
     base_refs = [
         ref
         for ref in artifact_refs
-        if ref is not meta_ref and _producer_node_from_artifact_id(ref.get("artifact_id")) not in {None, _STACKING_PRODUCER_NODE}
+        if ref is not meta_ref and _producer_node_from_artifact_id(ref.get("artifact_id")) is not None
     ]
     if not base_refs:
         return None
@@ -439,9 +441,9 @@ def _stacking_replay_manifest(
             "artifact_id": ref.get("artifact_id"),
             "producer_node": producer_node,
             # This is the base key order used by node_runner._ordered_oof_specs after suffix stripping.
-            "meta_feature_key": f"{producer_node}.{(source_ports or {}).get(_STACKING_PRODUCER_NODE, {}).get(producer_node, 'oof')}",
-            "column_block": "probability_values" if (source_ports or {}).get(_STACKING_PRODUCER_NODE, {}).get(producer_node) == "proba" else "prediction_values",
-            **({"column_projection": "selected_class"} if (source_ports or {}).get(_STACKING_PRODUCER_NODE, {}).get(producer_node) == "proba" else {}),
+            "meta_feature_key": f"{producer_node}.{(source_ports or {}).get(target_node, {}).get(producer_node, 'oof')}",
+            "column_block": "probability_values" if (source_ports or {}).get(target_node, {}).get(producer_node) == "proba" else "prediction_values",
+            **({"column_projection": "selected_class"} if (source_ports or {}).get(target_node, {}).get(producer_node) == "proba" else {}),
         }
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])
@@ -511,9 +513,9 @@ def _stacking_replay_manifest(
 
     return {
         "schema_version": 1,
-        "producer_node": _STACKING_PRODUCER_NODE,
+        "producer_node": target_node,
         "meta_artifact_id": meta_ref.get("artifact_id"),
-        "meta_producer_node": str(meta_ref.get("producer_node") or _producer_node_from_artifact_id(meta_ref.get("artifact_id")) or _STACKING_PRODUCER_NODE),
+        "meta_producer_node": str(meta_ref.get("producer_node") or _producer_node_from_artifact_id(meta_ref.get("artifact_id")) or target_node),
         "base_producers": base_producers,
         **({"reduction_groups": replay_groups} if selectors else {}),
         "meta_feature_construction": {
@@ -593,6 +595,8 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         source_ports=getattr(result, "_dagml_stacking_source_ports", None),
         outer_fold_ids=getattr(result, "_dagml_stacking_outer_fold_ids", None),
         producer_classes=getattr(result, "_dagml_stacking_producer_classes", None),
+        _allow_multi=not getattr(result, "_dagml_stacking_independent_terminal", False),
+        target_node=getattr(result, "_dagml_stacking_replay_producer", _STACKING_PRODUCER_NODE),
     )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
