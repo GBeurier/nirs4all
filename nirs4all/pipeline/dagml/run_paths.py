@@ -1209,8 +1209,9 @@ def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, ba
 
     fold_children: dict[str, dict[int, list[int]]] = {}
     augmentation_by_sample: dict[int, str] = {}
+    base_spectro = copy.deepcopy(spectro)
     for fold_label, fold_train in passes:
-        children = _augment_fold_train(aug_steps, spectro, fold_train, context)
+        children = _augment_fold_train(aug_steps, base_spectro, fold_train, context)
         if not children:
             fold_children[fold_label] = {}
             continue

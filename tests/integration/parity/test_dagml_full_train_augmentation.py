@@ -15,6 +15,7 @@ import nirs4all
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.augmentation import GaussianAdditiveNoise
 from nirs4all.operators.filters import YOutlierFilter
+from nirs4all.operators.models.sklearn.mbpls import MBPLS
 from nirs4all.operators.transforms.scalers import StandardNormalVariate
 from nirs4all.pipeline.dagml.full_train import NoSplitEvaluationWarning
 from nirs4all.pipeline.dagml.run_paths import _apply_sample_augmentation
@@ -102,6 +103,131 @@ def test_public_mixed_preprocessing_fit_scopes_preserve_each_node(tmp_path, all_
     native.export(tmp_path / "mixed_fit_scopes.n4a")
     replay = nirs4all.predict(tmp_path / "mixed_fit_scopes.n4a", x_test)
     assert root_mean_squared_error(y_test, np.asarray(replay.y_pred)) == pytest.approx(expected, abs=1e-5)
+
+
+@pytest.mark.parametrize("with_splitter", [False, True])
+@pytest.mark.parametrize("chained", [False, True])
+def test_public_multisource_fit_on_all_fits_each_source_and_replays(tmp_path, with_splitter: bool, chained: bool) -> None:
+    """A width-changing transform fits each source on all base observations."""
+    path = dataset_path("multi")
+    pipeline = [{"preprocessing": PCA(n_components=3), "fit_on_all": True}]
+    if chained:
+        pipeline.append(MinMaxScaler())
+    if with_splitter:
+        pipeline.append(KFold(n_splits=2, shuffle=True, random_state=42))
+    pipeline.append({"model": Ridge(alpha=1.0)})
+
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    if with_splitter:
+        native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    else:
+        with pytest.warns(NoSplitEvaluationWarning):
+            native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    y_train = np.asarray(dataset.y({"partition": "train"}))
+    y_test = np.asarray(dataset.y({"partition": "test"}))
+    train_blocks = [np.asarray(block).reshape(len(y_train), -1) for block in dataset.x({"partition": "train"}, "3d", concat_source=False)]
+    test_blocks = [np.asarray(block).reshape(len(y_test), -1) for block in dataset.x({"partition": "test"}, "3d", concat_source=False)]
+    transformers = [PCA(n_components=3).fit(np.vstack([train, test])) for train, test in zip(train_blocks, test_blocks, strict=True)]
+    train_transformed = [transformer.transform(block) for transformer, block in zip(transformers, train_blocks, strict=True)]
+    test_transformed = [transformer.transform(block) for transformer, block in zip(transformers, test_blocks, strict=True)]
+    if chained:
+        local_steps = [MinMaxScaler().fit(block) for block in train_transformed]
+        train_transformed = [step.transform(block) for step, block in zip(local_steps, train_transformed, strict=True)]
+        test_transformed = [step.transform(block) for step, block in zip(local_steps, test_transformed, strict=True)]
+    x_train = np.hstack(train_transformed)
+    x_test = np.hstack(test_transformed)
+    direct = Ridge(alpha=1.0).fit(x_train, y_train)
+    expected = root_mean_squared_error(y_test, direct.predict(x_test))
+
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    assert native.best_rmse == pytest.approx(expected, abs=1e-5)
+    archive = tmp_path / "multisource_fit_on_all.n4a"
+    native.export(archive)
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    assert root_mean_squared_error(y_test, np.asarray(replay.y_pred)) == pytest.approx(expected, abs=1e-5)
+
+
+def test_public_multiblock_fit_on_all_keeps_fitted_source_chains(tmp_path) -> None:
+    """An intermediate-fusion model receives each source's global-fit scaler."""
+    path = dataset_path("multi")
+    pipeline = [
+        {"preprocessing": StandardScaler(), "fit_on_all": True},
+        KFold(n_splits=2, shuffle=True, random_state=42),
+        {"model": MBPLS(n_components=2)},
+    ]
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-8)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-8)
+
+    archive = tmp_path / "multiblock_fit_on_all.n4a"
+    native.export(archive)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(np.asarray(dataset.y({"partition": "test"})), np.asarray(replay.y_pred))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-8)
+
+
+def test_public_fit_on_all_after_sample_augmentation_includes_children(tmp_path) -> None:
+    """An all-observation transform sees test rows and earlier augmented train rows."""
+    path = dataset_path("regression")
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    pipeline = [
+        augmentation,
+        {"preprocessing": StandardScaler(), "fit_on_all": True},
+        KFold(n_splits=2, shuffle=True, random_state=42),
+        {"model": Ridge(alpha=1.0)},
+    ]
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    _apply_sample_augmentation(augmentation, dataset)
+    x_fit = np.asarray(dataset.x({}, layout="2d", include_augmented=True))
+    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d", include_augmented=True))
+    y_train = np.asarray(dataset.y({"partition": "train"}, include_augmented=True))
+    x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+    y_test = np.asarray(dataset.y({"partition": "test"}))
+    scaler = StandardScaler().fit(x_fit)
+    direct = Ridge(alpha=1.0).fit(scaler.transform(x_train), y_train)
+    expected = root_mean_squared_error(y_test, direct.predict(scaler.transform(x_test)))
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    assert native.best_rmse == pytest.approx(expected, abs=1e-5)
+
+    archive = tmp_path / "fit_on_all_after_augmentation.n4a"
+    native.export(archive)
+    replay = nirs4all.predict(archive, x_test)
+    assert root_mean_squared_error(y_test, np.asarray(replay.y_pred)) == pytest.approx(expected, abs=1e-5)
+
+
+def test_public_fit_on_all_after_fold_local_augmentation_refits_original_pool(tmp_path) -> None:
+    """CV augmentation passes use a stable base, so refit does not inherit their children."""
+    path = str(PARSER_FIXTURES["with_metadata"])
+    balanced = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "balance": "y", "max_factor": 2.0, "random_state": 42,
+    }}
+    pipeline = [
+        balanced,
+        {"preprocessing": StandardScaler(), "fit_on_all": True},
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=3)},
+    ]
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-8)
+    assert np.isfinite(native.cv_best_score)
+
+    archive = tmp_path / "fold_local_fit_on_all.n4a"
+    native.export(archive)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(np.asarray(dataset.y({"partition": "test"})), np.asarray(replay.y_pred))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-8)
 
 
 @pytest.mark.parametrize("augmentation_count", [1, 2])
