@@ -131,23 +131,41 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         from nirs4all.pipeline.bundle.loader import BundleLoader
 
         loader = BundleLoader(archive)
-        assert loader.named_outputs == tuple(source_names)
+        output_ids = tuple(f"output:source_{index}" for index in range(len(source_names)))
+        assert loader.named_outputs == output_ids
+        with zipfile.ZipFile(archive) as archive_file:
+            topology = json.loads(archive_file.read("manifest.json"))["dagml_independent_output_topology"]
+        assert topology["schema_id"] == "dag-ml.host_independent_outputs.v1"
+        assert [(entry["source_id"], entry["output_binding_id"]) for entry in topology["outputs"]] == list(zip(source_names, output_ids, strict=True))
         full_x = np.asarray(dataset.x({"partition": "test"}, "2d"))
         with pytest.raises(ValueError, match="multiple named outputs"):
             loader.predict(full_x)
         all_outputs = loader.predict_outputs(full_x)
-        assert set(all_outputs) == set(source_names)
+        assert set(all_outputs) == set(output_ids)
         for index, name in enumerate(source_names):
             expected = Ridge(alpha=1.0).fit(
                 np.asarray(train_blocks[index]).reshape(len(y_train), -1), y_train,
             ).predict(np.asarray(test_blocks[index]).reshape(len(test_blocks[index]), -1))
-            np.testing.assert_allclose(np.asarray(all_outputs[name]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
-            np.testing.assert_allclose(np.asarray(loader.predict_output(name, full_x)).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+            np.testing.assert_allclose(np.asarray(all_outputs[output_ids[index]]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+            np.testing.assert_allclose(np.asarray(loader.predict_output(output_ids[index], full_x)).ravel(), np.asarray(expected).ravel(), atol=1e-6)
         with pytest.raises(ValueError, match="unknown named output"):
             loader.predict_output("unknown", full_x)
+        with pytest.raises(ValueError, match="no named output"):
+            nirs4all.predict(archive, full_x, output=source_names[0])
+        corrupt_archive = tmp_path / f"by_source_swapped_{mode}.n4a"
+        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(corrupt_archive, "w") as corrupt:
+            for member in original.namelist():
+                payload = original.read(member)
+                if member == "manifest.json":
+                    manifest = json.loads(payload)
+                    manifest["dagml_independent_output_topology"]["outputs"][0]["source_id"] = "other_source"
+                    payload = json.dumps(manifest).encode()
+                corrupt.writestr(member, payload)
+        with pytest.raises(ValueError, match="disagrees with its named-output manifest"):
+            BundleLoader(corrupt_archive).predict_outputs(full_x)
         with pytest.raises(ValueError, match="multiple named outputs"):
             nirs4all.predict(archive, full_x)
-        public_selected = nirs4all.predict(archive, full_x, output=source_names[1])
+        public_selected = nirs4all.predict(archive, full_x, output=output_ids[1])
         from nirs4all.pipeline.dagml.dataset import _materialize_dataset
 
         # The public array path materializes a SpectroDataset before DAG replay;
@@ -155,10 +173,10 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         public_x = np.asarray(_materialize_dataset(full_x).x({}, layout="2d"))
         np.testing.assert_allclose(
             np.asarray(public_selected.y_pred).ravel(),
-            np.asarray(loader.predict_output(source_names[1], public_x)).ravel(),
+            np.asarray(loader.predict_output(output_ids[1], public_x)).ravel(),
             atol=1e-4,
         )
-        assert public_selected.metadata["selected_output"] == source_names[1]
+        assert public_selected.metadata["selected_output"] == output_ids[1]
         with pytest.raises(RtError, match="independent source predictions"):
             result.export(tmp_path / f"legacy_refit_{mode}.n4a", compatibility="legacy-refit")
         selected = next(row for row in rows if row["branch_name"] == source_names[1])

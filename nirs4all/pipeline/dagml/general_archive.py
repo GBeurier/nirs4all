@@ -119,11 +119,27 @@ def predict_general_archive(
             fingerprint = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
         if fingerprint != loaded["archive_fingerprint"]:
             raise ValueError("general Session source archive changed after loading")
-    named_outputs = loaded["manifest"].get("dagml_named_outputs")
+    topology = loaded["manifest"].get("dagml_independent_output_topology")
+    named_outputs = topology.get("outputs") if isinstance(topology, dict) else None
+    if loaded["manifest"].get("dagml_native_export_shape") == "independent_by_source_multi":
+        if (not isinstance(topology, dict)
+                or topology.get("schema_id") != "dag-ml.host_independent_outputs.v1"
+                or topology.get("kind") != "independent_by_source"
+                or topology.get("input_relation") != "aligned_rows"
+                or not isinstance(named_outputs, list) or len(named_outputs) < 2):
+            raise ValueError("archive has an invalid independent-output topology")
+        ids = tuple(item.get("output_binding_id") for item in named_outputs if isinstance(item, dict))
+        if len(ids) != len(named_outputs) or ids != tuple(f"output:source_{index}" for index in range(len(ids))):
+            raise ValueError("archive has invalid output binding IDs")
+        model = loaded["artifact"]["estimator"]
+        if (tuple(getattr(model, "output_binding_ids", ())) != ids
+                or tuple(getattr(model, "source_ids", ())) != tuple(item.get("source_id") for item in named_outputs)
+                or tuple(getattr(model, "source_widths", ())) != tuple(item.get("feature_width") for item in named_outputs)):
+            raise ValueError("archive model disagrees with its independent-output topology")
     if isinstance(named_outputs, list) and output is None:
         raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict")
     if output is not None:
-        if not isinstance(named_outputs, list) or output not in [item.get("name") for item in named_outputs if isinstance(item, dict)]:
+        if not isinstance(named_outputs, list) or output not in [item.get("output_binding_id") for item in named_outputs if isinstance(item, dict)]:
             raise ValueError(f"archive has no named output {output!r}")
         adapter = _NamedOutputAdapter(loaded["artifact"]["estimator"], output)
         loaded = {**loaded, "artifact": {**loaded["artifact"], "estimator": adapter},

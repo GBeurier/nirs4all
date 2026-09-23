@@ -679,29 +679,30 @@ class _DagmlNativeSelectedSourceModel:
 class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
     """Retain every source output without defining a default prediction."""
 
-    def __init__(self, members: Sequence[tuple[int, str, _DagmlExportedModel]]) -> None:
+    def __init__(self, members: Sequence[tuple[int, str, str, _DagmlExportedModel]]) -> None:
         if len(members) < 2:
             raise ValueError("independent-source archive requires at least two outputs")
         ordered = sorted(members, key=lambda item: item[0])
-        self.output_names = tuple(name for _index, name, _member in ordered)
-        if len(set(self.output_names)) != len(self.output_names):
-            raise ValueError("independent-source archive output names must be unique")
-        super().__init__([(index, member) for index, _name, member in ordered])
+        self.source_ids = tuple(source_id for _index, source_id, _binding_id, _member in ordered)
+        self.output_binding_ids = tuple(binding_id for _index, _source_id, binding_id, _member in ordered)
+        if len(set(self.source_ids)) != len(self.source_ids) or len(set(self.output_binding_ids)) != len(self.output_binding_ids):
+            raise ValueError("independent-source archive source and output IDs must be unique")
+        super().__init__([(index, member) for index, _source_id, _binding_id, member in ordered])
 
     def predict(self, X: Any) -> np.ndarray:
         raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict or call BundleLoader.predict_output(s)")
 
-    def predict_output(self, name: str, X: Any) -> np.ndarray:
-        if name not in self.output_names:
-            raise ValueError(f"unknown named output {name!r}; available outputs: {list(self.output_names)!r}")
-        index = self.output_names.index(name)
+    def predict_output(self, binding_id: str, X: Any) -> np.ndarray:
+        if binding_id not in self.output_binding_ids:
+            raise ValueError(f"unknown named output {binding_id!r}; available outputs: {list(self.output_binding_ids)!r}")
+        index = self.output_binding_ids.index(binding_id)
         return np.asarray(self.members[index].predict(self._source_blocks(X)[index]))
 
     def predict_outputs(self, X: Any) -> dict[str, np.ndarray]:
         blocks = self._source_blocks(X)
         return {
-            name: np.asarray(member.predict(blocks[index]))
-            for index, (name, member) in enumerate(zip(self.output_names, self.members, strict=True))
+            binding_id: np.asarray(member.predict(blocks[index]))
+            for index, (binding_id, member) in enumerate(zip(self.output_binding_ids, self.members, strict=True))
         }
 
 
@@ -2408,7 +2409,7 @@ class RunResult:
             if set(names) != {index for index, _artifact in indexed}:
                 return None
             independent_members = [
-                (index, names[index], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]))
+                (index, names[index], f"output:source_{index}", _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]))
                 for index, artifact in indexed
             ]
             independent_model = _DagmlNativeIndependentSourceModels(independent_members)
@@ -2420,11 +2421,18 @@ class RunResult:
                 artifact_count=len(independent_members), export_shape="independent_by_source_multi",
                 retrain_lineage=getattr(self, "_retrain_lineage", None),
             )
-            provenance["dagml_named_outputs"] = [
-                {"name": name, "source_index": index, "producer_node": artifact.get("producer_node"),
-                 "feature_width": independent_model.source_widths[index]}
-                for (index, artifact), name in zip(indexed, independent_model.output_names, strict=True)
-            ]
+            provenance["dagml_independent_output_topology"] = {
+                "schema_id": "dag-ml.host_independent_outputs.v1",
+                "kind": "independent_by_source",
+                "input_relation": "aligned_rows",
+                "outputs": [
+                    {"source_id": source_id, "source_index": index, "output_binding_id": binding_id,
+                     "producer_node": artifact.get("producer_node"), "feature_width": independent_model.source_widths[index]}
+                    for (index, artifact), source_id, binding_id in zip(
+                        indexed, independent_model.source_ids, independent_model.output_binding_ids, strict=True,
+                    )
+                ],
+            }
             from nirs4all.pipeline.bundle import write_single_model_bundle
 
             return write_single_model_bundle(

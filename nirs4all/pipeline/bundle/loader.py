@@ -456,6 +456,7 @@ class BundleLoader:
         self._artifact_index: dict[str, str] = {}
         self.relation_replay_manifest: dict[str, Any] = {}
         self._named_output_names: tuple[str, ...] = ()
+        self._named_source_ids: tuple[str, ...] = ()
         self._named_output_widths: tuple[int, ...] = ()
         self.artifact_provider: BundleArtifactProvider | None = None
 
@@ -473,19 +474,27 @@ class BundleLoader:
                     self.metadata = BundleMetadata.from_dict(manifest_data)
                     _validate_bundle_format_version(self.metadata.bundle_format_version)
                     if manifest_data.get("dagml_native_export_shape") == "independent_by_source_multi":
-                        outputs = manifest_data.get("dagml_named_outputs")
+                        topology = manifest_data.get("dagml_independent_output_topology")
+                        if (not isinstance(topology, dict)
+                                or topology.get("schema_id") != "dag-ml.host_independent_outputs.v1"
+                                or topology.get("kind") != "independent_by_source"
+                                or topology.get("input_relation") != "aligned_rows"):
+                            raise ValueError("independent-source archive has an invalid output topology")
+                        outputs = topology.get("outputs")
                         if not isinstance(outputs, list) or len(outputs) < 2 or any(
                             not isinstance(entry, dict)
-                            or not isinstance(entry.get("name"), str) or not entry["name"]
+                            or not isinstance(entry.get("source_id"), str) or not entry["source_id"]
+                            or entry.get("output_binding_id") != f"output:source_{index}"
                             or entry.get("source_index") != index
                             or type(entry.get("feature_width")) is not int or entry["feature_width"] <= 0
                             for index, entry in enumerate(outputs)
                         ):
                             raise ValueError("independent-source archive has an invalid named-output manifest")
-                        names = tuple(entry["name"] for entry in outputs)
-                        if len(set(names)) != len(names):
-                            raise ValueError("independent-source archive has duplicate output names")
-                        self._named_output_names = names
+                        source_ids = tuple(entry["source_id"] for entry in outputs)
+                        if len(set(source_ids)) != len(source_ids):
+                            raise ValueError("independent-source archive has duplicate source IDs")
+                        self._named_source_ids = source_ids
+                        self._named_output_names = tuple(entry["output_binding_id"] for entry in outputs)
                         self._named_output_widths = tuple(entry["feature_width"] for entry in outputs)
             else:
                 raise ValueError("Bundle missing manifest.json")
@@ -681,7 +690,7 @@ class BundleLoader:
 
     @property
     def named_outputs(self) -> tuple[str, ...]:
-        """Stable output names of a multi-output archive, empty for ordinary bundles."""
+        """Stable output binding IDs of a multi-output archive, empty for ordinary bundles."""
         return self._named_output_names
 
     def _named_output_model(self) -> Any:
@@ -689,7 +698,8 @@ class BundleLoader:
             raise ValueError("archive has no named independent outputs")
         model = self._get_refit_model(self.metadata.model_step_index)
         if (model is None
-                or tuple(getattr(model, "output_names", ())) != self._named_output_names
+                or tuple(getattr(model, "output_binding_ids", ())) != self._named_output_names
+                or tuple(getattr(model, "source_ids", ())) != self._named_source_ids
                 or tuple(getattr(model, "source_widths", ())) != self._named_output_widths):
             raise ValueError("independent-source archive model disagrees with its named-output manifest")
         return model
