@@ -62,6 +62,7 @@ def test_legacy_and_dag_support_per_branch_probability_mean(tmp_path, monkeypatc
             for block in frame.get("result", frame).get("predictions", [])
             if str(block.get("producer_node", "")).startswith("branch:")
             and block.get("partition") == "validation"
+            and block.get("producer_port") == "proba"
         ]
         assert probability_blocks
         assert all(len(row) == 2 and sum(row) == pytest.approx(1.0)
