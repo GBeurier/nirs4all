@@ -5,6 +5,7 @@ import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
 from nirs4all.data import DatasetConfigs
@@ -16,7 +17,8 @@ from ._datasets import dataset_path
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_residual_after_by_source_concat_refit_and_replay(tmp_path, monkeypatch, mechanism: str) -> None:
+@pytest.mark.parametrize("source_style", ["shared", "distinct"])
+def test_residual_after_by_source_concat_refit_and_replay(tmp_path, monkeypatch, mechanism: str, source_style: str) -> None:
     """Both residual stages apply source-local X transforms within each fold."""
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
@@ -27,9 +29,17 @@ def test_residual_after_by_source_concat_refit_and_replay(tmp_path, monkeypatch,
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
     source = dataset_path("multi")
+    source_steps = (
+        [StandardNormalVariate()]
+        if source_style == "shared" else {
+            "source_0": [StandardNormalVariate()],
+            "source_1": [StandardScaler()],
+            "source_2": [MinMaxScaler()],
+        }
+    )
     pipeline = [
         KFold(2, shuffle=True, random_state=1),
-        {"branch": {"by_source": True, "steps": [StandardNormalVariate()]}},
+        {"branch": {"by_source": True, "steps": source_steps}},
         {"merge": "concat"},
         {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=False)},
     ]
