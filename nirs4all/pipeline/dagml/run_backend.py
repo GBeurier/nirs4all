@@ -1001,7 +1001,9 @@ def _dispatch_run(
         source_bodies, y_steps = source_auto
         return run_by_source_auto_full_train(
             source_bodies, y_steps, spectro, metric=metric, task_type=task_type,
-            config_name=config_name,
+            config_name=config_name, cli=cli, venv_python=venv_python or sys.executable,
+            dataset_path=dataset_arg, dataset_pickle=host_pickle,
+            workdir=base_dir / "by_source_auto_full_train", random_state=random_state,
         )
     if not any(_is_split_step(step) for step in pipeline):
         from .full_train import run_full_train

@@ -316,6 +316,7 @@ def run_refit_phase_cli(
     *, dsl: dict[str, Any], envelope: dict[str, Any], graph: dict[str, Any],
     training_sample_ids: list[str], dataset_path: str, workdir: Path,
     dagml_cli: str, venv_python: str, dataset_pickle: str | None = None,
+    sample_metadata: dict[str, dict[str, Any]] | None = None,
     random_state: int | None = None,
 ) -> dict[str, Any]:
     """Run one no-splitter REFIT in the native CLI with attested row order."""
@@ -344,7 +345,11 @@ def run_refit_phase_cli(
         env.pop("N4A_DAGML_DATASET_PICKLE", None)
     else:
         env["N4A_DAGML_DATASET_PICKLE"] = dataset_pickle
-    env.pop("N4A_DAGML_SAMPLE_META_PATH", None)
+    if sample_metadata is None:
+        env.pop("N4A_DAGML_SAMPLE_META_PATH", None)
+    else:
+        (workdir / "sample_meta.json").write_text(json.dumps(sample_metadata))
+        env["N4A_DAGML_SAMPLE_META_PATH"] = str(workdir / "sample_meta.json")
     if random_state is None:
         env.pop("N4A_RANDOM_STATE", None)
     else:

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
+from sklearn.metrics import root_mean_squared_error
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -78,3 +79,95 @@ def test_no_splitter_cli_in_memory_training_has_no_fabricated_validation(monkeyp
     assert train_row["train_score"] == pytest.approx(oracle_rmse, abs=1e-6)
     assert result.per_dataset[next(iter(result.per_dataset))]["evaluation"]["validation_source"] is None
     assert {frame["lineage"]["phase"] for frame in result._dagml_node_results} == {"REFIT"}
+
+
+@pytest.mark.parity
+def test_no_splitter_cli_by_source_auto_matches_independent_source_models(monkeypatch) -> None:
+    import nirs4all
+
+    from ._dagml_cli import dagml_cli_path
+
+    cli = dagml_cli_path()
+    if not cli.exists():
+        pytest.skip(f"dag-ml-cli binary not built at {cli}")
+    path = dataset_path("multi")
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    train_blocks = dataset.x({"partition": "train"}, "3d", concat_source=False)
+    test_blocks = dataset.x({"partition": "test"}, "3d", concat_source=False)
+    y_train = np.asarray(dataset.y({"partition": "train"}))
+    source_names = [f"source_{index}" for index in range(len(train_blocks))]
+    pipeline = [
+        {"branch": {"by_source": True, "steps": {
+            name: [{"model": Ridge(alpha=1.0)}] for name in source_names
+        }}},
+        {"merge": "auto"},
+    ]
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    assert legacy.num_predictions > 0
+    results = []
+    for mode in ("1", "0"):
+        monkeypatch.setenv("N4A_DAGML_INPROCESS", mode)
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+        with pytest.warns(NoSplitEvaluationWarning, match="No splitter"):
+            results.append(nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0))
+    for result in results:
+        assert np.isnan(result.cv_best_score)
+        assert len(result._dagml_refit_artifacts) == len(source_names)
+        assert {frame["lineage"]["phase"] for frame in result._dagml_node_results} == {"REFIT"}
+        rows = [row for row in result.predictions.filter_predictions(load_arrays=True) if row["partition"] == "test"]
+        assert {row["branch_name"] for row in rows} == set(source_names)
+        for index, name in enumerate(source_names):
+            expected = Ridge(alpha=1.0).fit(
+                np.asarray(train_blocks[index]).reshape(len(y_train), -1), y_train,
+            ).predict(np.asarray(test_blocks[index]).reshape(len(test_blocks[index]), -1))
+            row = next(row for row in rows if row["branch_name"] == name)
+            np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+
+
+@pytest.mark.parity
+def test_no_splitter_cli_by_metadata_concat_matches_legacy_and_archive(tmp_path, monkeypatch) -> None:
+    import nirs4all
+
+    from ._dagml_cli import dagml_cli_path
+
+    cli = dagml_cli_path()
+    if not cli.exists():
+        pytest.skip(f"dag-ml-cli binary not built at {cli}")
+    path = dataset_path("with_metadata")
+    pipeline = [
+        {"branch": {"by_metadata": "group", "steps": [{"model": Ridge(alpha=1.0)}]}},
+        {"merge": "concat"},
+    ]
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    results = []
+    for mode in ("1", "0"):
+        monkeypatch.setenv("N4A_DAGML_INPROCESS", mode)
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+        with pytest.warns(NoSplitEvaluationWarning, match="No splitter"):
+            results.append(nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0))
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"))
+    y_train = np.asarray(dataset.y({"partition": "train"}))
+    x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+    y_test = np.asarray(dataset.y({"partition": "test"}))
+    train_groups = np.asarray(dataset.metadata_column("group", {"partition": "train"})).ravel()
+    test_groups = np.asarray(dataset.metadata_column("group", {"partition": "test"})).ravel()
+    expected = np.empty(len(test_groups))
+    expected_train = np.empty(len(train_groups))
+    for group in np.unique(train_groups):
+        model = Ridge(alpha=1.0).fit(x_train[train_groups == group], y_train[train_groups == group])
+        expected[test_groups == group] = np.asarray(model.predict(x_test[test_groups == group])).ravel()
+        expected_train[train_groups == group] = np.asarray(model.predict(x_train[train_groups == group])).ravel()
+    expected_rmse = root_mean_squared_error(y_test, expected)
+    legacy_train = [row for row in legacy.predictions.filter_predictions(load_arrays=True) if row["partition"] == "train"]
+    assert len(legacy_train) == len(np.unique(train_groups))
+    for result in results:
+        assert np.isnan(result.cv_best_score)
+        assert result.best_rmse == pytest.approx(expected_rmse, abs=1e-6)
+        assert len(result._dagml_refit_artifacts) == len(np.unique(train_groups))
+        assert {frame["lineage"]["phase"] for frame in result._dagml_node_results} == {"REFIT"}
+        native_train = next(row for row in result.predictions.filter_predictions(load_arrays=True) if row["partition"] == "train")
+        np.testing.assert_allclose(np.asarray(native_train["y_pred"]).ravel(), expected_train, atol=1e-6)
+    archive = results[-1].export(tmp_path / "cli_by_metadata_full_train.n4a")
+    replay = nirs4all.predict(archive, {"X": x_test, "metadata": {"group": test_groups}}, engine="legacy")
+    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, atol=1e-6)
