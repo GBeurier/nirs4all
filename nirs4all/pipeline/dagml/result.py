@@ -451,7 +451,7 @@ def _scores_to_run_result(
     # the winner's avg with `None`; the portable Methods controller keeps the sole concrete
     # `variant:base` identity instead. Both are the same single-producer OOF evidence, so the lookup
     # below accepts the latter only when the former is absent.
-    cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id != "avg"))
+    cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id not in ("avg", "w_avg")))
     # Scheduler-owned Methods HPO deliberately persists only one terminal
     # sample-level OOF-average report per candidate.  It does not invent
     # fold-grain reports merely for the legacy compatibility table.  Preserve
@@ -485,7 +485,7 @@ def _scores_to_run_result(
             if other_variant_id == variant_id
             and partition == "validation"
             and fold_id is not None
-            and fold_id != "avg"
+            and fold_id not in ("avg", "w_avg")
         ]
         # The cross-fold OOF average for THIS variant. dag-ml emits the avg with `variant_id = None` for
         # the SOLE producer (a single concrete pipeline or a merge node) and for the SWEEP WINNER; a sweep
@@ -573,17 +573,20 @@ def _scores_to_run_result(
             weighted_train = by_key.get((avg_variant_id, "train", "w_avg"))
             if weighted_train is None and avg_variant_id is None:
                 weighted_train = by_key.get((variant_id, "train", "w_avg"))
+            weighted_val = by_key.get((avg_variant_id, "validation", "w_avg"))
+            if weighted_val is None and avg_variant_id is None:
+                weighted_val = by_key.get((variant_id, "validation", "w_avg"))
             if weighted_train is not None:
                 add("w_avg", "train", {"train": weighted_train, "val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
                     arrays=_row_arrays(variant_id, "train", "w_avg"),
                     score_provenance={"train": {"partition": "train", "fold_id": "w_avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "validation_weighted_mean_prediction_per_training_sample"}})
-            if weighted_train is not None or weighted_test is not None:
+            if weighted_val is not None or weighted_train is not None or weighted_test is not None:
                 # Legacy's weighted ensemble retains the same OOF validation
                 # predictions as `avg`: each sample is predicted only by its
                 # held-out fold, so weights cannot change that measurement.
-                add("w_avg", "val", {"train": weighted_train, "val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
-                    arrays=_row_arrays(variant_id, "validation", "avg"),
-                    score_provenance={"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "same_oof_as_avg"}})
+                add("w_avg", "val", {"train": weighted_train, "val": weighted_val or avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "validation", "w_avg") or _row_arrays(variant_id, "validation", "avg"),
+                    score_provenance={"val": {"partition": "validation", "fold_id": "w_avg" if weighted_val is not None else "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "same_oof_as_avg"}})
             if weighted_test is not None:
                 add("w_avg", "test", {"val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
                     arrays=_row_arrays(variant_id, "test", "w_avg"),

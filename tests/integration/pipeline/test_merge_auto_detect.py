@@ -99,6 +99,12 @@ class TestAutoMergeBySource:
         val_rows = [row for row in result.predictions.filter_predictions(load_arrays=True) if row["partition"] == "val"]
         assert {row["branch_name"] for row in val_rows} == {"source_0", "source_1"}
         assert all(len(row["y_pred"]) > 0 and np.isfinite(row["val_score"]) for row in val_rows)
+        avg_rows = [row for row in val_rows if row["fold_id"] == "avg"]
+        assert len(avg_rows) == 2
+        assert all(len(row["y_pred"]) == len(row["y_true"]) > 0 for row in avg_rows)
+        weighted_rows = [row for row in val_rows if row["fold_id"] == "w_avg"]
+        assert len(weighted_rows) == 2
+        assert all(len(row["y_pred"]) == len(row["y_true"]) > 0 for row in weighted_rows)
 
     def test_merge_auto_without_cv(self, test_data_manager):
         dataset_folder = str(test_data_manager.get_temp_directory() / "multi")
