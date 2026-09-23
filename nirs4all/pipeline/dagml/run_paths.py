@@ -4821,7 +4821,7 @@ def _assemble_stacking_dsl(
     return canonical_dsl, graph, base_model_ids
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True, prediction_aggregations: list[dict[str, Any]] | None = None, downstream_meta_steps: list[dict[str, Any]] | None = None) -> RunResult:
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True, prediction_aggregations: list[dict[str, Any]] | None = None, downstream_meta_steps: list[dict[str, Any]] | None = None, meta_per_branch: bool = False) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -5063,14 +5063,14 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # List form exposes the ensemble; named form also exposes each base producer.
     model_label = f"MetaModel_{type(final_meta_learner).__name__}"
     result: RunResult
-    if named_duplication:
+    if named_duplication or meta_per_branch:
         from .named_stacking import project_named_stacking
 
         result = project_named_stacking(
             outcome, branches=branches, branch_names=_duplication_branch_names(pipeline, len(branches)),
             base_model_ids=base_model_ids, meta_node_id=_META_NODE_ID, meta_learner=meta_learner,
             spectro=spectro, identity=identity, metric=metric, task_type=task_type, config_name=config_name,
-            pipeline=pipeline, random_state=random_state,
+            pipeline=pipeline, random_state=random_state, meta_per_branch=meta_per_branch,
         )
     else:
         result = _scores_to_run_result(

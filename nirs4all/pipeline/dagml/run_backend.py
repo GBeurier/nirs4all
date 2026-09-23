@@ -37,6 +37,7 @@ from nirs4all.data.predictions import Predictions
 
 from .dataset import _dataset_inputs, _materialize_dataset
 from .detect import (
+    _detect_all_branches_metamodel,
     _detect_branch_only_model_comparison,
     _detect_by_source_auto_models,
     _detect_by_source_branch,
@@ -135,6 +136,7 @@ __all__ = [
     "_build_folds",
     "_build_group_folds",
     "_canonical_source_branch",
+    "_detect_all_branches_metamodel",
     "_detect_by_source_branch",
     "_detect_by_source_concat_shared_preproc",
     "_detect_by_source_distinct_preproc_concat",
@@ -1139,6 +1141,7 @@ def _dispatch_run(
     detected_separation_preproc_concat = _detect_separation_preproc_concat(list(pipeline))
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
+    detected_all_branches_metamodel = _detect_all_branches_metamodel(list(pipeline))
     detected_sequential_metamodel = _detect_sequential_metamodel(list(pipeline))
     detected_multi_level_metamodel = _detect_named_multi_level_metamodel(list(pipeline))
     if detected_sequential_metamodel is None and detected_multi_level_metamodel is None and not any(
@@ -1502,6 +1505,14 @@ def _dispatch_run(
             dataset_pickle=host_pickle,
             config_name=config_name,
             random_state=random_state,
+        )
+    if detected_all_branches_metamodel is not None:
+        branches, meta_learner = detected_all_branches_metamodel
+        return _run_stacking_branch(
+            list(pipeline), branches, meta_learner, spectro, dataset_arg, cli,
+            venv_python or sys.executable, base_dir / "all_branches_metamodel", metric, task_type,
+            dataset_pickle=host_pickle, config_name=config_name, random_state=random_state, refit=refit,
+            meta_per_branch=True,
         )
 
     # Named duplication branches with a branch-local MetaModel, a structured per-branch best-by-RMSE
