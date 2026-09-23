@@ -134,3 +134,45 @@ def test_residual_model_native_graph_fits_oof_targets_and_fuses_predictions(tmp_
     replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
     assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
     native.close()
+
+
+@pytest.mark.parity
+def test_residual_learner_finetune_search_uses_native_train_scope(tmp_path) -> None:
+    """A legacy learner search also executes on the DAG residual train scope."""
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import KFold
+
+    import nirs4all
+    from nirs4all.operators.models.residual import ResidualModel
+
+    from ._datasets import dataset_path
+
+    search = {"n_trials": 2, "sampler": "grid", "approach": "single", "model_params": {"alpha": [0.01, 1.0]}}
+    pipeline = [KFold(2, shuffle=True, random_state=1), {
+        "model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=False, finetune_space=search),
+    }]
+    legacy = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy-residual-search", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    native = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="dag-ml", refit=True,
+        workspace_path=tmp_path / "native-residual-search", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(native.cv_best_score)
+    evidence = [getattr(artifact["estimator"], "_nirs4all_host_hpo", None) for artifact in native._dagml_refit_artifacts]
+    searches = [entry for entry in evidence if entry is not None]
+    assert len(searches) == 1
+    assert {trial["params"]["alpha"] for trial in searches[0]["trials"]} == {0.01, 1.0}
+    assert searches[0]["evaluation"]["outer_validation_used"] is False
+    from nirs4all.data import DatasetConfigs
+
+    archive = native.export(tmp_path / "residual_search.n4a")
+    fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
+    replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
+    native.close()
