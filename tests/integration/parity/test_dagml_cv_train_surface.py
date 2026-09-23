@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
-from sklearn.datasets import make_regression
-from sklearn.linear_model import Ridge
-from sklearn.model_selection import KFold
+from sklearn.datasets import make_classification, make_regression
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.model_selection import KFold, StratifiedKFold
 
 import nirs4all
 
@@ -54,6 +54,39 @@ def test_cv_train_predictions_match_legacy_fold_and_ensemble_surface(monkeypatch
         }
         assert not any(report["partition"] == "train_pool" and report.get("fold_id") in {"avg", "w_avg"}
                        for report in native._dagml_score_set["reports"])
+    finally:
+        legacy.close()
+        native.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_cv_classification_train_ensemble_uses_class_votes(monkeypatch, mechanism):
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    x, y = make_classification(n_samples=36, n_features=6, n_informative=3, n_redundant=0, random_state=42)
+    pipeline = [StratifiedKFold(3, shuffle=True, random_state=42), {"model": LogisticRegression(max_iter=200)}]
+    common = {"refit": False, "save_artifacts": False, "save_charts": False, "verbose": 0}
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", **common)
+    native = nirs4all.run(pipeline, (x, y), engine="dag-ml", allow_fallback=False, **common)
+    try:
+        assert native.cv_best_score == pytest.approx(legacy.cv_best_score)
+        for fold in ("avg", "w_avg"):
+            def row(result):
+                table = result.predictions.to_dataframe().to_dicts()
+                record = next(record for record in table if record["fold_id"] == fold and record["partition"] == "train")
+                return result.predictions.get_prediction_by_id(record["id"])
+
+            expected, actual = row(legacy), row(native)
+            expected_labels = dict(zip(expected["sample_indices"], np.asarray(expected["y_pred"]).ravel(), strict=True))
+            actual_labels = dict(zip(actual["sample_indices"], np.asarray(actual["y_pred"]).ravel(), strict=True))
+            assert actual_labels == expected_labels
+            assert set(actual_labels.values()) <= {0.0, 1.0}
     finally:
         legacy.close()
         native.close()
