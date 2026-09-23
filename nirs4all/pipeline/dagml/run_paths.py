@@ -1606,7 +1606,7 @@ def _run_augmentation_full_train(
     return _attach_pre_augmentation_replay(result, replay_stages)
 
 
-def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None, capture: dict[str, Any] | None = None) -> RunResult:
     """Run a ``sample_augmentation`` pipeline as ONE native dag-ml CV+refit on augmented train.
 
     Adds the synthetic train rows (real augmentation machinery), builds BASE-grain folds (each base
@@ -1803,7 +1803,13 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
     )
-    return _attach_pre_augmentation_replay(result, replay_stages)
+    result = _attach_pre_augmentation_replay(result, replay_stages)
+    if capture is not None:
+        capture.update(
+            scores=outcome["scores"], results=outcome["results"], identity=identity,
+            refit_artifacts=result._dagml_refit_artifacts, model_name=_model_name(steps),
+        )
+    return result
 
 
 _MERGE_NODE_ID = "merge:concat"
