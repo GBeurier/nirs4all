@@ -22,7 +22,7 @@ from .folds import _build_folds, _split_group_grain
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _scores_to_run_result
-from .run_paths import _canonical_branch
+from .run_paths import _canonical_branch, _canonical_branch_step, _supported_body_steps
 from .steps import _is_split_step, _split_pipeline
 
 
@@ -39,8 +39,10 @@ def residual_operator(pipeline: list[Any]) -> ResidualModel | None:
             residuals.append(ResidualModel(**step["residual"]))
     if not residuals:
         return None
-    if len(residuals) != 1 or sum(not _is_split_step(step) for step in pipeline) != 1:
-        raise DagMlUnsupported("residual model currently requires one splitter and one residual step")
+    if len(residuals) != 1 or not isinstance(pipeline[-1], dict) or not (
+        isinstance(pipeline[-1].get("model"), ResidualModel) or isinstance(pipeline[-1].get("residual"), dict)
+    ):
+        raise DagMlUnsupported("residual model requires one terminal residual step")
     return residuals[0]
 
 
@@ -56,6 +58,10 @@ def run_residual_model(
     _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("residual model needs an explicit cross-validator")
+    prefix = _supported_body_steps([step for step in pipeline[:-1] if not _is_split_step(step)])
+    prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
+    if any(step["kind"] != "transform" for step in prefix_steps):
+        raise DagMlUnsupported("residual prefix currently requires X preprocessing steps")
     if operator.finetune_space:
         raise DagMlUnsupported("residual learner finetune_space needs nested native selection")
     if operator.gate == "auto":
@@ -75,6 +81,7 @@ def run_residual_model(
         "id": "nirs4all-residual-model",
         "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
         "steps": [
+            *prefix_steps,
             {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch([{"model": operator.base}], 0)]},
             {
                 "kind": "merge_model", "id": learner_id,
