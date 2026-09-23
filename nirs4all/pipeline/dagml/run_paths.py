@@ -1167,7 +1167,7 @@ def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any, context: 
     SampleAugmentationController().execute(step_info, spectro, context, runtime_context, mode="train")
 
 
-def _augment_fold_train(aug_steps: list[dict[str, Any]], spectro: Any, fold_train: list[int], context: Any | None = None) -> list[tuple[int, np.ndarray | list[np.ndarray]]]:
+def _augment_fold_train(aug_steps: list[dict[str, Any]], spectro: Any, fold_train: list[int], context: Any | None = None, chart_snapshots: list[Any] | None = None) -> list[tuple[int, np.ndarray | list[np.ndarray]]]:
     """Augment a fold's TRAIN only and return each child's source-preserving features.
 
     A FRESH copy of ``spectro`` is restricted so ``partition: train`` is exactly ``fold_train`` (the
@@ -1189,6 +1189,8 @@ def _augment_fold_train(aug_steps: list[dict[str, Any]], spectro: Any, fold_trai
     before = {int(s) for s in fold_ds.index_column("sample", {})}
     for aug_step in aug_steps:
         _apply_sample_augmentation(aug_step, fold_ds, context)
+        if chart_snapshots is not None:
+            chart_snapshots.append(copy.deepcopy(fold_ds))
     samples = [int(s) for s in fold_ds.index_column("sample", {})]
     origins = [int(o) for o in fold_ds.index_column("origin", {})]
     children: list[tuple[int, np.ndarray | list[np.ndarray]]] = []
@@ -1198,7 +1200,7 @@ def _augment_fold_train(aug_steps: list[dict[str, Any]], spectro: Any, fold_trai
     return children
 
 
-def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int], context: Any | None = None) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
+def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int], context: Any | None = None, chart_snapshots: list[Any] | None = None) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
     """Augment fold-by-fold + a full-train refit pass; insert all children into ``spectro`` in place.
 
     For each fold (key ``"fold{i}"``, matching :func:`build_fold_set`'s fold ids) and the full-train
@@ -1221,7 +1223,7 @@ def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, ba
     augmentation_by_sample: dict[int, str] = {}
     base_spectro = copy.deepcopy(spectro)
     for fold_label, fold_train in passes:
-        children = _augment_fold_train(aug_steps, base_spectro, fold_train, context)
+        children = _augment_fold_train(aug_steps, base_spectro, fold_train, context, chart_snapshots if fold_label == "refit" else None)
         if not children:
             fold_children[fold_label] = {}
             continue
@@ -1247,7 +1249,7 @@ def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, ba
 
 def _build_fold_local_prefix_views(
     prefix: list[Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]],
-    base_train: list[int], context: Any | None = None,
+    base_train: list[int], context: Any | None = None, chart_snapshots: list[Any] | None = None,
 ) -> tuple[dict[str, dict[int, list[int]]], dict[int, str], dict[str, tuple[Any, dict[int, int], set[int]]], list[Any]]:
     """Run the ordered augmentation prefix in every train fold and in the refit pool.
 
@@ -1270,7 +1272,7 @@ def _build_fold_local_prefix_views(
         fold_ds._indexer.update_by_indices(list(fold_train), {"partition": "train"})  # noqa: SLF001
         fold_ds._invalidate_content_hash()  # noqa: SLF001
         before = {int(sample) for sample in fold_ds.index_column("sample", {})}
-        stages = _materialize_augmentation_prefix(prefix, fold_ds, copy.deepcopy(context))
+        stages = _materialize_augmentation_prefix(prefix, fold_ds, copy.deepcopy(context), chart_snapshots if fold_label == "refit" else None)
         if fold_label == "refit":
             replay_stages = stages
         samples = [int(sample) for sample in fold_ds.index_column("sample", {})]
@@ -1540,7 +1542,7 @@ def _augmentation_is_leakage_free(aug_step: dict[str, Any]) -> bool:
     return bool(transformers) and all(_operator_is_stateless(transformer) for transformer in transformers)
 
 
-def _materialize_augmentation_prefix(prefix: list[Any], spectro: Any, context: Any | None = None) -> list[Any]:
+def _materialize_augmentation_prefix(prefix: list[Any], spectro: Any, context: Any | None = None, chart_snapshots: list[Any] | None = None) -> list[Any]:
     """Execute transforms and augmentation in public order, capturing prediction replay."""
     replay_stages: list[Any] = []
     pending: list[Any] = []
@@ -1550,6 +1552,8 @@ def _materialize_augmentation_prefix(prefix: list[Any], spectro: Any, context: A
             replay_stages.extend(stages)
             pending = []
             _apply_sample_augmentation(step, spectro, context)
+            if chart_snapshots is not None:
+                chart_snapshots.append(copy.deepcopy(spectro))
         else:
             pending.append(step)
     if pending:
@@ -1580,9 +1584,10 @@ def _run_augmentation_full_train(
     from .full_train import run_full_train
 
     aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
+    chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
     after_aug = aug_indices[-1] + 1
     materialize_end = after_aug + _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
-    replay_stages = _materialize_augmentation_prefix(pipeline[:materialize_end], spectro)
+    replay_stages = _materialize_augmentation_prefix(pipeline[:materialize_end], spectro, chart_snapshots=chart_snapshots)
     # The host model still needs the Y transform: materializing the prefix for the
     # augmentation controller does not add a Y node to the native model graph.
     y_prefix_steps = [step for step in pipeline[:aug_indices[0]] if isinstance(step, dict) and "y_processing" in step]
@@ -1604,7 +1609,9 @@ def _run_augmentation_full_train(
         dataset_pickle=str(pickle_path), workdir=run_dir / "refit",
         random_state=random_state,
     )
-    return _attach_pre_augmentation_replay(result, replay_stages)
+    result = _attach_pre_augmentation_replay(result, replay_stages)
+    result._dagml_chart_aug_snapshots = chart_snapshots
+    return result
 
 
 def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None, capture: dict[str, Any] | None = None, refit: bool = True) -> RunResult:
@@ -1633,6 +1640,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     Interleaved fold-local augmentation uses separate, ordered feature views for every fold and refit.
     """
     import pickle
+    chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
 
     # Legacy accepts the splitter before augmentation. Native folds are built on
     # base sample ids independently of its position, so route it after the last
@@ -1660,7 +1668,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     post_aug_steps = pipeline[after_aug + late_exclusion_length:]
     materialized_early = bool((interleaved or late_exclusion_length) and not fold_local)
     if materialized_early:
-        replay_stages = _materialize_augmentation_prefix(pipeline[:after_aug + late_exclusion_length], spectro)
+        replay_stages = _materialize_augmentation_prefix(pipeline[:after_aug + late_exclusion_length], spectro, chart_snapshots=chart_snapshots)
         prefix_context = None
     else:
         prefix_context, replay_stages = _apply_pre_augmentation_steps(pre_aug_steps, spectro)
@@ -1723,16 +1731,18 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None
     if fold_local and (interleaved or late_exclusion_length):
         fold_children, augmentation_by_sample_int, fold_feature_views, fold_replay = _build_fold_local_prefix_views(
-            pipeline[aug_index:after_aug + late_exclusion_length], spectro, base_folds, base_train, prefix_context,
+            pipeline[aug_index:after_aug + late_exclusion_length], spectro, base_folds, base_train, prefix_context, chart_snapshots,
         )
         replay_stages.extend(fold_replay)
     elif fold_local:
-        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_steps, spectro, base_folds, base_train, prefix_context)
+        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_steps, spectro, base_folds, base_train, prefix_context, chart_snapshots)
     elif interleaved and not materialized_early:
-        replay_stages = _materialize_augmentation_prefix(pipeline[:after_aug], spectro)
+        replay_stages = _materialize_augmentation_prefix(pipeline[:after_aug], spectro, chart_snapshots=chart_snapshots)
     elif not materialized_early:
         for aug_step in aug_steps:
             _apply_sample_augmentation(aug_step, spectro, prefix_context)
+            if chart_snapshots is not None:
+                chart_snapshots.append(copy.deepcopy(spectro))
     if not fold_local:
         _augmented_ints, augmentation_by_sample_int = _augmentation_grain(spectro, "+".join(_augmentation_label(step) for step in aug_steps))
 
@@ -1749,7 +1759,9 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
             fold_children=fold_children, fold_feature_views=fold_feature_views, folds_override=base_folds,
             refit=refit,
         )
-        return _attach_pre_augmentation_replay(result, replay_stages)
+        result = _attach_pre_augmentation_replay(result, replay_stages)
+        result._dagml_chart_aug_snapshots = chart_snapshots
+        return result
 
     # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
     # sample_id (augmented=True). The CV universe = base train + the augmented children.
@@ -1806,6 +1818,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         refit_artifacts=outcome["refit_artifacts"],
     )
     result = _attach_pre_augmentation_replay(result, replay_stages)
+    result._dagml_chart_aug_snapshots = chart_snapshots
     if capture is not None:
         capture.update(
             scores=outcome["scores"], results=outcome["results"], identity=identity,
