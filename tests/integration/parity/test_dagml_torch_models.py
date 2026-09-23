@@ -10,6 +10,42 @@ pytest.importorskip("dag_ml")
 torch = pytest.importorskip("torch")
 
 
+@pytest.mark.torch
+@pytest.mark.parity
+def test_legacy_torch_optimizer_mapping_is_stable_across_cv_folds(tmp_path, monkeypatch) -> None:
+    """The configured optimizer remains the same on every legacy CV fold."""
+    import nirs4all
+    from nirs4all.operators.models.pytorch.nicon import customizable_decon
+
+    original_sgd = torch.optim.SGD
+    optimizer_calls = []
+
+    def tracked_sgd(parameters, **kwargs):
+        optimizer_calls.append(kwargs.copy())
+        return original_sgd(parameters, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "SGD", tracked_sgd)
+    rng = np.random.default_rng(23)
+    x = rng.uniform(0, 1, (10, 64)).astype(np.float32)
+    y = rng.uniform(0, 1, (10, 1)).astype(np.float32)
+    pipeline = [
+        KFold(2),
+        {"model": customizable_decon, "train_params": {
+            "epochs": 1, "batch_size": 5,
+            "optimizer": {"type": "SGD", "lr": 0.001, "momentum": 0.2},
+        }},
+    ]
+
+    result = nirs4all.run(
+        pipeline, (x, y), engine="legacy", workspace_path=tmp_path / "legacy-sgd",
+        save_charts=False, save_artifacts=False, verbose=0,
+    )
+    assert np.isfinite(result.cv_best_score)
+    assert len(optimizer_calls) >= 2
+    assert all(call == {"lr": 0.001, "momentum": 0.2} for call in optimizer_calls)
+    result.close()
+
+
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.torch
 @pytest.mark.parity

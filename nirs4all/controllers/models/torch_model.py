@@ -215,9 +215,12 @@ class PyTorchModelController(BaseModelController):
             optimizer_class = getattr(optim, optimizer_config)
             optimizer = optimizer_class(model.parameters(), lr=lr)
         elif isinstance(optimizer_config, dict):
-            opt_type = optimizer_config.pop('type', 'Adam')
+            # A pipeline can reuse one train_params mapping across CV folds.
+            # Consuming its type would silently switch later folds to Adam.
+            optimizer_options = optimizer_config.copy()
+            opt_type = optimizer_options.pop('type', 'Adam')
             optimizer_class = getattr(optim, opt_type)
-            optimizer = optimizer_class(model.parameters(), **optimizer_config)
+            optimizer = optimizer_class(model.parameters(), **optimizer_options)
         else:
             optimizer = optimizer_config
 
