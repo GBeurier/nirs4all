@@ -129,11 +129,10 @@ def test_dagml_refusals_map_to_stable_rt_error_causes() -> None:
 
 def test_unsupported_operator_refusal_maps_to_unsupported_shape() -> None:
     """A dag-ml-only unsupported operator raises the catchable backend error and maps through ``RtError``."""
-    from nirs4all.operators.transforms.resampler import Resampler
     from nirs4all.pipeline.dagml.steps import _assert_supported_operators
 
-    with pytest.raises(DagMlUnsupported, match="wavelength") as excinfo:
-        _assert_supported_operators([Resampler(target_wavelengths=[1.0, 2.0, 3.0])])
+    with pytest.raises(DagMlUnsupported, match="custom controller") as excinfo:
+        _assert_supported_operators([object()])
 
     error = RtError.from_dagml_error(excinfo.value, verb="run")
     assert error.cause == "unsupported_shape"

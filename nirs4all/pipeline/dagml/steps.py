@@ -215,7 +215,7 @@ def _nested_x_operators(step: dict[str, Any]) -> list[Any]:
 
     Unhandled shapes (a generator dict, a ``name``/``source_processing`` selector, an empty/None config)
     are left to the bridge's own fail-loud lowering; this only extracts the transform instances (at every
-    nesting level) so a wavelength-requiring or non-reconstructible op nested among them is caught up front.
+    nesting level) so a non-reconstructible op nested among them is caught up front.
     """
     if "concat_transform" in step:
         config = step["concat_transform"]
@@ -237,7 +237,6 @@ def _assert_supported_operators(steps: list[Any]) -> None:
     not a coverage gap). For each it converts the recognizable unsupported shapes to
     :class:`DagMlUnsupported` so :func:`run.run`'s fallback redirects them to the legacy engine:
 
-    * a wavelength-requiring operator (:func:`_needs_wavelength_injection`); and
     * a NON-sklearn / non-reconstructible custom operator (:func:`_is_routable_transform` is false) — the
       dag-ml X-chain has no controller for it, or the runtime cannot rebuild it faithfully.
 
@@ -272,7 +271,7 @@ def _supported_body_steps(steps: list[Any]) -> list[Any]:
 
     The single chokepoint every branch body / sub-pipeline / leaf lowerer routes its operator steps
     through, so the top-level guarantees hold uniformly: a ``None`` (identity no-op) is dropped everywhere
-    legacy skips it (NOT lowered to a ``builtins.NoneType`` node), and a wavelength-requiring or
+    legacy skips it (NOT lowered to a ``builtins.NoneType`` node), and a
     non-reconstructible transform anywhere raises a catchable :class:`DagMlUnsupported`. Returns the
     cleaned (``None``-free) step list the caller lowers.
     """
