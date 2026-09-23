@@ -10,7 +10,7 @@
     "fallback": "Catch-all router with no independent pipeline capability."
   },
   "controllers": {
-    "AutoGluonModelController": {"route": "gap", "coverage": "none", "evidence": [], "limit": "No public DAG-ML AutoGluon oracle; optional dependency and predictor path unverified."},
+    "AutoGluonModelController": {"route": "host_operator", "coverage": "partial", "evidence": ["tests/integration/parity/test_dagml_autogluon_model.py"], "ordered_combinations": ["KFold -> AutoGluon config -> native refit -> host archive replay"], "limit": "Public legacy/DAG protocol oracle uses a directory-backed TabularPredictor double because native AutoGluon is not installed. Real AutoGluon training, classification and archives over the general host-artifact 512 MiB cap remain unverified."},
     "AutoTransferPreprocessingController": {"route": "host_preparation", "coverage": "public", "evidence": ["tests/integration/parity/test_auto_transfer_preproc.py"], "ordered_combinations": ["feature_augmentation -> auto_transfer_preproc -> model", "sample_augmentation -> auto_transfer_preproc -> model"]},
     "AugmentationChartController": {"route": "host_presentation", "coverage": "partial", "evidence": ["tests/integration/parity/test_dagml_cli_runner.py"], "limit": "Chart presentation is a host projection; individual chart-option parity remains to audit."},
     "BranchController": {"route": "native_graph", "coverage": "public", "evidence": ["tests/integration/parity/test_branch_followups.py", "tests/integration/parity/test_dagml_cli_runner.py"], "ordered_combinations": ["branch -> merge -> model", "branch by_source -> model -> merge", "branch by_metadata -> model -> merge"]},
