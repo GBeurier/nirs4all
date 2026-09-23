@@ -523,10 +523,10 @@ def test_multiclass_named_probability_fold_aggregation_scores_and_replays(tmp_pa
         score_set = persisted["score_set"]["reports"]
         first_oof = next(report for report in score_set if report["producer_node"] == "merge:stack"
                          and report["partition"] == "validation" and report["fold_id"] == "avg")
-        # The old scalar-score path treated the first class probability as a label
-        # and reported about 0.28-0.31; the three-class argmax gives 11/24.
-        assert first_oof["metrics"]["accuracy"] == pytest.approx(11 / 24)
-        assert first_oof["metrics"]["balanced_accuracy"] == pytest.approx(11 / 24)
+        # The meta learner consumes the legacy-selected class probability from
+        # each base model. Native scoring still evaluates its class labels.
+        assert first_oof["metrics"]["accuracy"] == pytest.approx(29 / 72)
+        assert first_oof["metrics"]["balanced_accuracy"] == pytest.approx(29 / 72)
         if mechanism == "pyo3":
             distributions = [
                 block for result in native._dagml_node_results
