@@ -53,3 +53,26 @@ def test_torch_validation_score_keeps_targets_separate() -> None:
 
     actual = controller._evaluate_model(model, X, y, metric="r2")
     assert actual == pytest.approx(-0.2)
+
+
+@pytest.mark.torch
+def test_torch_optimizer_mapping_keeps_its_type_across_folds(monkeypatch) -> None:
+    torch = pytest.importorskip("torch")
+    controller = PyTorchModelController()
+    original_sgd = torch.optim.SGD
+    optimizer_calls = []
+
+    def tracked_sgd(parameters, **kwargs):
+        optimizer_calls.append(kwargs.copy())
+        return original_sgd(parameters, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "SGD", tracked_sgd)
+    optimizer = {"type": "SGD", "lr": 0.01, "momentum": 0.25}
+    x = torch.arange(8, dtype=torch.float32).reshape(4, 2)
+    y = torch.arange(4, dtype=torch.float32).reshape(4, 1)
+
+    for _ in range(2):
+        controller._train_model(torch.nn.Linear(2, 1), x, y, epochs=1, batch_size=2, optimizer=optimizer)
+
+    assert optimizer_calls == [{"lr": 0.01, "momentum": 0.25}] * 2
+    assert optimizer == {"type": "SGD", "lr": 0.01, "momentum": 0.25}
