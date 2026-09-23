@@ -171,6 +171,14 @@ def run_full_train(
         for binding in dsl["data_bindings"]:
             if binding["node_id"] in model_ids[:base_fit_model_count]:
                 binding["view_policy"] = {"include_augmented_train": False}
+    if augmented_train:
+        # The native policy explicitly attests that REFIT's training
+        # resubstitution may score synthetic children. Earlier checkpoints
+        # retain their base-only view and cannot emit child predictions.
+        model_id_set = {model["id"] for model in models}
+        for binding in dsl["data_bindings"]:
+            if binding["node_id"] in model_id_set and binding.get("view_policy", {}).get("include_augmented_train", True):
+                binding.setdefault("view_policy", {})["include_augmented_refit_predictions"] = True
     model_names = [_model_name([step]) for step in steps if isinstance(step, dict) and "model" in step]
     projection_ids = [model["id"] for model in models] if base_fit_model_count else model_id
     projection_names = model_names if base_fit_model_count else _model_name(steps)

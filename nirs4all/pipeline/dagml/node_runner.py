@@ -1476,12 +1476,18 @@ def run_model_node(
     # (non-branch) model reaches no merge node — its `(test, None)` block is read straight back by
     # `_scores_to_run_result` for best_rmse, exactly like the prior `(test, "final")` block.
     #
-    # Training measurements use the view's BASE ids: synthetic children influence fitting but do not
-    # become scored samples. The training scope permits resolving those base ids after augmentation;
-    # validation/OOF, held-out TEST, and PREDICT remain non-fit holdout views.
+    # REFIT training resubstitution can include synthetic children only when
+    # its native fit view explicitly opts in. Validation/OOF, held-out TEST,
+    # and PREDICT remain non-fit holdout views.
     predict_is_train = phase == "REFIT"  # REFIT predict_ids == full_train (training rows); FIT_CV/PREDICT are holdout
+    score_augmented_refit = (
+        phase == "REFIT"
+        and include_augmented_fit
+        and bool((fit_view or {}).get("extra", {}).get("include_augmented_refit_predictions"))
+    )
+    final_ids = fit_ids if phase == "REFIT" and score_augmented_refit else predict_ids
     specs: list[tuple[list[str], str, str | None, bool]] = [
-        (predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
+        (final_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
     ]
     if phase == "FIT_CV" and train_ids:
         specs.append((train_ids, "train", task.get("fold_id"), True))
@@ -1516,7 +1522,7 @@ def run_model_node(
         # MULTI-TARGET (S0): resolve_targets returns list-of-rows (n, n_targets); _predict already builds
         # 2D rows, so both blocks widen to k columns and carry per-target names (rmse:y0/rmse:y1 keys +
         # macro-mean). SINGLE-TARGET stays a flat list → [[v]] rows + ["y"] (BYTE-IDENTICAL legacy emit).
-        target_block = resolver.resolve_targets(spec_ids)
+        target_block = resolver.resolve_targets(resolver.target_sample_ids(spec_ids))
         true_y = target_block["values"]
         multi_target = bool(true_y) and isinstance(true_y[0], list)
         names = [f"y{i}" for i in range(len(true_y[0]))] if multi_target else ["y"]

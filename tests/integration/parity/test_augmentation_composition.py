@@ -319,3 +319,76 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
     finally:
         native.close()
         legacy.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("interleaving", [
+    "x_transform", "exclude_before", "exclude_after", "two_augmentations", "y_transform",
+])
+def test_unsplit_interleaved_augmentation_checkpoints_match_legacy(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, interleaving: str,
+) -> None:
+    """Unsplit checkpoints keep independent full-train cohorts and native archives."""
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    def augmentation(seed: int) -> dict:
+        return {"sample_augmentation": {
+            "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+            "count": 1, "selection": "all", "random_state": seed,
+        }}
+
+    exclusion = {"exclude": YOutlierFilter(method="iqr", threshold=1.0)}
+    middle = {
+        "x_transform": [StandardScaler(), augmentation(42)],
+        "exclude_before": [exclusion, augmentation(42)],
+        "exclude_after": [augmentation(42), exclusion],
+        "two_augmentations": [augmentation(42), StandardScaler(), augmentation(43)],
+        "y_transform": [{"y_processing": StandardScaler()}, augmentation(42)],
+    }[interleaving]
+    pipeline = [{"model": PLSRegression(n_components=3)}, *middle, {"model": Ridge()}]
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", allow_fallback=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
+    with pytest.warns(NoSplitEvaluationWarning):
+        native = nirs4all.run(pipeline, path, engine="dag-ml", allow_fallback=False,
+                              workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0)
+    try:
+        assert native.get_models() == legacy.get_models() == ["PLSRegression", "Ridge"]
+        native_rows = native.predictions.filter_predictions()
+        legacy_rows = legacy.predictions.filter_predictions()
+        assert len(native_rows) == len(legacy_rows) == 6
+        assert len(native._dagml_checkpoint_score_sets) == 2
+        for model_name in native.get_models():
+            for partition in ("train", "test"):
+                legacy_row = next(row for row in legacy_rows if row["model_name"] == model_name and row["partition"] == partition)
+                native_row = next(row for row in native_rows if row["model_name"] == model_name and row["partition"] == partition)
+                assert native_row["n_samples"] == legacy_row["n_samples"]
+                assert len(native_row["y_pred"]) == len(legacy_row["y_pred"])
+                if partition == "train":
+                    np.testing.assert_allclose(
+                        np.asarray(native_row["y_pred"]).ravel(), np.asarray(legacy_row["y_pred"]).ravel(),
+                        rtol=1e-4, atol=2e-3,
+                    )
+                if partition == "test":
+                    assert list(native_row["sample_indices"]) == list(legacy_row["sample_indices"])
+                    np.testing.assert_allclose(
+                        np.asarray(native_row["y_pred"]).ravel(), np.asarray(legacy_row["y_pred"]).ravel(),
+                        rtol=1e-4, atol=2e-3,
+                    )
+                    assert native_row["test_score"] == pytest.approx(legacy_row["test_score"], abs=1e-4)
+        archive = tmp_path / "unsplit_interleaved_checkpoints.n4a"
+        native.export(archive)
+        dataset = DatasetConfigs(path).get_dataset_at(0)
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        replay = nirs4all.predict(archive, x_test)
+        selected = native.best_final
+        assert selected["partition"] == "test"
+        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(selected["y_pred"]).ravel(), atol=1e-3)
+    finally:
+        native.close()
+        legacy.close()
