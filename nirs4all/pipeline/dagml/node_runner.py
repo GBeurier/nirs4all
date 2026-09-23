@@ -47,23 +47,36 @@ _PREDICTION_PARTITION = {"FIT_CV": "validation", "REFIT": "final", "PREDICT": "f
 
 
 class _DagmlSelectedFoldEstimator:
-    """Host estimator container whose chosen fold is selected by DAG-ML scores."""
+    """Host estimator container using fold choices or weights computed by DAG-ML."""
 
-    def __init__(self, fold_estimators: dict[str, Any], selected_fold: str) -> None:
-        if selected_fold not in fold_estimators:
+    def __init__(self, fold_estimators: dict[str, Any], selected_fold: str | None = None,
+                 weights: dict[str, float] | None = None) -> None:
+        if selected_fold is not None and selected_fold not in fold_estimators:
             raise ValueError(f"selected stacking fold {selected_fold!r} has no captured estimator")
+        if (selected_fold is None) == (weights is None):
+            raise ValueError("stacking fold replay requires exactly one choice or weight vector")
+        if weights is not None and (set(weights) != set(fold_estimators) or not np.isclose(sum(weights.values()), 1.0)):
+            raise ValueError("stacking fold replay weights must cover every captured fold and sum to one")
         self.fold_estimators = dict(fold_estimators)
         self.selected_fold = selected_fold
+        self.weights = dict(weights) if weights is not None else None
+
+    def _predict(self, method: str, X: Any, kwargs: dict[str, Any]) -> Any:
+        if self.selected_fold is not None:
+            return getattr(self.fold_estimators[self.selected_fold], method)(X, **kwargs)
+        assert self.weights is not None
+        return sum(float(weight) * np.asarray(getattr(self.fold_estimators[fold], method)(X, **kwargs), dtype=float)
+                   for fold, weight in self.weights.items())
 
     def predict(self, X: Any, **kwargs: Any) -> Any:
-        return self.fold_estimators[self.selected_fold].predict(X, **kwargs)
+        return self._predict("predict", X, kwargs)
 
     def predict_proba(self, X: Any, **kwargs: Any) -> Any:
-        return self.fold_estimators[self.selected_fold].predict_proba(X, **kwargs)
+        return self._predict("predict_proba", X, kwargs)
 
     @property
     def classes_(self) -> Any:
-        return self.fold_estimators[self.selected_fold].classes_
+        return self.fold_estimators[self.selected_fold or next(iter(self.fold_estimators))].classes_
 
 
 class _FrozenTransform(TransformerMixin, BaseEstimator):

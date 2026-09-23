@@ -138,7 +138,7 @@ def test_multiple_probability_sources_feed_native_metamodel(mechanism, source_mo
 
 
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
-@pytest.mark.parametrize("test_aggregation", [FoldAggregation.MEAN, FoldAggregation.BEST_FOLD])
+@pytest.mark.parametrize("test_aggregation", [FoldAggregation.MEAN, FoldAggregation.BEST_FOLD, FoldAggregation.WEIGHTED_MEAN])
 def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, test_aggregation, monkeypatch):
     import nirs4all
 
