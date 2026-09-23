@@ -86,13 +86,27 @@ def test_residual_learner_train_params_reach_native_fit(tmp_path, monkeypatch) -
     native.close()
 
 
-@pytest.mark.torch
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_residual_torch_learner_train_params_refit_and_replay(tmp_path, monkeypatch, mechanism: str) -> None:
+@pytest.mark.parametrize("framework,feature_count", [
+    pytest.param("pytorch", 64, marks=pytest.mark.torch),
+    pytest.param("tensorflow", 128, marks=pytest.mark.tensorflow),
+    pytest.param("jax", 64, marks=pytest.mark.jax),
+])
+def test_residual_framework_learner_train_params_refit_and_replay(
+    tmp_path, monkeypatch, mechanism: str, framework: str, feature_count: int,
+) -> None:
     """A framework learner uses the ordinary DAG host adapter inside a residual graph."""
-    pytest.importorskip("torch")
-    from nirs4all.operators.models.pytorch.nicon import customizable_decon
+    import importlib
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    if framework == "jax":
+        monkeypatch.setenv("JAX_PLATFORM_NAME", "cpu")
+        pytest.importorskip("flax")
+    pytest.importorskip(framework if framework != "pytorch" else "torch")
+    customizable_decon = importlib.import_module(
+        f"nirs4all.operators.models.{framework}.nicon"
+    ).customizable_decon
 
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
@@ -103,7 +117,7 @@ def test_residual_torch_learner_train_params_refit_and_replay(tmp_path, monkeypa
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
     rng = np.random.default_rng(12)
-    x = rng.uniform(0, 1, (16, 64)).astype(np.float32)
+    x = rng.uniform(0, 1, (16, feature_count)).astype(np.float32)
     y = rng.uniform(0, 1, (16, 1)).astype(np.float32)
     dataset = tmp_path / "data"
     dataset.mkdir()
@@ -138,7 +152,7 @@ def test_residual_torch_learner_train_params_refit_and_replay(tmp_path, monkeypa
             np.asarray(artifacts["controller:nirs4all.model"].predict(features)).ravel()
             + np.asarray(learner.predict(features)).ravel()
         )
-        archive = native.export(tmp_path / "residual_torch.n4a")
+        archive = native.export(tmp_path / f"residual_{framework}.n4a")
         np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, features).y_pred).ravel(), expected, atol=1e-5)
     finally:
         native.close()
