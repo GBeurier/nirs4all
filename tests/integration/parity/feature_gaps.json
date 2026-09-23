@@ -6,7 +6,8 @@
     {"id": "tensorflow_custom_callbacks_cyclic_lr", "reason": "DAG-ML preflight rejects these controls; confirm the corresponding public legacy executions."},
     {"id": "native_methods_tuning", "reason": "Check legacy n4m tuning against DAG-ML host tuning with the same model and search space."},
     {"id": "optuna_pruner_parallel_phases_storage", "reason": "Legacy paths exist and DAG-ML rejects several controls; reproduce each public legacy contract and its native outcome."},
-    {"id": "tf_jax_cli_export", "reason": "Current public framework tests do not force the CLI process and archive replay for each backend."}
+    {"id": "tf_jax_cli_export", "reason": "Current public framework tests do not force the CLI process and archive replay for each backend."},
+    {"id": "by_source_generator_archive_semantics", "reason": "DAG-ML correctly refuses .n4a export of independent source-model outputs without a replayable fusion contract. Legacy writes an archive, but predicting on concatenated raw X gives first values 193.4067, 200.9121, 202.2472 on the two_source_distinct fixture; no source-fusion prediction oracle validates this replay. Define and test the intended merge/predict semantics before enabling export."}
   ],
   "documented_divergences": [
     {"id": "legacy_standard_scaler_operator_sweep_cv", "classification": "legacy globally fits preprocessing before CV", "pipeline": "[{'_or_': [StandardScaler(), MinMaxScaler()]}, KFold(2), Ridge(alpha=0.5)] on seeded 16x8 regression data", "legacy_cv_rmse": 0.183226613977017, "dagml_cv_rmse": 0.2787145504835322, "sklearn_fold_local_cv_rmse": 0.278715512091863, "sklearn_global_scale_cv_rmse": 0.18322674785759285, "evidence": "test_dagml_model_controls.py:test_operator_sweep_without_refit_keeps_all_cv_variants; direct sklearn fold-local vs full-pool StandardScaler oracles", "scope": "DAG-ML matches fold-local CV and has the same score with refit=True. Legacy globally fits StandardScaler on validation samples before each model's CV, yielding a different score."}
@@ -14,7 +15,6 @@
   "gaps": [
     {"id": "multisource_fitted_fit_on_all", "priority": "P1", "legacy": "fit_on_all=True fits a learned transform independently for each source", "dagml": "the host has not yet captured per-source transform artifacts for fused model replay", "evidence": "tests/integration/parity/test_dagml_full_train_augmentation.py:fit_on_all parity; multi-source follow-up"},
     {"id": "exclude_then_metadata_branch", "priority": "P1", "legacy": "exclude then by_metadata branch and concat merge runs", "dagml": "raw branch/exclusion composition refused", "evidence": "detect.py:_detect_separation_branch"},
-    {"id": "by_source_nested_generator", "priority": "P1", "legacy": "_or_ inside a by_source branch runs", "dagml": "KeyError 'class' while canonicalizing the generator DSL", "evidence": "test_separation_branch_generators.py:test_by_source_with_or_generator; run_paths.py:_canonical_branch_step"},
     {"id": "cli_full_train", "priority": "P2", "legacy": "pipeline without splitter runs", "dagml": "forced CLI mechanism requires in-process phase API", "evidence": "test_dagml_cli_runner.py:test_no_splitter_uses_explicit_full_training_without_fabricated_cv"},
     {"id": "cli_by_source_fusion", "priority": "P2", "legacy": "by_source fusion runs", "dagml": "forced CLI coordinator rejects CV+refit bundle", "evidence": "test_dagml_native_n4a_bundle.py:test_by_source_fusion_n4a_export_never_refits_on_legacy"}
   ]

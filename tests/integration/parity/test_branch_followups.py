@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from collections import defaultdict
 
 import numpy as np
 import pytest
@@ -10,6 +11,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
@@ -19,7 +21,7 @@ from nirs4all.pipeline.dagml.run_paths import _reshape_for_rep_fusion
 from tests.integration.pipeline.test_separation_branch_generators import create_dataset_with_metadata
 
 from ._datasets import dataset_path
-from .test_dagml_cli_runner import _equal_rep_dataset
+from .test_dagml_cli_runner import _equal_rep_dataset, _two_source_distinct_dataset
 
 
 def test_metadata_model_branches_without_merge_keep_partition_predictions() -> None:
@@ -148,3 +150,73 @@ def test_rep_to_sources_by_source_matches_per_source_oracle() -> None:
         ids = sorted(predictions)
         oracle = float(np.sqrt(mean_squared_error([targets[sample] for sample in ids], [predictions[sample] for sample in ids])))
         assert native_avg[f"source_{source_index}"]["val_score"] == pytest.approx(oracle, abs=1e-9)
+
+
+@pytest.mark.parametrize("generate_second_source", [False, True])
+def test_by_source_operator_generator_matches_per_source_oracle(generate_second_source: bool) -> None:
+    """Independent operator choices must score the intended source-local fits."""
+    splitter = ShuffleSplit(n_splits=2, random_state=42)
+    dataset = _two_source_distinct_dataset()
+    pipeline = [
+        {"y_processing": MinMaxScaler()},
+        splitter,
+        {"branch": {"by_source": True, "steps": {
+            "source_0": [{"_or_": [StandardScaler(), MinMaxScaler()]}, PLSRegression(5)],
+            "source_1": (
+                [{"_or_": [StandardScaler(), MinMaxScaler()]}, PLSRegression(5)]
+                if generate_second_source else [StandardScaler(), PLSRegression(5)]
+            ),
+        }}},
+        {"merge": {"sources": "concat"}},
+    ]
+    legacy = nirs4all.run(pipeline, _two_source_distinct_dataset(), engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert legacy.num_predictions > 0
+
+    pool = dataset.index_column("sample", {"partition": "train"})
+    targets = dict(zip(pool, np.asarray(dataset.y({"partition": "train"})).ravel(), strict=True))
+    folds = _build_folds(splitter, dataset, pool, set())
+
+    def oracle(source_index: int, scaler: StandardScaler | MinMaxScaler) -> float:
+        predictions: dict[int, list[float]] = defaultdict(list)
+        for train, validation in folds:
+            train_x = np.asarray(dataset.x_rows(train, layout="2d", concat_source=False)[source_index])
+            validation_x = np.asarray(dataset.x_rows(validation, layout="2d", concat_source=False)[source_index])
+            model = make_pipeline(scaler, PLSRegression(5)).fit(train_x, [targets[sample] for sample in train])
+            for sample, prediction in zip(validation, model.predict(validation_x).ravel(), strict=True):
+                predictions[sample].append(float(prediction))
+        samples = sorted(predictions)
+        return float(np.sqrt(mean_squared_error(
+            [targets[sample] for sample in samples],
+            [np.mean(predictions[sample]) for sample in samples],
+        )))
+
+    expected_source_0 = sorted([oracle(0, StandardScaler()), oracle(0, MinMaxScaler())])
+    expected_source_1 = sorted([oracle(1, StandardScaler()), oracle(1, MinMaxScaler())]) if generate_second_source else [oracle(1, StandardScaler())]
+    averages: dict[str, dict[str, float]] = defaultdict(dict)
+    for row in native.predictions.filter_predictions(load_arrays=True):
+        if row["partition"] != "val" or row["fold_id"] != "avg":
+            continue
+        assert len(row["y_pred"]) > 0, "every variant must retain every source's OOF predictions"
+        variant_id = row["result_metadata"]["dagml_projection"]["variant_id"]
+        averages[variant_id][row["branch_name"]] = row["val_score"]
+    assert len(averages) == (4 if generate_second_source else 2)
+    assert all(set(branches) == {"source_0", "source_1"} for branches in averages.values())
+    assert sorted(branches["source_0"] for branches in averages.values()) == pytest.approx(sorted(expected_source_0 * len(expected_source_1)), abs=1e-9)
+    assert sorted(branches["source_1"] for branches in averages.values()) == pytest.approx(sorted(expected_source_1 * 2), abs=1e-9)
+    expected_selected = min(
+        np.sqrt((left * left + right * right) / 2)
+        for left in expected_source_0 for right in expected_source_1
+    )
+    candidate_scores = {
+        variant_id: float(np.sqrt((branches["source_0"] ** 2 + branches["source_1"] ** 2) / 2))
+        for variant_id, branches in averages.items()
+    }
+    final_variants = {
+        row["result_metadata"]["dagml_projection"]["variant_id"]
+        for row in native.predictions.filter_predictions(load_arrays=True)
+        if row["fold_id"] == "final"
+    }
+    assert len(final_variants) == 1
+    assert candidate_scores[final_variants.pop()] == pytest.approx(expected_selected, abs=1e-9)
+    assert native.cv_best_score == pytest.approx(min(min(branches.values()) for branches in averages.values()), abs=1e-9)

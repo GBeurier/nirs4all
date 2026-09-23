@@ -2030,7 +2030,7 @@ def _branch_fusion_model_step(branches: list[list[Any]], aggregate: str, task_ty
     return {"model": DuplicationFusionEstimator(lowered.branches)}
 
 
-def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[str, Any]:
+def _canonical_source_branch(branch_body: list[Any], source_index: int, *, force_generator: bool = False) -> dict[str, Any]:
     """Lower the shared by_source body to a canonical branch BOUND to one source (S4).
 
     Same lowering as :func:`_canonical_branch` (the shared model sub-pipeline, unique node ids per
@@ -2039,10 +2039,56 @@ def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[
     (one branch per source), so a fold view stays full-sample (all branches see all samples) while
     each branch's model sees a different source's columns.
     """
-    branch = _canonical_branch(branch_body, source_index)
-    for node in branch["steps"]:
-        if node["kind"] == "model":
-            node["metadata"] = {**node.get("metadata", {}), "source_index": source_index}
+    steps = _supported_body_steps([step for step in branch_body if not _is_split_step(step)])
+    branch: dict[str, Any]
+    generator_indices = [index for index, step in enumerate(steps) if isinstance(step, dict) and "_or_" in step]
+    if generator_indices:
+        if len(generator_indices) != 1:
+            raise DagMlUnsupported("by_source supports one _or_ operator generator per source branch")
+        generator_index = generator_indices[0]
+        generator = steps[generator_index]
+        if set(generator) != {"_or_"} or not isinstance(generator["_or_"], list) or not generator["_or_"]:
+            raise DagMlUnsupported("by_source operator generation requires a bare nonempty _or_ list")
+        choice_branches: list[dict[str, Any]] = [
+            {"id": f"choice_{choice_index}", "steps": [_canonical_branch_step(choice, f"source:{source_index}.choice:{choice_index}")]}
+            for choice_index, choice in enumerate(generator["_or_"])
+        ]
+        if any(choice["steps"][0]["kind"] != "transform" for choice in choice_branches):
+            raise DagMlUnsupported("by_source _or_ choices must be X transforms")
+        tail = [
+            _canonical_branch_step(step, f"source:{source_index}.tail:{index}")
+            for index, step in enumerate(steps[generator_index + 1:])
+        ]
+        if not tail or tail[-1]["kind"] != "model":
+            raise DagMlUnsupported("by_source _or_ must be followed by a branch-local model")
+        prefix = [
+            _canonical_branch_step(step, f"source:{source_index}.prefix:{index}")
+            for index, step in enumerate(steps[:generator_index])
+        ]
+        branch = {"id": f"branch_{source_index}", "steps": [*prefix, {
+            "kind": "generator", "id": f"generator:source_{source_index}", "mode": "or",
+            "branches": choice_branches, "tail": tail,
+        }]}
+    else:
+        branch = _canonical_branch(steps, source_index)
+        if force_generator:
+            # A one-choice generator makes the static source an explicit member
+            # of the same native Cartesian SELECT as the generated source.
+            branch["steps"] = [{
+                "kind": "generator", "id": f"generator:source_{source_index}",
+                "mode": "or", "branches": [{"id": "only", "steps": branch["steps"]}],
+            }]
+
+    def bind_source(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            if node["kind"] == "model":
+                node["metadata"] = {**node.get("metadata", {}), "source_index": source_index}
+            elif node["kind"] == "generator":
+                bind_source(node.get("tail", []))
+                for choice in node["branches"]:
+                    bind_source(choice["steps"])
+
+    bind_source(branch["steps"])
     return branch
 
 
@@ -3477,15 +3523,23 @@ def _run_by_source_auto_models(
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
-    branches = [_canonical_source_branch([*y_steps, *source_bodies[name]], index) for index, name in enumerate(names)]
+    has_operator_generator = any(
+        isinstance(step, dict) and "_or_" in step
+        for body in source_bodies.values() for step in body
+    )
+    branches = [
+        _canonical_source_branch([*y_steps, *source_bodies[name]], index, force_generator=has_operator_generator)
+        for index, name in enumerate(names)
+    ]
     canonical_dsl: dict[str, Any] = {
         "id": "nirs4all-by-source-auto-models",
         "steps": [{"kind": "branch", "mode": "duplication", "branches": branches}],
     }
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
-    model_ids = [next(node["id"] for node in branch["steps"] if node["kind"] == "model") for branch in branches]
+    model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
+    model_ids = [node["id"] for node in model_nodes]
     compiled_model_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
-    if len(compiled_model_ids) != n_sources or set(model_ids) != compiled_model_ids:
+    if len(compiled_model_ids) < n_sources or len(model_ids) != len(compiled_model_ids):
         raise DagMlUnsupported(f"by_source auto model compile produced {compiled_model_ids!r}, expected {model_ids!r}")
     canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
@@ -3497,19 +3551,37 @@ def _run_by_source_auto_models(
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml by_source auto model run failed")
+    winner_variant_id = next(
+        (
+            report.get("variant_id")
+            for report in (outcome["scores"] or {}).get("reports", [])
+            if report.get("partition") == "final" and report.get("fold_id") is None
+        ),
+        None,
+    )
+    results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
     predictions = Predictions()
-    for index, (name, model_id) in enumerate(zip(names, model_ids, strict=True)):
+    for node in model_nodes:
+        model_id = node["id"]
+        index = (node.get("metadata") or {}).get("source_index")
+        if not isinstance(index, int) or not 0 <= index < n_sources:
+            raise DagMlUnsupported(f"by_source model {model_id!r} has no valid native source_index")
+        name = names[index]
         local = _scores_to_run_result(
             outcome["scores"], spectro.name, _model_name(source_bodies[name]), metric,
             task_type, producer=model_id, config_name=config_name,
-            results=outcome["results"], identity=identity,
+            results_by_variant=results_by_variant, identity=identity,
         )
         for row in local.predictions.filter_predictions(load_arrays=True):
             row["branch_id"] = index
             row["branch_name"] = name
             predictions.extend_from_list([row])
     predictions.flush()
-    return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    result._dagml_score_set = outcome["scores"]  # noqa: SLF001
+    result._dagml_node_results = outcome["results"]  # noqa: SLF001
+    result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    return result
 
 
 def _run_by_source_stacking_branch(
