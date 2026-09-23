@@ -1643,6 +1643,20 @@ def _run_augmentation_full_train(
     from .full_train import run_full_train
 
     aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
+    from .detect import _is_exclude_step
+
+    pre_aug_steps = pipeline[:aug_indices[0]]
+    early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    if early_models and (
+        pre_aug_steps[-len(early_models):] != early_models
+        or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
+        or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
+    ):
+        return _run_interleaved_full_train_checkpoints(
+            pipeline, spectro, dataset_arg, cli, venv_python, run_dir,
+            metric=metric, task_type=task_type, config_name=config_name,
+            random_state=random_state, train_sample_ids=train_sample_ids,
+        )
     chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
     chart_transform_snapshots = {} if chart_snapshots is not None else None
     after_aug = aug_indices[-1] + 1
@@ -1686,6 +1700,87 @@ def _run_augmentation_full_train(
     result = _attach_pre_augmentation_replay(result, replay_stages)
     result._dagml_chart_aug_snapshots = chart_snapshots
     result._dagml_chart_transform_snapshots = chart_transform_snapshots
+    return result
+
+
+def _run_interleaved_full_train_checkpoints(
+    pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str,
+    venv_python: str, run_dir: Path, *, metric: str, task_type: str,
+    config_name: str, random_state: int | None,
+    train_sample_ids: list[int] | None,
+) -> RunResult:
+    """Project independent unsplit checkpoint campaigns into one public result."""
+    import inspect
+    import pickle
+
+    import dag_ml
+
+    from nirs4all.data.predictions import Predictions
+
+    from .full_train import run_full_train
+
+    model_indices = [index for index, step in enumerate(pipeline) if isinstance(step, dict) and "model" in step]
+    if len(model_indices) < 2:
+        raise DagMlUnsupported("interleaved full-training checkpoints require at least two models")
+    campaigns: list[RunResult] = []
+    for candidate_index, model_index in enumerate(model_indices):
+        candidate = [
+            step for index, step in enumerate(pipeline[:model_index + 1])
+            if index == model_index or not (isinstance(step, dict) and "model" in step)
+        ]
+        candidate_spectro = copy.deepcopy(spectro)
+        candidate_dir = run_dir / f"checkpoint{candidate_index}"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        if any(_is_augmentation_step(step) for step in candidate):
+            campaigns.append(_run_augmentation_full_train(
+                candidate, candidate_spectro, dataset_arg, cli, venv_python,
+                candidate_dir, metric=metric, task_type=task_type,
+                config_name=config_name, random_state=random_state,
+                train_sample_ids=train_sample_ids,
+            ))
+        else:
+            pickle_path = candidate_dir / "checkpoint_dataset.pkl"
+            pickle_path.write_bytes(pickle.dumps(candidate_spectro))
+            campaigns.append(run_full_train(
+                candidate, candidate_spectro, metric=metric, task_type=task_type,
+                config_name=config_name, cli=cli, venv_python=venv_python,
+                dataset_path=dataset_arg, dataset_pickle=str(pickle_path),
+                workdir=candidate_dir / "refit", random_state=random_state,
+                train_sample_ids=train_sample_ids,
+            ))
+
+    candidate_scores = []
+    for index, campaign in enumerate(campaigns):
+        reports = campaign._dagml_score_set["reports"]
+        test_report = next((report for report in reports if report["partition"] == "test" and report["level"] == "sample"), None)
+        fit_report = next((report for report in reports if report["partition"] == "final" and report["level"] == "sample"), None)
+        report = test_report or fit_report
+        if report is None:
+            raise ValueError("full-training checkpoint lacks a native score report")
+        candidate_scores.append({"candidate_id": str(index), "metrics": {metric: float(report["metrics"][metric])}})
+    decision = dag_ml.select_candidate(
+        {"id": "select:interleaved_full_train_checkpoints", "metric": {
+            "name": metric, "objective": "maximize" if is_higher_better(metric) else "minimize",
+        }},
+        candidate_scores,
+    )
+    selected_index = int(decision["selected_candidate_id"])
+    accepted_fields = set(inspect.signature(Predictions.add_prediction).parameters) - {"self"}
+    predictions = Predictions()
+    for campaign in campaigns:
+        for row in campaign.predictions.filter_predictions():
+            predictions.add_prediction(**{key: value for key, value in row.items() if key in accepted_fields})
+    predictions.flush()
+    selected = campaigns[selected_index]
+    result = RunResult(predictions=predictions, per_dataset=copy.deepcopy(selected.per_dataset))
+    result._dagml_score_set = selected._dagml_score_set
+    result._dagml_checkpoint_score_sets = [campaign._dagml_score_set for campaign in campaigns]
+    result._dagml_node_results = selected._dagml_node_results
+    result._dagml_refit_artifacts = selected._dagml_refit_artifacts
+    chart_source = next((campaign for campaign in reversed(campaigns) if hasattr(campaign, "_dagml_chart_aug_snapshots")), None)
+    if chart_source is not None:
+        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots
+        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots
     return result
 
 
