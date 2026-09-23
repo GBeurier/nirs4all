@@ -380,6 +380,13 @@ class BundleArtifactProvider(ArtifactProvider):
         filename = self.artifact_index[key]
 
         try:
+            from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, load_general_archive
+
+            if general_archive_manifest(self.bundle_path) is not None:
+                artifact = load_general_archive(self.bundle_path)["artifact"]["estimator"]
+                self._cache[key] = artifact
+                return artifact
+
             import io
 
             import joblib
