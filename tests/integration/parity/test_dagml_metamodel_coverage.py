@@ -119,3 +119,47 @@ def test_partial_oof_coverage_ratio_matches_legacy_gate_and_replays_archive(tmp_
         nirs4all.run(_pipeline(0.8), path, engine="dag-ml", allow_fallback=False,
                      workspace_path=tmp_path / "native_rejected", save_artifacts=False, save_charts=False, verbose=0)
     assert ("coverage ratio" if mechanism == "in_process" else "bundle capture failed") in str(rejected.value)
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("coverage_strategy", [CoverageStrategy.DROP_INCOMPLETE, CoverageStrategy.IMPUTE_MEAN])
+def test_no_split_opt_in_uses_training_only_native_oof_and_replays(tmp_path, monkeypatch, mechanism, coverage_strategy):
+    """Legacy's no-CV stack runs; DAG-ML evaluates through implicit train-only folds."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+
+    source = dataset_path("regression")
+    pipeline = [
+        Ridge(),
+        {"model": MetaModel(Ridge(), stacking_config=StackingConfig(
+            allow_no_cv=True, coverage_strategy=coverage_strategy, min_coverage_ratio=0.3,
+        ))},
+    ]
+    with nirs4all.run(pipeline, source, engine="legacy", refit=False,
+                      workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0) as legacy:
+        assert np.isfinite(legacy.cv_best_score)
+
+    with nirs4all.run(pipeline, source, engine="dag-ml", allow_fallback=False, refit=True,
+                      workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0) as native:
+        assert native.execution_engine == "dag-ml"
+        assert np.isfinite(native.cv_best_score)
+        dataset = DatasetConfigs(source).get_dataset_at(0)
+        train_ids = set(dataset.index_column("sample", {"partition": "train"}))
+        test_ids = set(dataset.index_column("sample", {"partition": "test"}))
+        validation = [row for row in native.predictions._buffer
+                      if row.get("model_name") == "MetaModel_Ridge" and row.get("partition") == "val"]
+        assert validation and train_ids.isdisjoint(test_ids)
+        assert all(set(row["sample_indices"]) <= train_ids for row in validation)
+        features = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        final = [row for row in native.predictions._buffer
+                 if row.get("model_name") == "MetaModel_Ridge" and row.get("partition") == "test"
+                 and row.get("fold_id") == "final"]
+        assert len(final) == 1
+        replay = np.asarray(nirs4all.predict(native.export(tmp_path / "no_split_meta.n4a"), features).y_pred).ravel()
+        np.testing.assert_allclose(replay, np.asarray(final[0]["y_pred"]).ravel(), rtol=1e-5, atol=3e-4)
