@@ -77,6 +77,7 @@ def run_residual_model(
     prefix = [step for step in pipeline[:-1] if not _is_split_step(step)]
     branch_positions = [index for index, step in enumerate(prefix) if isinstance(step, dict) and "branch" in step]
     source_concat = False
+    distinct_source_steps: dict[str, list[Any]] | None = None
     if branch_positions:
         from .detect import _duplication_branch_bodies, _selected_duplication_feature_branches, _simple_duplication_merge_mode
         from .run_paths import _branch_merge_transformer_step
@@ -85,10 +86,16 @@ def run_residual_model(
         if isinstance(branch, dict) and branch.get("by_source") in (True, "auto"):
             from .detect import _is_source_concat_merge_step
 
-            if len(prefix) != 2 or branch_positions != [0] or not _is_source_concat_merge_step(prefix[1]) or spectro.features_sources() < 2 or set(branch) != {"by_source", "steps"} or not isinstance(branch["steps"], list) or not branch["steps"]:
-                raise DagMlUnsupported("residual by_source prefix requires shared preprocessing and concat on multiple sources")
-            prefix = branch["steps"]
-            source_concat = True
+            if len(prefix) != 2 or branch_positions != [0] or not _is_source_concat_merge_step(prefix[1]) or spectro.features_sources() < 2 or set(branch) != {"by_source", "steps"}:
+                raise DagMlUnsupported("residual by_source prefix requires preprocessing and concat on multiple sources")
+            if isinstance(branch["steps"], list) and branch["steps"]:
+                prefix = branch["steps"]
+                source_concat = True
+            elif isinstance(branch["steps"], dict) and len(branch["steps"]) == spectro.features_sources():
+                distinct_source_steps = branch["steps"]
+                prefix = []
+            else:
+                raise DagMlUnsupported("residual by_source prefix needs shared or source-named preprocessing")
         else:
             if len(branch_positions) != 1 or branch_positions[0] + 1 >= len(prefix):
                 raise DagMlUnsupported("residual branch prefix requires one duplication branch and feature merge")
@@ -132,6 +139,11 @@ def run_residual_model(
     folds = _build_folds(splitter, spectro, pool, set())
     groups = _split_group_grain(splitter, spectro, pool)
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=groups)
+    source_preprocessing = None
+    if distinct_source_steps is not None:
+        from .run_paths import _source_preprocessing_metadata
+
+        source_preprocessing = _source_preprocessing_metadata(distinct_source_steps, (envelope.get("plan") or {}).get("source_layout"))
     base_id = "branch:0.node:0"
     learner_id = "model:residual.learner"
     fusion_id = f"{learner_id}.residual_fusion"
@@ -164,10 +176,13 @@ def run_residual_model(
         ],
     }
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
-    if source_concat:
+    if source_concat or source_preprocessing is not None:
         for node in graph["nodes"]:
             if node["kind"] == "model":
-                node["metadata"]["source_concat_x_chain"] = True
+                if source_concat:
+                    node["metadata"]["source_concat_x_chain"] = True
+                else:
+                    node["metadata"]["source_concat_preprocessing"] = source_preprocessing
     model_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
     if model_ids != {base_id, learner_id} or fusion_id not in {node["id"] for node in graph["nodes"]}:
         raise ValueError("residual graph did not compile to its declared base, learner and fusion nodes")
