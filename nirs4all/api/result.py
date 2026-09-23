@@ -1170,36 +1170,43 @@ def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Se
 
 def _native_multi_stacking_artifacts(
     native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]],
-) -> tuple[list[Mapping[str, Any]], Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]] | None:
-    """Resolve two attested REFIT stages without guessing the meta-feature order."""
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]], Mapping[str, Any]] | None:
+    """Resolve a linear chain of attested REFIT stages in exact dependency order."""
     replay = native_manifest.get("stacking_replay")
-    if not isinstance(replay, Mapping) or replay.get("schema_version") != 2 or replay.get("producer_node") != "merge:stack.level2":
+    if not isinstance(replay, Mapping) or replay.get("schema_version") != 2:
         return None
     stages = replay.get("stages")
-    if not isinstance(stages, list) or len(stages) != 2 or not all(isinstance(stage, Mapping) for stage in stages):
+    if not isinstance(stages, list) or len(stages) < 2 or not all(isinstance(stage, Mapping) for stage in stages):
         return None
-    first_stage, second_stage = stages
-    if first_stage.get("schema_version") != 1 or second_stage.get("producer_node") != "merge:stack.level2":
+    first_stage = stages[0]
+    if first_stage.get("schema_version") != 1 or replay.get("producer_node") != stages[-1].get("producer_node"):
         return None
     first = _native_stacking_artifacts({"stacking_replay": first_stage}, artifacts)
     if first is None:
         return None
     base_artifacts, first_meta = first
     by_id = {str(artifact.get("artifact_id")): artifact for artifact in artifacts if artifact.get("artifact_id") is not None}
-    if len(by_id) != len(artifacts) or len(artifacts) != len(base_artifacts) + 2:
+    if len(by_id) != len(artifacts) or len(artifacts) != len(base_artifacts) + len(stages):
         return None
-    second_id = second_stage.get("meta_artifact_id")
-    second_meta = by_id.get(str(second_id)) if second_id is not None else None
-    construction = second_stage.get("meta_feature_construction")
-    producers = second_stage.get("base_producers")
-    if (second_meta is None or second_meta is first_meta
-            or not isinstance(construction, Mapping) or construction.get("kind") != "base_prediction_column_stack"
-            or not isinstance(producers, list) or len(producers) != 1 or not isinstance(producers[0], Mapping)
-            or producers[0].get("producer_node") != _DAGML_STACKING_PRODUCER_NODE
-            or producers[0].get("artifact_id") != first_meta.get("artifact_id")
-            or {id(artifact) for artifact in [*base_artifacts, first_meta, second_meta]} != {id(artifact) for artifact in artifacts}):
+    meta_artifacts = [first_meta]
+    previous_node = _DAGML_STACKING_PRODUCER_NODE
+    for level, stage in enumerate(stages[1:], start=2):
+        meta_id = stage.get("meta_artifact_id")
+        meta = by_id.get(str(meta_id)) if meta_id is not None else None
+        construction = stage.get("meta_feature_construction")
+        producers = stage.get("base_producers")
+        if (meta is None or any(meta is existing for existing in meta_artifacts)
+                or stage.get("schema_version") != 1 or stage.get("producer_node") != f"merge:stack.level{level}"
+                or not isinstance(construction, Mapping) or construction.get("kind") != "base_prediction_column_stack"
+                or not isinstance(producers, list) or len(producers) != 1 or not isinstance(producers[0], Mapping)
+                or producers[0].get("producer_node") != previous_node
+                or producers[0].get("artifact_id") != meta_artifacts[-1].get("artifact_id")):
+            return None
+        meta_artifacts.append(meta)
+        previous_node = f"merge:stack.level{level}"
+    if {id(artifact) for artifact in [*base_artifacts, *meta_artifacts]} != {id(artifact) for artifact in artifacts}:
         return None
-    return base_artifacts, first_meta, second_meta, first_stage
+    return base_artifacts, meta_artifacts, first_stage
 
 
 @dataclass
@@ -2802,16 +2809,19 @@ class RunResult:
 
         multi_stacking = _native_multi_stacking_artifacts(native_manifest, artifacts)
         if multi_stacking is not None:
-            base_artifacts, first_meta_artifact, second_meta_artifact, first_stage = multi_stacking
+            base_artifacts, meta_artifacts, first_stage = multi_stacking
             base_members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in base_artifacts]
             if any(getattr(member.estimator, "multimodal_source_name", None) is not None for member in base_members):
                 return None
-            first_meta = _DagmlExportedModel(first_meta_artifact["estimator"], first_meta_artifact["y_transform"])
-            second_meta = _DagmlExportedModel(second_meta_artifact["estimator"], second_meta_artifact["y_transform"])
-            first_model = _DagmlNativeStackingModel(
-                base_members, first_meta, reduction_groups=cast(list[dict[str, Any]] | None, first_stage.get("reduction_groups")),
+            stacked_model = _DagmlNativeStackingModel(
+                base_members,
+                _DagmlExportedModel(meta_artifacts[0]["estimator"], meta_artifacts[0]["y_transform"]),
+                reduction_groups=cast(list[dict[str, Any]] | None, first_stage.get("reduction_groups")),
             )
-            stacked_model = _DagmlNativeStackingModel([first_model], second_meta)
+            for artifact in meta_artifacts[1:]:
+                stacked_model = _DagmlNativeStackingModel(
+                    [stacked_model], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
+                )
             provenance = _dagml_native_bundle_provenance(
                 native_manifest,
                 export_path="dagml_native_multi_stacking",
@@ -2819,9 +2829,7 @@ class RunResult:
                 export_shape="dependent_meta_prediction_chain",
                 retrain_lineage=getattr(self, "_retrain_lineage", None),
             )
-            provenance["dagml_stacking_stage_artifact_ids"] = [
-                first_meta_artifact.get("artifact_id"), second_meta_artifact.get("artifact_id"),
-            ]
+            provenance["dagml_stacking_stage_artifact_ids"] = [artifact.get("artifact_id") for artifact in meta_artifacts]
             return write_single_model_bundle(
                 stacked_model, output_path,
                 model_label=model_names[0] if model_names else "dagml_native_multi_stacking",

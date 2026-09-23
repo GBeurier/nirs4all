@@ -1,4 +1,4 @@
-"""A fitted meta-model may feed a downstream residual learner."""
+"""Legacy residual checkpoints are independent of preceding meta-models."""
 
 import numpy as np
 import pytest
@@ -40,6 +40,26 @@ def test_legacy_residual_checkpoint_is_independent_of_preceding_meta(tmp_path) -
     for left, right in zip(*snapshots, strict=True):
         assert left[0] == pytest.approx(right[0], abs=1e-12)
         np.testing.assert_allclose(left[1], right[1], atol=1e-12, rtol=0)
+
+
+@pytest.mark.parity
+def test_legacy_residual_cannot_supply_a_named_meta_source(tmp_path) -> None:
+    """The source predictions exist, but legacy lacks their artifact dependency."""
+    rng = np.random.default_rng(44)
+    features = rng.normal(size=(32, 5))
+    targets = features[:, 0] * 2 + features[:, 1] + rng.normal(scale=0.1, size=32)
+    pipeline = [
+        KFold(2, shuffle=True, random_state=1),
+        Ridge(),
+        {"model": ResidualModel(base=Ridge(), learner=Ridge(), gate=False)},
+        {"model": MetaModel(model=Ridge(), source_models=["Residual_Ridge+Ridge"], name="second")},
+    ]
+    with pytest.raises(RuntimeError, match="missing source model dependencies"):
+        nirs4all.run(
+            pipeline, (features, targets), engine="legacy", refit=False,
+            workspace_path=tmp_path / "legacy", save_artifacts=False,
+            save_charts=False, verbose=0,
+        )
 
 
 @pytest.mark.parity

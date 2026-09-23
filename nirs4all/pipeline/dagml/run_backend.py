@@ -1437,13 +1437,13 @@ def _dispatch_run(
     # (via requires_oof+requires_fold_alignment edges, leakage-safe — train predictions are refused), fits
     # the meta-learner on the per-fold OOF meta-feature matrix and emits its own scored OOF.
     if detected_multi_level_metamodel is not None:
-        branches, meta_learner, selectors, second_step = detected_multi_level_metamodel
+        branches, meta_learner, selectors, downstream_steps = detected_multi_level_metamodel
         return _run_stacking_branch(
             list(pipeline), branches, meta_learner, spectro, dataset_arg, cli,
             venv_python or sys.executable, base_dir / "sequential_multi_level_metamodel",
             metric, task_type, dataset_pickle=host_pickle, config_name=config_name,
             random_state=random_state, refit=refit, prediction_aggregations=selectors,
-            second_meta_step=second_step,
+            downstream_meta_steps=downstream_steps,
         )
     if detected_sequential_metamodel is not None:
         branches, meta_learner, selectors = detected_sequential_metamodel

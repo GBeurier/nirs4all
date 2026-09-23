@@ -181,8 +181,9 @@ def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, test
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
-def test_two_named_metamodel_levels_use_native_nested_oof_and_archive(tmp_path, mechanism, monkeypatch):
-    """Both DAG transports retain the legacy named source and nested OOF scopes."""
+@pytest.mark.parametrize("level_count", [2, 3])
+def test_named_metamodel_chain_uses_native_nested_oof_and_archive(tmp_path, mechanism, level_count, monkeypatch):
+    """Both DAG transports retain each legacy named source and nested OOF scope."""
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.datasets import make_regression
     from sklearn.linear_model import Lasso, Ridge
@@ -209,6 +210,8 @@ def test_two_named_metamodel_levels_use_native_nested_oof_and_archive(tmp_path, 
         {"model": MetaModel(Ridge(), source_models=["PLSRegression", "Ridge"], name="first")},
         {"model": MetaModel(Lasso(alpha=0.1), source_models=["first"], name="second")},
     ]
+    if level_count == 3:
+        pipeline.append({"model": MetaModel(Ridge(alpha=2), source_models=["second"], name="third")})
     legacy = nirs4all.run(
         pipeline, (features, targets), engine="legacy", refit=False,
         workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
@@ -230,23 +233,26 @@ def test_two_named_metamodel_levels_use_native_nested_oof_and_archive(tmp_path, 
         persisted = read_native_results(native._dagml_results_dir)
         replay_manifest = persisted["manifest"]["stacking_replay"]
         assert replay_manifest["schema_version"] == 2
-        first_stage, second_stage = replay_manifest["stages"]
+        stages = replay_manifest["stages"]
+        assert len(stages) == level_count
+        first_stage = stages[0]
         by_id = {artifact["artifact_id"]: artifact for artifact in persisted["artifacts"]}
         assert set(by_id) == {
             *(producer["artifact_id"] for producer in first_stage["base_producers"]),
-            first_stage["meta_artifact_id"], second_stage["meta_artifact_id"],
+            *(stage["meta_artifact_id"] for stage in stages),
         }
-        assert second_stage["base_producers"][0]["artifact_id"] == first_stage["meta_artifact_id"]
         base_features = np.column_stack([
             np.asarray(by_id[producer["artifact_id"]]["estimator"].predict(features[:7])).reshape(7, -1)
             for producer in first_stage["base_producers"]
         ])
-        first_predictions = np.asarray(by_id[first_stage["meta_artifact_id"]]["estimator"].predict(base_features)).reshape(7, -1)
-        expected = np.asarray(by_id[second_stage["meta_artifact_id"]]["estimator"].predict(first_predictions)).reshape(-1)
-        archive = native.export(tmp_path / "two-level.n4a")
+        expected = np.asarray(by_id[first_stage["meta_artifact_id"]]["estimator"].predict(base_features)).reshape(7, -1)
+        for previous, stage in zip(stages, stages[1:], strict=False):
+            assert stage["base_producers"][0]["artifact_id"] == previous["meta_artifact_id"]
+            expected = np.asarray(by_id[stage["meta_artifact_id"]]["estimator"].predict(expected)).reshape(7, -1)
+        archive = native.export(tmp_path / f"{level_count}-level.n4a")
         replay = np.asarray(nirs4all.predict(archive, features[:7]).y_pred).reshape(-1)
         assert replay.shape == (7,)
         assert np.all(np.isfinite(replay))
-        np.testing.assert_allclose(replay, expected)
+        np.testing.assert_allclose(replay, expected.reshape(-1))
     finally:
         native.close()
