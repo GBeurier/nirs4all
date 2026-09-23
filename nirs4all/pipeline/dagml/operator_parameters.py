@@ -10,11 +10,17 @@ from __future__ import annotations
 from dataclasses import is_dataclass
 from typing import Any
 
+import numpy as np
+
 _COMPONENT = "__nirs4all_constructor_component_v1__"
 
 
 def encode_constructor_value(value: Any) -> Any:
     """Encode nested estimators while preserving ordinary parameter mappings."""
+    if isinstance(value, np.ndarray):
+        return encode_constructor_value(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
     if not isinstance(value, type) and (
         callable(getattr(value, "get_params", None)) or is_dataclass(value)
     ):
