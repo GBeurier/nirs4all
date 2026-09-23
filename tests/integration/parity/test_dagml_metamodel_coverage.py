@@ -26,6 +26,47 @@ def _pipeline(min_ratio: float) -> list:
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_mean_policy_uses_complete_inner_oof_and_replays_with_partial_outer_coverage(tmp_path, monkeypatch, mechanism):
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+
+    pipeline = _pipeline(0.3)
+    pipeline[-1]["model"].stacking_config.coverage_strategy = CoverageStrategy.IMPUTE_MEAN
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", allow_fallback=False, refit=True,
+                          workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0)
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+        assert np.isfinite(native.cv_best_score)
+        assert native.execution_engine == "dag-ml"
+        validation = [row for row in native.predictions._buffer
+                      if row.get("model_name") == "MetaModel_Ridge" and row.get("partition") == "val"
+                      and row.get("fold_id") in {"0", "1", "2"}]
+        assert len(validation) == 3
+        dataset = DatasetConfigs(path).get_dataset_at(0)
+        n_train = len(dataset.index_column("sample", {"partition": "train"}))
+        assert len({int(sample) for row in validation for sample in row["sample_indices"]}) < n_train
+        final = [row for row in native.predictions._buffer
+                 if row.get("partition") == "test" and row.get("fold_id") == "final"]
+        assert len(final) == 1
+        archive = native.export(tmp_path / "mean_policy.n4a")
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        np.testing.assert_allclose(replay, np.asarray(final[0]["y_pred"]).ravel(), rtol=1e-5, atol=3e-4)
+    finally:
+        legacy.close()
+        native.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_partial_oof_coverage_ratio_matches_legacy_gate_and_replays_archive(tmp_path, monkeypatch, mechanism):
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
