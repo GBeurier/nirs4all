@@ -14,6 +14,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.augmentation import GaussianAdditiveNoise
+from nirs4all.operators.filters.y_outlier import YOutlierFilter
 
 from ._dagml_cli import dagml_cli_path
 
@@ -61,6 +62,47 @@ def test_fold_metadata_color_is_in_numeric_alternative(tmp_path: Path, monkeypat
     report_html = reports[0].read_text(encoding="utf-8")
     assert "Color coding uses metadata column &#x27;specimen&#x27;" in report_html
     assert "Download exact numeric inputs" in report_html
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_spectra_and_y_charts_preserve_excluded_rows_when_requested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    _mechanism(monkeypatch, mechanism)
+    rng = np.random.default_rng(294)
+    x = rng.normal(size=(30, 6))
+    y = x[:, 0].copy()
+    y[0] = 20.0
+
+    def dataset() -> SpectroDataset:
+        samples = SpectroDataset("excluded_chart_options")
+        samples.add_samples(x[:24], {"partition": "train"})
+        samples.add_samples(x[24:], {"partition": "test"})
+        samples.add_targets(y[:24])
+        samples.add_targets(y[24:])
+        return samples
+
+    pipeline = [
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.0)},
+        {"chart_2d": {"include_excluded": True, "highlight_excluded": True}},
+        {"chart_y": {"include_excluded": True, "highlight_excluded": True, "layout": "staggered"}},
+        {"model": Ridge()},
+    ]
+    legacy = nirs4all.run(pipeline, dataset(), engine="legacy", workspace_path=tmp_path / "legacy", save_charts=True, save_artifacts=False, verbose=0)
+    assert list((tmp_path / "legacy").rglob("Y_distribution_*_with_excluded_staggered.png"))
+    native = nirs4all.run(pipeline, dataset(), engine="dag-ml", workspace_path=tmp_path / mechanism, save_charts=True, save_artifacts=False, verbose=0)
+    reports = _reports(native)
+    assert len(reports) == 2
+    for report in reports:
+        with report.with_suffix(".csv").open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        membership = {int(row["sample_index"]): row["excluded"] == "True" for row in rows}
+        assert len(membership) == 30
+        assert membership[0]
+        assert sum(membership.values()) >= 1
     legacy.close()
     native.close()
 
