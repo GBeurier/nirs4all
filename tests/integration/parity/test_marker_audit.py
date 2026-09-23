@@ -207,4 +207,4 @@ def test_gate_accepts_in_band_tolerances_and_named_constants() -> None:
 def test_ledger_bands_are_the_tolerance_allowlist() -> None:
     # The allowlist is derived from the ledger, not hard-coded — every published
     # positive band is honored and 0.0 / null are excluded.
-    assert _ALLOWED == frozenset({1e-12, 1e-9, 1e-6, 1e-3, 5e-3})
+    assert _ALLOWED == frozenset({1e-12, 1e-10, 1e-9, 1e-8, 1e-6, 1e-5, 1e-3, 5e-3})

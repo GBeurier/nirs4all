@@ -26,6 +26,33 @@
       "enforced_at": "tests/unit/operators/methods/test_n4m_ops.py"
     },
     {
+      "band_id": "same_impl_pipeline_exact",
+      "numeric_path": "same_impl_pipeline",
+      "metric_class": "score",
+      "abs_tol": 1e-10,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/integration/parity/test_step_na_policy.py",
+      "note": "Compares the same engine on raw X with step-local replacement and on identically pre-filled X."
+    },
+    {
+      "band_id": "native_chain_replay_tight",
+      "numeric_path": "dagml_native_self",
+      "metric_class": "prediction",
+      "abs_tol": 1e-8,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/integration/parity/test_dagml_cli_runner.py and test_dagml_full_train_augmentation.py",
+      "note": "Native fitted-chain and archive replay comparisons use an eight-decimal absolute bound."
+    },
+    {
+      "band_id": "pipeline_replay_practical",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "prediction",
+      "abs_tol": 1e-5,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/integration/parity/test_dagml_cli_full_train.py, test_dagml_full_train_augmentation.py, test_exclude_metadata_branch.py, and test_step_na_policy.py",
+      "note": "Allows small floating-point differences in public full-refit and archive predictions while exact fit-scope oracles remain separate."
+    },
+    {
       "band_id": "native_export_reproduce",
       "numeric_path": "dagml_native_self",
       "metric_class": "prediction",
@@ -354,6 +381,7 @@
       {"id": "optional_env_methods", "kind": "optional_env", "note": "the nirs4all-methods SNV / n4m binding is unavailable (hard fail only under NIRS4ALL_REQUIRE_N4M=1)."},
       {"id": "optional_env_gpu", "kind": "optional_env", "note": "a real accelerator qualification requires a CUDA-capable runtime; the CPU gate remains mandatory."},
       {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml returned an allowlisted structured refusal, wrote no native results, or the case is not a single-artifact native run. The live boundary rejects any refusal outside EXPECTED_REFUSAL."},
+      {"id": "runtime_keras_version", "kind": "runtime_precondition", "note": "the legacy cyclic-LR no-op oracle applies only to Keras 3 learning-rate variables; other Keras versions are outside that exact runtime probe."},
       {"id": "baseline_capture", "kind": "workflow", "note": "gold-baseline capture / absent-baseline guard in test_parity_baseline (--parity-capture)."},
       {"id": "lockdrop_empty", "kind": "workflow", "note": "collection-only category for the empty-allowlist branch; currently inactive while the single L5-owned EXPECTED_REFUSAL case remains an explicit native coverage gap."}
     ],
