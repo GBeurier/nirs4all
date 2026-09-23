@@ -279,6 +279,8 @@ def _scores_to_run_result(
     identity: IdentityMap | None = None,
     refit_artifacts: list[dict[str, Any]] | None = None,
     report_fold_ids: set[str] | None = None,
+    emit_all_refits: bool = False,
+    refit_name_suffix: str = "_refit",
 ) -> RunResult:
     """Project each variant's actual native reports without inventing partitions.
 
@@ -501,7 +503,7 @@ def _scores_to_run_result(
         # refit report has no final train/test measurements to expose.
         variant_test = by_key.get((variant_id, "test", None))
         variant_final_train = by_key.get((variant_id, "final", None))
-        is_final_owner = is_winner or len(cv_variant_ids) == 1
+        is_final_owner = is_winner or len(cv_variant_ids) == 1 or (emit_all_refits and (variant_final_train is not None or variant_test is not None))
 
         # A fold owns validation evidence only. Refit metrics describe a
         # different fitted estimator and cannot be attached to a CV fold.
@@ -525,7 +527,7 @@ def _scores_to_run_result(
         # Preserve CV as selection evidence for REFIT ranking, explicitly
         # distinguished from measurements of the refitted estimator.
         if is_final_owner:
-            refit_config_name = variant_config_name + "_refit" if variant_config_name else variant_config_name
+            refit_config_name = variant_config_name + refit_name_suffix if variant_config_name else variant_config_name
             final_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train, "val": avg, "test": variant_test}
             final_provenance = {
                 part: {"partition": native_part, "fold_id": None, "variant_id": variant_id, "purpose": "measurement"}

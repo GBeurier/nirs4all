@@ -287,3 +287,46 @@ def test_legacy_equivalent_refit_spellings_use_native_on_off(refit_option, enabl
     assert bool(native_final) is enabled
     assert bool(result._dagml_refit_artifacts) is enabled  # noqa: SLF001
     result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parity
+def test_top_two_parameter_variants_refit_natively(tmp_path, monkeypatch, mechanism: str) -> None:
+    import nirs4all
+
+    rng = np.random.default_rng(29)
+    x = rng.normal(size=(16, 8))
+    y = rng.normal(size=16)
+    pipeline = [KFold(2), {"model": Ridge, "_grid_": {"alpha": [0.01, 1.0, 1000.0]}}]
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", refit={"top_k": 2}, save_charts=False)
+    legacy_final = {row["config_name"] for row in legacy.predictions.filter_predictions() if row["fold_id"] == "final"}
+    legacy_cv = legacy.cv_best_score
+    assert len(legacy_final) == 2
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(pipeline, (x, y), engine="dag-ml", refit={"top_k": 2}, save_charts=False)
+    native_final = {row["config_name"] for row in result.predictions.filter_predictions() if row["fold_id"] == "final"}
+    assert native_final == legacy_final
+    assert len(result._dagml_refit_artifacts) == 2  # noqa: SLF001
+    np.testing.assert_allclose(result.cv_best_score, legacy_cv, rtol=1e-6)
+    selected_id = result.per_dataset[next(iter(result.per_dataset))]["selected_refit_variant_ids"][0]
+    primary = next(
+        artifact for artifact in result._dagml_refit_artifacts  # noqa: SLF001
+        if artifact["artifact_id"].endswith(f":nirs4all:refit:{selected_id}")
+    )
+    expected = primary["estimator"].predict(x[:3])
+    archive = result.export(tmp_path / "top_two.n4a")
+    np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, x[:3]).y_pred).reshape(-1), expected)
+    model_path = result.export_model(tmp_path / "top_two.joblib")
+    import joblib
+
+    np.testing.assert_allclose(joblib.load(model_path).predict(x[:3]), expected)
+    result.close()

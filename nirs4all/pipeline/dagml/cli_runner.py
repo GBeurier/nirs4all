@@ -208,6 +208,7 @@ def run_cv_refit_bundle(
     dataset_pickle: str | None = None,
     random_state: int | None = None,
     refit: bool = True,
+    refit_top_k: int = 1,
 ) -> dict[str, Any]:
     """Write inputs + shim, run ``dag-ml-cli run-process-dsl-cv-refit-bundle``, return outputs.
 
@@ -297,6 +298,7 @@ def run_cv_refit_bundle(
             "--envelope", str(workdir / "envelope.json"), "--adapter", str(shim), "--persistent",
             "--selection-metric", selection_metric,
             *([] if refit else ["--no-refit"]),
+            *([] if refit_top_k == 1 else ["--refit-top-k", str(refit_top_k)]),
             *([] if refit else ["--oof-average-output", str(oof_average_path)]),
             *resource_args,
             "--bundle-id", "bundle:n4a", "--plan-id", "plan:n4a",

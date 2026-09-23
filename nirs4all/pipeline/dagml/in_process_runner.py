@@ -106,6 +106,7 @@ def run_cv_refit_bundle(
     fold_children: dict[str, dict[int, list[int]]] | None = None,
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
     refit: bool = True,
+    refit_top_k: int = 1,
 ) -> dict[str, Any]:
     """Run a CV+refit bundle IN-PROCESS; return ``{returncode, stdout, results, scores}``.
 
@@ -159,6 +160,7 @@ def run_cv_refit_bundle(
             selection_metric,
             json.dumps(current_execution_resources().to_contract()),
             refit,
+            refit_top_k,
         )
     )
     node_results = payload.get("node_results", [])
@@ -170,6 +172,7 @@ def run_cv_refit_bundle(
         "results": node_results,
         "scores": payload.get("scores"),
         "variant_catalog": payload.get("variant_catalog", []),
+        "selected_refit_variant_ids": payload.get("selected_refit_variant_ids", []),
         "classification_evidence": collect_vote_evidence(store),
         # The fitted REFIT estimators the run produced, captured HOST-SIDE from the live `store` the
         # op_callback closed over (P3 Slice 2c-i, D1 — zero ABI change). The store STILL holds the REFIT
@@ -271,6 +274,7 @@ def run_cv_refit_bundle_router(
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
     random_state: int | None = None,
     refit: bool = True,
+    refit_top_k: int = 1,
 ) -> dict[str, Any]:
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
 
@@ -325,6 +329,7 @@ def run_cv_refit_bundle_router(
             fold_children=fold_children,
             fold_feature_views=fold_feature_views,
             refit=refit,
+            refit_top_k=refit_top_k,
         )
 
     # Subprocess branch (Mechanism A): either in-process was disabled or its extension did not load.
@@ -355,6 +360,7 @@ def run_cv_refit_bundle_router(
         dataset_pickle=dataset_pickle,
         random_state=random_state,
         refit=refit,
+        refit_top_k=refit_top_k,
     )
     # Host-only frames share the run-local capture file, not the coordinator
     # protocol. Keep them out of the native NodeResult audit trail.
@@ -377,6 +383,7 @@ def run_cv_refit_bundle_router(
     bundle = json.loads(bundle_path.read_text()) if outcome["returncode"] == 0 and bundle_path.exists() else {}
     outcome["scores"] = bundle.get("scores")
     outcome["variant_catalog"] = bundle.get("metadata", {}).get("variant_catalog", [])
+    outcome["selected_refit_variant_ids"] = bundle.get("metadata", {}).get("selected_refit_variant_ids", [])
     # The adapter serializes its fitted REFIT models to this run's private artifact directory.
     # Only descriptors in the captured native results can select files for loading.
     outcome["refit_artifacts"] = _load_subprocess_refit_artifacts(native_frames, Path(workdir) / "refit_artifacts") if outcome["returncode"] == 0 else []

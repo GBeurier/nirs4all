@@ -2120,6 +2120,10 @@ class RunResult:
             # The broad catch is SCOPED to the read+rehydrate only, so a real bug in the write below escapes.
             logger.debug("native dag-ml export_model is unavailable: %s", exc)
             return None
+        if len(artifacts) > 1:
+            primary = self._dagml_top_k_primary_artifact(artifacts)
+            if primary is not None:
+                artifacts = [primary]
         # EXACTLY ONE concrete artifact only (D4): a multi-model / branch / stacking run captures several
         # REFIT artifacts and is NOT cleanly a single exportable model on this lightweight model-only path.
         if len(artifacts) != 1:
@@ -2137,6 +2141,22 @@ class RunResult:
 
         joblib.dump(model, output_path, compress=3)
         return output_path
+
+    def _dagml_top_k_primary_artifact(self, artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Identify the CV-best artifact of an explicit multi-refit parameter sweep."""
+        selections = [
+            metadata.get("selected_refit_variant_ids")
+            for metadata in self.per_dataset.values()
+            if isinstance(metadata.get("selected_refit_variant_ids"), list)
+        ]
+        if len(selections) != 1 or len(selections[0]) < 2 or not isinstance(selections[0][0], str):
+            return None
+        selected_id = selections[0][0]
+        matches = [
+            artifact for artifact in artifacts
+            if str(artifact.get("artifact_id", "")).endswith(f":nirs4all:refit:{selected_id}")
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     def _dagml_replayable_train_steps(self) -> list[Any] | None:
         """Serialize the FROZEN run pipeline into replayable training steps for the native ``.n4a``.
@@ -2239,6 +2259,10 @@ class RunResult:
         except Exception as exc:  # noqa: BLE001 -- default contract: ANY native-read failure → stable refusal
             logger.debug("native dag-ml .n4a export is unavailable: %s", exc)
             return None
+        if len(artifacts) > 1:
+            primary = self._dagml_top_k_primary_artifact(artifacts)
+            if primary is not None:
+                artifacts = [primary]
         native_manifest = cast(Mapping[str, Any], native["manifest"])
         model_names = _native_model_names(native_manifest)
         from nirs4all.pipeline.bundle import write_single_model_bundle

@@ -231,6 +231,7 @@ def _run_native_generation(
     variant_model_params: list[dict[str, Any]] | None = None,
     random_state: int | None = None,
     refit: bool = True,
+    refit_top_k: int = 1,
 ) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
@@ -261,7 +262,7 @@ def _run_native_generation(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit, refit_top_k=refit_top_k
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
@@ -300,9 +301,12 @@ def _run_native_generation(
             None,
         )
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id)
-    return _scores_to_run_result(
-        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+    result = _scores_to_run_result(
+        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"], emit_all_refits=refit_top_k > 1, refit_name_suffix=f"_refit_rmsecvt{refit_top_k}" if refit_top_k > 1 else "_refit"
     )
+    if refit_top_k > 1:
+        result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
+    return result
 
 
 def _run_native_operator_generation(
