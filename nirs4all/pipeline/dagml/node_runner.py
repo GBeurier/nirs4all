@@ -699,6 +699,29 @@ def _run_fitted_transform_node(
     if y_fit.ndim > 1:
         y_fit = y_fit[:, 0]
     node_id = task["node_plan"]["node_id"]
+
+    def partitioned_views(x_fit: np.ndarray) -> dict[str, tuple[np.ndarray, np.ndarray | None]]:
+        if view["partition"] != "all_observations":
+            raise ValueError("partition-aware transform requires a native all-observations fit view")
+        dataset = resolver._dataset  # noqa: SLF001 -- host provider maps native sample IDs to partitions
+        identity = resolver._identity  # noqa: SLF001 -- host wire identity
+        views: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+        for partition in ("train", "test"):
+            partition_ids = {
+                identity.to_wire(sample)
+                for sample in dataset.index_column("sample", {"partition": partition})
+            }
+            mask = np.asarray([sample_id in partition_ids for sample_id in ids], dtype=bool)
+            views[partition] = (x_fit[mask], y_fit[mask] if np.any(mask) else None)
+        return views
+
+    def fit_transformer(transformer: Any, x_fit: np.ndarray) -> None:
+        fit_with_views = getattr(transformer, "fit_with_views", None)
+        if callable(fit_with_views):
+            fit_with_views(partitioned_views(x_fit))
+        else:
+            transformer.fit(x_fit, y_fit)
+
     if resolver.is_multi_source():
         resolved = resolver.resolve_feature_blocks(
             ids, include_augmented=bool(view.get("include_augmented")), fold_label=task.get("fold_id") or "refit",
@@ -717,9 +740,19 @@ def _run_fitted_transform_node(
             fit_blocks = raw_blocks
             previous_steps = [[] for _ in raw_blocks]
         source_steps = []
+        shared = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        select_with_views = getattr(shared, "select_with_views", None)
+        if callable(select_with_views):
+            # Legacy transfer selection sees all feature sources concatenated,
+            # then applies the selected preprocessing independently per source.
+            select_with_views(partitioned_views(np.hstack(fit_blocks)))
         for block, steps in zip(fit_blocks, previous_steps, strict=True):
             transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
-            transformer.fit(block, y_fit)
+            fit_selected = getattr(transformer, "fit_selected", None)
+            if callable(select_with_views) and callable(fit_selected):
+                fit_selected(cast(Any, shared).recommendation_, partitioned_views(block)["train"][0])
+            else:
+                fit_transformer(transformer, block)
             source_steps.append([*steps, transformer])
         chain = _FittedXChain(source_steps=source_steps, source_widths=widths)
     else:
@@ -728,7 +761,7 @@ def _run_fitted_transform_node(
         for transformer in steps:
             x_fit = np.asarray(transformer.transform(x_fit))
         transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
-        transformer.fit(x_fit, y_fit)
+        fit_transformer(transformer, x_fit)
         chain = _FittedXChain([*steps, transformer])
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"

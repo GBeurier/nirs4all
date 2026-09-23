@@ -132,7 +132,10 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
-    if not any(isinstance(step, dict) and step.get("fit_on_all") is True for step in pipeline):
+    if not any(
+        isinstance(step, dict) and (step.get("metadata") or {}).get("nirs4all_fit_on_all") is True
+        for step in dsl["pipeline"]
+    ):
         dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, source_id=source_id)
         return dsl
 
@@ -333,6 +336,10 @@ def run_refit_phase_cli(
     artifact_dir.mkdir(exist_ok=True)
     for stale_artifact in artifact_dir.glob("*.joblib"):
         stale_artifact.unlink()
+    fitted_x_dir = workdir / "fitted_x"
+    fitted_x_dir.mkdir(exist_ok=True)
+    for stale_chain in fitted_x_dir.glob("*.joblib"):
+        stale_chain.unlink()
     shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
     env = {
         **os.environ,
@@ -340,6 +347,7 @@ def run_refit_phase_cli(
         "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
         "N4A_DAGML_RESULT_CAPTURE": str(capture),
         "N4A_DAGML_REFIT_ARTIFACT_DIR": str(artifact_dir),
+        "N4A_DAGML_FITTED_X_DIR": str(fitted_x_dir),
     }
     if dataset_pickle is None:
         env.pop("N4A_DAGML_DATASET_PICKLE", None)
