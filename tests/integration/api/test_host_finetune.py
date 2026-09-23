@@ -311,6 +311,16 @@ def test_optuna_storage_keeps_outer_training_scopes_separate(tmp_path, monkeypat
     assert all(len(optuna.load_study(study_name=name, storage=storage).trials) == 3 for name in names)
     extended.close()
 
+    changed_y = y.copy()
+    changed_y[0] += 1
+    with pytest.raises(Exception) as changed_content:
+        nirs4all.run(
+            [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "n_trials": 3, "study_name": "dag", "resume": True}}],
+            (X, changed_y), engine="dag-ml", save_charts=False,
+        )
+    expected_mismatch = "checkpoint objective/graph/controller/data/fold binding mismatch" if mechanism == "in_process" else "dag-ml engine run failed"
+    assert expected_mismatch in str(changed_content.value)
+
     unpaired = optuna.load_study(study_name=names[0], storage=storage)
     unpaired.set_user_attr("nirs4all_dagml_host_hpo_checkpoint_v1", None)
     with pytest.raises(Exception) as missing_pair:

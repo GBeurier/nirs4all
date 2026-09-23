@@ -13,6 +13,18 @@ TRIAL_TRAIN_PREFIX = "nirs4all_trial_fit__"
 _NATIVE_CHECKPOINT_ATTR = "nirs4all_dagml_host_hpo_checkpoint_v1"
 
 
+def _content_fingerprint(values: np.ndarray) -> str:
+    """Bind actual host array bytes to the native checkpoint's data envelope."""
+    array = np.ascontiguousarray(np.asarray(values))
+    if array.dtype.hasobject:
+        raise TypeError("Host HPO checkpoint content must have a numeric array dtype")
+    digest = sha256()
+    digest.update(array.dtype.str.encode())
+    digest.update(json.dumps(array.shape).encode())
+    digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
 def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Separate sampled fit controls from model-constructor candidates."""
     model_params = {key: value for key, value in params.items() if not key.startswith(TRIAL_TRAIN_PREFIX)}
@@ -196,6 +208,8 @@ def run_scoped_finetune(
         model_step["train_params"] = training_controls
     pipeline.append(model_step)
     envelope = build_envelope(dataset, identity, sample_ints=pool, group_by_sample=inner_cv["group_by_sample"] if inner_cv is not None else None)
+    envelope["data_content_fingerprint"] = _content_fingerprint(x)
+    envelope["target_content_fingerprint"] = _content_fingerprint(y)
     dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="nirs4all-host-hpo", n_splits=len(folds))
     graph = json.loads(dag_ml.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
     nodes = {node["id"]: node for node in graph["nodes"]}
