@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -33,6 +33,7 @@ def _estimators(value: Any, seen: set[int]) -> Iterator[DagMLAutoGluonEstimator]
     if isinstance(value, DagMLAutoGluonEstimator):
         yield value
         return
+    children: Iterable[Any]
     if isinstance(value, dict):
         children = value.values()
     elif isinstance(value, (list, tuple)):
