@@ -1056,7 +1056,7 @@ def run_model_node(
             model_store=model_store,
             task=task,
             train_ids=train_ids,
-            y_transform_node=y_transform_node,
+            y_transform_node=None if residual_mode else y_transform_node,
         )
         from .host_finetune import split_trial_fit_overrides
 
@@ -1120,7 +1120,10 @@ def run_model_node(
             )
         else:
             estimator = make_pipeline(*upstream, model) if upstream else model
-        y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
+        # The residual learner receives scheduler-derived targets in the original
+        # numeric space. A pipeline target transform applies to the base model;
+        # transforming residuals again would change the quantity being learned.
+        y_transform = route_graph_node(y_transform_node) if y_transform_node is not None and not residual_mode else None
         # Fit views materialize TRAINING rows (FIT_CV fold_train, REFIT full_train): the view carries
         # BASE ids (dag-ml keeps the FoldSet a clean base-grain OOF partition) + include_augmented_train,
         # so the host expands each base id to base + its augmented children — those synthetic rows train.

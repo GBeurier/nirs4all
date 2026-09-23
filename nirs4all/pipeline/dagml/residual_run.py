@@ -75,8 +75,10 @@ def run_residual_model(
         )
     prefix = _supported_body_steps([step for step in pipeline[:-1] if not _is_split_step(step)])
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
-    if any(step["kind"] != "transform" for step in prefix_steps):
-        raise DagMlUnsupported("residual prefix currently requires X preprocessing steps")
+    if any(step["kind"] not in {"transform", "y_transform"} for step in prefix_steps):
+        raise DagMlUnsupported("residual prefix requires X or target preprocessing steps")
+    if sum(step["kind"] == "y_transform" for step in prefix_steps) > 1:
+        raise DagMlUnsupported("residual prefix supports one target preprocessing step")
     learner_finetune: dict[str, Any] = {}
     if operator.finetune_space:
         from .host_finetune import validate_host_finetune
