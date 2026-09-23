@@ -91,6 +91,7 @@ class AugmentationChartController(OperatorController):
 
         # Initialize image list
         img_list = []
+        plotted_groups = []
 
         # Get train context
         train_context = context.with_partition("train")
@@ -108,6 +109,8 @@ class AugmentationChartController(OperatorController):
             # Separate augmented indices
             base_set = set(base_indices.tolist() if hasattr(base_indices, 'tolist') else list(base_indices))
             augmented_indices = [idx for idx in all_indices if idx not in base_set]
+            base_list = base_indices.tolist() if hasattr(base_indices, "tolist") else list(base_indices)
+            plotted_base = self._limit_samples(base_list, max_samples, seed=42)
 
             n_base = len(base_indices)
             n_augmented = len(augmented_indices)
@@ -119,6 +122,12 @@ class AugmentationChartController(OperatorController):
             processing_ids = dataset.features_processings(sd_idx)
 
             if is_details:
+                groups = self._group_augmented_by_transformer(dataset, augmented_indices)
+                plotted_groups.append({
+                    "Original": plotted_base,
+                    **{name: self._limit_samples(indices, max_samples, seed=42 + group_index)
+                       for group_index, (name, indices) in enumerate(groups.items())},
+                })
                 # Details mode: show raw + each augmentation type
                 fig = self._create_details_chart(
                     x, base_indices, augmented_indices, all_indices,
@@ -127,6 +136,10 @@ class AugmentationChartController(OperatorController):
                 )
                 image_name = "Augmentation_Details_Chart"
             else:
+                plotted_groups.append({
+                    "Original": plotted_base,
+                    "Augmented": self._limit_samples(augmented_indices, max_samples, seed=42),
+                })
                 # Overlay mode: show original vs augmented overlaid
                 fig = self._create_overlay_chart(
                     x, base_indices, augmented_indices, all_indices,
@@ -153,7 +166,14 @@ class AugmentationChartController(OperatorController):
                 figure_refs=runtime_context.step_runner._figure_refs,
             )
 
-        return context, StepOutput(outputs=img_list)
+        return context, StepOutput(outputs=img_list, metadata={"plotted_groups": plotted_groups})
+
+    @staticmethod
+    def _limit_samples(indices: list[int], max_samples: int, *, seed: int) -> list[int]:
+        """Match legacy's deterministic sample limit without changing global random state."""
+        if len(indices) <= max_samples:
+            return [int(index) for index in indices]
+        return [int(index) for index in np.random.RandomState(seed).choice(indices, max_samples, replace=False)]
 
     def _create_overlay_chart(
         self,
@@ -192,13 +212,8 @@ class AugmentationChartController(OperatorController):
 
         # Limit samples for readability
         base_indices_list = base_indices.tolist() if hasattr(base_indices, 'tolist') else list(base_indices)
-        if len(base_indices_list) > max_samples:
-            np.random.seed(42)
-            base_indices_list = list(np.random.choice(base_indices_list, max_samples, replace=False))
-
-        if len(augmented_indices) > max_samples:
-            np.random.seed(42)
-            augmented_indices = list(np.random.choice(augmented_indices, max_samples, replace=False))
+        base_indices_list = self._limit_samples(base_indices_list, max_samples, seed=42)
+        augmented_indices = self._limit_samples(augmented_indices, max_samples, seed=42)
 
         # Get headers
         spectra_headers = dataset.headers(source_idx)
@@ -323,9 +338,7 @@ class AugmentationChartController(OperatorController):
         base_indices_list = base_indices.tolist() if hasattr(base_indices, 'tolist') else list(base_indices)
 
         # Limit samples
-        if len(base_indices_list) > max_samples:
-            np.random.seed(42)
-            base_indices_list = list(np.random.choice(base_indices_list, max_samples, replace=False))
+        base_indices_list = self._limit_samples(base_indices_list, max_samples, seed=42)
 
         # Plot 1: Raw/Original samples only
         ax1 = fig.add_subplot(n_rows, n_cols, 1)
@@ -356,10 +369,7 @@ class AugmentationChartController(OperatorController):
                     ax.plot(x_values, x_2d[pos], color='lightgray', alpha=0.3, linewidth=0.5)
 
             # Limit augmented samples
-            aug_indices_limited = aug_indices
-            if len(aug_indices) > max_samples:
-                np.random.seed(42 + t_idx)
-                aug_indices_limited = list(np.random.choice(aug_indices, max_samples, replace=False))
+            aug_indices_limited = self._limit_samples(aug_indices, max_samples, seed=42 + t_idx)
 
             # Plot augmented samples for this transformer
             for idx in aug_indices_limited:

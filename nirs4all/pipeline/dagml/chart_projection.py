@@ -76,7 +76,8 @@ def _folds_from_scores(result: Any) -> list[tuple[list[int], list[int]]]:
 
 
 def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, summary: str, image_name: str, *,
-                       include_excluded: bool, source_index: int | None = None, color_column: str | None = None) -> None:
+                       include_excluded: bool, source_index: int | None = None, color_column: str | None = None,
+                       plotted_groups: dict[str, list[int]] | None = None) -> None:
     """Expose exact plotted inputs without requiring interpretation of colors."""
     sample_indices = snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=include_excluded)
     arrays = snapshot.x(context.selector, "3d", False, include_excluded=include_excluded)
@@ -92,22 +93,33 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
         int(row["sample"]): str(row.get("exclusion_reason") or "")
         for row in snapshot._indexer.get_excluded_samples(context.selector).to_dicts()
     }
+    plotted_in: dict[int, list[str]] = {}
+    if plotted_groups is not None:
+        for group, ids in plotted_groups.items():
+            for sample_id in ids:
+                plotted_in.setdefault(int(sample_id), []).append(group)
     with (directory / data_name).open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow(["sample_index", "origin_sample_index", "partition", "synthetic", "excluded", "exclusion_reason", "source", "processing", "feature_index", "value",
-                         *[f"target_{i}" for i in range(targets.shape[1])], *([f"color_{color_column}_{i}" for i in range(colors.shape[1])] if colors is not None else [])])
+                         *[f"target_{i}" for i in range(targets.shape[1])], *([f"color_{color_column}_{i}" for i in range(colors.shape[1])] if colors is not None else []),
+                         *(["plotted_in"] if plotted_groups is not None else [])])
         for source, array in enumerate(arrays):
             if source_index is not None and source != source_index:
                 continue
             for sample, sample_data in enumerate(array):
+                sample_id = int(sample_indices[sample])
+                if plotted_groups is not None and sample_id not in plotted_in:
+                    continue
                 for processing, values in enumerate(sample_data):
                     for feature, value in enumerate(values):
-                        sample_id = int(sample_indices[sample])
                         origin = origins[sample]
                         writer.writerow([sample_id, origin, partitions.get(sample_id, ""), origin is not None and origin != sample_id,
                                          sample_id in excluded, excluded.get(sample_id, ""), source, processing, feature,
-                                         float(value), *targets[sample].tolist(), *(colors[sample].tolist() if colors is not None else [])])
-    (directory / f"{stem}.json").write_text(json.dumps({"summary": summary, "folds": snapshot.folds}, indent=2), encoding="utf-8")
+                                         float(value), *targets[sample].tolist(), *(colors[sample].tolist() if colors is not None else []),
+                                         *(["; ".join(plotted_in[sample_id])] if plotted_groups is not None else [])])
+    (directory / f"{stem}.json").write_text(json.dumps({"summary": summary, "folds": snapshot.folds,
+                                                        **({"plotted_groups": plotted_groups} if plotted_groups is not None else {})},
+                                                       indent=2), encoding="utf-8")
     excluded_table = ""
     if excluded:
         excluded_rows = "".join(
@@ -237,8 +249,13 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
                 image_path = directory / f"{stem}.{extension}"
                 image_path.write_bytes(data)
                 source_index = number if controller.use_multi_source() and len(output.outputs) == snapshot.features_sources() else None
-                _write_alternative(directory, stem, snapshot, context, summary, image_path.name,
-                                   include_excluded=include_excluded, source_index=source_index, color_column=color_column)
+                groups_by_source = output.metadata.get("plotted_groups")
+                plotted_groups = groups_by_source[number] if groups_by_source is not None else None
+                report_summary = (f"{len({sample for ids in plotted_groups.values() for sample in ids})} spectra actually plotted "
+                                  f"(max_samples={config.get('max_samples', 50)} per group); {summary}") if plotted_groups is not None else summary
+                _write_alternative(directory, stem, snapshot, context, report_summary, image_path.name,
+                                   include_excluded=include_excluded, source_index=source_index, color_column=color_column,
+                                   plotted_groups=plotted_groups)
                 output_paths.append(str(directory / f"{stem}.html"))
     if plots_visible:
         import matplotlib.pyplot as plt
