@@ -82,15 +82,19 @@ def test_residual_zero_and_negative_lambda_replay(tmp_path, monkeypatch, mechani
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
 
     source = dataset_path("regression")
+    operator = ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(alpha=1), lam=lam, gate=False)
     pipeline = [
         KFold(2, shuffle=True, random_state=1),
-        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(alpha=1), lam=lam, gate=False)},
+        {"model": operator},
     ]
     legacy = nirs4all.run(
         pipeline, source, engine="legacy", refit=False,
         workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
     )
     assert np.isfinite(legacy.cv_best_score)
+    legacy_rows = [row for row in legacy.predictions.filter_predictions(model_name=operator.name, load_arrays=True)
+                   if row["partition"] == "val" and np.asarray(row["y_pred"]).size]
+    assert legacy_rows and all(np.isfinite(row["val_score"]) for row in legacy_rows)
     legacy.close()
 
     native = nirs4all.run(
@@ -137,6 +141,9 @@ def test_residual_nonlinear_base_and_custom_name_replay(tmp_path, monkeypatch, m
         workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
     )
     assert np.isfinite(legacy.cv_best_score)
+    legacy_rows = [row for row in legacy.predictions.filter_predictions(model_name=operator.name, load_arrays=True)
+                   if row["partition"] == "val" and np.asarray(row["y_pred"]).size]
+    assert legacy_rows and all(np.isfinite(row["val_score"]) for row in legacy_rows)
     legacy.close()
 
     native = nirs4all.run(
