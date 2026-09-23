@@ -4723,6 +4723,7 @@ def _assemble_stacking_dsl(
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
                     **meta_metadata,
+                    "nirs4all_use_proba": bool(task_type == "classification" and meta_wrapper is not None and meta_wrapper.use_proba),
                     "controller_id": _META_MODEL_CONTROLLER_ID,
                     "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": refit_policy},
@@ -4765,17 +4766,25 @@ def _assemble_stacking_dsl(
                         "nirs4all_stack_outer_fold_ids": [fold["fold_id"] for fold in outer_fold_set["folds"]],
                     }
 
-    if prediction_aggregations:
-        selected_branches = {
-            selector["branch"] for selector in prediction_aggregations
-            if selector.get("aggregate") == "proba_mean"
-            or selector.get("metadata", {}).get("prediction_output") == "proba"
-        }
+    probability_branches = {
+        selector["branch"] for selector in prediction_aggregations or []
+        if selector.get("aggregate") == "proba_mean"
+        or selector.get("metadata", {}).get("prediction_output") == "proba"
+    }
+    if task_type == "classification" and (probability_branches or (meta_wrapper is not None and meta_wrapper.use_proba)):
+        from .operator_routing import route_graph_node
+
+        first_source_ports: dict[str, str] = {}
         for branch in canonical_dsl["steps"][0]["branches"]:
-            if branch["id"] in selected_branches:
-                for step in branch["steps"]:
-                    if step["kind"] == "model":
-                        step["metadata"] = {**step.get("metadata", {}), "nirs4all_prediction_output": "proba"}
+            if branch["id"] not in probability_branches and not (meta_wrapper is not None and meta_wrapper.use_proba):
+                continue
+            for source_step in branch["steps"]:
+                if source_step["kind"] != "model" or not callable(getattr(route_graph_node(source_step), "predict_proba", None)):
+                    continue
+                source_step["prediction_output_ports"] = ["proba"]
+                first_source_ports[source_step["id"]] = "proba"
+        if first_source_ports:
+            canonical_dsl["steps"][1]["source_ports"] = first_source_ports
 
     if source_layout is not None:
         # Put source bindings in the DSL BEFORE compilation/fingerprinting,
@@ -4865,6 +4874,9 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         prediction_aggregations=prediction_aggregations,
         selection_metric=metric,
     )
+    stacking_source_ports: dict[str, dict[str, str]] = {
+        _META_NODE_ID: canonical_dsl["steps"][1].get("source_ports", {}),
+    }
     final_meta_node_id = _META_NODE_ID
     final_meta_learner = meta_learner
     stacking_source_orders: dict[str, list[str]] = {}
@@ -4874,20 +4886,25 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         from nirs4all.operators.models.meta import TestAggregation
         from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
 
-        previous_meta_learner = meta_learner
         source_nodes: dict[str, list[str]] = {}
+        source_steps: dict[str, dict[str, Any]] = {}
+        source_estimators: dict[str, Any] = {}
+        from .operator_routing import route_graph_node
+
         for branch in canonical_dsl["steps"][0]["branches"]:
             for source_step in branch["steps"]:
                 if source_step["kind"] == "model":
                     source_name = source_step["operator"]["class"].rsplit(".", 1)[-1]
                     source_nodes.setdefault(source_name, []).append(source_step["id"])
+                    source_steps[source_step["id"]] = source_step
+                    source_estimators[source_step["id"]] = route_graph_node(source_step)
         first_meta_step = pipeline[-len(downstream_meta_steps) - 1]
         first_meta_name = first_meta_step.get("name") or first_meta_step["model"].name
         source_nodes[first_meta_name] = [_META_NODE_ID]
+        source_steps[_META_NODE_ID] = canonical_dsl["steps"][-1]
+        source_estimators[_META_NODE_ID] = meta_learner
         previous_meta_name = first_meta_name
         for level, step in enumerate(downstream_meta_steps, start=2):
-            if step["model"].use_proba and callable(getattr(previous_meta_learner, "predict_proba", None)):
-                canonical_dsl["steps"][-1]["metadata"]["nirs4all_prediction_output"] = "proba"
             next_aggregation = step["model"].stacking_config.test_aggregation
             if next_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
                 canonical_dsl["steps"][-1]["metadata"].update({
@@ -4896,21 +4913,33 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                     "nirs4all_stack_outer_fold_ids": [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]],
                 })
             final_meta_learner = step["model"].model
-            previous_meta_learner = final_meta_learner
             final_meta_node_id = f"{_META_NODE_ID}.level{level}"
             requested_names = list(dict.fromkeys(step["model"].source_models))
             explicit_sources = requested_names != [previous_meta_name]
-            sources = [node_id for name in requested_names for node_id in source_nodes[name]] if explicit_sources else []
+            requested_sources = [node_id for name in requested_names for node_id in source_nodes[name]]
+            sources = requested_sources if explicit_sources else []
             if sources:
                 stacking_source_orders[final_meta_node_id] = sources
+            source_ports: dict[str, str] = {}
+            if task_type == "classification" and step["model"].use_proba:
+                for source_id in requested_sources:
+                    if not callable(getattr(source_estimators[source_id], "predict_proba", None)):
+                        continue  # Legacy uses class labels when a classifier has no probability method.
+                    source_step = source_steps[source_id]
+                    source_step["prediction_output_ports"] = ["proba"]
+                    source_ports[source_id] = "proba"
+            if source_ports:
+                stacking_source_ports[final_meta_node_id] = source_ports
             canonical_dsl["steps"].append({
                 "kind": "merge_model",
                 "id": final_meta_node_id,
                 "operator": {"class": _qualname(final_meta_learner), "ref": _META_MODEL_REF},
                 "params": _json_safe_params(final_meta_learner),
                 **({"sources": sources} if sources else {}),
+                **({"source_ports": source_ports} if source_ports else {}),
                 "metadata": {
                     **_stacking_model_metadata([step]),
+                    "nirs4all_use_proba": bool(task_type == "classification" and step["model"].use_proba),
                     "controller_id": _META_MODEL_CONTROLLER_ID,
                     "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
@@ -4923,6 +4952,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             })
             current_name = step.get("name") or step["model"].name
             source_nodes[current_name] = [final_meta_node_id]
+            source_steps[final_meta_node_id] = canonical_dsl["steps"][-1]
+            source_estimators[final_meta_node_id] = final_meta_learner
             previous_meta_name = current_name
         if any(step["model"].stacking_config.test_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN)
                for step in downstream_meta_steps):
@@ -5080,4 +5111,5 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             and step.get("metadata", {}).get("nirs4all_prediction_output") == "proba"
         }  # noqa: SLF001
         view._dagml_stacking_source_orders = stacking_source_orders  # noqa: SLF001
+        view._dagml_stacking_source_ports = stacking_source_ports  # noqa: SLF001
     return result
