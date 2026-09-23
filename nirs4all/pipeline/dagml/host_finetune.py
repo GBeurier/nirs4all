@@ -360,6 +360,16 @@ def run_scoped_finetune(
     def op_callback(task: dict[str, Any]) -> dict[str, Any]:
         return cast(dict[str, Any], run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform))
 
+    def candidate_callback_factory(_trial_index: int) -> Any:
+        candidate_resolver = MaterializationResolver(dataset, identity)
+        candidate_store: dict[Any, Any] = {}
+
+        def candidate_callback(task: dict[str, Any]) -> dict[str, Any]:
+            return cast(dict[str, Any], run_node(task, candidate_resolver, nodes.__getitem__, candidate_store,
+                                                 graph.get("edges", []), target_transform))
+
+        return candidate_callback
+
     import importlib
 
     # The source facade is additive; installed dependency stubs may predate it.
@@ -375,7 +385,7 @@ def run_scoped_finetune(
     if inner_cv is not None:
         request["fold_score_reduction"] = params.get("eval_mode", "best")
     try:
-        native_kwargs: dict[str, Any] = {}
+        native_kwargs: dict[str, Any] = {"candidate_callback_factory": candidate_callback_factory}
         if study is not None and params.get("storage"):
             if saved_checkpoint is not None and params.get("resume"):
                 native_kwargs["resume_checkpoint"] = saved_checkpoint
