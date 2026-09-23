@@ -4777,6 +4777,20 @@ def _assemble_stacking_dsl(
                 )
             selector["select"] = {"models": list(dict.fromkeys(selected_ids))}
 
+        # A legacy explicit selection fixes both membership and column order.
+        # The native graph supports ordered `sources`; without it the host sees
+        # the selected prediction inputs in lexical producer-id order.
+        if all(selector.get("aggregate") is None and selector.get("branch") in canonical_branches
+               and (selector.get("select", "all") == "all" or
+                    isinstance(selector.get("select"), dict) and set(selector["select"]) == {"models"})
+               for selector in prediction_aggregations):
+            ordered_sources: list[str] = []
+            for selector in prediction_aggregations:
+                branch_models = [step["id"] for step in canonical_branches[selector["branch"]]["steps"] if step["kind"] == "model"]
+                requested = selector.get("select", "all")
+                ordered_sources.extend(branch_models if requested == "all" else requested["models"])
+            canonical_dsl["steps"][1]["sources"] = list(dict.fromkeys(ordered_sources))
+
     if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
         for branch in canonical_dsl["steps"][0]["branches"]:
             for step in branch["steps"]:
@@ -4902,6 +4916,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     final_meta_node_id = _META_NODE_ID
     final_meta_learner = meta_learner
     stacking_source_orders: dict[str, list[str]] = {}
+    if canonical_dsl["steps"][1].get("sources"):
+        stacking_source_orders[_META_NODE_ID] = canonical_dsl["steps"][1]["sources"]
     meta_source_nodes: dict[str, list[str]] = {}
     meta_labels: dict[str, str] = {}
     if downstream_meta_steps:
