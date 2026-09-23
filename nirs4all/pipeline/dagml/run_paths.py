@@ -1728,6 +1728,11 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     from .detect import _is_exclude_step
 
     pre_aug_steps = pipeline[:aug_index]
+    checkpoint_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    if checkpoint_steps:
+        if len(checkpoint_steps) != 1 or sum(isinstance(step, dict) and "model" in step for step in pipeline) != 2 or fold_local or interleaved:
+            raise DagMlUnsupported("sequential model checkpoints across this augmentation shape need distinct native fit views")
+        pre_aug_steps = [step for step in pre_aug_steps if step is not checkpoint_steps[0]]
     chart_transform_offset = sum(
         (isinstance(step, dict) and set(step) == {"preprocessing"})
         or (not isinstance(step, dict) and hasattr(step, "transform") and not hasattr(step, "predict"))
@@ -1737,6 +1742,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     late_exclusion_length = _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
     post_aug_steps = pipeline[after_aug + late_exclusion_length:]
     materialized_early = bool((interleaved or late_exclusion_length) and not fold_local)
+    if checkpoint_steps and materialized_early:
+        raise DagMlUnsupported("sequential model checkpoints with ordered exclusion need distinct native fit views")
     if materialized_early:
         replay_stages = _materialize_augmentation_prefix(
             pipeline[:after_aug + late_exclusion_length], spectro,
@@ -1748,7 +1755,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     steps, splitter = _split_pipeline(post_aug_steps)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
-    steps = [*y_prefix_steps, *steps]
+    steps = [*y_prefix_steps, *checkpoint_steps, *steps]
     if any(_is_exclude_step(step) for step in steps):
         from .exclude import _resolve_exclude
 
@@ -1871,6 +1878,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(model_ids) > 1:
         dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+        if checkpoint_steps:
+            dsl["data_bindings"][0]["view_policy"] = {"include_augmented_train": False}
 
     run_dir.mkdir(parents=True, exist_ok=True)
     pickle_path = run_dir / "augmented_dataset.pkl"
@@ -1884,17 +1893,47 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml augmentation run failed")
 
-    result = _scores_to_run_result(
-        outcome["scores"],
-        spectro.name,
-        _model_name(steps),
-        metric,
-        task_type,
-        config_name=config_name,
-        results=outcome["results"],
-        identity=identity,
-        refit_artifacts=outcome["refit_artifacts"],
-    )
+    if checkpoint_steps:
+        from .result import _variant_cv_score
+
+        producer_scores = [
+            {**outcome["scores"], "reports": [report for report in outcome["scores"]["reports"] if report["producer_node"] == model_id]}
+            for model_id in model_ids
+        ]
+        decision = dag_ml.select_candidate(
+            {"id": "select:augmentation_checkpoints", "metric": {"name": metric, "objective": "maximize" if is_higher_better(metric) else "minimize"}},
+            [{"candidate_id": str(index), "metrics": {metric: _variant_cv_score(scores, metric)}} for index, scores in enumerate(producer_scores)],
+        )
+        result = _project_operator_sweep(
+            list(zip(producer_scores, [_model_name([step]) for step in (checkpoint_steps[0], steps[-1])], strict=True)),
+            spectro.name, metric, task_type, task_type != "regression", [config_name] * len(model_ids),
+            results_by_index=[
+                [frame for frame in outcome["results"] if any(
+                    block.get("producer_node") == model_id
+                    for block in (frame.get("result", frame).get("predictions") or [])
+                )]
+                for model_id in model_ids
+            ],
+            identities_by_index=[identity] * len(model_ids),
+            refit_artifacts_by_index=[
+                [artifact for artifact in outcome["refit_artifacts"] if f":{model_id}:" in artifact["artifact_id"]]
+                for model_id in model_ids
+            ],
+            selected_index=int(decision["selected_candidate_id"]),
+            emit_all_refits=True,
+        )
+    else:
+        result = _scores_to_run_result(
+            outcome["scores"],
+            spectro.name,
+            _model_name(steps),
+            metric,
+            task_type,
+            config_name=config_name,
+            results=outcome["results"],
+            identity=identity,
+            refit_artifacts=outcome["refit_artifacts"],
+        )
     result = _attach_pre_augmentation_replay(result, replay_stages)
     result._dagml_chart_aug_snapshots = chart_snapshots
     result._dagml_chart_transform_snapshots = chart_transform_snapshots

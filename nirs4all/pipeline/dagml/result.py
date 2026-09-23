@@ -671,6 +671,7 @@ def _project_operator_sweep(
     refit_artifacts_by_index: list[list[dict[str, Any]]] | None = None,
     identities_by_index: list[IdentityMap] | None = None,
     selected_index: int | None = None,
+    emit_all_refits: bool = False,
 ) -> RunResult:
     """Combine each operator-expanded variant's single-variant ScoreSet into ONE per-variant projection.
 
@@ -682,6 +683,7 @@ def _project_operator_sweep(
     the native SELECT direction) keeps ALL its reports (incl. the refit ``(final/test, None)`` and the
     ``None``-tagged avg — only the winner refits); every LOSER keeps only its VALIDATION reports, re-tagged
     with a distinct ``variant_id`` (its avg re-tagged too, so it no longer claims the winner's ``None`` avg).
+    With ``emit_all_refits``, losers also retain their own final/test reports and prediction arrays.
 
     Each variant's rows are labeled by its OWN ``variant_id`` via the ``variant_config_names`` /
     ``variant_model_names`` maps — the winner gets ITS expansion ``config_name`` (+ ``_refit``) and ITS
@@ -701,7 +703,8 @@ def _project_operator_sweep(
     ``refit_artifacts_by_index`` (P3 Slice 2c-i) is each variant's captured fitted REFIT estimators
     (``_run_concrete_scores``'s ``outcome["refit_artifacts"]``); ONLY the WINNER's are forwarded for native
     persistence — the projection refits + describes the winner, so the losers' refit models are not
-    surfaced. ``None`` (rep-fusion sweep) → no artifacts persisted.
+    surfaced. ``None`` (rep-fusion sweep) → no artifacts persisted. ``emit_all_refits`` preserves
+    each checkpoint's final/test rows while export still targets the selected model artifact.
     """
     scores_by_variant = [scores for scores, _ in variant_scores]
     model_names = [name for _, name in variant_scores]
@@ -777,4 +780,5 @@ def _project_operator_sweep(
         # losers' refit models are not surfaced and not persisted. ``None`` (rep-fusion sweep, no capture)
         # falls back to no artifacts.
         refit_artifacts=refit_artifacts_by_index[winner_index] if refit_artifacts_by_index is not None else None,
+        emit_all_refits=emit_all_refits,
     )
