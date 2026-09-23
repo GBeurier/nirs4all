@@ -23,8 +23,7 @@ Layout (one directory per run, default ``./nirs4all_results/<run_id>/``):
 * ``artifacts/`` — the fitted REFIT model binaries (P3 Slice 2c-i). Each captured ``{estimator,
   y_transform}`` is joblib-serialized to ``artifacts/<node>/<variant>.joblib`` and recorded as a manifest
   ``artifacts[]`` ArtifactRef entry. ONLY the leakage-safe REFIT estimators are persisted (FIT_CV/OOF
-  models never are). Present only for the in-process mechanism (the subprocess mechanism fits in a child
-  process this one cannot reach → ``has_model_artifacts:false`` + NO ``artifacts[]`` entries).
+  models never are). Both the in-process mechanism and the subprocess adapter capture refit models.
 * ``manifest.json`` — the run header (run_id, engine, versions, datasets, configs/variants, models,
   metric, task_type) + CAPABILITY FLAGS (``has_model_artifacts`` true when any model artifact was
   captured + persisted; ``has_aggregate_predictions`` false for this slice) + the ScoreSet content hash +
@@ -165,14 +164,13 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
     """Joblib-serialize each captured REFIT model + build its manifest ArtifactRef entry (P3 Slice 2c-i).
 
     Each ``refit_artifacts`` entry is ``{artifact_id, estimator, y_transform, kind, controller_id,
-    backend}`` (captured host-side from the in-process store; the node runner emits ``backend="joblib"``).
+    backend}`` (captured from the in-process store or the subprocess adapter; the node runner emits ``backend="joblib"``).
     We joblib-dump ``{estimator, y_transform}`` to ``artifacts/<uri>`` and return one ArtifactRef per
     artifact whose fields are dag-ml ArtifactRef-IDENTICAL: ``backend`` (the SERIALIZATION backend — the
     node runner's captured ``"joblib"``, NOT the ML framework, per ADR-16 / dag-ml ``ArtifactBackend``),
     ``uri`` (relative to the run dir), ``content_fingerprint`` (sha256 of the written bytes — NOT
     ``content_hash``), ``size_bytes``, ``kind``, plus ``controller_id`` when available and the source
-    ``artifact_id``. An EMPTY input writes nothing and returns ``[]`` (the subprocess mechanism → no
-    loadable artifacts, never a faked payload).
+    ``artifact_id``. An EMPTY input writes nothing and returns ``[]``.
     """
     if not refit_artifacts:
         return []
@@ -395,8 +393,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
 
     ``artifact_refs`` is the list of dag-ml-identical model ArtifactRef entries
     (:func:`_write_model_artifacts`). ``has_model_artifacts`` is TRUE iff any was captured + persisted (the
-    in-process mechanism with at least one REFIT model); FALSE (with an empty ``artifacts`` list) for the
-    subprocess mechanism, which cannot reach the child-process models.
+    in-process or subprocess mechanism with at least one REFIT model); FALSE only when no model was captured.
     """
     from nirs4all import __version__ as nirs4all_version
 
@@ -506,7 +503,7 @@ def write_native_results(
     ``artifacts/`` model tree (the captured fitted REFIT estimators, P3 Slice 2c-i) under
     ``<root>/<run_id>/``. Called ONLY when :func:`native_results_enabled` (OFF by default). NEVER
     touches the legacy workspace store. The fitted models are read from ``result._dagml_refit_artifacts``
-    (captured host-side from the in-process store); an empty list (subprocess mechanism) writes no
+    (captured from the in-process store or the subprocess adapter); an empty list writes no
     ``artifacts/`` payload and records ``has_model_artifacts:false``.
     """
     if score_set is None:
@@ -538,7 +535,7 @@ def write_native_results(
     pl.DataFrame(rows, schema=schema).write_parquet(run_dir / "predictions.parquet")
 
     # artifacts/ — joblib-serialize the captured fitted REFIT models (P3 Slice 2c-i) + their ArtifactRefs.
-    # Empty for the subprocess mechanism (no capturable child-process models) → no payload, flag false.
+    # Only fitted REFIT models produce payloads; empty captures leave the capability flag false.
     artifact_refs = _write_model_artifacts(run_dir, result._dagml_refit_artifacts)  # noqa: SLF001
 
     # manifest.json — the run header + capability flags + the ScoreSet hash + the model ArtifactRefs.

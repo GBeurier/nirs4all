@@ -215,6 +215,10 @@ def run_cv_refit_bundle(
     # spurious DagMlUnsupported fallback (P0 round-5 must-fix). The error_kind classification is only sound
     # over frames written by THIS subprocess.
     capture.unlink(missing_ok=True)
+    artifact_dir = workdir / "refit_artifacts"
+    artifact_dir.mkdir(exist_ok=True)
+    for stale_artifact in artifact_dir.glob("*.joblib"):
+        stale_artifact.unlink()
     shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
 
     env = {
@@ -222,6 +226,7 @@ def run_cv_refit_bundle(
         "N4A_DAGML_DATASET_PATH": dataset_path,
         "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
         "N4A_DAGML_RESULT_CAPTURE": str(capture),
+        "N4A_DAGML_REFIT_ARTIFACT_DIR": str(artifact_dir),
     }
     # The adapter PRIORITIZES N4A_DAGML_DATASET_PICKLE / N4A_DAGML_SAMPLE_META_PATH over the dataset
     # path. The child env inherits os.environ, so a stale value from an earlier run (or the caller's

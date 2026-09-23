@@ -1181,7 +1181,7 @@ def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, ba
 def _build_fold_local_prefix_views(
     prefix: list[Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]],
     base_train: list[int], context: Any | None = None,
-) -> tuple[dict[str, dict[int, list[int]]], dict[int, str], dict[str, tuple[Any, dict[int, int]]], list[Any]]:
+) -> tuple[dict[str, dict[int, list[int]]], dict[int, str], dict[str, tuple[Any, dict[int, int], set[int]]], list[Any]]:
     """Run the ordered augmentation prefix in every train fold and in the refit pool.
 
     The master dataset owns stable wire identities and targets. Each fold copy owns its fitted
@@ -1194,7 +1194,7 @@ def _build_fold_local_prefix_views(
     passes.append(("refit", base_train))
     fold_children: dict[str, dict[int, list[int]]] = {}
     augmentation_by_sample: dict[int, str] = {}
-    feature_views: dict[str, tuple[Any, dict[int, int]]] = {}
+    feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] = {}
     replay_stages: list[Any] = []
     base_spectro = copy.deepcopy(spectro)
     for fold_label, fold_train in passes:
@@ -1240,7 +1240,9 @@ def _build_fold_local_prefix_views(
                 by_origin.setdefault(root, []).append(master_child)
                 augmentation_by_sample[master_child] = label
         fold_children[fold_label] = by_origin
-        feature_views[fold_label] = (fold_ds, local_ids)
+        excluded_local = {int(sample) for sample in fold_ds.index_column("sample", {"excluded": True})}
+        excluded_master = (excluded_local & before) | {master for master, local in local_ids.items() if local in excluded_local}
+        feature_views[fold_label] = (fold_ds, local_ids, excluded_master)
     return fold_children, augmentation_by_sample, feature_views, replay_stages
 
 
@@ -1551,14 +1553,9 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     aug_index, after_aug = aug_indices[0], aug_indices[-1] + 1
     from .detect import _is_exclude_step
 
-    if interleaved and fold_local and any(_is_exclude_step(step) for step in pipeline[aug_index:after_aug]):
-        raise DagMlUnsupported("fold-local augmentation interleaved with exclusion needs per-fold exclusion views")
     pre_aug_steps = pipeline[:aug_index]
     late_exclusion_length = _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
-    late_exclusion_steps = pipeline[after_aug:after_aug + late_exclusion_length]
-    if late_exclusion_length and fold_local and any(not (isinstance(step, dict) and "exclude" in step) for step in late_exclusion_steps):
-        raise DagMlUnsupported("fold-local augmentation followed by transform and exclude needs per-fold transform materialization")
-    post_aug_steps = pipeline[after_aug + (late_exclusion_length if not fold_local else 0):]
+    post_aug_steps = pipeline[after_aug + late_exclusion_length:]
     materialized_early = bool((interleaved or late_exclusion_length) and not fold_local)
     if materialized_early:
         replay_stages = _materialize_augmentation_prefix(pipeline[:after_aug + late_exclusion_length], spectro)
@@ -1620,10 +1617,10 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     # train only, so each fold (+ the full-train refit) has its OWN children — leakage-safe for the
     # stateful case. `fold_children` keys the per-fold expansion; it is pickled for the adapter's resolver.
     fold_children: dict[str, dict[int, list[int]]] | None = None
-    fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None
-    if fold_local and interleaved:
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None
+    if fold_local and (interleaved or late_exclusion_length):
         fold_children, augmentation_by_sample_int, fold_feature_views, fold_replay = _build_fold_local_prefix_views(
-            pipeline[aug_index:after_aug], spectro, base_folds, base_train, prefix_context,
+            pipeline[aug_index:after_aug + late_exclusion_length], spectro, base_folds, base_train, prefix_context,
         )
         replay_stages.extend(fold_replay)
     elif fold_local:
@@ -1703,7 +1700,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 _MERGE_NODE_ID = "merge:concat"
 
 
-def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, augmentation_by_sample: dict[int, str] | None = None, fold_children: dict[str, dict[int, list[int]]] | None = None, fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None, folds_override: list[tuple[list[int], list[int]]] | None = None) -> RunResult:
+def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, augmentation_by_sample: dict[int, str] | None = None, fold_children: dict[str, dict[int, list[int]]] | None = None, fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None, folds_override: list[tuple[list[int], list[int]]] | None = None) -> RunResult:
     """Run a by_metadata/by_tag separation branch + concat merge as ONE native dag-ml fan-out run.
 
     Lowers the branch to an ``auto_separate`` template (one branch carrying the criterion + the

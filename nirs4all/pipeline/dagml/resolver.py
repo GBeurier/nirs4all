@@ -55,7 +55,7 @@ class MaterializationResolver:
         dataset: SpectroDataset,
         identity: IdentityMap,
         fold_children: dict[str, dict[int, list[int]]] | None = None,
-        fold_feature_views: dict[str, tuple[SpectroDataset, dict[int, int]]] | None = None,
+        fold_feature_views: dict[str, tuple[SpectroDataset, dict[int, int], set[int]]] | None = None,
     ) -> None:
         self._dataset = dataset
         self._identity = identity
@@ -141,16 +141,17 @@ class MaterializationResolver:
         """
         origin_ints = {self._identity.to_int(observation_id) for observation_id in observation_ids}
         if self._fold_children is not None:
+            excluded = self._fold_feature_views[fold_label][2] if self._fold_feature_views is not None and fold_label in self._fold_feature_views else set()
             by_origin = self._fold_children.get(fold_label or "", {})
             fold_order = (self._fold_children_order or {}).get(fold_label or "", [])
             children = [
                 child_id
                 for child_id in fold_order
-                if self._origin_of_observation.get(child_id) in origin_ints
+                if self._origin_of_observation.get(child_id) in origin_ints and self._identity.to_int(child_id) not in excluded
             ]
             if not children and by_origin:
-                children = [child_id for origin_int in origin_ints for child_id in by_origin.get(origin_int, [])]
-            return [*observation_ids, *children]
+                children = [child_id for origin_int in origin_ints for child_id in by_origin.get(origin_int, []) if self._identity.to_int(child_id) not in excluded]
+            return [*(observation_id for observation_id in observation_ids if self._identity.to_int(observation_id) not in excluded), *children]
         if not self._children_of_origin:
             return list(observation_ids)
         children = [
@@ -289,7 +290,7 @@ class MaterializationResolver:
             return self._dataset, sample_ints
         if fold_label not in self._fold_feature_views:
             raise ValueError(f"missing fold-local feature view for {fold_label!r}")
-        dataset, child_ids = self._fold_feature_views[fold_label]
+        dataset, child_ids, _excluded = self._fold_feature_views[fold_label]
         return dataset, [child_ids.get(sample_int, sample_int) for sample_int in sample_ints]
 
     def _guard_origin_boundary(self, observation_ids: list[str], include_augmented: bool) -> None:

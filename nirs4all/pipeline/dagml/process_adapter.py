@@ -148,7 +148,7 @@ def _build_handler() -> NodeHandler:
     from .resolver import MaterializationResolver
 
     fold_children: dict[str, dict[int, list[int]]] | None = None
-    fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None
     pickle_path = os.environ.get("N4A_DAGML_DATASET_PICKLE")
     if pickle_path:
         with open(pickle_path, "rb") as pickle_file:
@@ -180,9 +180,24 @@ def _build_handler() -> NodeHandler:
     def handle_task(task: dict[str, Any]) -> dict[str, Any]:
         result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
         _capture_vote_sidecar(task, store, os.environ.get("N4A_DAGML_RESULT_CAPTURE"))
+        _capture_refit_sidecar(result, store, os.environ.get("N4A_DAGML_REFIT_ARTIFACT_DIR"))
         return result
 
     return handle_task
+
+
+def _capture_refit_sidecar(result: dict[str, Any], store: dict[int, Any], directory: str | None) -> None:
+    """Persist the worker's fitted REFIT estimator for host-side archive export."""
+    if not directory or not result.get("artifact_handles"):
+        return
+    from pathlib import Path
+
+    import joblib
+
+    from .in_process_runner import _capture_refit_artifacts, _refit_artifact_path
+
+    for artifact in _capture_refit_artifacts([result], store):
+        joblib.dump(artifact, _refit_artifact_path(Path(directory), artifact["artifact_id"]), compress=3)
 
 
 def _capture_vote_sidecar(task: dict[str, Any], store: dict[Any, Any], capture_path: str | None) -> None:

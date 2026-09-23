@@ -303,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", type=Path, default=None, help="write the full inventory JSON to this path")
     parser.add_argument("--md", type=Path, default=None, help="write the markdown summary to this path")
     parser.add_argument("--check", action="store_true", help="compare the meter summary to the ledger; exit 1 on drift")
+    parser.add_argument("--require-zero-refusals", action="store_true", help="fail if any registered case still refuses DAG-ML")
     args = parser.parse_args(argv)
 
     report = build_report()
@@ -323,7 +324,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"coverage_meter OK (refusal={live['refusal']}, target={live['expected_refusal_target']})")
 
-    if args.json is None and args.md is None and not args.check:
+    if args.require_zero_refusals and report.summary()["refusal"]:
+        refused = report.names_in(EXPECTED_REFUSAL_BUCKET) + report.names_in(UNEXPECTED_REFUSAL)
+        print("DAG-ML parity gate failed; registered cases still refuse: " + ", ".join(refused))
+        exit_code = 1
+
+    if args.json is None and args.md is None and not args.check and not args.require_zero_refusals:
         print(report.to_markdown())
     return exit_code
 
