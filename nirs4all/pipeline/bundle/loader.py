@@ -455,6 +455,8 @@ class BundleLoader:
         self.fold_weights: dict[int, float] = {}
         self._artifact_index: dict[str, str] = {}
         self.relation_replay_manifest: dict[str, Any] = {}
+        self._named_output_names: tuple[str, ...] = ()
+        self._named_output_widths: tuple[int, ...] = ()
         self.artifact_provider: BundleArtifactProvider | None = None
 
         self._load_bundle()
@@ -470,6 +472,21 @@ class BundleLoader:
                     manifest_data = json.load(f)
                     self.metadata = BundleMetadata.from_dict(manifest_data)
                     _validate_bundle_format_version(self.metadata.bundle_format_version)
+                    if manifest_data.get("dagml_native_export_shape") == "independent_by_source_multi":
+                        outputs = manifest_data.get("dagml_named_outputs")
+                        if not isinstance(outputs, list) or len(outputs) < 2 or any(
+                            not isinstance(entry, dict)
+                            or not isinstance(entry.get("name"), str) or not entry["name"]
+                            or entry.get("source_index") != index
+                            or type(entry.get("feature_width")) is not int or entry["feature_width"] <= 0
+                            for index, entry in enumerate(outputs)
+                        ):
+                            raise ValueError("independent-source archive has an invalid named-output manifest")
+                        names = tuple(entry["name"] for entry in outputs)
+                        if len(set(names)) != len(names):
+                            raise ValueError("independent-source archive has duplicate output names")
+                        self._named_output_names = names
+                        self._named_output_widths = tuple(entry["feature_width"] for entry in outputs)
             else:
                 raise ValueError("Bundle missing manifest.json")
 
@@ -641,6 +658,8 @@ class BundleLoader:
         """
         if self.artifact_provider is None:
             raise RuntimeError("Bundle not loaded properly: no artifact provider")
+        if self._named_output_names:
+            raise ValueError("archive has multiple named outputs; call predict_output(name, X) or predict_outputs(X)")
 
         routing = self.get_partitioner_routing()
         if routing and any(info.get("native_replay") == "by_metadata_concat" for info in routing.values()):
@@ -659,6 +678,36 @@ class BundleLoader:
         else:
             # Fallback: infer from artifact index
             return self._predict_from_index(X_current)
+
+    @property
+    def named_outputs(self) -> tuple[str, ...]:
+        """Stable output names of a multi-output archive, empty for ordinary bundles."""
+        return self._named_output_names
+
+    def _named_output_model(self) -> Any:
+        if not self._named_output_names or self.metadata is None or self.metadata.model_step_index is None:
+            raise ValueError("archive has no named independent outputs")
+        model = self._get_refit_model(self.metadata.model_step_index)
+        if (model is None
+                or tuple(getattr(model, "output_names", ())) != self._named_output_names
+                or tuple(getattr(model, "source_widths", ())) != self._named_output_widths):
+            raise ValueError("independent-source archive model disagrees with its named-output manifest")
+        return model
+
+    def predict_output(self, name: str, X: Any) -> np.ndarray:
+        """Replay exactly one explicitly named output from a multi-output archive."""
+        model = self._named_output_model()
+        if name not in self._named_output_names:
+            raise ValueError(f"unknown named output {name!r}; available outputs: {list(self._named_output_names)!r}")
+        return np.asarray(model.predict_output(name, self._prepare_prediction_input(X)))
+
+    def predict_outputs(self, X: Any) -> dict[str, np.ndarray]:
+        """Replay all independent outputs as a name-to-prediction mapping."""
+        model = self._named_output_model()
+        values = model.predict_outputs(self._prepare_prediction_input(X))
+        if tuple(values) != self._named_output_names:
+            raise ValueError("independent-source archive emitted outputs in an unexpected order")
+        return {name: np.asarray(value) for name, value in values.items()}
 
     def _prepare_prediction_input(self, X: Any) -> np.ndarray:
         """Prepare a bundle prediction matrix, replaying relation materialization when possible."""

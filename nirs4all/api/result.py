@@ -676,6 +676,35 @@ class _DagmlNativeSelectedSourceModel:
         return self.member.predict(block)
 
 
+class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
+    """Retain every source output without defining a default prediction."""
+
+    def __init__(self, members: Sequence[tuple[int, str, _DagmlExportedModel]]) -> None:
+        if len(members) < 2:
+            raise ValueError("independent-source archive requires at least two outputs")
+        ordered = sorted(members, key=lambda item: item[0])
+        self.output_names = tuple(name for _index, name, _member in ordered)
+        if len(set(self.output_names)) != len(self.output_names):
+            raise ValueError("independent-source archive output names must be unique")
+        super().__init__([(index, member) for index, _name, member in ordered])
+
+    def predict(self, X: Any) -> np.ndarray:
+        raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict or call BundleLoader.predict_output(s)")
+
+    def predict_output(self, name: str, X: Any) -> np.ndarray:
+        if name not in self.output_names:
+            raise ValueError(f"unknown named output {name!r}; available outputs: {list(self.output_names)!r}")
+        index = self.output_names.index(name)
+        return np.asarray(self.members[index].predict(self._source_blocks(X)[index]))
+
+    def predict_outputs(self, X: Any) -> dict[str, np.ndarray]:
+        blocks = self._source_blocks(X)
+        return {
+            name: np.asarray(member.predict(blocks[index]))
+            for index, (name, member) in enumerate(zip(self.output_names, self.members, strict=True))
+        }
+
+
 class _DagmlNativeMetadataConcatModel:
     """Replay fanned REFIT models using the required metadata partition key."""
 
@@ -2059,17 +2088,23 @@ class RunResult:
                 for dataset in self.per_dataset.values()
             )
             if independent_sources:
-                if source is None or chain_id is not None or legacy_refit_compatibility:
+                if chain_id is not None or legacy_refit_compatibility:
                     from nirs4all.pipeline.dagml.rt import RtError
 
                     raise RtError(
                         "export",
                         "unsupported_capability",
                         "engine='dag-ml' by_source merge:auto has independent source predictions; "
-                        "export requires an explicit final prediction row in source=.",
-                        mitigation=("Select one final row from result.predictions and pass it as source=, "
-                                    "or train with an explicit merge:mean."),
+                        "chain_id and legacy-refit cannot identify a named output.",
+                        mitigation="Export all named outputs, or pass one final prediction row as source=.",
                         unsupported_capability=_DAGML_EXPORT_UNSUPPORTED_CAPABILITY,
+                    )
+                if source is None:
+                    native = self._dagml_native_export_bundle(output_path, format, independent_outputs=True)
+                    if native is not None:
+                        return native
+                    raise self._dagml_export_refusal(
+                        "export", "the independent outputs have no complete replayable native REFIT artifacts",
                     )
                 identifier = source.get("id") or source.get("prediction_id")
                 selected = self.predictions.get_prediction_by_id(identifier, load_arrays=False) if identifier else None
@@ -2292,6 +2327,7 @@ class RunResult:
 
     def _dagml_native_export_bundle(
         self, output_path: str | Path, format: str, *, selected_source: Mapping[str, Any] | None = None,
+        independent_outputs: bool = False,
     ) -> Path | None:
         """Export a NATIVE ``.n4a`` bundle from captured dag-ml refit artifacts when safely replayable.
 
@@ -2353,6 +2389,49 @@ class RunResult:
         except Exception as exc:  # noqa: BLE001 -- default contract: ANY native-read failure → stable refusal
             logger.debug("native dag-ml .n4a export is unavailable: %s", exc)
             return None
+        if independent_outputs:
+            indexed = _indexed_branch_artifacts(artifacts)
+            if indexed is None or len(indexed) < 2:
+                return None
+            names: dict[int, str] = {}
+            for row in self.predictions.filter_predictions(load_arrays=False):
+                if row.get("fold_id") != "final" or row.get("branch_id") is None:
+                    continue
+                try:
+                    index = int(row["branch_id"])
+                except (TypeError, ValueError):
+                    return None
+                name = row.get("branch_name")
+                if not isinstance(name, str) or not name or index in names and names[index] != name:
+                    return None
+                names[index] = name
+            if set(names) != {index for index, _artifact in indexed}:
+                return None
+            independent_members = [
+                (index, names[index], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]))
+                for index, artifact in indexed
+            ]
+            independent_model = _DagmlNativeIndependentSourceModels(independent_members)
+            if any(width is None for width in independent_model.source_widths):
+                return None
+            native_manifest = cast(Mapping[str, Any], native["manifest"])
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest, export_path="dagml_native_independent_sources",
+                artifact_count=len(independent_members), export_shape="independent_by_source_multi",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
+            )
+            provenance["dagml_named_outputs"] = [
+                {"name": name, "source_index": index, "producer_node": artifact.get("producer_node"),
+                 "feature_width": independent_model.source_widths[index]}
+                for (index, artifact), name in zip(indexed, independent_model.output_names, strict=True)
+            ]
+            from nirs4all.pipeline.bundle import write_single_model_bundle
+
+            return write_single_model_bundle(
+                independent_model, output_path, model_label="dagml_independent_sources",
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance, train_steps=None,
+            )
         if selected_source is not None:
             indexed = _indexed_branch_artifacts(artifacts)
             if indexed is None or len(indexed) < 2:
@@ -2368,7 +2447,7 @@ class RunResult:
             widths = [_estimator_feature_width(member["estimator"]) for _index, member in indexed]
             if any(width is None for width in widths):
                 return None
-            model = _DagmlNativeSelectedSourceModel(
+            selected_model = _DagmlNativeSelectedSourceModel(
                 source_index, cast(list[int], widths),
                 _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
             )
@@ -2385,7 +2464,7 @@ class RunResult:
                                                    "producer_node": artifact.get("producer_node")}
             provenance["dagml_source_widths"] = widths
             return write_single_model_bundle(
-                model, output_path,
+                selected_model, output_path,
                 model_label=str(selected_source.get("model_name") or source_name),
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
                 provenance=provenance,
@@ -2508,11 +2587,11 @@ class RunResult:
                 if not isinstance(spec, Mapping) or not isinstance(spec.get("value"), str):
                     return None
                 artifact_id = str(spec.get("artifact_id"))
-                artifact = by_id.get(artifact_id)
-                if artifact is None or artifact_id in used_ids:
+                separation_artifact = by_id.get(artifact_id)
+                if separation_artifact is None or artifact_id in used_ids:
                     return None
                 used_ids.add(artifact_id)
-                separation_members.append((spec["value"], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])))
+                separation_members.append((spec["value"], _DagmlExportedModel(separation_artifact["estimator"], separation_artifact["y_transform"])))
             if used_ids != set(by_id) or len({value for value, _ in separation_members}) != len(separation_members):
                 return None
             model_label = model_names[0] if model_names else "dagml_native_metadata_concat"

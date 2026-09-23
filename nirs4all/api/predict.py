@@ -76,6 +76,7 @@ def predict(
     chain_id: str | None = None,
     workspace_path: str | Path | None = None,
     name: str = "prediction_dataset",
+    output: str | None = None,
     all_predictions: bool = False,
     session: Session | None = None,
     verbose: int = 0,
@@ -135,6 +136,9 @@ def predict(
 
         name: Name for the prediction dataset (for logging).
             Default: "prediction_dataset"
+
+        output: Explicit named output of a multi-output DAG host archive.
+            Omit for ordinary single-output models.
 
         all_predictions: If True, return predictions from all folds/entries for
             non-conformal predictions. With a conformal sidecar and
@@ -239,6 +243,8 @@ def predict(
         raise ValueError("Provide either 'model' or 'chain_id'.")
     if data is None:
         raise ValueError("'data' is required.")
+    if output is not None and (not isinstance(output, str) or not output):
+        raise ValueError("output= must be a nonempty named output string")
 
     explicit_sample_ids = runner_kwargs.pop("sample_ids", None)
     methods_library_path = runner_kwargs.get("methods_library_path")
@@ -300,6 +306,11 @@ def predict(
     # through Core would correctly fail Core's strict ZIP/profile validation,
     # even though the archive is valid for the distinct general DAG profile.
     general_manifest = general_archive_manifest(model) if isinstance(model, (str, Path)) else None
+    if output is not None and (
+        general_manifest is None
+        or general_manifest.get("dagml_native_export_shape") != "independent_by_source_multi"
+    ):
+        raise ValueError("output= is supported only by a named multi-output DAG host archive")
     if general_manifest is not None and engine != "legacy":
         if requested_engine is None and not os.environ.get("N4A_ENGINE"):
             engine = "dag-ml"
@@ -310,7 +321,7 @@ def predict(
         if runner_kwargs:
             raise TypeError(f"general archive prediction does not accept options: {sorted(runner_kwargs)}")
         assert isinstance(model, (str, Path))
-        result = predict_general_archive(model, data)
+        result = predict_general_archive(model, data, output=output)
         return _maybe_publish_predict_result(
             result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=workspace_path,
             session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
