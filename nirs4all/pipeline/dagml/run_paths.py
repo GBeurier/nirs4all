@@ -1730,9 +1730,11 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     pre_aug_steps = pipeline[:aug_index]
     checkpoint_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
     if checkpoint_steps:
-        if len(checkpoint_steps) != 1 or sum(isinstance(step, dict) and "model" in step for step in pipeline) != 2 or fold_local or interleaved:
+        if (not any(isinstance(step, dict) and "model" in step for step in pipeline[after_aug:])
+                or fold_local or interleaved
+                or pre_aug_steps[-len(checkpoint_steps):] != checkpoint_steps):
             raise DagMlUnsupported("sequential model checkpoints across this augmentation shape need distinct native fit views")
-        pre_aug_steps = [step for step in pre_aug_steps if step is not checkpoint_steps[0]]
+        pre_aug_steps = pre_aug_steps[:-len(checkpoint_steps)]
     chart_transform_offset = sum(
         (isinstance(step, dict) and set(step) == {"preprocessing"})
         or (not isinstance(step, dict) and hasattr(step, "transform") and not hasattr(step, "predict"))
@@ -1878,8 +1880,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(model_ids) > 1:
         dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
-        if checkpoint_steps:
-            dsl["data_bindings"][0]["view_policy"] = {"include_augmented_train": False}
+        for binding in dsl["data_bindings"][:len(checkpoint_steps)]:
+            binding["view_policy"] = {"include_augmented_train": False}
 
     run_dir.mkdir(parents=True, exist_ok=True)
     pickle_path = run_dir / "augmented_dataset.pkl"
@@ -1905,7 +1907,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
             [{"candidate_id": str(index), "metrics": {metric: _variant_cv_score(scores, metric)}} for index, scores in enumerate(producer_scores)],
         )
         result = _project_operator_sweep(
-            list(zip(producer_scores, [_model_name([step]) for step in (checkpoint_steps[0], steps[-1])], strict=True)),
+            list(zip(producer_scores, [_model_name([step]) for step in steps if isinstance(step, dict) and "model" in step], strict=True)),
             spectro.name, metric, task_type, task_type != "regression", [config_name] * len(model_ids),
             results_by_index=[
                 [frame for frame in outcome["results"] if any(
