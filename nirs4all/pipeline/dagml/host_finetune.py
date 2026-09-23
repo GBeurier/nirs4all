@@ -72,7 +72,13 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     if unknown:
         raise NotImplementedError(f"DAG host finetuning controls not wired yet: {sorted(unknown)}")
     if engine == "optuna" and params.get("n_jobs", 1) != 1:
-        raise NotImplementedError("DAG host Optuna search has no parallel-trial contract yet")
+        n_jobs = params["n_jobs"]
+        if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
+            raise ValueError("DAG host Optuna n_jobs must be positive or -1")
+        if params.get("storage") or params.get("resume"):
+            raise NotImplementedError("DAG parallel Optuna trials require a durable concurrent checkpoint contract")
+        if params.get("pruner", "none") != "none":
+            raise NotImplementedError("DAG parallel Optuna pruning requires coordinator-mediated fold feedback")
     if engine == "optuna":
         if "storage" in params and (not isinstance(params["storage"], str) or not params["storage"].strip()):
             raise TypeError("DAG host finetune_params.storage requires a nonempty Optuna storage URL")
@@ -374,8 +380,13 @@ def run_scoped_finetune(
 
     # The source facade is additive; installed dependency stubs may predate it.
     native = importlib.import_module("dag_ml")
+    optimizer_descriptor = json.loads(json.dumps(params))
+    if engine == "n4m":
+        # The legacy N4M manager accepts n_jobs but evaluates its native
+        # ask/tell optimizer serially. Preserve that observable contract.
+        optimizer_descriptor["n_jobs"] = 1
     request = {"target_node": target, "trial_budget": sum(phase["n_trials"] for phase in phases) if phases else params["n_trials"], "metric": metric,
-               "direction": direction, "optimizer_descriptor": json.loads(json.dumps(params))}
+               "direction": direction, "optimizer_descriptor": optimizer_descriptor}
     if phases:
         request["phase_trial_budgets"] = [phase["n_trials"] for phase in phases]
     if engine == "optuna" and params.get("approach", "grouped") == "grouped" and params.get("pruner", "none") != "none":

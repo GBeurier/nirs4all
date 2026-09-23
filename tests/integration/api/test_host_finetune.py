@@ -489,7 +489,8 @@ def test_n4m_pruner_uses_native_fold_feedback_and_replay(tmp_path, monkeypatch, 
     result.close()
 
 
-def test_optuna_parallel_trials_legacy_oracle_and_native_boundary(tmp_path):
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_parallel_trials_legacy_oracle_and_native_window(tmp_path, monkeypatch, mechanism):
     pytest.importorskip("optuna")
     import nirs4all
 
@@ -501,8 +502,32 @@ def test_optuna_parallel_trials_legacy_oracle_and_native_boundary(tmp_path):
     legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
     assert np.isfinite(legacy.cv_best_score)
     legacy.close()
-    with pytest.raises(Exception, match="parallel-trial contract"):
-        nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+    assert np.isfinite(result.cv_best_score)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert all(len(search["trials"]) == 2 and search["selected_trial_index"] in {0, 1} for search in history)
+    result.close()
+
+
+@pytest.mark.parametrize("extra,reason", [
+    ({"storage": "sqlite:///parallel.db"}, "durable concurrent checkpoint"),
+    ({"pruner": "median"}, "coordinator-mediated fold feedback"),
+])
+def test_optuna_parallel_unsupported_combinations_refuse_before_fit(extra, reason):
+    pytest.importorskip("optuna")
+    from nirs4all.pipeline.dagml.host_finetune import validate_host_finetune
+
+    with pytest.raises(NotImplementedError, match=reason):
+        validate_host_finetune({"engine": "optuna", "n_jobs": 2, "n_trials": 2,
+                                "model_params": {"n_components": [1, 2]}, **extra})
 
 
 def test_n4m_n_jobs_matches_legacy_sequential_contract(tmp_path):
