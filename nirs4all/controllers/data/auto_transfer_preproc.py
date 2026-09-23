@@ -304,11 +304,11 @@ class AutoTransferPreprocessingController(OperatorController):
         artifact = (recommendation_data, "transfer_preprocessing_recommendation", "json")
         artifacts.append(artifact)
 
-        # Store full results in context metadata for later use
-        context = context.with_metadata(
-            transfer_preprocessing_results=results,
-            transfer_preprocessing_recommendation=recommendation_data,
-        )
+        # StepMetadata only holds coordination flags. Controller-specific
+        # recommendations belong in the context's custom state.
+        context = context.copy()
+        context.custom["transfer_preprocessing_results"] = results
+        context.custom["transfer_preprocessing_recommendation"] = recommendation_data
 
         # Apply recommendation if configured
         if config["apply_recommendation"]:
