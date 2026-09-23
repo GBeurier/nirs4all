@@ -45,6 +45,10 @@ def validate_chart_projection(pipeline: list[Any], spectro: Any) -> None:
         elif isinstance(step, dict):
             if set(step) == {"preprocessing"}:
                 transformed = True
+            elif "exclude" in step:
+                # Exclusion is resolved once by the scored run and captured as
+                # sample IDs for presentation at this precise pipeline stage.
+                continue
             elif not ("model" in step or "y_processing" in step):
                 uncertain_stage = True
         elif hasattr(step, "predict"):
@@ -78,20 +82,37 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
     arrays = arrays if isinstance(arrays, list) else [arrays]
     targets = np.asarray(snapshot.y(context, include_excluded=include_excluded)).reshape(len(sample_indices), -1)
     data_name = f"{stem}.csv"
+    excluded = {
+        int(row["sample"]): str(row.get("exclusion_reason") or "")
+        for row in snapshot._indexer.get_excluded_samples(context.selector).to_dicts()
+    }
     with (directory / data_name).open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["sample_index", "source", "processing", "feature_index", "value", *[f"target_{i}" for i in range(targets.shape[1])]])
+        writer.writerow(["sample_index", "excluded", "exclusion_reason", "source", "processing", "feature_index", "value", *[f"target_{i}" for i in range(targets.shape[1])]])
         for source, array in enumerate(arrays):
             for sample, sample_data in enumerate(array):
                 for processing, values in enumerate(sample_data):
                     for feature, value in enumerate(values):
-                        writer.writerow([sample_indices[sample], source, processing, feature, float(value), *targets[sample].tolist()])
+                        sample_id = int(sample_indices[sample])
+                        writer.writerow([sample_id, sample_id in excluded, excluded.get(sample_id, ""), source, processing, feature, float(value), *targets[sample].tolist()])
     (directory / f"{stem}.json").write_text(json.dumps({"summary": summary, "folds": snapshot.folds}, indent=2), encoding="utf-8")
+    excluded_table = ""
+    if excluded:
+        excluded_rows = "".join(
+            f"<tr><th scope=\"row\">{sample_id}</th><td>{html.escape(reason)}</td></tr>"
+            for sample_id, reason in sorted(excluded.items())
+        )
+        excluded_table = (
+            "<table><caption>Excluded sample IDs and reasons</caption>"
+            "<thead><tr><th scope=\"col\">Sample ID</th><th scope=\"col\">Reason</th></tr></thead>"
+            f"<tbody>{excluded_rows}</tbody></table>"
+        )
     (directory / f"{stem}.html").write_text(
         '<!doctype html><html lang="en"><meta charset="utf-8"><title>DAG chart</title>'
         f'<main><h1>DAG run chart</h1><p>{html.escape(summary)}</p>'
         f'<p><a href="{html.escape(data_name)}">Download exact numeric inputs (CSV)</a></p>'
         f'<p><a href="{html.escape(stem)}.json">Read scored fold memberships and methodology (JSON)</a></p>'
+        f'{excluded_table}'
         f'<img src="{html.escape(image_name)}" alt="{html.escape(summary)}"></main></html>',
         encoding="utf-8",
     )
@@ -125,14 +146,18 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
     prefix_at_last_augmentation = 0
     augmentation_snapshots = getattr(result, "_dagml_chart_aug_snapshots", None)
     transform_snapshots = getattr(result, "_dagml_chart_transform_snapshots", None) or {}
+    exclusion_stages = getattr(spectro, "_dagml_exclusion_chart_stages", None) or []
     expected_augmentations = sum(_is_augmentation_step(step) for step in pipeline)
     if expected_augmentations and (augmentation_snapshots is None or len(augmentation_snapshots) != expected_augmentations):
         raise RuntimeError("Chart augmentation stages are missing from the scored full-training pass.")
     output_paths: list[str] = []
+    exclusion_count = 0
     for index, step in enumerate(pipeline):
         if not _is_chart_step(step):
             if _is_split_step(step):
                 after_split = True
+            elif isinstance(step, dict) and "exclude" in step:
+                exclusion_count += 1
             elif _is_augmentation_step(step):
                 augmentation_count += 1
                 prefix_at_last_augmentation = prefix
@@ -145,6 +170,12 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
         snapshot = copy.deepcopy(materialized_stage if materialized_stage is not None else (
             augmentation_snapshots[augmentation_count - 1] if augmentation_count else (original_spectro or spectro)
         ))
+        if exclusion_count:
+            if len(exclusion_stages) < exclusion_count:
+                raise RuntimeError("Chart exclusion stages are missing from the scored training pass.")
+            for sample_ids, reason, cascade in exclusion_stages[:exclusion_count]:
+                if sample_ids:
+                    snapshot._indexer.mark_excluded(sample_ids, reason=reason, cascade_to_augmented=cascade)  # noqa: SLF001
         snapshot.set_folds(_folds_from_scores(result) if after_split else [])
         pending_prefix = 0 if materialized_stage is not None else (prefix - prefix_at_last_augmentation if augmentation_count else prefix)
         if pending_prefix:
@@ -156,7 +187,10 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
             snapshot.add_merged_features(values, processing_name=f"refit_stage_{pending_prefix}")
         parsed = StepParser().parse(step)
         context = ExecutionContext(metadata=StepMetadata(keyword=parsed.keyword, step_id=str(index)))
-        context = context.with_partition("train" if augmentation_count else None)
+        exclusion_chart = parsed.keyword in {"exclusion_chart", "chart_exclusion"}
+        config = step.get(parsed.keyword, {}) if isinstance(step, dict) else {}
+        chart_partition = config.get("partition", "train") if exclusion_chart and isinstance(config, dict) else None
+        context = context.with_partition(chart_partition if exclusion_chart else ("train" if augmentation_count else None))
         context = context.with_processing([snapshot.features_processings(source) for source in range(snapshot.features_sources())])
         if processed_target and artifact and artifact["y_transform"] is not None:
             target = np.asarray(snapshot.y({})).reshape(snapshot.num_samples, -1)
@@ -167,13 +201,17 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
         scope = ("full-training REFIT augmentation view; not out-of-fold features; observed and synthetic augmentation features"
                  if augmentation_count else ("captured full-training REFIT transforms; not out-of-fold features" if prefix else "original observed features"))
         target_scope = "captured REFIT target transform" if processed_target else "original numeric targets"
-        plotted_count = len(snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=False))
-        summary = f"{parsed.keyword}: {plotted_count} samples; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
+        plotted_count = len(snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=exclusion_chart))
+        if exclusion_chart:
+            excluded_count = len(snapshot._indexer.get_excluded_samples(context.selector))
+            chart_subject = f"{parsed.keyword}: {plotted_count - excluded_count} included and {excluded_count} excluded samples in {chart_partition or 'all'} partition"
+        else:
+            chart_subject = f"{parsed.keyword}: {plotted_count} samples"
+        summary = f"{chart_subject}; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
         if directory is None:
             print(summary)
         else:
-            config = step.get(parsed.keyword, {}) if isinstance(step, dict) else {}
-            include_excluded = bool(config.get("include_excluded", False)) if isinstance(config, dict) else False
+            include_excluded = exclusion_chart or (bool(config.get("include_excluded", False)) if isinstance(config, dict) else False)
             for number, (data, _, extension) in enumerate(output.outputs):
                 stem = f"step_{index:03d}_{number:02d}"
                 image_path = directory / f"{stem}.{extension}"

@@ -459,6 +459,10 @@ def run_via_dagml(
         # Capture each augmentation stage during the real full-train pass. The
         # snapshots stay on the result, never in the adapter's pickled dataset.
         spectro._dagml_capture_aug_charts = True
+    if requested_charts:
+        # The exclusion resolver owns the actual filter fit. Reuse its decisions
+        # for chart snapshots rather than fitting presentation-only copies.
+        spectro._dagml_capture_exclusion_charts = True
 
     # When WE allocated `base_dir` (no caller `workdir`), it holds only run scratch — the host pickle,
     # the per-path shim/JSON artifacts, and dag-ml's bundle.json (read into memory before we return).
