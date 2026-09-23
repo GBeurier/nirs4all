@@ -22,7 +22,7 @@ def test_fold_chart_uses_all_legacy_matching_scored_folds(tmp_path, monkeypatch,
 
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
 
     import nirs4all

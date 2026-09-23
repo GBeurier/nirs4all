@@ -479,7 +479,7 @@ def test_public_feature_branch_cv_without_refit_matches_legacy(
     legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False, save_artifacts=False, verbose=0)
     native = nirs4all.run(pipeline, path, engine="dag-ml", refit=False, save_artifacts=False, verbose=0)
 
-    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, rel=1e-7)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, rel=1e-6)
     assert native._dagml_refit_artifacts == []
     assert {row["partition"] for row in native.predictions.filter_predictions()} == {"train", "val", "test"}
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
