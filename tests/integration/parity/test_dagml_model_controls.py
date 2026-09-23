@@ -95,7 +95,7 @@ def test_cv_without_refit_cli_and_in_process_have_same_native_predictions(monkey
         result.close()
     in_process, subprocess = snapshots
     assert in_process[0] == subprocess[0]
-    assert in_process[1].keys() == subprocess[1].keys() == {"0", "1", "avg"}
+    assert in_process[1].keys() == subprocess[1].keys() == {"0", "1", "avg", "w_avg"}
     for fold in in_process[1]:
         np.testing.assert_array_equal(in_process[1][fold][0], subprocess[1][fold][0])
         np.testing.assert_allclose(in_process[1][fold][1], subprocess[1][fold][1], rtol=1e-12)
@@ -289,7 +289,7 @@ def test_cv_without_refit_uses_native_scores_and_no_refit_artifact(monkeypatch, 
     assert np.isfinite(result.cv_best_score)
     np.testing.assert_allclose(result.cv_best_score, legacy.cv_best_score, rtol=1e-6)
     assert result._dagml_refit_artifacts == []  # noqa: SLF001 - no fitted REFIT identity
-    assert {row["partition"] for row in result.predictions.filter_predictions(load_arrays=False)} == {"val"}
+    assert {row["partition"] for row in result.predictions.filter_predictions(load_arrays=False)} == {"train", "val"}
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT" for frame in result._dagml_node_results)  # noqa: SLF001
     result.close()
 
@@ -332,7 +332,7 @@ def test_model_parameter_sweep_without_refit_keeps_all_cv_variants(monkeypatch, 
     for name, score in native_cv.items():
         np.testing.assert_allclose(score, legacy_cv[name], rtol=1e-6)
     np.testing.assert_allclose(result.cv_best_score, legacy_best, rtol=1e-6)
-    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"val"}
+    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"train", "val"}
     result.close()
 
 
@@ -356,7 +356,7 @@ def test_repetition_cv_without_refit_keeps_grouped_validation(monkeypatch, mecha
     result = nirs4all.run([KFold(2), Ridge(alpha=1.0)], dataset, engine="dag-ml", refit=False, save_charts=False)
     assert np.isfinite(result.cv_best_score)
     assert result._dagml_refit_artifacts == []  # noqa: SLF001
-    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"val"}
+    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"train", "val", "test"}
     assert result.per_dataset and all(metadata["refit_enabled"] is False for metadata in result.per_dataset.values())
     result.close()
 
@@ -386,7 +386,7 @@ def test_operator_sweep_without_refit_keeps_all_cv_variants(monkeypatch, mechani
     result = nirs4all.run(pipeline, (x, y), engine="dag-ml", refit=False, save_charts=False)
     assert result._dagml_refit_artifacts == []  # noqa: SLF001
     assert {row["config_name"] for row in result.predictions.filter_predictions()} == legacy_names
-    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"val"}
+    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"train", "val"}
     # Legacy fits StandardScaler globally before splitting; the two independent
     # sklearn oracles distinguish that behavior from leakage-safe fold-local CV.
     direct = np.empty_like(y)

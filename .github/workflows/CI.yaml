@@ -157,6 +157,7 @@ jobs:
             --ignore=tests/integration/parity/test_rt_fallback_strict.py \
             --ignore=tests/integration/parity/test_native_single_model_bundle_export.py \
             --ignore=tests/integration/parity/test_dagml_torch_models.py \
+            --ignore=tests/integration/parity/test_dagml_model_controls.py \
             --ignore=tests/unit/operators/models/test_pytorch.py \
             --ignore=tests/unit/controllers/models/test_model_file_loading.py \
             --ignore=tests/unit/pipeline/bundle/test_bundle_controller_prediction.py \
@@ -165,10 +166,12 @@ jobs:
             --ignore=tests/unit/pipeline/test_resolver.py \
             --ignore=tests/integration/parity/test_dagml_gpu.py \
             --cov=nirs4all --cov-append
-          # Keep each PyTorch test module in a fresh process: TensorFlow/JAX and
-          # PyTorch native runtimes can crash when loaded together.
+          # Keep modules that load PyTorch in a fresh process: TensorFlow/JAX and
+          # PyTorch native runtimes can crash when loaded together. The model
+          # controls module includes a torch layout oracle.
           for test_file in \
             tests/integration/parity/test_dagml_torch_models.py \
+            tests/integration/parity/test_dagml_model_controls.py \
             tests/unit/operators/models/test_pytorch.py \
             tests/unit/controllers/models/test_model_file_loading.py \
             tests/unit/pipeline/bundle/test_bundle_controller_prediction.py \

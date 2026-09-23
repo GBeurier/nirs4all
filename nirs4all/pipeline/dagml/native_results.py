@@ -604,7 +604,7 @@ def write_native_results(
     # Only fitted REFIT models produce payloads; empty captures leave the capability flag false.
     artifact_refs = _write_model_artifacts(run_dir, result._dagml_refit_artifacts)  # noqa: SLF001
 
-    initial_package = result._dagml_initial_full_refit_package  # noqa: SLF001
+    initial_package = getattr(result, "_dagml_initial_full_refit_package", None)
     if initial_package is not None:
         from dag_ml import InitialFullRefitPackage
 

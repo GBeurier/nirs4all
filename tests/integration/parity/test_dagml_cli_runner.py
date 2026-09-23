@@ -3325,14 +3325,18 @@ def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested
     assert not legacy._is_dagml_engine()  # noqa: SLF001
     assert legacy.num_predictions == 45
     native_cv = [row for row in native.predictions.filter_predictions() if row["fold_id"] != "final"]
-    assert len(native_cv) == 12
-    assert all(row["partition"] == "val" and row["train_score"] is None and row["test_score"] is None for row in native_cv)
+    meta_cv = [row for row in native_cv if row["branch_name"] is None]
+    assert len(meta_cv) == 5
+    assert all(row["partition"] == "val" and row["train_score"] is None and row["test_score"] is None for row in meta_cv)
+    for branch in ("pls", "ridge"):
+        for partition in ("train", "val", "test"):
+            assert len([row for row in native_cv if row["branch_name"] == branch and row["partition"] == partition]) == 5
     assert native.predictions.filter_predictions(fold_id="final", load_arrays=False)
     assert legacy.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
 
     native_rows = native.predictions.filter_predictions(load_arrays=False)
     legacy_rows = legacy.predictions.filter_predictions(load_arrays=False)
-    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final"]
+    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final", "w_avg"]
     assert sorted({str(row.get("fold_id")) for row in legacy_rows}) == ["0", "1", "2", "avg", "w_avg"]
     assert {row["branch_name"] for row in native_rows} == {"pls", "ridge", None}
     # Legacy's meta CV-only projection fitted a different, non-nested protocol.
