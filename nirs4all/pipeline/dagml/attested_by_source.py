@@ -65,8 +65,25 @@ def execute_attested_by_source_cv(
     signed_envelope["target_content_fingerprint"] = _array_content_fingerprint(
         "y", spectro.y({"partition": "train"}),
     )
+    from .envelope import build_envelope, target_names
+
+    test = spectro.index_column("sample", {"partition": "test"})
+    if test:
+        test_envelope = build_envelope(spectro, identity, sample_ints=test)
+        cohort_builder = getattr(dag_ml, "attach_predict_cohort_to_envelope", None)
+        if not callable(cohort_builder):
+            raise ValueError("native training requires a DAG-ML external-test cohort builder")
+        signed_envelope.update(cohort_builder(signed_envelope, {
+            "role": "external_test", "relations": test_envelope["coordinator_relations"],
+            "target_names": target_names(spectro),
+            "data_content_fingerprint": _array_content_fingerprint(
+                "X", spectro.x({"partition": "test"}, layout="2d"),
+            ),
+            "target_content_fingerprint": _array_content_fingerprint(
+                "y", spectro.y({"partition": "test"}),
+            ),
+        }).to_dict())
     data_envelopes, data_identities = _data_contracts_from_campaign(campaign, signed_envelope)
-    from .envelope import target_names
 
     names = target_names(spectro)
     if len(names) == 1:

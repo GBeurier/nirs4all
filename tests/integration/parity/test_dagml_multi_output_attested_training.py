@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dag_ml
+import numpy as np
 import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
@@ -16,6 +17,7 @@ from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.run_paths import _canonical_source_branch
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
+from ._dagml_cli import dagml_cli_path
 from ._datasets import dataset_path
 
 
@@ -53,4 +55,37 @@ def test_by_source_cv_executes_signed_multi_output_training() -> None:
     assert len(captured["refit_artifacts"]) == len(source_names)
     assert len(package["artifact_bindings"]) == len(source_names)
     assert captured["scores"]["reports"]
+    assert {report["partition"] for report in captured["scores"]["reports"]} == {"validation", "final", "test"}
+    assert all({block["partition"] for block in item["predictions"]} == {"final"} for item in outcome["outputs"])
     assert outcome["training_request_fingerprint"]
+
+
+@pytest.mark.parity
+def test_public_by_source_cv_attested_capture_preserves_cli_predictions(monkeypatch) -> None:
+    import nirs4all
+
+    cli = dagml_cli_path()
+    if not cli.exists():
+        pytest.skip(f"dag-ml-cli binary not built at {cli}")
+    pipeline = [
+        KFold(n_splits=3),
+        {"branch": {"by_source": True, "steps": {
+            f"source_{index}": [{"model": Ridge(alpha=1.0)}] for index in range(3)
+        }}},
+        {"merge": "auto"},
+    ]
+    monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    attested = nirs4all.run(pipeline, dataset_path("multi"), engine="dag-ml", save_artifacts=False, verbose=0)
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0")
+    cli_result = nirs4all.run(pipeline, dataset_path("multi"), engine="dag-ml", save_artifacts=False, verbose=0)
+    assert len(attested._dagml_training_outcome["outputs"]) == 3
+    assert len(attested._dagml_portable_predictor_package["output_bindings"]) == 3
+    assert attested.num_predictions == cli_result.num_predictions == 18
+    def key(row: dict) -> tuple:
+        return row["branch_id"], row["partition"], row["fold_id"]
+    attested_rows = sorted(attested.predictions.filter_predictions(load_arrays=True), key=key)
+    cli_rows = sorted(cli_result.predictions.filter_predictions(load_arrays=True), key=key)
+    assert [key(row) for row in attested_rows] == [key(row) for row in cli_rows]
+    for actual, expected in zip(attested_rows, cli_rows, strict=True):
+        np.testing.assert_allclose(actual["y_pred"], expected["y_pred"], atol=1e-6)
