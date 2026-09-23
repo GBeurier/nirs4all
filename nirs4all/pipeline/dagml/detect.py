@@ -853,7 +853,8 @@ def _branch_body_lists(body: Any) -> list[list[Any]] | None:
 def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any]] | None:
     """Detect the EXACT handled shape, else return ``None`` (fail-loud via the bridge).
 
-    Admits ONLY a pipeline that is exactly: the splitter + ONE by_metadata/by_tag separation branch
+    Admits ONLY a pipeline that is exactly: optional leading ``exclude`` steps, the splitter,
+    and ONE by_metadata/by_tag separation branch
     (a single shared ``steps`` body containing the model), optionally followed by
     ONE ``{"merge": "concat"}`` — nothing
     that ``_run_separation_branch`` does not actually honor. Returns ``(branch_step, branch_body)``
@@ -862,8 +863,7 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
 
     * a top-level operator/transform/``tag``/``y_processing`` step beside the branch (only the branch
       body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
-    * an ``exclude`` step anywhere (the folds are built over the full pool with no excluded bit, so the
-      exclusion would be silently lost) — exclude+branch is a follow-up slice;
+    * an ``exclude`` step after the splitter or branch (its order would be changed by early resolution);
     * an unhandled branch option (``values`` / ``min_samples`` / a per-branch ``selector`` / any key
       outside ``by_metadata``/``by_tag``/``steps``) — those grouping semantics are not honored;
     * a per-value dict ``steps`` (different sub-pipeline per partition), a missing model in the body,
@@ -876,11 +876,14 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     branch_step = branch_steps[0]
     merge_step = merge_steps[0] if merge_steps else None
 
-    # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps. A top-level
-    # transform / tag / y_processing / exclude / model would be silently ignored (only the branch body
-    # is lowered), so its presence rejects the match → fail-loud.
-    for step in pipeline:
+    # Leading exclusions are resolved before the splitter and carried into the native fold/envelope
+    # views. Any other top-level operator would be silently dropped by branch-body lowering.
+    first_split = next((index for index, step in enumerate(pipeline) if _is_split_step(step)), len(pipeline))
+    branch_index = next(index for index, step in enumerate(pipeline) if step is branch_step)
+    for index, step in enumerate(pipeline):
         if step is branch_step or (merge_step is not None and step is merge_step) or _is_split_step(step):
+            continue
+        if _is_exclude_step(step) and index < min(first_split, branch_index):
             continue
         return None
 

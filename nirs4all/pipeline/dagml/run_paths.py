@@ -1797,7 +1797,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 _MERGE_NODE_ID = "merge:concat"
 
 
-def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, augmentation_by_sample: dict[int, str] | None = None, fold_children: dict[str, dict[int, list[int]]] | None = None, fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None, folds_override: list[tuple[list[int], list[int]]] | None = None) -> RunResult:
+def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, augmentation_by_sample: dict[int, str] | None = None, fold_children: dict[str, dict[int, list[int]]] | None = None, fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None, folds_override: list[tuple[list[int], list[int]]] | None = None, cv_pool: list[int] | None = None, excluded_sample_ints: set[int] | None = None) -> RunResult:
     """Run a by_metadata/by_tag separation branch + concat merge as ONE native dag-ml fan-out run.
 
     Lowers the branch to an ``auto_separate`` template (one branch carrying the criterion + the
@@ -1828,9 +1828,9 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     body_steps = _supported_body_steps([step for step in branch_body if not _is_split_step(step)])
 
     identity = mint_identity(spectro)
-    # The handled shape rejects any exclude step, so the CV universe is the full train pool.
-    pool = _split_base_samples(spectro) if augmentation_by_sample is not None else spectro.index_column("sample", {"partition": "train"})
-    folds = folds_override if folds_override is not None else (_build_group_folds(splitter, spectro, pool) if _is_repetition_dataset(spectro) else _build_folds(splitter, spectro, pool, set()))
+    pool = cv_pool if cv_pool is not None else (_split_base_samples(spectro) if augmentation_by_sample is not None else spectro.index_column("sample", {"partition": "train"}))
+    excluded = excluded_sample_ints or set()
+    folds = folds_override if folds_override is not None else (_build_group_folds(splitter, spectro, pool) if _is_repetition_dataset(spectro) else _build_folds(splitter, spectro, pool, excluded))
 
     # Per-sample criterion values: the first map seeds the envelope relations (native fan-out reads
     # partition values from it); the second is the adapter's sample_id→metadata map for branch_view.
@@ -1848,7 +1848,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
         universe = [*pool, *children]
     else:
         universe = pool
-    envelope = build_envelope(spectro, identity, sample_ints=universe, metadata_by_sample=metadata_by_sample, augmentation_by_sample=augmentation_by_sample, group_by_sample=group_by_sample)
+    envelope = build_envelope(spectro, identity, sample_ints=universe, excluded_sample_ints=excluded, metadata_by_sample=metadata_by_sample, augmentation_by_sample=augmentation_by_sample, group_by_sample=group_by_sample)
 
     # Compat auto_separate template: ONE branch (the model sub-pipeline) carrying the criterion +
     # mode, marked auto_separate; the native fan-out expands it into N per-partition branches.
