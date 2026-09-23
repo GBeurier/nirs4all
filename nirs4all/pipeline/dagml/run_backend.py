@@ -55,7 +55,6 @@ from .detect import (
     _is_augmentation_step,
     _is_constrained_operator_generator,
     _is_duplication_branch_step,
-    _is_exclude_step,
     _is_flat_single_operator_generator,
     _is_stacking_merge_step,
     _is_unconstrained_operator_generator,
@@ -1011,11 +1010,10 @@ def _dispatch_run(
             or detected_by_source_distinct_concat is not None
             or detected_by_source_stacking is not None
             or detected_source_concat is not None
-            or (not augmentation_steps and any(_is_exclude_step(step) for step in pipeline))
         ):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
-                "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
+                "a branch or source merge (the group constraint would be lost); backlog #21."
             )
         if augmentation_steps:
             return _run_augmentation(

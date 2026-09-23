@@ -262,6 +262,21 @@ def test_repetition_augmentation_keeps_groups_in_native_folds(with_exclusion: bo
     assert np.isfinite(result.cv_best_score)
 
 
+def test_repetition_exclusion_without_augmentation_matches_legacy() -> None:
+    """Excluded repetition rows leave the grouped CV universe in both engines."""
+    configs = DatasetConfigs(str(PARSER_FIXTURES["aggregate_mean"]), repetition="sample_id")
+    pipeline = [
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.0)},
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=2)},
+    ]
+    legacy = nirs4all.run(pipeline, configs, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, configs, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.execution_engine == "dag-ml"
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-9)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-9)
+
+
 @pytest.mark.parametrize("with_splitter", [False, True])
 def test_interleaved_preprocessing_and_augmentation_replays_after_export(tmp_path, with_splitter: bool) -> None:
     """A fitted transform between two augmentation stages survives prediction replay."""
