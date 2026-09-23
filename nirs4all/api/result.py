@@ -1363,6 +1363,9 @@ class RunResult:
     # (its child-process models are unreachable) and for a legacy result. In-memory metadata only, OFF by
     # default (the writer fires solely when native results are enabled).
     _dagml_refit_artifacts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    # Signed evidence from an in-process by_source CV execute_training run.
+    _dagml_training_outcome: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_portable_predictor_package: dict[str, Any] | None = field(default=None, repr=False)
 
     # The on-disk native results directory the 2b-i writer produced for this dag-ml run (recorded by
     # ``run_via_dagml`` when native results were enabled; ``None`` for an in-memory-only dag-ml run or a

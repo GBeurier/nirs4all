@@ -3644,12 +3644,30 @@ def _run_by_source_auto_models(
         raise DagMlUnsupported(f"by_source auto model compile produced {compiled_model_ids!r}, expected {model_ids!r}")
     canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
-    outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
-        workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
-        selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
-        random_state=random_state, refit_top_k=refit_top_k, refit=refit,
-    )
+    attested = None
+    if refit and refit_top_k == 1 and not has_operator_generator:
+        from .in_process_runner import _dagml_extension_loads, in_process_enabled
+
+        if in_process_enabled() and _dagml_extension_loads():
+            from .attested_by_source import execute_attested_by_source_cv
+
+            attested = execute_attested_by_source_cv(
+                dsl=canonical_dsl, envelope=envelope, graph=graph, spectro=spectro,
+                identity=identity, folds=folds, source_names=names,
+                selection_metric=metric, random_state=random_state,
+            )
+    if attested is None:
+        outcome = run_cv_refit_bundle(
+            dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
+            workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
+            selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
+            random_state=random_state, refit_top_k=refit_top_k, refit=refit,
+        )
+    else:
+        outcome = {
+            "returncode": 0, "scores": attested["scores"], "results": attested["results"],
+            "refit_artifacts": attested["refit_artifacts"],
+        }
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml by_source auto model run failed")
     winner_variant_id = next(
@@ -3693,6 +3711,9 @@ def _run_by_source_auto_models(
     result._dagml_score_set = outcome["scores"]  # noqa: SLF001
     result._dagml_node_results = outcome["results"]  # noqa: SLF001
     result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    if attested is not None:
+        result._dagml_training_outcome = attested["training_result"].outcome.to_dict()  # noqa: SLF001
+        result._dagml_portable_predictor_package = attested["portable_package"].to_dict()  # noqa: SLF001
     if refit_top_k > 1:
         result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
     return result
