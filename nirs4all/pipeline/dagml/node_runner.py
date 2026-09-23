@@ -283,6 +283,26 @@ class _PartitionedXChain:
         return output
 
 
+class _DuplicatedXChain:
+    """Fitted full-sample branch transforms joined in native input-port order."""
+
+    def __init__(self, branches: list[_FittedXChain]) -> None:
+        if len(branches) < 2:
+            raise ValueError("duplication feature join requires at least two fitted branches")
+        self.branches = branches
+
+    def transform_ids(
+        self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim != 2 or len(X) != len(sample_ids) or len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("duplication feature join requires a 2D matrix with unique sample IDs")
+        blocks = [np.asarray(branch.transform(X)) for branch in self.branches]
+        if any(block.ndim != 2 or len(block) != len(sample_ids) for block in blocks):
+            raise ValueError("duplication feature join branch changed its sample count")
+        return np.hstack(blocks)
+
+
 class _PredictionFeatureChain:
     """Opaque data-edge payload for a native, identity-keyed prediction matrix."""
 
@@ -337,12 +357,25 @@ class _PartitionJoinedEstimator:
         return np.asarray(self.estimator.predict(self.chain.transform_ids(np.asarray(X), sample_ids, sample_metadata)))
 
 
+class _DuplicationJoinedEstimator:
+    """Archive-safe estimator with the exact fitted native branch feature join."""
+
+    def __init__(self, estimator: Any, chain: _DuplicatedXChain) -> None:
+        self.estimator = estimator
+        self.chain = chain
+
+    def predict(self, X: Any) -> np.ndarray:
+        X = np.asarray(X)
+        ids = [f"replay:{index}" for index in range(len(X))]
+        return np.asarray(self.estimator.predict(self.chain.transform_ids(X, ids)))
+
+
 def _fitted_x_path(handle: int) -> Path | None:
     directory = os.environ.get("N4A_DAGML_FITTED_X_DIR")
     return Path(directory) / f"{handle}.joblib" if directory else None
 
 
-def _persist_fitted_x(handle: int, chain: _FittedXChain | _PartitionedXChain | _PredictionFeatureChain) -> None:
+def _persist_fitted_x(handle: int, chain: _FittedXChain | _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain) -> None:
     """Transfer a fitted data-edge payload between controller-specific CLI workers."""
     path = _fitted_x_path(handle)
     if path is None:
@@ -875,7 +908,7 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     }
 
 
-def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _PredictionFeatureChain | None:
+def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain | None:
     payload = model_store.get(handle)
     if payload is None:
         path = _fitted_x_path(handle)
@@ -884,10 +917,10 @@ def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _Fitt
 
             payload = joblib.load(path)  # noqa: S301 - written by this run's own transform worker
             model_store[handle] = payload
-    return payload if isinstance(payload, (_FittedXChain, _PartitionedXChain, _PredictionFeatureChain)) else None
+    return payload if isinstance(payload, (_FittedXChain, _PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
 
 
-def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _PredictionFeatureChain | None:
+def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain | None:
     """Resolve a predecessor transform through the native data-edge handle."""
     chains = []
     seen: set[int] = set()
@@ -906,25 +939,38 @@ def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, A
     return chains[0] if chains else None
 
 
-def _run_feature_join_node(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> dict[str, Any]:
+def _run_feature_join_node(
+    task: dict[str, Any], model_store: MutableMapping[Any, Any],
+    node_lookup: Callable[[str], dict[str, Any]], edges: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
     """Capture native incoming branch handles for a sample-keyed feature concat."""
     if task["phase"] not in ("FIT_CV", "REFIT"):
         return _build_result(task, [], [], {})
     branches: list[tuple[dict[str, Any], _FittedXChain]] = []
-    for key, view in sorted(task.get("data_views", {}).items()):
-        if not key.startswith("data:") or key.endswith((":validation", ":test")):
-            continue
-        branch_view = view.get("branch_view") or {}
-        if not branch_view:
-            continue
+    modes: set[str] = set()
+    input_sources = {
+        edge["target"]["port_name"]: edge["source"]["node_id"]
+        for edge in edges or [] if edge["target"]["node_id"] == task["node_plan"]["node_id"]
+        and edge["contract"]["kind"] == "data"
+    }
+    input_names = [item["input_name"] for item in
+                   (node_lookup(task["node_plan"]["node_id"]).get("metadata") or {}).get("branch_data_inputs", [])]
+    for input_name in input_names:
+        key = f"data:{input_name}"
+        branch_view = (task.get("data_views", {}).get(key) or {}).get("branch_view") or {}
         reference = task.get("input_handles", {}).get(key)
         if not isinstance(reference, dict) or not isinstance(reference.get("handle"), int):
             raise ValueError(f"partition feature join is missing native data input {key!r}")
         payload = _fitted_payload(reference["handle"], model_store)
         if not isinstance(payload, _FittedXChain):
             raise ValueError(f"partition feature join input {key!r} is not a fitted X branch")
+        source_id = input_sources.get(input_name)
+        if source_id is not None:
+            modes.add((node_lookup(source_id).get("metadata") or {}).get("dsl_branch_mode", "separation"))
         branches.append((branch_view.get("selector") or {}, payload))
-    joined = _PartitionedXChain(branches)
+    if len(modes) > 1:
+        raise ValueError("feature join cannot mix duplicated and partitioned branches")
+    joined = _DuplicatedXChain([chain for _, chain in branches]) if modes == {"duplication"} else _PartitionedXChain(branches)
     result = _build_result(task, [], [], {})
     handle = result["outputs"]["x_out"]["handle"]
     model_store[handle] = joined
@@ -1238,7 +1284,7 @@ def run_model_node(
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
         fitted_chain = _fitted_input_chain(task, model_store)
-        joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _PredictionFeatureChain)) else None
+        joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
         if fitted_chain is None and any(
             (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
             for upstream_id in _upstream_x_chain(node_id, edges)
@@ -1574,7 +1620,10 @@ def run_model_node(
         model_store[("stacking_fold_estimator", node_id, variant_label, fold_label)] = estimator
     if phase == "REFIT":
         model_store[artifact_handle] = {
-            "estimator": _PartitionJoinedEstimator(estimator, joined_chain, joined_chain.metadata_key()) if isinstance(joined_chain, _PartitionedXChain) else estimator,
+            "estimator": (_PartitionJoinedEstimator(estimator, joined_chain, joined_chain.metadata_key())
+                          if isinstance(joined_chain, _PartitionedXChain) else
+                          _DuplicationJoinedEstimator(estimator, joined_chain)
+                          if isinstance(joined_chain, _DuplicatedXChain) else estimator),
             "y_transform": y_transform,
             "target_decoder": resolver.target_decoder(),
         }
@@ -1889,7 +1938,7 @@ def run_node(
     if kind == "transform" and task.get("data_views"):
         return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata)
     if kind == "feature_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("merge_mode") == "concat":
-        return _run_feature_join_node(task, model_store)
+        return _run_feature_join_node(task, model_store, node_lookup, edges)
     if kind == "prediction_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("prediction_feature_execution") == "native_oof_v1":
         return _run_prediction_feature_join_node(task, model_store)
     if kind in ("model", "tuner"):
