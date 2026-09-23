@@ -13,7 +13,7 @@ import nirs4all
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.models.meta import MetaModel, StackingConfig
 from nirs4all.operators.models.meta import TestAggregation as FoldAggregation
-from nirs4all.operators.models.selection import DiversitySelector, ExplicitModelSelector, TopKByMetricSelector
+from nirs4all.operators.models.selection import AllPreviousModelsSelector, DiversitySelector, ExplicitModelSelector, TopKByMetricSelector
 from nirs4all.pipeline.dagml.detect import (
     _detect_proba_mean_stacking_branch,
     _detect_sequential_metamodel,
@@ -24,6 +24,53 @@ from ._datasets import dataset_path
 
 def _data():
     return make_regression(n_samples=48, n_features=6, noise=0.1, random_state=42)
+
+
+def test_legacy_all_previous_selector_fails_during_set_serialization():
+    pipeline = [
+        KFold(2, shuffle=True, random_state=42),
+        Ridge(alpha=10),
+        {"model": MetaModel(Ridge(alpha=1), selector=AllPreviousModelsSelector())},
+    ]
+    assert _detect_sequential_metamodel(pipeline) is None
+    with pytest.raises(AttributeError, match="__dict__"):
+        nirs4all.run(pipeline, _data(), engine="legacy", refit=False,
+                     save_artifacts=False, save_charts=False, verbose=0)
+
+
+def test_legacy_meta_finetune_trials_are_infinite_for_nested_model_param(monkeypatch):
+    import optuna
+
+    from nirs4all.controllers.models.meta_model import MetaModelController
+
+    studies = []
+    original_optimize = optuna.study.Study.optimize
+
+    def capture_optimize(study, *args, **kwargs):
+        outcome = original_optimize(study, *args, **kwargs)
+        studies.append(study)
+        return outcome
+
+    monkeypatch.setattr(optuna.study.Study, "optimize", capture_optimize)
+    pipeline = [
+        KFold(2, shuffle=True, random_state=42),
+        Ridge(alpha=10),
+        {"model": MetaModel(Ridge(alpha=7), finetune_space={
+            "model__alpha": [0.1, 0.2], "n_trials": 2, "sampler": "grid",
+        })},
+    ]
+    data = make_regression(n_samples=40, n_features=5, noise=0.1, random_state=42)
+    legacy = nirs4all.run(pipeline, data, engine="legacy", refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    assert len(studies) == 1
+    assert len(studies[0].trials) == 2
+    assert all(trial.value == float("inf") for trial in studies[0].trials)
+    assert {trial.params["model__alpha"] for trial in studies[0].trials} == {0.1, 0.2}
+    with pytest.raises(ValueError, match="Invalid parameter 'model'"):
+        MetaModelController()._get_model_instance(
+            None, {"model_instance": MetaModel(Ridge(alpha=7))}, force_params={"model": {"alpha": 0.1}},
+        )
 
 
 def test_sequential_metamodel_selects_named_source(tmp_path):
@@ -152,7 +199,8 @@ def test_public_top_k_meta_selector_ranks_fold_candidates_natively(tmp_path, mon
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_public_diversity_meta_selector_uses_native_classes_and_archive(tmp_path, monkeypatch, mechanism):
+@pytest.mark.parametrize("selector_kind", ["diversity", "top_k_per_class"])
+def test_public_diversity_meta_selector_uses_native_classes_and_archive(tmp_path, monkeypatch, mechanism, selector_kind):
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
 
@@ -161,20 +209,21 @@ def test_public_diversity_meta_selector_uses_native_classes_and_archive(tmp_path
             pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    selector = (DiversitySelector(max_per_class=1, preferred_classes=["Ridge"])
+                if selector_kind == "diversity" else TopKByMetricSelector(k=1, per_class=True, ascending=True))
     pipeline = [
         KFold(3, shuffle=True, random_state=42),
         PLSRegression(n_components=2),
         Ridge(alpha=1),
         Ridge(alpha=100),
-        {"model": MetaModel(Ridge(alpha=1), selector=DiversitySelector(
-            max_per_class=1, preferred_classes=["Ridge"],
-        ))},
+        {"model": MetaModel(Ridge(alpha=1), selector=selector)},
     ]
     detected = _detect_sequential_metamodel(pipeline)
     assert detected is not None
-    assert detected[2] == [{"select": {"diverse_fold_candidates": {
-        "max_per_class": 1, "preferred_classes": ["Ridge"],
-    }}, "metric": "val_score"}]
+    expected = {"max_per_class": 1, "preferred_classes": ["Ridge"]} if selector_kind == "diversity" else {
+        "max_per_class": 1, "preferred_classes": [], "ascending": True,
+    }
+    assert detected[2] == [{"select": {"diverse_fold_candidates": expected}, "metric": "val_score"}]
     path = dataset_path("regression")
     legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False,
                           save_artifacts=False, save_charts=False, verbose=0)
