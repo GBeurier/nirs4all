@@ -41,7 +41,7 @@ def test_nested_and_named_branch_models_preserve_order_and_options():
     assert branch["parallel"] is False
     assert branch["_metadata"] is steps[0]["branch"]["_metadata"]
     assert steps[0]["branch"]["first"] == [first]
-    assert normalize_model_steps([[first]]) == [[{"model": first}]]
+    assert normalize_model_steps([[first]]) == [{"model": first}]
 
 
 @pytest.mark.parametrize("selector", ["by_source", "by_metadata", "by_tag", "by_filter"])
