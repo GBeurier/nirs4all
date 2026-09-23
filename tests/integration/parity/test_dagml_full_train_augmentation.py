@@ -406,6 +406,46 @@ def test_public_generator_before_augmentation_matches_legacy_and_replays(
     assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-9)
 
 
+@pytest.mark.parametrize("generator_position", ["none", "before", "after"])
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_public_augmented_cv_without_refit_matches_legacy(
+    monkeypatch: pytest.MonkeyPatch, generator_position: str, mechanism: str,
+) -> None:
+    """Augmented CV retains every OOF choice and never fits a terminal model."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    choice = {"_or_": [StandardNormalVariate(), StandardScaler()]}
+    prefix = ([choice] if generator_position == "before" else []) + [augmentation]
+    if generator_position == "after":
+        prefix.append(choice)
+    pipeline = [*prefix, KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=3)}]
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", refit=False, save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", refit=False, save_artifacts=False, verbose=0)
+
+    assert native.execution_engine == "dag-ml"
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-9)
+    assert native._dagml_refit_artifacts == []
+    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"val"}
+    assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
+               for frame in native._dagml_node_results)
+    if generator_position != "none":
+        variants = {report["variant_id"] for report in native._dagml_score_set["reports"]
+                    if report["partition"] == "validation" and report.get("variant_id")}
+        assert len(variants) == 2
+
+
 @pytest.mark.parametrize("prefix_kind", ["y_processing", "feature_augmentation", "tag"])
 @pytest.mark.parametrize("with_splitter", [False, True])
 def test_legacy_prefix_before_sample_augmentation_runs_and_replays(tmp_path, prefix_kind: str, with_splitter: bool) -> None:
