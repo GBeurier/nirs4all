@@ -9,14 +9,17 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.operators.filters.y_outlier import YOutlierFilter
 
 from ._dagml_cli import dagml_cli_path
 
 
-def _dataset() -> tuple[SpectroDataset, np.ndarray, np.ndarray]:
+def _dataset(*, outlier: bool = False) -> tuple[SpectroDataset, np.ndarray, np.ndarray]:
     rng = np.random.default_rng(804)
     features = rng.normal(size=(34, 8))
     targets = 2 * features[:, 0] - features[:, 1] + 0.1 * rng.normal(size=34)
+    if outlier:
+        targets[3] = 25.0
     dataset = SpectroDataset("checkpoint_positions")
     dataset.add_samples(features[:30], {"partition": "train"}, headers=[str(index) for index in range(8)])
     dataset.add_samples(features[30:], {"partition": "test"})
@@ -53,6 +56,8 @@ def _pipeline(stage: str) -> list:
         return [_splitter(), _first_model(), {"branch": [[StandardScaler()], [MinMaxScaler()]]}, _second_model()]
     if stage == "merge":
         return [_splitter(), {"branch": [[StandardScaler()], [MinMaxScaler()]]}, _first_model(), {"merge": "features"}, _second_model()]
+    if stage == "exclude":
+        return [_splitter(), _first_model(), {"exclude": YOutlierFilter(method="iqr", threshold=1.0)}, _second_model()]
     raise ValueError(f"unknown checkpoint stage {stage!r}")
 
 
@@ -99,6 +104,44 @@ def test_two_model_checkpoints_preserve_final_predictions_and_archive(tmp_path, 
         archive = native.export(tmp_path / "checkpoint.n4a")
         replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
         np.testing.assert_allclose(replay, np.asarray(selected_final["y_pred"]).ravel(), atol=1e-4)
+    finally:
+        native.close()
+        legacy.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
+def test_exclusion_between_model_checkpoints_preserves_original_folds_and_refits(tmp_path, monkeypatch, mechanism: str) -> None:
+    """The first model uses all rows; the second retains its original fold sides after exclusion."""
+    _transport(mechanism, monkeypatch)
+    legacy_data, x_test, _ = _dataset(outlier=True)
+    legacy = nirs4all.run(_pipeline("exclude"), legacy_data, engine="legacy", allow_fallback=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
+    native_data, _, _ = _dataset(outlier=True)
+    native = nirs4all.run(_pipeline("exclude"), native_data, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0)
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert native.get_models() == legacy.get_models() == ["PLSRegression", "Ridge"]
+        assert len(native.runs) == 2
+        native_rows = native.predictions.filter_predictions()
+        legacy_rows = legacy.predictions.filter_predictions()
+        assert len(native_rows) == len(legacy_rows) == 28
+        for model in ("PLSRegression", "Ridge"):
+            native_final = next(row for row in native_rows if row["model_name"] == model
+                                and row["partition"] == "test" and row["fold_id"] == "final")
+            legacy_final = next(row for row in legacy_rows if row["model_name"] == model
+                                and row["partition"] == "test" and row["fold_id"] == "final")
+            assert np.isfinite(native_final["test_score"])
+            assert native_final["test_score"] == pytest.approx(legacy_final["test_score"], abs=1e-5)
+            np.testing.assert_allclose(np.asarray(native_final["y_pred"]).ravel(),
+                                       np.asarray(legacy_final["y_pred"]).ravel(), atol=1e-5)
+        assert native.cv_best["model_name"] == "Ridge"
+        selected_final = next(row for row in native_rows if row["model_name"] == "Ridge"
+                              and row["partition"] == "test" and row["fold_id"] == "final")
+        archive = native.export(tmp_path / "checkpoint_exclude.n4a")
+        np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel(),
+                                   np.asarray(selected_final["y_pred"]).ravel(), atol=1e-4)
     finally:
         native.close()
         legacy.close()

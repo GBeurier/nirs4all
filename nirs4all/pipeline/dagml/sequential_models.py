@@ -77,9 +77,24 @@ def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
             children.append([*meta_prefix, steps[model_positions[-1]]])
             return children
         return None
-    if any(isinstance(step, dict) and any(key in step for key in ("branch", "merge", "exclude", "sample_augmentation")) for step in steps):
+    if any(isinstance(step, dict) and any(key in step for key in ("branch", "merge", "sample_augmentation")) for step in steps):
         return None
-    if sum(_is_model_checkpoint(step) for step in steps) < 2:
+    model_positions = [index for index, step in enumerate(steps) if _is_model_checkpoint(step)]
+    if len(model_positions) < 2:
+        return None
+    exclude_positions = [index for index, step in enumerate(steps) if isinstance(step, dict) and "exclude" in step]
+    if exclude_positions and not (
+        len(model_positions) == 2
+        and len(exclude_positions) == 1
+        and model_positions[0] < exclude_positions[0] < model_positions[1]
+        and all(
+            index == exclude_positions[0] or _is_split_step(step)
+            for index, step in enumerate(steps)
+            if index not in model_positions
+        )
+    ):
+        # Host SampleFilters currently see the original X. Do not reorder an
+        # intervening transform across exclusion without a fold-local view.
         return None
     prefix: list[Any] = []
     children = []
