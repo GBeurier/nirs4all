@@ -65,6 +65,7 @@ jobs:
           python -m pip install numpy -r requirements-test-linux.txt
           python -m pip install --index-url https://download.pytorch.org/whl/cpu \
             'torch==2.13.0+cpu'
+          python -m pip uninstall -y triton
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps

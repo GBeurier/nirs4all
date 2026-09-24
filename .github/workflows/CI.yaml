@@ -7,9 +7,8 @@ on:
   pull_request:
     branches: [ main, master, 'rc/**' ]
 
-# The default gate deliberately runs one complete Linux/Python suite. Platform
-# smoke checks belong in dedicated workflows; duplicating the scientific suite
-# across an OS/Python matrix makes failures slower and less actionable.
+# The default gate runs fast unit, public-API, and parity smoke tests. The
+# exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
 
 env:
   N4A_DAG_ML_REF: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
@@ -59,7 +58,7 @@ jobs:
   tests:
     needs: [lint, type-check]
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
@@ -94,6 +93,7 @@ jobs:
           python -m pip install numpy -r requirements-test-filtered.txt
           python -m pip install --index-url https://download.pytorch.org/whl/cpu \
             'torch==2.13.0+cpu'
+          python -m pip uninstall -y triton
           python -m pip install -r requirements-examples.txt
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
@@ -106,24 +106,34 @@ jobs:
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
 
-      - name: Run every pytest module under DAG-ML
+      - name: Run fast DAG-ML unit, API, and parity smoke tests
         shell: bash
         env:
           N4A_ENGINE: dag-ml
           N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
-        run: python scripts/ci/run_full_dagml_pytest.py --report-dir dagml-pytest-report tests/
+          CUDA_VISIBLE_DEVICES: ''
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          mkdir -p fast-dagml-pytest-report
+          python -m pytest -q --timeout=300 -n 2 --dist worksteal \
+            -m 'not slow and not gpu and not stress' \
+            tests/unit/ tests/integration/api/ \
+            tests/integration/parity/test_parity_compiles.py \
+            tests/integration/parity/test_cv_test_parity.py \
+            tests/integration/parity/test_native_single_model_bundle_export.py \
+            tests/integration/parity/test_conformance_examples_smoke.py \
+            tests/integration/parity/test_marker_audit.py \
+            --junitxml=fast-dagml-pytest-report/junit.xml \
+            --cov=nirs4all --cov-report=xml
 
-      - name: Upload DAG-ML pytest report
+      - name: Upload fast DAG-ML pytest report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: dagml-pytest-report
-          path: dagml-pytest-report/
+          name: fast-dagml-pytest-report
+          path: |
+            fast-dagml-pytest-report/
+            coverage.xml
           if-no-files-found: warn
-
-      - name: Run all examples once
-        run: |
-          cd examples
-          chmod +x run_ci_examples.sh
-          ./run_ci_examples.sh -c all -j 2 -k
-        timeout-minutes: 45
