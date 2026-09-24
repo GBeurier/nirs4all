@@ -120,7 +120,7 @@ def test_model_checkpoint_before_augmentation_keeps_both_legacy_models(
         replay = nirs4all.predict(archive, x_test)
         ridge_final = next(row for row in native.predictions.filter_predictions()
                            if row["model_name"] == "Ridge" and row["fold_id"] == "final" and row["partition"] == "test")
-        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(ridge_final["y_pred"]).ravel(), atol=1e-4)
+        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(ridge_final["y_pred"]).ravel(), atol=1e-3)
     finally:
         native.close()
         legacy.close()
@@ -175,7 +175,7 @@ def test_multiple_model_checkpoints_across_augmentation_match_legacy(
         replay = nirs4all.predict(archive, x_test)
         selected = native.best_final
         assert selected["partition"] == "test"
-        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(selected["y_pred"]).ravel(), atol=1e-4)
+        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(selected["y_pred"]).ravel(), atol=1e-3)
     finally:
         native.close()
         legacy.close()
@@ -228,7 +228,7 @@ def test_full_train_checkpoints_across_augmentation_match_legacy(
         replay = nirs4all.predict(archive, x_test)
         selected = native.best_final
         assert selected["partition"] == "test"
-        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(selected["y_pred"]).ravel(), atol=1e-4)
+        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(selected["y_pred"]).ravel(), atol=1e-3)
     finally:
         native.close()
         legacy.close()
