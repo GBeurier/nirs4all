@@ -1041,7 +1041,7 @@ class _DagmlNativeResidualModel:
         learner = learner.reshape(len(learner), -1)
         if base.shape != learner.shape:
             raise ValueError("residual replay stages produced different prediction shapes")
-        result = base + self.weight * learner
+        result = cast(np.ndarray, base + self.weight * learner)
         if not np.all(np.isfinite(result)):
             raise ValueError("residual replay produced non-finite predictions")
         return result
@@ -1057,7 +1057,7 @@ class _DagmlNativeResidualModel:
         learner = learner.reshape(len(learner), -1)
         if base.shape != learner.shape:
             raise ValueError("residual replay stages produced different prediction shapes")
-        result = base + self.weight * learner
+        result = cast(np.ndarray, base + self.weight * learner)
         if not np.all(np.isfinite(result)):
             raise ValueError("residual replay produced non-finite predictions")
         return result
