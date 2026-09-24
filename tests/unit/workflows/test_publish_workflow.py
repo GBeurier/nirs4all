@@ -32,7 +32,7 @@ def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> Non
         step for step in test_job["steps"] if step.get("uses") == "codecov/codecov-action@v7"
     )
     assert codecov_step["with"]["use_oidc"] == "true"
-    assert codecov_step["with"]["fail_ci_if_error"] == "true"
+    assert codecov_step["with"]["fail_ci_if_error"] == "false"
 
     verification_steps = [
         step

@@ -171,15 +171,15 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload coverage to Codecov
-        # Coverage is already uploaded by the PR CI. Codecov's OIDC endpoint
-        # does not resolve release events reliably, and telemetry must not block
-        # a package after the release tests themselves have passed.
-        if: github.event_name != 'release'
+        # Codecov telemetry is optional for dry-runs. Publication has its own
+        # JUnit/coverage artifact and must not depend on Codecov availability.
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish_release
+        continue-on-error: true
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
           use_oidc: true
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   # Build and verify documentation
   build-docs:
