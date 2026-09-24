@@ -326,6 +326,10 @@ class Predictions:
         for row in df.iter_rows(named=True):
             y_true = np.array(row["y_true"], dtype=np.float64) if row.get("y_true") is not None else None
             y_pred = np.array(row["y_pred"], dtype=np.float64) if row.get("y_pred") is not None else None
+            if y_true is not None and row.get("y_true_shape") is not None:
+                y_true = y_true.reshape(row["y_true_shape"])
+            if y_pred is not None and row.get("y_pred_shape") is not None:
+                y_pred = y_pred.reshape(row["y_pred_shape"])
             y_proba = None
             if row.get("y_proba") is not None:
                 y_proba = np.array(row["y_proba"], dtype=np.float64)

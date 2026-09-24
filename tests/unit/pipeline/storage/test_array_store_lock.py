@@ -27,6 +27,31 @@ needs_real_lock = pytest.mark.skipif(
 
 class TestProcessLock:
     @needs_real_lock
+    def test_constructor_cleanup_waits_for_active_writer(self, tmp_path):
+        """Crash cleanup must not delete a temp file owned by a live writer."""
+        store = ArrayStore(tmp_path)
+        orphan = store.arrays_dir / "wheat.parquet.tmp"
+        orphan.write_bytes(b"active write")
+        started = threading.Event()
+        done = threading.Event()
+
+        def construct_competing_store():
+            started.set()
+            ArrayStore(tmp_path)
+            done.set()
+
+        with store._process_lock():
+            thread = threading.Thread(target=construct_competing_store, daemon=True)
+            thread.start()
+            assert started.wait(timeout=5)
+            assert not done.wait(timeout=0.4)
+            assert orphan.exists()
+
+        assert done.wait(timeout=5)
+        thread.join(timeout=5)
+        assert not orphan.exists()
+
+    @needs_real_lock
     def test_mutation_blocks_while_lock_held(self, tmp_path):
         """A mutation started while another holder owns the lock waits for release."""
         store = ArrayStore(tmp_path)

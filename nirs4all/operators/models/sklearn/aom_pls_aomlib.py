@@ -1,141 +1,41 @@
-"""AOM-PLS wrapper around the dedicated ``aompls`` (AOM_lib) C++/Eigen backend.
+"""Historical AOMPLSAomlibRegressor class path backed by nirs4all-methods.
 
-This module exposes :class:`AOMPLSAomlibRegressor`, a thin sklearn-compatible
-wrapper that delegates fitting and prediction to the
-``aompls.AOMPLSCompact`` estimator shipped in ``bench/AOM_lib/python/src``.
-The legacy pure-Python implementation in
-:mod:`nirs4all.operators.models.sklearn.aom_pls` is kept untouched; this
-wrapper is added to let nirs4all pipelines drive the dedicated
-implementation used for the Talanta AOM-PLS submission.
-
-Paper terminology mapping
--------------------------
-==============================  ==================================
-Paper term                      Code parameter
-==============================  ==================================
-Compact operator bank           built into ``AOMPLSCompact`` (PLS1)
-Number of latent variables K    ``n_components`` -> ``max_components``
-CV-based operator/K selector    ``selection="cv"`` -> ``cv_mode="kfold"``
-SPXY selector                   ``selection="spxy"`` -> ``cv_mode="spxy"``
-Hold-out selector               ``selection="holdout"`` -> ``cv_mode="holdout"``
-One standard-error rule         ``one_se`` -> ``one_se_rule``
-Optional one-shot preprocessing ``preprocessing`` -> ``preproc``
-==============================  ==================================
-
-The wrapper imports ``aompls`` lazily so that environments without the
-compiled extension on ``PYTHONPATH`` can still import nirs4all. If
-:meth:`AOMPLSAomlibRegressor.fit` is invoked without ``aompls`` available,
-a clear :class:`ImportError` is raised pointing the user at the source
-checkout or the future PyPI package.
+The native global AOM selector owns operator/component selection and prediction.
+The old external ``aompls`` package is no longer required. Unsupported historical
+selection/preprocessing options raise explicitly instead of changing meaning.
 """
 
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.model_selection import KFold
 from sklearn.utils.validation import check_is_fitted
 
 _AOMPLS_IMPORT_HINT = (
-    "The 'aompls' package (AOM_lib C++/Eigen backend) is required for "
-    "AOMPLSAomlibRegressor. Install it from the repository checkout with\n"
-    "    PYTHONPATH=bench/AOM_lib/python/src python ...\n"
-    "or wait for the upcoming PyPI release ('pip install aompls')."
+    "AOMPLSAomlibRegressor requires the nirs4all-methods native Python wheel. "
+    "Install a compatible nirs4all-methods version in the Python environment "
+    "running this application; its wheel includes the native library."
 )
 
 
-def _selection_to_cv_mode(selection: str) -> str:
-    """Map the nirs4all-facing ``selection`` argument to AOM_lib's ``cv_mode``.
+class AOMPLSAomlibRegressor(RegressorMixin, BaseEstimator):
+    """Native global AOM-PLS selector with the historical nirs4all class path.
 
-    Args:
-        selection: One of ``"cv"``, ``"kfold"``, ``"spxy"``, ``"holdout"`` or
-            ``"external"``. ``"cv"`` is an alias for ``"kfold"``.
+    ``n_components`` bounds component selection; ``cv`` controls internal folds.
+    ``selection='cv'``/``'kfold'`` uses deterministic contiguous folds unless a
+    random_state is supplied, in which case shuffled KFold is used. Explicit
+    external_folds lists must partition the training samples exactly once.
+    ``center`` controls native X/Y centering, with scaling disabled explicitly.
 
-    Returns:
-        The corresponding ``cv_mode`` string expected by ``AOMPLSCompact``.
-
-    Raises:
-        ValueError: If ``selection`` is not a recognised mode.
-    """
-    mapping = {
-        "cv": "kfold",
-        "kfold": "kfold",
-        "spxy": "spxy",
-        "holdout": "holdout",
-        "external": "external",
-    }
-    if selection not in mapping:
-        raise ValueError(
-            f"Unknown selection mode '{selection}'. Expected one of "
-            f"{sorted(mapping)}."
-        )
-    return mapping[selection]
-
-
-class AOMPLSAomlibRegressor(BaseEstimator, RegressorMixin):
-    """sklearn-compatible wrapper around ``aompls.AOMPLSCompact`` (AOM_lib).
-
-    Provides a nirs4all-friendly facade for the dedicated C++/Eigen
-    implementation of AOM-PLS (PLS1, compact operator bank) that backs the
-    Talanta paper. The wrapper handles lazy import of the ``aompls``
-    extension, parameter translation between paper terminology and the C++
-    backend, and mirrors the diagnostic attributes exposed by the legacy
-    pure-Python :class:`AOMPLSRegressor`.
-
-    Args:
-        n_components: Maximum number of PLS components extracted during CV
-            scoring and refit. Paper symbol: ``K_max``.
-        selection: Operator/component selection strategy. ``"cv"`` (alias
-            ``"kfold"``) uses K-fold CV, ``"spxy"`` uses SPXY folds,
-            ``"holdout"`` uses a single split, ``"external"`` requires
-            pre-computed folds via ``external_folds``.
-        cv: Number of CV folds (ignored when ``selection="external"``).
-        one_se: When ``True``, apply the one-standard-error parsimony rule
-            on top of the CV operator/K selection.
-        preprocessing: Optional one-shot preprocessing applied before AOM.
-            ``None`` means no preprocessing; otherwise one of the strings
-            accepted by ``AOMPLSCompact.preproc`` (e.g. ``"asls"``,
-            ``"snv"``, ``"osc"``, ``"snv+osc"``, ``"asls+osc"``).
-        random_state: Seed for the C++ shuffler used during CV. Defaults to
-            ``0`` (matching ``AOMPLSCompact``).
-        osc_n_components: Number of OSC components when ``preprocessing``
-            includes ``"osc"``.
-        asls_lam: AsLS lambda hyperparameter (used when ``preprocessing``
-            includes ``"asls"``).
-        asls_p: AsLS asymmetry weight.
-        asls_n_iter: AsLS number of iterations.
-        center: Whether to mean-center X and y before AOM. Defaults to
-            ``True``; strongly recommended for spectral data.
-        external_folds: Pre-computed test indices per fold. Required when
-            ``selection="external"``.
-
-    Attributes:
-        n_features_in_: Number of features seen at fit time.
-        n_components_selected_: Number of PLS components retained after CV.
-        selected_operator_sequence_: List of length 1 containing the name of
-            the operator picked by the CV selector. The list shape mirrors
-            the per-component sequence exposed by the legacy POP-PLS-style
-            wrappers so downstream code can treat both wrappers uniformly.
-        selected_operator_scores_: Stacked CV RMSE curves per operator
-            (shape ``(n_operators, K_max)``).
-        coef_: Regression coefficients in the original feature space.
-        intercept_: Regression intercept.
-        bank_names_: Names of the operators in the compact bank.
-        fold_indices_: Test indices per CV fold returned by the backend.
-        fit_time_s_: Wall-clock fit time reported by the C++ backend.
-
-    Examples:
-        >>> from nirs4all.operators.models.sklearn import AOMPLSAomlibRegressor
-        >>> import numpy as np
-        >>> rng = np.random.default_rng(0)
-        >>> X = rng.standard_normal((40, 80))
-        >>> y = X[:, :3].sum(axis=1) + 0.1 * rng.standard_normal(40)
-        >>> model = AOMPLSAomlibRegressor(n_components=8, cv=3).fit(X, y)
-        >>> preds = model.predict(X)
-        >>> preds.shape
-        (40,)
+    Legacy one-SE selection, SPXY/holdout modes and built-in preprocessing are
+    not provided by this native selector and are rejected. Use explicit pipeline
+    preprocessing steps. Their constructor fields remain only so existing saved
+    configurations get clear errors, rather than silently losing parameters.
     """
 
     _webapp_meta = {
@@ -145,6 +45,9 @@ class AOMPLSAomlibRegressor(BaseEstimator, RegressorMixin):
     }
 
     _estimator_type = "regressor"
+    # Availability checks can validate the lazy backend without fitting a model.
+    _required_imports = ("n4m.model_selection.aom_search.AOMPLSRegressor",)
+    _dependency_installation_hint = _AOMPLS_IMPORT_HINT
 
     def __init__(
         self,
@@ -174,39 +77,47 @@ class AOMPLSAomlibRegressor(BaseEstimator, RegressorMixin):
         self.center = center
         self.external_folds = external_folds
 
-    def _make_backend(self) -> Any:
-        """Lazily import ``aompls`` and instantiate the backend estimator.
-
-        Returns:
-            An unfitted ``aompls.AOMPLSCompact`` instance with parameters
-            translated from this wrapper's configuration.
-
-        Raises:
-            ImportError: If the ``aompls`` package cannot be imported.
-        """
+    def _make_backend(self, n_samples: int) -> Any:
+        """Translate supported configuration to the installed public binding."""
+        if self.selection not in ("cv", "kfold", "external"):
+            raise ValueError(f"Unsupported selection mode {self.selection!r} for nirs4all-methods AOM-PLS; use cv, kfold or external.")
+        if self.one_se:
+            raise ValueError("one_se=True is not supported by nirs4all-methods AOM-PLS.")
+        if self.preprocessing not in (None, "none"):
+            raise ValueError("Built-in preprocessing is not supported by nirs4all-methods AOM-PLS; add explicit pipeline preprocessing steps.")
+        if (self.osc_n_components, self.asls_lam, self.asls_p, self.asls_n_iter) != (1, 1e5, 0.01, 10):
+            raise ValueError("Legacy OSC/ASLS parameters are unsupported; configure an explicit pipeline preprocessing step.")
+        if self.selection != "external" and self.external_folds is not None:
+            raise ValueError("external_folds requires selection='external'.")
+        if self.selection == "external" and self.external_folds is None:
+            raise ValueError("selection='external' requires external_folds.")
         try:
-            from aompls import AOMPLSCompact
-        except ImportError as exc:  # pragma: no cover - exercised in tests via patching
+            from n4m.model_selection.aom_search import AOMPLSRegressor
+        except ImportError as exc:
             raise ImportError(_AOMPLS_IMPORT_HINT) from exc
 
-        cv_mode = _selection_to_cv_mode(self.selection)
-        preproc = "none" if self.preprocessing is None else str(self.preprocessing)
-        random_state = 0 if self.random_state is None else int(self.random_state)
-
-        return AOMPLSCompact(
-            max_components=int(self.n_components),
-            n_folds=int(self.cv),
-            cv_mode=cv_mode,
-            one_se_rule=bool(self.one_se),
-            random_state=random_state,
-            preproc=preproc,
-            osc_n_components=int(self.osc_n_components),
-            asls_lam=float(self.asls_lam),
-            asls_p=float(self.asls_p),
-            asls_n_iter=int(self.asls_n_iter),
-            center=bool(self.center),
-            external_folds=self.external_folds,
-        )
+        fold_ids = None
+        folds = int(self.cv)
+        if self.external_folds is not None:
+            fold_ids = np.full(n_samples, -1, dtype=np.int32)
+            folds = len(self.external_folds)
+            if folds < 2:
+                raise ValueError("external_folds must contain at least two nonempty validation folds.")
+            for fold, indices in enumerate(self.external_folds):
+                values = np.asarray(indices)
+                if values.ndim != 1 or not values.size or not np.issubdtype(values.dtype, np.integer):
+                    raise ValueError("external_folds must contain nonempty integer index lists.")
+                if np.any(values < 0) or np.any(values >= n_samples) or len(np.unique(values)) != len(values) or np.any(fold_ids[values] != -1):
+                    raise ValueError("external_folds must partition training samples exactly once.")
+                fold_ids[values] = fold
+            if np.any(fold_ids == -1):
+                raise ValueError("external_folds must partition training samples exactly once.")
+        elif self.random_state is not None:
+            fold_ids = np.empty(n_samples, dtype=np.int32)
+            for fold, (_, validation) in enumerate(KFold(folds, shuffle=True, random_state=self.random_state).split(np.empty(n_samples))):
+                fold_ids[validation] = fold
+        return AOMPLSRegressor(max_components=int(self.n_components), cv=folds, fold_ids=fold_ids,
+                               center_x=bool(self.center), center_y=bool(self.center), scale_x=False, scale_y=False)
 
     def fit(
         self,
@@ -215,7 +126,7 @@ class AOMPLSAomlibRegressor(BaseEstimator, RegressorMixin):
         X_val: ArrayLike | None = None,  # noqa: ARG002 - kept for API symmetry
         y_val: ArrayLike | None = None,  # noqa: ARG002 - kept for API symmetry
     ) -> AOMPLSAomlibRegressor:
-        """Fit AOM-PLS via the AOM_lib C++ backend.
+        """Fit through the installed nirs4all-methods C ABI binding.
 
         Args:
             X: Training spectra of shape ``(n_samples, n_features)``.
@@ -223,7 +134,7 @@ class AOMPLSAomlibRegressor(BaseEstimator, RegressorMixin):
                 not supported by the compact PLS1 backend and is reshaped to
                 1D after squeezing trailing singleton dimensions.
             X_val: Unused. Kept for API symmetry with other nirs4all wrappers
-                that accept an optional validation set; the AOM_lib backend
+                that accept an optional validation set; the native backend
                 performs operator/K selection internally.
             y_val: Unused. See ``X_val``.
 
@@ -240,28 +151,26 @@ class AOMPLSAomlibRegressor(BaseEstimator, RegressorMixin):
                     f"(PLS1). Got y with shape {np.shape(y)}."
                 )
 
-        backend = self._make_backend()
+        backend = self._make_backend(X_arr.shape[0])
+        started = perf_counter()
         backend.fit(X_arr, y_arr)
+        self.fit_time_s_ = perf_counter() - started
 
         self._backend = backend
         self.n_features_in_ = X_arr.shape[1]
         self.coef_ = np.asarray(backend.coef_, dtype=np.float64)
         self.intercept_ = float(backend.intercept_)
-        self.x_mean_ = np.asarray(backend.x_mean_, dtype=np.float64)
-        self.y_mean_ = float(backend.y_mean_)
-        self.bank_names_ = list(backend.bank_names_)
-        self.fold_indices_ = [list(map(int, f)) for f in backend.fold_indices_]
-        self.fit_time_s_ = float(backend.fit_time_s_)
-        self.one_se_applied_ = bool(backend.one_se_applied_)
-
-        # Diagnostics mirroring the legacy AOMPLSRegressor / POPPLSRegressor wrappers.
-        self.n_components_selected_ = int(backend.n_components_)
-        selected_name = str(backend.selected_operator_name_)
-        self.selected_operator_index_ = int(backend.selected_operator_index_)
-        self.selected_operator_sequence_ = [selected_name]
-        self.selected_operator_scores_ = np.asarray(
-            backend.rmse_curves_, dtype=np.float64
-        )
+        self.backend_ = "nirs4all-methods"
+        self.native_diagnostics_ = backend.get_diagnostics()
+        kinds = backend.operator_kinds_
+        self.bank_names_ = [f"native_operator_{index}_kind_{int(kind)}" for index, kind in enumerate(kinds)]
+        fold_ids = np.asarray(backend.result_["fold_ids"], dtype=np.int32)
+        self.fold_indices_ = [np.flatnonzero(fold_ids == index).tolist() for index in range(int(backend.cv))]
+        self.one_se_applied_ = False
+        self.n_components_selected_ = int(backend.selected_n_components_)
+        self.selected_operator_index_ = int(backend.result_["selected_operator_index"])
+        self.selected_operator_sequence_ = [self.bank_names_[self.selected_operator_index_]]
+        self.selected_operator_scores_ = np.asarray(backend.result_["rmse_curves"], dtype=np.float64)
 
         return self
 
