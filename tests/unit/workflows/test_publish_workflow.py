@@ -21,7 +21,7 @@ def _load_named_workflow(name: str) -> dict[str, Any]:
     return cast(dict[str, Any], yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
 
 
-def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> None:
+def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> None:
     workflow = _load_workflow()
     assert set(workflow["on"]) == {"release", "workflow_dispatch"}
 
@@ -41,20 +41,20 @@ def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> 
     ]
     assert len(verification_steps) == 1
     verification = verification_steps[0]
-    assert verification["if"] == "github.event_name == 'release'"
-    assert "github.event.release.tag_name" in verification["run"]
+    assert verification["if"] == "github.event_name == 'release' || inputs.publish_release"
+    assert "needs.release-preflight.outputs.release_tag" in verification["env"]["RELEASE_TAG"]
     assert 'TAG_VERSION="${TAG_VERSION//-rc./rc}"' in verification["run"]
     assert 'if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]' in verification["run"]
 
     for job_name in ("publish-pypi", "publish-docker"):
         job = jobs[job_name]
-        assert job["if"] == "github.event_name == 'release'"
+        assert job["if"] == "github.event_name == 'release' || inputs.publish_release"
         needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
         assert "build" in needs
 
     public_smoke = jobs["post-publish-smoke"]
-    assert public_smoke["if"] == "github.event_name == 'release'"
-    assert public_smoke["needs"] == "publish-pypi"
+    assert public_smoke["if"] == "github.event_name == 'release' || inputs.publish_release"
+    assert "publish-pypi" in public_smoke["needs"]
     smoke_steps = {step.get("name"): step for step in public_smoke["steps"]}
     install_script = smoke_steps["Install the exact PyPI release"]["run"]
     verify_script = smoke_steps["Verify installed metadata, native ABI, and DAG-ML execution"]["run"]
@@ -74,7 +74,7 @@ def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> 
     ]
     assert len(metadata_steps) == 1
     assert (
-        "type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}"
+        "type=raw,value=latest,enable=${{ needs.release-preflight.outputs.prerelease == 'false' }}"
         in metadata_steps[0]["with"]["tags"]
     )
 
@@ -102,35 +102,33 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
     }
 
 
-def test_github_full_gates_run_once_without_local_v1_dual_qualification() -> None:
-    """CI qualifies all tests/examples once; the exhaustive dual oracle stays local."""
+def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
+    """PR/release gates stay fast while the full module runner remains scheduled/manual."""
 
-    for workflow_name, test_job in (
-        ("CI.yaml", "tests"),
-        ("pre-publish.yml", "run-tests"),
-        ("publish.yml", "run-tests"),
-        ("shared-test-and-docs.yml", "run-tests"),
-    ):
-        workflow = _load_named_workflow(workflow_name)
-        job = workflow["jobs"][test_job]
-        assert "strategy" not in job
+    for workflow_name, test_job in (("CI.yaml", "tests"), ("publish.yml", "run-tests")):
+        job = _load_named_workflow(workflow_name)["jobs"][test_job]
         serialized = yaml.safe_dump(job)
-        assert "tests/" in serialized
-        if workflow_name in {"CI.yaml", "shared-test-and-docs.yml"}:
-            assert "run_full_dagml_pytest.py" in serialized
-            assert "--ignore=" not in serialized
-        else:
-            assert "--ignore=tests/integration/parity/test_conformance_dual_engine.py" in serialized
+        assert "strategy" not in job
+        assert "tests/unit/" in serialized
+        assert "tests/integration/api/" in serialized
+        assert "test_marker_audit.py" in serialized
+        assert "run_full_dagml_pytest.py" not in serialized
 
-        if workflow_name in {"publish.yml", "shared-test-and-docs.yml"}:
-            assert job["permissions"] == {"contents": "read", "id-token": "write"}
-            assert "use_oidc: 'true'" in serialized
-            assert "fail_ci_if_error: 'true'" in serialized
+    exhaustive = _load_named_workflow("shared-test-and-docs.yml")["jobs"]["run-tests"]
+    exhaustive_serialized = yaml.safe_dump(exhaustive)
+    assert "run_full_dagml_pytest.py" in exhaustive_serialized
+    assert "--ignore=" not in exhaustive_serialized
+    assert exhaustive["permissions"] == {"contents": "read", "id-token": "write"}
+    assert "use_oidc: 'true'" in exhaustive_serialized
+    assert "fail_ci_if_error: 'true'" in exhaustive_serialized
 
-    for workflow_name in ("CI.yaml", "pre-publish.yml", "publish.yml", "examples.yml"):
+    trigger = _load_named_workflow("full-dagml-tests.yml")
+    assert set(trigger["on"]) == {"schedule", "workflow_dispatch"}
+    assert trigger["jobs"]["exhaustive"]["uses"] == "./.github/workflows/shared-test-and-docs.yml"
+
+    for workflow_name in ("pre-publish.yml", "publish.yml", "examples.yml"):
         workflow = _load_named_workflow(workflow_name)
-        job_name = "tests" if workflow_name == "CI.yaml" else "verify-examples"
-        job = workflow["jobs"][job_name]
+        job = workflow["jobs"]["verify-examples"]
         assert "strategy" not in job
         serialized = yaml.safe_dump(job)
         assert "run_ci_examples.sh -c all -j 2 -k" in serialized
