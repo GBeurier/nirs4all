@@ -117,6 +117,7 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
     exhaustive = _load_named_workflow("shared-test-and-docs.yml")["jobs"]["run-tests"]
     exhaustive_serialized = yaml.safe_dump(exhaustive)
     assert "run_full_dagml_pytest.py" in exhaustive_serialized
+    assert "timeout-minutes" not in exhaustive
     assert "--ignore=" not in exhaustive_serialized
     assert exhaustive["permissions"] == {"contents": "read", "id-token": "write"}
     assert "use_oidc: 'true'" in exhaustive_serialized
