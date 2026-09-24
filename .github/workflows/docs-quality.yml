@@ -20,8 +20,8 @@ on:
   workflow_dispatch:
 
 env:
-  N4A_DAG_ML_REF: 4d5f6b2f0e50b81d31816f29d4a4b8117f257dcd
-  N4A_DAG_ML_DATA_REF: ffe533704a1a0b0c7bb7d97a997caade3f4ba36e
+  N4A_DAG_ML_REF: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
+  N4A_DAG_ML_DATA_REF: 6a71216176556a582ba9b684cda37403014e41c2
 
 jobs:
   gates:

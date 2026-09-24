@@ -12,8 +12,8 @@ on:
 # across an OS/Python matrix makes failures slower and less actionable.
 
 env:
-  N4A_DAG_ML_REF: 4d5f6b2f0e50b81d31816f29d4a4b8117f257dcd
-  N4A_DAG_ML_DATA_REF: ffe533704a1a0b0c7bb7d97a997caade3f4ba36e
+  N4A_DAG_ML_REF: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
+  N4A_DAG_ML_DATA_REF: 6a71216176556a582ba9b684cda37403014e41c2
 
 jobs:
   lint:
@@ -45,9 +45,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          # RC branch: dag-ml wheels are selected by the release lock but are not
-          # published to PyPI yet, so satisfy nirs4all's hard runtime dependency
-          # from the selected GitHub refs before reading requirements-test.txt.
+          # Pin the paired release commits so CI tests exactly the qualified train.
           python -m pip install \
             "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
             "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
@@ -69,7 +67,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: GBeurier/dag-ml
-          ref: 4d5f6b2f0e50b81d31816f29d4a4b8117f257dcd
+          ref: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
           path: dag-ml-cli-src
 
       - uses: dtolnay/rust-toolchain@stable
@@ -86,9 +84,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          # RC branch: dag-ml wheels are selected by the release lock but are not
-          # published to PyPI yet, so satisfy nirs4all's hard runtime dependency
-          # from the selected GitHub refs before reading requirements-test.txt.
+          # Pin the paired release commits so CI tests exactly the qualified train.
           python -m pip install \
             "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
             "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
