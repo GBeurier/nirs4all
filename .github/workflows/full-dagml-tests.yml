@@ -1,0 +1,14 @@
+name: Full DAG-ML pytest
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  exhaustive:
+    uses: ./.github/workflows/shared-test-and-docs.yml
+    with:
+      skip-tests: false
+      upload-coverage: false
+      docs-artifact-name: full-dagml-documentation-html

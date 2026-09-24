@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Run full test suite before publishing
+  # Run the fast source gate; exhaustive DAG-ML coverage runs weekly/on demand.
   run-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
@@ -62,26 +62,37 @@ jobs:
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
 
-      - name: Run full pytest + coverage
+      - name: Run fast DAG-ML unit, API, and parity smoke tests
         shell: bash
         env:
+          N4A_ENGINE: dag-ml
           N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+          CUDA_VISIBLE_DEVICES: ''
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
         run: |
-          python -m coverage erase
-          python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py \
-            --cov=nirs4all --cov-append
-          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append
-          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append --cov-report=xml
+          mkdir -p fast-dagml-pytest-report
+          python -m pytest -q --timeout=300 -n 2 --dist worksteal \
+            -m 'not slow and not gpu and not stress' \
+            tests/unit/ tests/integration/api/ \
+            tests/integration/parity/test_parity_compiles.py \
+            tests/integration/parity/test_cv_test_parity.py \
+            tests/integration/parity/test_native_single_model_bundle_export.py \
+            tests/integration/parity/test_conformance_examples_smoke.py \
+            tests/integration/parity/test_marker_audit.py \
+            --junitxml=fast-dagml-pytest-report/junit.xml \
+            --cov=nirs4all --cov-report=xml
+
+      - name: Upload fast DAG-ML pytest report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fast-dagml-pytest-report
+          path: |
+            fast-dagml-pytest-report/
+            coverage.xml
+          if-no-files-found: warn
 
       - name: Upload coverage to Codecov
         # Coverage is already uploaded by the PR CI. Codecov's OIDC endpoint
@@ -224,9 +235,8 @@ jobs:
       - name: Upload to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-  # Verify the exact public artifact in a clean environment. The full suite has
-  # already run once above; this gate catches packaging, dependency-resolution,
-  # and publication mistakes without repeating it.
+  # Verify the exact public artifact in a clean environment. This gate catches
+  # packaging, dependency-resolution, and publication mistakes.
   post-publish-smoke:
     needs: publish-pypi
     if: github.event_name == 'release'
