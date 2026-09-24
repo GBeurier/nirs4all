@@ -158,7 +158,13 @@ def _run_module(
         )
     if expected == 0 and not module_skipped and returncode == 0:
         _report_failure(suites, name, "pytest reported success without collecting tests")
-    if returncode != 0 and not module_skipped:
+    # A failing assertion already explains pytest's nonzero exit in JUnit.
+    # Add a synthetic error only when the process failed without a recorded
+    # failure/error (for example, a crash after writing a partial report).
+    recorded = _counts(suites)
+    if returncode != 0 and not module_skipped and not (
+        recorded["failures"] or recorded["errors"]
+    ):
         _report_failure(suites, name, f"pytest exited with status {returncode}")
 
     counts = _counts(suites)
