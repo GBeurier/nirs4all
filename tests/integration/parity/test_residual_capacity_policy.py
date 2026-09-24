@@ -6,6 +6,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeRegressor
 
 import nirs4all
 from nirs4all.data.dataset import SpectroDataset
@@ -40,7 +41,10 @@ def test_residual_prediction_join_pls_capacity_refit_and_replay(tmp_path, monkey
         return [
             KFold(2, shuffle=True, random_state=1),
             {"y_processing": StandardScaler()},
-            {"branch": [[{"model": Ridge(alpha=1.0)}], [{"model": Ridge(alpha=2.0)}]]},
+            # Give PLS two independent prediction signals. Two Ridge fits of
+            # the same target can become collinear in a small inner fold.
+            {"branch": [[{"model": Ridge(alpha=1.0)}],
+                        [{"model": DecisionTreeRegressor(max_depth=3, random_state=1)}]]},
             {"merge": "predictions"},
             {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate="auto")},
         ]
