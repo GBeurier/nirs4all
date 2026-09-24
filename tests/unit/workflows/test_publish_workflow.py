@@ -125,6 +125,7 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
 
     trigger = _load_named_workflow("full-dagml-tests.yml")
     assert set(trigger["on"]) == {"schedule", "workflow_dispatch"}
+    assert trigger["jobs"]["exhaustive"]["permissions"] == {"contents": "read", "id-token": "write"}
     assert trigger["jobs"]["exhaustive"]["uses"] == "./.github/workflows/shared-test-and-docs.yml"
 
     for workflow_name in ("pre-publish.yml", "publish.yml", "examples.yml"):
