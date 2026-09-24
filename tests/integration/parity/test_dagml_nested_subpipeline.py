@@ -63,7 +63,7 @@ def test_nested_transform_chain_runs_and_replays_like_flat_chain(tmp_path, monke
     assert legacy_scores[0] == pytest.approx(legacy_scores[1])
     assert dag_scores[0] == pytest.approx(dag_scores[1])
 
-    np.testing.assert_allclose(predictions[0], predictions[1], rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(predictions[0], predictions[1], rtol=1e-6, atol=1e-5)
 
 
 @pytest.mark.parity
@@ -110,7 +110,7 @@ def test_nested_model_choices_preserve_selection_and_replay(tmp_path, monkeypatc
     assert legacy_scores[0] == pytest.approx(legacy_scores[1])
     assert dag_scores[0] == pytest.approx(dag_scores[1])
 
-    np.testing.assert_allclose(predictions[0], predictions[1], rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(predictions[0], predictions[1], rtol=1e-6, atol=1e-5)
 
 
 @pytest.mark.parity

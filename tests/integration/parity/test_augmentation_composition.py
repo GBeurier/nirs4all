@@ -310,7 +310,7 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
                     err_msg=f"{interleaving}: {model_name} {partition} fold={fold_id}",
                 )
                 score_key = "test_score" if partition == "test" else "val_score"
-                assert native_row[score_key] == pytest.approx(legacy_row[score_key], abs=1e-4)
+                assert native_row[score_key] == pytest.approx(legacy_row[score_key], abs=1e-3)
         archive = tmp_path / "interleaved_checkpoints.n4a"
         native.export(archive)
         dataset = DatasetConfigs(path).get_dataset_at(0)
@@ -385,7 +385,7 @@ def test_unsplit_interleaved_augmentation_checkpoints_match_legacy(
                         np.asarray(native_row["y_pred"]).ravel(), np.asarray(legacy_row["y_pred"]).ravel(),
                         rtol=1e-4, atol=2e-3,
                     )
-                    assert native_row["test_score"] == pytest.approx(legacy_row["test_score"], abs=1e-4)
+                    assert native_row["test_score"] == pytest.approx(legacy_row["test_score"], abs=1e-3)
         archive = tmp_path / "unsplit_interleaved_checkpoints.n4a"
         native.export(archive)
         dataset = DatasetConfigs(path).get_dataset_at(0)

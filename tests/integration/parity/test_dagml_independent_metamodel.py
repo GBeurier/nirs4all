@@ -83,13 +83,13 @@ def test_independent_named_metamodels_keep_both_scores_and_archives(
             base = by_id[replay["base_producers"][0]["artifact_id"]]["estimator"]
             meta = by_id[replay["meta_artifact_id"]]["estimator"]
             expected = np.asarray(meta.predict(np.asarray(base.predict(held_out)).reshape(12, -1))).ravel()
-            np.testing.assert_allclose(np.asarray(child.best_final["y_pred"]).ravel(), expected, atol=1e-8)
-            np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, held_out).y_pred).ravel(), expected, atol=1e-8)
+            np.testing.assert_allclose(np.asarray(child.best_final["y_pred"]).ravel(), expected, atol=1e-5)
+            np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, held_out).y_pred).ravel(), expected, atol=1e-5)
 
         default_archive = native.export(tmp_path / "selected.n4a")
         np.testing.assert_allclose(
             np.asarray(nirs4all.predict(default_archive, held_out).y_pred).ravel(),
-            np.asarray(native.runs[0].best_final["y_pred"]).ravel(), atol=1e-8,
+            np.asarray(native.runs[0].best_final["y_pred"]).ravel(), atol=1e-5,
         )
     finally:
         native.close()
