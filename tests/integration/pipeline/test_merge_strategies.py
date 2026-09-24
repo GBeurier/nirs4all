@@ -12,6 +12,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 import nirs4all
@@ -37,6 +38,7 @@ class TestMergeAutoDetectsBranchType:
     def test_features_merge_with_duplication_branch(self, simple_dataset):
         """Test features merge with standard duplication branches."""
         pipeline = [
+            ShuffleSplit(n_splits=2, random_state=42),
             {"branch": [[SNV()], [MSC()]]},
             {"merge": "features"},
             {"model": PLSRegression(n_components=5)},
@@ -45,12 +47,12 @@ class TestMergeAutoDetectsBranchType:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0,
         )
 
-        assert result is not None
-        assert hasattr(result, 'best_rmse')
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert np.isfinite(result.cv_best_score)
 
     def test_concat_with_duplication_branch(self, simple_dataset):
         """Test concat merge with duplication branches still works."""
@@ -64,11 +66,35 @@ class TestMergeAutoDetectsBranchType:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0,
         )
 
-        assert result is not None
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert np.isfinite(result.best_rmse)
+
+    def test_branch_only_model_comparison(self, simple_dataset):
+        """Named branch models remain separately scored without a merge step."""
+        pipeline = [
+            ShuffleSplit(n_splits=2, random_state=42),
+            {"branch": {
+                "snv_pls": [SNV(), PLSRegression(n_components=5)],
+                "msc_pls": [MSC(), PLSRegression(n_components=5)],
+            }},
+        ]
+        result = nirs4all.run(pipeline=pipeline, dataset=simple_dataset, engine="dag-ml", verbose=0)
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert set(result.predictions.get_unique_values("branch_name")) == {"snv_pls", "msc_pls"}
+        assert np.isfinite(result.cv_best_score)
+
+    def test_branch_only_model_comparison_without_cv(self, simple_dataset):
+        pipeline = [{"branch": {
+            "snv_pls": [SNV(), PLSRegression(n_components=5)],
+            "msc_pls": [MSC(), PLSRegression(n_components=5)],
+        }}]
+        result = nirs4all.run(pipeline=pipeline, dataset=simple_dataset, engine="dag-ml", verbose=0)
+        assert set(result.predictions.get_unique_values("branch_name")) == {"snv_pls", "msc_pls"}
+        assert np.isfinite(result.best_rmse)
 
 class TestSourceMergeUnifiedSyntax:
     """Tests for source merge via merge keyword configuration."""
@@ -170,11 +196,12 @@ class TestMergeModesCombination:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0,
         )
 
-        assert result is not None
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert np.isfinite(result.best_rmse)
 
 class TestMergeDictConfig:
     """Tests for dict-style merge configuration."""
@@ -195,11 +222,22 @@ class TestMergeDictConfig:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
-            engine="legacy",
+            engine="dag-ml",
             verbose=0,
         )
 
-        assert result is not None
+        selected_only = nirs4all.run(
+            pipeline=[
+                {"branch": [[SNV()], [MSC()]]},
+                {"merge": "features"},
+                {"model": PLSRegression(n_components=5)},
+            ],
+            dataset=dataset,
+            engine="dag-ml",
+            verbose=0,
+        )
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert result.best_rmse == pytest.approx(selected_only.best_rmse)
 
     def test_dict_concat_config_parsed_correctly(self):
         """Test dict config for concat merge is parsed correctly."""

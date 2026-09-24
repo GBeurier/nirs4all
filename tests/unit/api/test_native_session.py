@@ -88,8 +88,10 @@ def test_public_session_constructor_selects_native_or_refuses_before_legacy_runn
     assert isinstance(legacy, Session)
     assert "engine" not in legacy._runner_kwargs  # noqa: SLF001
 
-    with pytest.raises(NotImplementedError, match="does not have an execution path"):
-        Session(pipeline, engine="dag-ml")
+    dagml = Session(pipeline, engine="dag-ml")
+    assert isinstance(dagml, Session)
+    assert dagml._configured_engine == "dag-ml"  # noqa: SLF001
+    assert dagml._runner is None  # noqa: SLF001
     with pytest.raises(ValueError, match="explicit portable pipeline"):
         Session(engine="native")
 

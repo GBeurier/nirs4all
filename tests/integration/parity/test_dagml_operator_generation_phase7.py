@@ -6,7 +6,7 @@ These guard the behaviours the Codex gates required for native operator-level ge
    non-JSON param ANYWHERE in the label sub-sequence (chosen branch + downstream model params, model
    siblings, and ``y_processing``) DEMOTES the run to the Python-expand path (still dag-ml-native), never
    crashes with a ``DagMlValidationError`` and never silently ``repr``-stringifies a non-JSON value.
-2. **Only genuinely routable operators enter native** — a non-routable / wavelength-requiring /
+2. **Only genuinely routable operators enter native** — a non-routable /
    non-importable ``_or_`` choice keeps the pipeline OFF the native path (the flat-single predicate is
    ``False``), so it runs via Python-expand instead of failing at fit inside native operator-SELECT.
 3. **Single-choice ``_or_`` is still validated** — a one-choice ``_or_`` (whose dag-ml ``config_name`` is
@@ -238,8 +238,8 @@ def test_flat_predicate_admits_routable_bare_or() -> None:
     assert _is_flat_single_operator_generator(pipeline) is True
 
 
-def test_flat_predicate_rejects_wavelength_requiring_choice() -> None:
-    """A wavelength-requiring choice (configured Resampler) keeps the pipeline OFF native."""
+def test_flat_predicate_admits_supported_wavelength_choice() -> None:
+    """A configured Resampler enters native after feature-axis injection support."""
     from nirs4all.pipeline.dagml.detect import _is_flat_single_operator_generator
 
     pipeline = [
@@ -247,7 +247,7 @@ def test_flat_predicate_rejects_wavelength_requiring_choice() -> None:
         KFold(n_splits=3),
         {"model": PLSRegression(n_components=10)},
     ]
-    assert _is_flat_single_operator_generator(pipeline) is False
+    assert _is_flat_single_operator_generator(pipeline) is True
 
 
 def test_flat_predicate_rejects_scalar_choice() -> None:

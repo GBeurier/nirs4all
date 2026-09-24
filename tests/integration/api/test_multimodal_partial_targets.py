@@ -92,10 +92,12 @@ def _assert_masked_metrics(result: Any, cohort: MultimodalDataset) -> None:
                     assert report["metrics"][f"{metric}:{name}"] == pytest.approx(value, rel=1e-10, abs=1e-12)
                 per_target_rmse.append(expected["rmse"])
             assert report["metrics"]["rmse"] == pytest.approx(np.mean(per_target_rmse), rel=1e-10, abs=1e-12)
-            if report["partition"] == "validation":
+            if report["partition"] == "validation" and report.get("fold_id") not in {"avg", "w_avg"}:
                 validation_ids.extend(ids)
             checked += 1
-    assert checked == 5  # Three native OOF folds, full-train refit, held-out test.
+    # Three fold train/validation/test views, three weighted-ensemble views,
+    # and refit train/test. The unweighted average has no task-local block.
+    assert checked == 14
     assert Counter(validation_ids) == Counter(cohort.sample_ids[:12])
 
 

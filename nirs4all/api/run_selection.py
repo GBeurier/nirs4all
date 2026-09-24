@@ -28,6 +28,10 @@ def select_run_engine(
     dependencies cannot cause an implicit change of engine. Invalid portable
     data remain errors in the selected engine rather than triggering retries.
     """
+    if engine is None and session is not None:
+        configured_engine = getattr(session, "_configured_engine", None)
+        if isinstance(configured_engine, str):
+            engine = configured_engine
     selected = resolve_engine(engine, allow_fallback=allow_fallback)
     if engine is not None or os.environ.get(ENGINE_ENV_VAR, "").strip():
         return selected

@@ -34,26 +34,37 @@ class FrozenDagMlSplitStep(DagMlSplitStep):
     folds: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...] = ()
 
     def materialized_folds(self, pool: list[int], excluded: set[int]) -> list[tuple[list[int], list[int]]]:
-        """Replay exactly the captured split; never silently address another pool."""
-        if tuple(pool) != self.sample_pool:
+        """Replay captured folds on the same pool or an ordered exclusion subset."""
+        kept = set(pool)
+        if tuple(pool) != tuple(sample for sample in self.sample_pool if sample in kept):
             raise ValueError("A shared sequential-model FoldSet cannot be reused for a different sample pool")
-        return [([sample for sample in train if sample not in excluded], list(validation)) for train, validation in self.folds]
+        return [
+            ([sample for sample in train if sample in kept and sample not in excluded],
+             [sample for sample in validation if sample in kept])
+            for train, validation in self.folds
+        ]
+
+
+@dataclass(frozen=True)
+class FoldFileDagMlSplitStep(DagMlSplitStep):
+    """A legacy fold file whose entries are dataset sample IDs, not row offsets."""
+
+    fold_file: str = ""
 
 
 def _needs_wavelength_injection(operator: Any) -> bool:
-    """True when ``operator`` *requires* a ``wavelengths=`` injection the dag-ml X-chain cannot provide.
+    """True when ``operator`` requires a source-local ``wavelengths=`` fit argument.
 
-    The dag-ml node runner fits an X-transform with only ``(X, y)`` (a plain sklearn ``make_pipeline``),
-    whereas the legacy ``TransformerMixinController`` extracts wavelengths from ``dataset.headers()`` and
-    passes them to ``fit(..., wavelengths=...)``. Only operators that *hard-require* wavelengths — i.e.
-    ``fit(X, y)`` *raises* without them — are unsupported and converted to a catchable fallback:
+    The node runner obtains coordinates through DAG-ML's validated feature-axis
+    data binding and injects them into the operator's fit. Only operators that
+    hard-require wavelengths need this adapter:
 
     * a :class:`SpectraTransformerMixin` whose ``_requires_wavelengths is True`` (strict); the ``"optional"``
       family (and feature-selection ops like CARS/MC-UVE, which merely *accept* a ``wavelengths`` kwarg and
-      fall back to index space when it is absent) run natively at parity, so they are NOT flagged; and
+      fall back to index space when it is absent) run without mandatory injection; and
     * a configured :class:`~nirs4all.operators.transforms.Resampler` (``target_wavelengths`` set), which
       raises ``Wavelengths must be provided to fit()``; an identity Resampler (no target grid) is a
-      pass-through that fits without wavelengths, so it stays supported.
+      pass-through that fits without wavelengths.
 
     The signature is *not* used as the trigger (CARS/MC-UVE declare a ``wavelengths`` param but do not
     require it) — only the explicit strict flag and the Resampler's configured-state contract are.
@@ -114,6 +125,8 @@ def _params_losslessly_serializable(operator: Any) -> bool:
                 pending.extend(value.values())
             elif isinstance(value, (list, tuple)):
                 pending.extend(value)
+            elif hasattr(value, "tolist") and type(value).__module__.startswith("numpy"):
+                pending.append(value.tolist())
             elif isinstance(value, type):
                 if not _is_fqn_importable(value):
                     return False
@@ -160,16 +173,11 @@ def _check_x_operator(operator: Any) -> None:
     """Raise a catchable :class:`DagMlUnsupported` for one X-side transform the runtime cannot run/rebuild.
 
     The single per-operator gate the top-level steps AND the nested ``concat_transform`` /
-    ``feature_augmentation`` sub-transforms both pass through, so the wavelength + routability +
-    reconstructibility checks are identical wherever a transform is fit/reconstructed.
+    ``feature_augmentation`` sub-transforms both pass through, so routability and
+    reconstructibility checks are identical wherever a transform is rebuilt.
     """
     if operator is None:
         return
-    if _needs_wavelength_injection(operator):
-        raise DagMlUnsupported(
-            f"engine='dag-ml' does not inject wavelengths into fit(), but {type(operator).__name__} "
-            "requires them (the dag-ml X-chain fits transforms with (X, y) only). Use the legacy engine."
-        )
     if not _is_routable_transform(operator):
         raise DagMlUnsupported(
             f"engine='dag-ml' cannot route {type(operator).__name__} — it is not a reconstructible "
@@ -212,7 +220,7 @@ def _nested_x_operators(step: dict[str, Any]) -> list[Any]:
 
     Unhandled shapes (a generator dict, a ``name``/``source_processing`` selector, an empty/None config)
     are left to the bridge's own fail-loud lowering; this only extracts the transform instances (at every
-    nesting level) so a wavelength-requiring or non-reconstructible op nested among them is caught up front.
+    nesting level) so a non-reconstructible op nested among them is caught up front.
     """
     if "concat_transform" in step:
         config = step["concat_transform"]
@@ -234,7 +242,6 @@ def _assert_supported_operators(steps: list[Any]) -> None:
     not a coverage gap). For each it converts the recognizable unsupported shapes to
     :class:`DagMlUnsupported` so :func:`run.run`'s fallback redirects them to the legacy engine:
 
-    * a wavelength-requiring operator (:func:`_needs_wavelength_injection`); and
     * a NON-sklearn / non-reconstructible custom operator (:func:`_is_routable_transform` is false) — the
       dag-ml X-chain has no controller for it, or the runtime cannot rebuild it faithfully.
 
@@ -269,7 +276,7 @@ def _supported_body_steps(steps: list[Any]) -> list[Any]:
 
     The single chokepoint every branch body / sub-pipeline / leaf lowerer routes its operator steps
     through, so the top-level guarantees hold uniformly: a ``None`` (identity no-op) is dropped everywhere
-    legacy skips it (NOT lowered to a ``builtins.NoneType`` node), and a wavelength-requiring or
+    legacy skips it (NOT lowered to a ``builtins.NoneType`` node), and a
     non-reconstructible transform anywhere raises a catchable :class:`DagMlUnsupported`. Returns the
     cleaned (``None``-free) step list the caller lowers.
     """
@@ -283,6 +290,13 @@ def _dict_split_step(step: Any) -> DagMlSplitStep | None:
     if not isinstance(step, dict) or "split" not in step:
         return None
     splitter = step.get("split")
+    if isinstance(splitter, str):
+        from pathlib import Path
+
+        from nirs4all.controllers.splitters.fold_file_loader import FoldFileParser
+
+        if Path(splitter).suffix.lower() in FoldFileParser.SUPPORTED_EXTENSIONS:
+            return FoldFileDagMlSplitStep(splitter=splitter, fold_file=splitter)
     if not _has_split_method(splitter):
         return None
     return DagMlSplitStep(
@@ -357,7 +371,27 @@ def _taggers_from_step(step: Any) -> list[tuple[str, Any]] | None:
 
 
 # Keys on a step dict that are NOT model hyperparameters (mirrors StepParser.RESERVED_KEYWORDS).
-_RESERVED_STEP_KEYS = frozenset({"model", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
+_RESERVED_STEP_KEYS = frozenset({"model", "model_params", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
+
+
+def _apply_framework_factory_params(step: dict[str, Any], params: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep generated factory arguments with the model step until DAG lowering.
+
+    A legacy neural factory has no sklearn ``set_params`` method. The bridge
+    reconstructs it from its import path and passes ``model_params`` through
+    ``ModelFactory.prepare_and_call`` at fit time.
+    """
+    from .framework_estimator import framework_model_params
+    from .torch_estimator import torch_model_params
+
+    spec = torch_model_params(step["model"])
+    if spec is None:
+        spec = framework_model_params(step["model"])
+    if spec is None or "factory_path" not in spec:
+        return None
+    updated = {key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS}
+    updated["model_params"] = {**(step.get("model_params") or {}), **params}
+    return updated
 
 
 def _apply_model_params(steps: list[Any]) -> list[Any]:
@@ -372,8 +406,18 @@ def _apply_model_params(steps: list[Any]) -> list[Any]:
     out: list[Any] = []
     for step in steps:
         if isinstance(step, dict) and "model" in step:
+            from .autogluon_estimator import autogluon_step_estimator
+
+            autogluon = autogluon_step_estimator(step)
+            if autogluon is not None:
+                out.append({**{key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS and key not in {"params", "model_params"}}, "model": autogluon})
+                continue
             params = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS}
             if params:
+                factory_step = _apply_framework_factory_params(step, params)
+                if factory_step is not None:
+                    out.append(factory_step)
+                    continue
                 model = step["model"]
                 # A class-model (e.g. ``PLSRegression`` rather than ``PLSRegression()``) must be
                 # instantiated before clone — ``clone`` rejects a class. The expansion path normally
@@ -523,6 +567,12 @@ def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
     out: list[Any] = []
     for step in steps:
         if isinstance(step, dict) and "model" in step:
+            from .autogluon_estimator import autogluon_step_estimator
+
+            autogluon = autogluon_step_estimator(step)
+            if autogluon is not None:
+                out.append({**{key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS and key not in {"params", "model_params"}}, "model": autogluon})
+                continue
             # The step's native `_grid_` key (if any) is kept on the step for the bridge to lower; a
             # per-param `_range_`/`_log_range_` sibling is kept too. Everything else non-reserved is a
             # plain hyperparameter set on the model clone.
@@ -533,6 +583,13 @@ def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
 
             plain = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS and not _is_native_generator_sibling(key, value)}
             if plain:
+                factory_step = _apply_framework_factory_params(step, plain)
+                if factory_step is not None:
+                    for key, value in step.items():
+                        if _is_native_generator_sibling(key, value):
+                            factory_step[key] = value
+                    out.append(factory_step)
+                    continue
                 model = step["model"]
                 # A class-model (e.g. ``PLSRegression`` not ``PLSRegression()``) — common with a step-level
                 # ``_grid_`` over a bare class — must be instantiated before ``clone`` (``clone`` rejects a

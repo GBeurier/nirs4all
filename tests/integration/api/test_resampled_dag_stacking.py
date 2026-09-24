@@ -57,7 +57,7 @@ def test_resampled_stacking_refit_coverage_is_separate_and_exportable(tmp_path, 
     assert evidence["outer_validation_occurrences"] == 27
     assert evidence["refit_oof_is_selection_evidence"] is False
     outer = meta.predictions.filter_predictions(partition="val", load_arrays=True)
-    assert {row["fold_id"] for row in outer} == {"0", "1", "2", "avg"}
+    assert {row["fold_id"] for row in outer} == {"0", "1", "2", "avg", "w_avg"}
     assert all(row["train_score"] is None and row["test_score"] is None for row in outer)
     # Native preparation produces one held-out contribution per training sample
     # for each base, and no meta validation report for those preparation folds.

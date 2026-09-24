@@ -7,13 +7,12 @@ on:
   pull_request:
     branches: [ main, master, 'rc/**' ]
 
-# The default gate deliberately runs one complete Linux/Python suite. Platform
-# smoke checks belong in dedicated workflows; duplicating the scientific suite
-# across an OS/Python matrix makes failures slower and less actionable.
+# The default gate runs fast unit, public-API, and parity smoke tests. The
+# exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
 
 env:
-  N4A_DAG_ML_REF: ff4bb34cfaea5563513be148c0f4ea7907e2e541
-  N4A_DAG_ML_DATA_REF: ffe533704a1a0b0c7bb7d97a997caade3f4ba36e
+  N4A_DAG_ML_REF: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
+  N4A_DAG_ML_DATA_REF: 6a71216176556a582ba9b684cda37403014e41c2
 
 jobs:
   lint:
@@ -45,9 +44,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          # RC branch: dag-ml wheels are selected by the release lock but are not
-          # published to PyPI yet, so satisfy nirs4all's hard runtime dependency
-          # from the selected GitHub refs before reading requirements-test.txt.
+          # Pin the paired release commits so CI tests exactly the qualified train.
           python -m pip install \
             "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
             "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
@@ -61,9 +58,18 @@ jobs:
   tests:
     needs: [lint, type-check]
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+
+      - name: Checkout pinned dag-ml CLI source
+        uses: actions/checkout@v6
+        with:
+          repository: GBeurier/dag-ml
+          ref: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
+          path: dag-ml-cli-src
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -77,9 +83,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          # RC branch: dag-ml wheels are selected by the release lock but are not
-          # published to PyPI yet, so satisfy nirs4all's hard runtime dependency
-          # from the selected GitHub refs before reading requirements-test.txt.
+          # Pin the paired release commits so CI tests exactly the qualified train.
           python -m pip install \
             "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
             "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
@@ -89,37 +93,47 @@ jobs:
           python -m pip install numpy -r requirements-test-filtered.txt
           python -m pip install --index-url https://download.pytorch.org/whl/cpu \
             'torch==2.13.0+cpu'
+          python -m pip uninstall -y triton
           python -m pip install -r requirements-examples.txt
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
 
+      - name: Build pinned dag-ml CLI for parity tests
+        run: cargo build -p dag-ml-cli --manifest-path dag-ml-cli-src/Cargo.toml
+
       - name: Gate real library usability
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
 
-      - name: Run complete unit and integration suite once
+      - name: Run fast DAG-ML unit, API, and parity smoke tests
         shell: bash
+        env:
+          N4A_ENGINE: dag-ml
+          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+          CUDA_VISIBLE_DEVICES: ''
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
         run: |
-          python -m coverage erase
-          python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py \
-            --cov=nirs4all --cov-append
-          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append
-          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append --cov-report=xml
+          mkdir -p fast-dagml-pytest-report
+          python -m pytest -q --timeout=300 -n 2 --dist worksteal \
+            -m 'not slow and not gpu and not stress' \
+            tests/unit/ tests/integration/api/ \
+            tests/integration/parity/test_parity_compiles.py \
+            tests/integration/parity/test_cv_test_parity.py \
+            tests/integration/parity/test_native_single_model_bundle_export.py \
+            tests/integration/parity/test_conformance_examples_smoke.py \
+            tests/integration/parity/test_marker_audit.py \
+            --junitxml=fast-dagml-pytest-report/junit.xml \
+            --cov=nirs4all --cov-report=xml
 
-      - name: Run all examples once
-        run: |
-          cd examples
-          chmod +x run_ci_examples.sh
-          ./run_ci_examples.sh -c all -j 2 -k
-        timeout-minutes: 45
+      - name: Upload fast DAG-ML pytest report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fast-dagml-pytest-report
+          path: |
+            fast-dagml-pytest-report/
+            coverage.xml
+          if-no-files-found: warn

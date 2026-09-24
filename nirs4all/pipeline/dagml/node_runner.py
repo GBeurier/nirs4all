@@ -15,27 +15,28 @@ reloads the artifact and predicts the ``predict`` view. The ``NodeTask`` carries
 ``node_id`` → the compiled graph node (which carries the operator) — both produced nirs4all
 side by ``build_dagml_plan``.
 
-**Scope (honest):** only ``model``/``tuner`` nodes produce predictions (matching dag-ml);
-``transform``/``y_transform`` nodes are passthrough output-handles here. Real cross-node
-feature chaining (e.g. SNV→PLS, where the model must see *transformed* features) is the
-unresolved A3 gap — the process-adapter delivers only ``sample_ids`` per node, so a model
-after a transform would re-fetch raw features. Until that is designed, this runner is
-numerically correct for **model-on-raw-features** graphs.
+Only ``model``/``tuner`` nodes produce predictions. Bound ``transform`` nodes fit their
+operators on the native data view and pass fitted chains through data-edge handles;
+unbound transforms use the legacy reconstructed chain at the model node.
+``y_transform`` nodes remain floating target transforms applied by the model callback.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 from collections.abc import Callable, MutableMapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from sklearn.base import clone
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.pipeline import make_pipeline
 from sklearn.utils.metaestimators import available_if
 
-from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID
+from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _RESIDUAL_LEARNER_CONTROLLER_ID
 
 from .operator_routing import route_graph_node
 
@@ -43,6 +44,351 @@ if TYPE_CHECKING:
     from .resolver import MaterializationResolver
 
 _PREDICTION_PARTITION = {"FIT_CV": "validation", "REFIT": "final", "PREDICT": "final", "EXPLAIN": "final"}
+
+
+class _DagmlSelectedFoldEstimator:
+    """Host estimator container using fold choices or weights computed by DAG-ML."""
+
+    def __init__(self, fold_estimators: dict[str, Any], selected_fold: str | None = None,
+                 weights: dict[str, float] | None = None) -> None:
+        if selected_fold is not None and selected_fold not in fold_estimators:
+            raise ValueError(f"selected stacking fold {selected_fold!r} has no captured estimator")
+        if (selected_fold is None) == (weights is None):
+            raise ValueError("stacking fold replay requires exactly one choice or weight vector")
+        if weights is not None and (set(weights) != set(fold_estimators) or not np.isclose(sum(weights.values()), 1.0)):
+            raise ValueError("stacking fold replay weights must cover every captured fold and sum to one")
+        self.fold_estimators = dict(fold_estimators)
+        self.selected_fold = selected_fold
+        self.weights = dict(weights) if weights is not None else None
+
+    def _predict(self, method: str, X: Any, kwargs: dict[str, Any]) -> Any:
+        if self.selected_fold is not None:
+            return getattr(self.fold_estimators[self.selected_fold], method)(X, **kwargs)
+        assert self.weights is not None
+        return sum(float(weight) * np.asarray(getattr(self.fold_estimators[fold], method)(X, **kwargs), dtype=float)
+                   for fold, weight in self.weights.items())
+
+    def predict(self, X: Any, **kwargs: Any) -> Any:
+        return self._predict("predict", X, kwargs)
+
+    def predict_proba(self, X: Any, **kwargs: Any) -> Any:
+        return self._predict("predict_proba", X, kwargs)
+
+    @property
+    def classes_(self) -> Any:
+        return self.fold_estimators[self.selected_fold or next(iter(self.fold_estimators))].classes_
+
+
+class _FrozenTransform(TransformerMixin, BaseEstimator):
+    """Keep a transform fitted by its own native task when the model fits."""
+
+    def __init__(self, transformer: Any) -> None:
+        self.transformer = transformer
+        self.fitted_ = True
+
+    def fit(self, X: Any, y: Any = None) -> _FrozenTransform:  # noqa: ARG002 - fitted upstream
+        return self
+
+    def transform(self, X: Any) -> Any:
+        return self.transformer.transform(X)
+
+
+class _CoordinateTransform(TransformerMixin, BaseEstimator):
+    """Inject source-local feature coordinates into a host operator's fit."""
+
+    def __init__(self, transformer: Any, coordinates: tuple[str, ...], source_index: int = 0) -> None:
+        self.transformer = transformer
+        self.coordinates = coordinates
+        self.source_index = source_index
+
+    def fit(self, X: Any, y: Any = None) -> _CoordinateTransform:
+        from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+        from nirs4all.operators.transforms.resampler import Resampler
+
+        if np.asarray(X).shape[1] != len(self.coordinates):
+            # A preceding feature-width transform without an axis mapping
+            # invalidates the original wavelengths. Legacy CARS/MCUVE then
+            # fit in feature-index space; they do not require wavelengths.
+            if isinstance(self.transformer, (CARS, MCUVE)):
+                self.transformer.fit(X, y)
+                return self
+            raise ValueError("feature-axis coordinates no longer match the transformed feature width")
+        if isinstance(self.transformer, Resampler) and self.transformer.target_wavelengths is not None:
+            targets = self.transformer.target_wavelengths
+            if isinstance(targets, (list, tuple)) and targets and isinstance(targets[0], (list, tuple, np.ndarray)):
+                if self.source_index >= len(targets):
+                    raise ValueError("Resampler target_wavelengths is missing a source grid")
+                self.transformer.set_params(target_wavelengths=np.asarray(targets[self.source_index], dtype=float))
+        self.transformer.fit(X, y, wavelengths=np.asarray(self.coordinates, dtype=float))
+        return self
+
+    def transform(self, X: Any) -> Any:
+        return self.transformer.transform(X)
+
+
+def _feature_axes(task: dict[str, Any]) -> list[tuple[str, ...] | None] | None:
+    """Read the core-attested source-axis contract in materialization order."""
+    view = next((value for value in task.get("data_views", {}).values() if value.get("extra", {}).get("feature_axes")), None)
+    if view is None:
+        return None
+    axes = view["extra"]["feature_axes"]
+    source_index = view["extra"].get("source_index")
+    if source_index:
+        sources = [source for source, _ in sorted(source_index.items(), key=lambda item: item[1])]
+    else:
+        sources = list(axes)
+    return [tuple(axes[source]) if source in axes else None for source in sources]
+
+
+def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...] | None] | None, source_index: int = 0) -> list[Any]:
+    """Prepare a source's required-coordinate transforms in pipeline order."""
+    from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+    from .steps import _needs_wavelength_injection
+
+    if not axes:
+        if any(_needs_wavelength_injection(step) for step in steps):
+            raise ValueError("wavelength-aware transform requires feature-axis coordinates in the DAG-ML data binding")
+        return steps
+    if source_index >= len(axes):
+        raise ValueError("feature-axis contract is missing a source")
+    current = axes[source_index]
+    prepared = []
+    for step in steps:
+        if current is None and _needs_wavelength_injection(step):
+            raise ValueError(f"wavelength-aware transform requires coordinates for source {source_index}")
+        if current is not None and (_needs_wavelength_injection(step) or isinstance(step, (CARS, MCUVE))):
+            prepared.append(_CoordinateTransform(step, current, source_index))
+        else:
+            prepared.append(step)
+        current = _axis_after_step(step, current, source_index)
+    return prepared
+
+
+def _axis_after_step(step: Any, current: tuple[str, ...] | None, source_index: int) -> tuple[str, ...] | None:
+    from nirs4all.operators.transforms.features import CropTransformer, ResampleTransformer
+    from nirs4all.operators.transforms.resampler import Resampler
+
+    # These width-changing transforms do not provide an output wavelength
+    # mapping. Legacy clears their headers, so the next optional selector
+    # must use indices and a strict wavelength operator must fail explicitly.
+    if current is not None and isinstance(step, CropTransformer):
+        end = len(current) if step.end is None else min(step.end, len(current))
+        if step.start != 0 or end != len(current):
+            return None
+    if current is not None and isinstance(step, ResampleTransformer) and step.num_samples is not None and step.num_samples != len(current):
+        return None
+
+    if isinstance(step, Resampler) and step.target_wavelengths is not None:
+        targets = step.target_wavelengths
+        if isinstance(targets, (list, tuple)) and targets and isinstance(targets[0], (list, tuple, np.ndarray)):
+            targets = targets[source_index]
+        # The public legacy controller materializes these as dataset headers
+        # with two decimal places before the next operator reads the axis.
+        return tuple(f"{float(value):.2f}" for value in targets)
+    from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+    if current is not None and isinstance(step, (CARS, MCUVE)) and hasattr(step, "selected_indices_"):
+        if getattr(step, "n_features_in_", len(current)) != len(current):
+            return None
+        return tuple(f"{float(current[index]):.2f}" for index in step.selected_indices_)
+    return current
+
+
+class _FittedXChain:
+    """Host-owned state behind the transform node's native data output handle."""
+
+    def __init__(
+        self, steps: list[Any] | None = None, *,
+        source_steps: list[list[Any]] | None = None,
+        source_widths: tuple[int, ...] | None = None,
+        feature_axes: list[tuple[str, ...] | None] | None = None,
+    ) -> None:
+        self.steps = steps or []
+        self.source_steps = source_steps
+        self.source_widths = source_widths
+        self.feature_axes = feature_axes
+
+    def for_source(self, index: int) -> _FittedXChain:
+        if self.source_steps is None:
+            raise ValueError("fitted X chain has no source-scoped operators")
+        return _FittedXChain(list(self.source_steps[index]), feature_axes=[self.feature_axes[index]] if self.feature_axes else None)
+
+    def transform_blocks(self, blocks: list[np.ndarray]) -> list[np.ndarray]:
+        if self.source_steps is None or len(blocks) != len(self.source_steps):
+            raise ValueError("fitted X chain received an incompatible source layout")
+        transformed = []
+        for block, steps in zip(blocks, self.source_steps, strict=True):
+            out = np.asarray(block)
+            for transformer in steps:
+                out = np.asarray(transformer.transform(out))
+            transformed.append(out)
+        return transformed
+
+    def transform(self, X: Any) -> Any:
+        if self.source_steps is not None:
+            raw = np.asarray(X)
+            widths = self.source_widths
+            if widths is None or raw.ndim != 2 or raw.shape[1] != sum(widths):
+                raise ValueError("fitted X chain requires its original source layout")
+            blocks = list(np.split(raw, np.cumsum(widths)[:-1], axis=1))
+            return np.hstack(self.transform_blocks(blocks))
+        for transformer in self.steps:
+            X = transformer.transform(X)
+        return X
+
+
+class _PartitionedXChain:
+    """Fitted branch payload behind a native feature-join data handle."""
+
+    def __init__(self, branches: list[tuple[dict[str, Any], _FittedXChain]]) -> None:
+        if len(branches) < 2:
+            raise ValueError("partition feature join requires at least two fitted branches")
+        self.branches = branches
+
+    def metadata_key(self) -> str:
+        keys = {key for selector, _ in self.branches for key in (selector.get("metadata") or {})}
+        if len(keys) != 1 or any(set(selector.get("metadata") or {}) != keys for selector, _ in self.branches):
+            raise ValueError("feature-join replay requires one shared metadata partition key")
+        return cast(str, next(iter(keys)))
+
+    def transform_ids(
+        self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]],
+    ) -> np.ndarray:
+        """Restore branch rows in requested sample-id order without positional joining."""
+        X = np.asarray(X)
+        if X.ndim != 2 or len(X) != len(sample_ids) or len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("partition feature join requires a 2D matrix with unique sample IDs")
+        output: np.ndarray | None = None
+        assigned = np.zeros(len(sample_ids), dtype=bool)
+        for selector, chain in self.branches:
+            positions = [index for index, sample_id in enumerate(sample_ids) if _branch_view_keep(sample_id, selector, sample_metadata)]
+            if not positions:
+                continue
+            if np.any(assigned[positions]):
+                raise ValueError("partition feature join assigned a sample to multiple branches")
+            values = np.asarray(chain.transform(X[positions]))
+            if values.ndim != 2 or len(values) != len(positions):
+                raise ValueError("partition feature join branch changed its sample count")
+            if output is None:
+                output = np.empty((len(sample_ids), values.shape[1]), dtype=values.dtype)
+            elif values.shape[1] != output.shape[1]:
+                raise ValueError("partition feature join branches produced different feature widths")
+            output[positions] = values
+            assigned[positions] = True
+        if not np.all(assigned):
+            missing = [sample_ids[index] for index in np.flatnonzero(~assigned)]
+            raise ValueError(f"partition feature join has no branch for sample IDs {missing!r}")
+        assert output is not None
+        return output
+
+
+class _DuplicatedXChain:
+    """Fitted full-sample branch transforms joined in native input-port order."""
+
+    def __init__(self, branches: list[_FittedXChain]) -> None:
+        if len(branches) < 2:
+            raise ValueError("duplication feature join requires at least two fitted branches")
+        self.branches = branches
+
+    def transform_ids(
+        self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim != 2 or len(X) != len(sample_ids) or len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("duplication feature join requires a 2D matrix with unique sample IDs")
+        blocks = [np.asarray(branch.transform(X)) for branch in self.branches]
+        if any(block.ndim != 2 or len(block) != len(sample_ids) for block in blocks):
+            raise ValueError("duplication feature join branch changed its sample count")
+        return np.hstack(blocks)
+
+
+class _PredictionFeatureChain:
+    """Opaque data-edge payload for a native, identity-keyed prediction matrix."""
+
+    def __init__(self, primary: dict[str, Any], off_fold: dict[str, Any] | None = None) -> None:
+        self.columns = tuple(primary["columns"])
+        self.rows: dict[str, np.ndarray] = {}
+        for matrix in (primary, off_fold):
+            if matrix is None:
+                continue
+            if tuple(matrix["columns"]) != self.columns:
+                raise ValueError("prediction feature join changed column order between fit and predict")
+            values = np.asarray(matrix["values"], dtype=float)
+            ids = matrix["sample_ids"]
+            if values.ndim != 2 or values.shape != (len(ids), len(self.columns)):
+                raise ValueError("prediction feature join received a malformed native matrix")
+            for sample_id, row in zip(ids, values, strict=True):
+                if sample_id in self.rows:
+                    raise ValueError(f"prediction feature join repeated sample {sample_id!r}")
+                self.rows[sample_id] = row
+
+    def transform_ids(
+        self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> np.ndarray:
+        if len(X) != len(sample_ids) or len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("prediction feature join requires unique aligned sample IDs")
+        try:
+            return np.stack([self.rows[sample_id] for sample_id in sample_ids])
+        except KeyError as error:
+            raise ValueError(f"prediction feature join has no attested row for {error.args[0]!r}") from error
+
+
+class _PartitionJoinedEstimator:
+    """Archive-safe fitted model whose feature routing requires metadata."""
+
+    def __init__(self, estimator: Any, chain: _PartitionedXChain, metadata_key: str) -> None:
+        self.estimator = estimator
+        self.chain = chain
+        self.metadata_key = metadata_key
+
+    def predict(self, X: Any) -> np.ndarray:
+        raise ValueError(f"metadata column {self.metadata_key!r} is required for feature-join replay")
+
+    def predict_with_metadata(self, X: Any, metadata: dict[str, Any]) -> np.ndarray:
+        values = metadata.get(self.metadata_key)
+        if values is None or len(values) != len(X):
+            raise ValueError(f"feature-join replay requires {self.metadata_key!r} for every input row")
+        sample_ids = [f"replay:{index}" for index in range(len(X))]
+        by_sample = {sample_id: {self.metadata_key: str(value)} for sample_id, value in zip(sample_ids, values, strict=True)}
+        return np.asarray(self.estimator.predict(self.chain.transform_ids(np.asarray(X), sample_ids, by_sample)))
+
+    def predict_with_ids(self, X: Any, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]]) -> np.ndarray:
+        return np.asarray(self.estimator.predict(self.chain.transform_ids(np.asarray(X), sample_ids, sample_metadata)))
+
+
+class _DuplicationJoinedEstimator:
+    """Archive-safe estimator with the exact fitted native branch feature join."""
+
+    def __init__(self, estimator: Any, chain: _DuplicatedXChain) -> None:
+        self.estimator = estimator
+        self.chain = chain
+
+    def predict(self, X: Any) -> np.ndarray:
+        X = np.asarray(X)
+        ids = [f"replay:{index}" for index in range(len(X))]
+        return np.asarray(self.estimator.predict(self.chain.transform_ids(X, ids)))
+
+
+def _fitted_x_path(handle: int) -> Path | None:
+    directory = os.environ.get("N4A_DAGML_FITTED_X_DIR")
+    return Path(directory) / f"{handle}.joblib" if directory else None
+
+
+def _persist_fitted_x(handle: int, chain: _FittedXChain | _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain) -> None:
+    """Transfer a fitted data-edge payload between controller-specific CLI workers."""
+    path = _fitted_x_path(handle)
+    if path is None:
+        return
+    import joblib
+
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f"{handle}.", suffix=".joblib", delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        joblib.dump(chain, temporary_path, compress=3)
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _framework_name(estimator: Any) -> str | None:
@@ -147,7 +493,10 @@ class _MultiBlockEstimator:
     delivers sample-aligned blocks). The model's own block weights are part of the fitted artifact.
     """
 
-    def __init__(self, model: Any, chain_template: list[Any], source_names: tuple[str, ...] | None = None) -> None:
+    def __init__(
+        self, model: Any, chain_template: list[Any], source_names: tuple[str, ...] | None = None,
+        source_chain_templates: list[list[Any]] | None = None,
+    ) -> None:
         self._model = model
         self.source_names = source_names
         # The routed upstream X-transform operators in furthest-upstream-first order. One independent
@@ -156,6 +505,7 @@ class _MultiBlockEstimator:
         # estimator, so its ``check_is_fitted`` would reject ``transform`` for a stateless transformer
         # like SNV — applying the steps directly matches the operator's own fit/transform contract.
         self._chain_template = chain_template
+        self._source_chain_templates = source_chain_templates
         self._block_chains: list[list[Any]] = []
 
     @property
@@ -185,7 +535,7 @@ class _MultiBlockEstimator:
     def _source_options(self, source_masks: dict[str, np.ndarray] | None) -> dict[str, Any]:
         if source_masks is None:
             return {}
-        if self.source_names is None or self._chain_template:
+        if self.source_names is None or self._chain_template or self._source_chain_templates:
             raise ValueError("partial modalities require encoders inside a multimodal model with an explicit missing_source_policy")
         return {"source_masks": source_masks}
 
@@ -198,13 +548,28 @@ class _MultiBlockEstimator:
         options = self._source_options(source_masks)
         if target_mask is not None:
             options["target_mask"] = target_mask
-        self._block_chains = [[clone(step) for step in self._chain_template] for _ in blocks]
+        self._source_widths = tuple(np.asarray(block).shape[1] for block in blocks)
+        templates = self._source_chain_templates or [self._chain_template for _ in blocks]
+        self._block_chains = [[clone(step) for step in chain] for chain in templates]
         transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
         self._model.fit(transformed, y, **options)
         return self
 
-    def predict(self, blocks: list[np.ndarray], *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    def _restore_blocks(self, blocks: list[np.ndarray] | np.ndarray) -> list[np.ndarray]:
+        widths = getattr(self, "_source_widths", None)
+        if isinstance(blocks, list) and len(blocks) == 1 and widths is not None and len(widths) > 1:
+            blocks = np.asarray(blocks[0])
+        if isinstance(blocks, np.ndarray):
+            if widths is None or blocks.ndim != 2 or blocks.shape[1] != sum(widths):
+                raise ValueError("multi-block replay requires the fitted source layout and matching feature count")
+            return list(np.split(blocks, np.cumsum(widths)[:-1], axis=1))
+        if widths is not None and len(blocks) != len(widths):
+            raise ValueError("multi-block replay received an incompatible source count")
+        return blocks
+
+    def predict(self, blocks: list[np.ndarray] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         options = self._source_options(source_masks)
+        blocks = self._restore_blocks(blocks)
         transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
         return np.asarray(self._model.predict(transformed, **options))
 
@@ -214,9 +579,10 @@ class _MultiBlockEstimator:
         return np.asarray(self._model.classes_)
 
     @available_if(lambda self: hasattr(self._model, "predict_proba"))
-    def predict_proba(self, blocks: list[np.ndarray], *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    def predict_proba(self, blocks: list[np.ndarray] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Apply the same captured source transforms before probability inference."""
         options = self._source_options(source_masks)
+        blocks = self._restore_blocks(blocks)
         transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
         return np.asarray(self._model.predict_proba(transformed, **options))
 
@@ -460,7 +826,7 @@ def _upstream_x_chain(node_id: str, edges: list[dict[str, Any]] | None) -> list[
     """
     incoming: dict[str, str] = {}
     for edge in edges or []:
-        if edge["target"]["port_name"] == "x" and edge["contract"]["kind"] == "data":
+        if edge["target"]["port_name"] in {"x", "x_original"} and edge["contract"]["kind"] == "data":
             incoming[edge["target"]["node_id"]] = edge["source"]["node_id"]
     chain: list[str] = []
     current = incoming.get(node_id)
@@ -482,6 +848,8 @@ def _output_handles(task: dict[str, Any], handle: int) -> dict[str, Any]:
     outputs = {"out": {"handle": handle, "kind": "data", "owner_controller": controller_id}}
     if kind in ("model", "tuner"):
         outputs["oof"] = {"handle": handle, "kind": "prediction", "owner_controller": controller_id}
+    elif kind == "prediction_join" and task.get("prediction_feature_matrix") is not None:
+        outputs["x_out"] = {"handle": handle, "kind": "data", "owner_controller": controller_id}
     elif kind == "prediction_join":
         outputs["prediction"] = {"handle": handle, "kind": "prediction", "owner_controller": controller_id}
     else:
@@ -489,7 +857,7 @@ def _output_handles(task: dict[str, Any], handle: int) -> dict[str, Any]:
     return outputs
 
 
-def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any], regression_targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any], regression_targets: list[dict[str, Any]] | None = None, classification_probabilities: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Assemble the schema-complete ``NodeResult`` the runtime validates (outputs + full lineage).
 
     ``regression_targets`` (the real ``y_true`` for the predicted samples) lets dag-ml score the
@@ -504,10 +872,22 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     if predictions and predictions[0]["values"]:
         flat = [row[0] for row in predictions[0]["values"]]
         metrics["prediction_mean"] = float(sum(flat) / len(flat))
+    unsafe_flags = sorted({
+        flag
+        for view in task.get("data_views", {}).values()
+        for flag in (view.get("extra", {}).get("unsafe_flags") or [])
+    })
+    outputs = _output_handles(task, _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}"))
+    if any(block.get("producer_port") == "proba" for block in predictions):
+        outputs["proba"] = {"handle": _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}:proba"),
+                            "kind": "prediction", "owner_controller": node_plan["controller_id"]}
+        for block in classification_probabilities or []:
+            block.setdefault("producer_port", "oof")
     return {
         "node_id": node_id,
-        "outputs": _output_handles(task, _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}")),
+        "outputs": outputs,
         "predictions": predictions,
+        "classification_probabilities": classification_probabilities or [],
         "shape_deltas": [],
         "artifacts": artifacts,
         "artifact_handles": artifact_handles,
@@ -528,10 +908,236 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
             "data_model_shape_fingerprint": None,
             "aggregation_policy_fingerprint": None,
             "seed": task.get("seed"),
-            "unsafe_flags": [],
+            "unsafe_flags": unsafe_flags,
             "metrics": metrics,
         },
     }
+
+
+def _fitted_payload(handle: int, model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain | None:
+    payload = model_store.get(handle)
+    if payload is None:
+        path = _fitted_x_path(handle)
+        if path is not None and path.is_file():
+            import joblib
+
+            payload = joblib.load(path)  # noqa: S301 - written by this run's own transform worker
+            model_store[handle] = payload
+    return payload if isinstance(payload, (_FittedXChain, _PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
+
+
+def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain | None:
+    """Resolve a predecessor transform through the native data-edge handle."""
+    chains = []
+    seen: set[int] = set()
+    for reference in task.get("input_handles", {}).values():
+        if not isinstance(reference, dict) or reference.get("kind") != "data":
+            continue
+        handle = reference.get("handle")
+        if not isinstance(handle, int) or handle in seen:
+            continue
+        seen.add(handle)
+        chain = _fitted_payload(handle, model_store)
+        if chain is not None:
+            chains.append(chain)
+    if len(chains) > 1:
+        raise ValueError("fitted transform node has multiple predecessor X chains")
+    return chains[0] if chains else None
+
+
+def _run_feature_join_node(
+    task: dict[str, Any], model_store: MutableMapping[Any, Any],
+    node_lookup: Callable[[str], dict[str, Any]], edges: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Capture native incoming branch handles for a sample-keyed feature concat."""
+    if task["phase"] not in ("FIT_CV", "REFIT"):
+        return _build_result(task, [], [], {})
+    branches: list[tuple[dict[str, Any], _FittedXChain]] = []
+    modes: set[str] = set()
+    input_sources = {
+        edge["target"]["port_name"]: edge["source"]["node_id"]
+        for edge in edges or [] if edge["target"]["node_id"] == task["node_plan"]["node_id"]
+        and edge["contract"]["kind"] == "data"
+    }
+    input_names = [item["input_name"] for item in
+                   (node_lookup(task["node_plan"]["node_id"]).get("metadata") or {}).get("branch_data_inputs", [])]
+    for input_name in input_names:
+        key = f"data:{input_name}"
+        branch_view = (task.get("data_views", {}).get(key) or {}).get("branch_view") or {}
+        reference = task.get("input_handles", {}).get(key)
+        if not isinstance(reference, dict) or not isinstance(reference.get("handle"), int):
+            raise ValueError(f"partition feature join is missing native data input {key!r}")
+        payload = _fitted_payload(reference["handle"], model_store)
+        if not isinstance(payload, _FittedXChain):
+            raise ValueError(f"partition feature join input {key!r} is not a fitted X branch")
+        source_id = input_sources.get(input_name)
+        if source_id is not None:
+            modes.add((node_lookup(source_id).get("metadata") or {}).get("dsl_branch_mode", "separation"))
+        branches.append((branch_view.get("selector") or {}, payload))
+    if len(modes) > 1:
+        raise ValueError("feature join cannot mix duplicated and partitioned branches")
+    joined = _DuplicatedXChain([chain for _, chain in branches]) if modes == {"duplication"} else _PartitionedXChain(branches)
+    result = _build_result(task, [], [], {})
+    handle = result["outputs"]["x_out"]["handle"]
+    model_store[handle] = joined
+    _persist_fitted_x(handle, joined)
+    return result
+
+
+def _run_prediction_feature_join_node(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> dict[str, Any]:
+    """Materialize only the native matrix; row selection is owned by DAG-ML."""
+    primary = task.get("prediction_feature_matrix")
+    if not isinstance(primary, dict):
+        raise ValueError("prediction feature join is missing its native sample-keyed matrix")
+    joined = _PredictionFeatureChain(primary, task.get("prediction_feature_off_fold_matrix"))
+    result = _build_result(task, [], [], {})
+    handle = result["outputs"]["x_out"]["handle"]
+    model_store[handle] = joined
+    _persist_fitted_x(handle, joined)
+    return result
+
+
+def _run_fitted_transform_node(
+    task: dict[str, Any], resolver: MaterializationResolver,
+    node_lookup: Callable[[str], dict[str, Any]], model_store: MutableMapping[Any, Any],
+    sample_metadata: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Fit one X operator on the scope chosen by its native data view."""
+    if task["phase"] not in ("FIT_CV", "REFIT"):
+        return _build_result(task, [], [], {})
+    view = next(
+        (view for view in task.get("data_views", {}).values()
+         if view.get("partition") in ("fold_train", "full_train", "all_observations")),
+        None,
+    )
+    if view is None:
+        raise ValueError("fitted transform node has no native fit data view")
+    if not (node_lookup(task["node_plan"]["node_id"]).get("metadata") or {}).get("nirs4all_fit_full_fold"):
+        _filter_by_branch_view(view, sample_metadata)
+    if view["partition"] == "all_observations":
+        dataset = resolver._dataset  # noqa: SLF001 - host data provider owns the all-observation cohort
+        samples = [int(sample) for sample in dataset.index_column("sample", {})]
+        origins = [int(origin) for origin in dataset.index_column("origin", {})]
+        excluded = {int(sample) for sample in dataset.index_column("sample", {"excluded": True})}
+        bases = [sample for sample, origin in zip(samples, origins, strict=True) if sample == origin and sample not in excluded]
+        ids = [resolver._identity.to_wire(sample) for sample in bases]  # noqa: SLF001 - host wire identity
+        if view.get("include_augmented"):
+            train_samples = {int(sample) for sample in dataset.index_column("sample", {"partition": "train"})}
+            train_ids = [resolver._identity.to_wire(sample) for sample in bases if sample in train_samples]  # noqa: SLF001
+            expanded = resolver.expand_with_augmented_children(train_ids, task.get("fold_id") or "refit")
+            ids.extend(child for child in expanded[len(train_ids):] if resolver._identity.to_int(child) not in excluded)  # noqa: SLF001
+    else:
+        ids = _sample_ids(view)
+        if view.get("include_augmented"):
+            ids = resolver.expand_with_augmented_children(ids, task.get("fold_id") or "refit")
+    if not ids:
+        raise ValueError("fitted transform node received an empty fit cohort")
+
+    preceding = cast(_FittedXChain | None, _fitted_input_chain(task, model_store))
+    if preceding is None and any(key.startswith("transform:") for key in task.get("input_handles", {})):
+        raise ValueError("fitted transform node is missing its predecessor data-edge artifact")
+    target_ids = resolver.target_sample_ids(ids)
+    y_fit = np.asarray(resolver.resolve_targets(target_ids)["values"])
+    if y_fit.ndim > 1:
+        y_fit = y_fit[:, 0]
+    node_id = task["node_plan"]["node_id"]
+    current_axes = preceding.feature_axes if preceding is not None else _feature_axes(task)
+
+    def partitioned_views(x_fit: np.ndarray) -> dict[str, tuple[np.ndarray, np.ndarray | None]]:
+        if view["partition"] != "all_observations":
+            raise ValueError("partition-aware transform requires a native all-observations fit view")
+        dataset = resolver._dataset  # noqa: SLF001 -- host provider maps native sample IDs to partitions
+        identity = resolver._identity  # noqa: SLF001 -- host wire identity
+        views: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+        for partition in ("train", "test"):
+            partition_ids = {
+                identity.to_wire(sample)
+                for sample in dataset.index_column("sample", {"partition": partition})
+            }
+            mask = np.asarray([sample_id in partition_ids for sample_id in ids], dtype=bool)
+            views[partition] = (x_fit[mask], y_fit[mask] if np.any(mask) else None)
+        return views
+
+    def fit_transformer(transformer: Any, x_fit: np.ndarray) -> None:
+        fit_with_views = getattr(transformer, "fit_with_views", None)
+        if callable(fit_with_views):
+            fit_with_views(partitioned_views(x_fit))
+        else:
+            transformer.fit(x_fit, y_fit)
+
+    if resolver.is_multi_source():
+        resolved = resolver.resolve_feature_blocks(
+            ids, include_augmented=bool(view.get("include_augmented")), fold_label=task.get("fold_id") or "refit",
+        )
+        if "source_masks" in resolved:
+            raise ValueError("source-scoped preprocessing requires complete feature sources")
+        raw_blocks = [np.asarray(block) for block in resolved["blocks"]]
+        widths = tuple(block.shape[1] for block in raw_blocks)
+        if preceding is not None:
+            if preceding.source_widths != widths:
+                raise ValueError("fitted X chain source widths changed between data-edge nodes")
+            fit_blocks = preceding.transform_blocks(raw_blocks)
+            previous_steps = preceding.source_steps
+            assert previous_steps is not None
+        else:
+            fit_blocks = raw_blocks
+            previous_steps = [[] for _ in raw_blocks]
+        source_steps = []
+        shared = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        select_with_views = getattr(shared, "select_with_views", None)
+        if callable(select_with_views):
+            # Legacy transfer selection sees all feature sources concatenated,
+            # then applies the selected preprocessing independently per source.
+            select_with_views(partitioned_views(np.hstack(fit_blocks)))
+        next_axes = list(current_axes) if current_axes else None
+        for source_index, (block, steps) in enumerate(zip(fit_blocks, previous_steps, strict=True)):
+            transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+            transformer = _coordinate_chain([transformer], current_axes, source_index)[0]
+            fit_selected = getattr(transformer, "fit_selected", None)
+            if callable(select_with_views) and callable(fit_selected):
+                fit_selected(cast(Any, shared).recommendation_, partitioned_views(block)["train"][0])
+            else:
+                fit_transformer(transformer, block)
+            source_steps.append([*steps, transformer])
+            if next_axes is not None:
+                next_axes[source_index] = _axis_after_step(
+                    transformer.transformer if isinstance(transformer, _CoordinateTransform) else transformer,
+                    next_axes[source_index], source_index,
+                )
+        chain = _FittedXChain(source_steps=source_steps, source_widths=widths, feature_axes=next_axes)
+    else:
+        x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
+        steps = list(preceding.steps) if preceding is not None else []
+        channel_widths = None
+        if (node_lookup(node_id).get("metadata") or {}).get("nirs4all_upstream_processing_channels"):
+            from nirs4all.operators.transforms.concat import FeatureConcat
+
+            if not steps or not isinstance(steps[-1], FeatureConcat):
+                raise ValueError("auto_transfer_preproc is missing its preceding feature-augmentation channels")
+            before_concat = x_fit
+            for prior in steps[:-1]:
+                before_concat = np.asarray(prior.transform(before_concat))
+            channel_widths = steps[-1].channel_widths(before_concat)
+        for transformer in steps:
+            x_fit = np.asarray(transformer.transform(x_fit))
+        transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        transformer = _coordinate_chain([transformer], current_axes)[0]
+        if channel_widths is not None:
+            cast(Any, transformer).set_input_channels(channel_widths)
+        fit_transformer(transformer, x_fit)
+        next_axes = [
+            _axis_after_step(
+                transformer.transformer if isinstance(transformer, _CoordinateTransform) else transformer,
+                current_axes[0], 0,
+            )
+        ] if current_axes else None
+        chain = _FittedXChain([*steps, transformer], feature_axes=next_axes)
+    variant_label = task.get("variant_id") or "base"
+    fold_label = task.get("fold_id") or "nofold"
+    handle = _stable_handle(f"{node_id}:{task['phase']}:{variant_label}:{fold_label}")
+    model_store[handle] = chain
+    _persist_fitted_x(handle, chain)
+    return _build_result(task, [], [], {})
 
 
 def _ordered_finetune_params(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -573,7 +1179,14 @@ def _resolve_finetune_best_params(
     from .training_controls import effective_training_controls
 
     x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=False)["values"])
-    y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
+    residual_targets = task.get("residual_targets")
+    if isinstance(residual_targets, dict):
+        by_sample = dict(zip(residual_targets["sample_ids"], residual_targets["values"], strict=True))
+        if set(by_sample) != set(train_ids):
+            raise ValueError("residual finetune targets must exactly cover the learner train scope")
+        y_train = np.asarray([by_sample[sample_id] for sample_id in train_ids], dtype=float)
+    else:
+        y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
     best_params, evidence = run_scoped_finetune(
         model, upstream, x_train, y_train, finetune_params,
         scope={"node_id": node_id, "variant_id": variant_label, "phase": task["phase"], "fold_id": task.get("fold_id"), "training_sample_ids": train_ids},
@@ -602,9 +1215,9 @@ def run_model_node(
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
 
-    When ``edges`` are supplied, the model node reconstructs its upstream X-transform chain
-    (e.g. SNV→PLS) into a leakage-safe sklearn ``Pipeline`` fit on fold-train only — the
-    process-adapter delivers only sample_ids per node, so the chain is applied here. A
+    When X transforms have native data bindings, the model consumes their fitted chain
+    through a data-edge handle. Otherwise it reconstructs the upstream X-transform chain
+    (e.g. SNV→PLS) into a sklearn ``Pipeline`` fitted on the model's fold-train rows. A
     ``y_transform_node`` (a nirs4all ``y_processing`` step — a floating graph node with no edge
     to the model) is fit on fold-train ``y``, applied before fitting, and **inverse-transformed**
     over the predictions, exactly reproducing nirs4all target scaling.
@@ -638,19 +1251,34 @@ def run_model_node(
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
+    proba_output = (graph_node.get("metadata") or {}).get("nirs4all_prediction_output") == "proba"
+    dual_probability_output = "proba" in (graph_node.get("metadata") or {}).get("auxiliary_prediction_ports", [])
+    residual_mode = node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID
     source_index = _source_index(graph_node)
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
     # the early-fusion concat. ``multi_block`` is true ONLY when BOTH the model is a multi-block consumer
     # AND the dataset actually has >1 source — a single-source MB-PLS stays the early-fusion concat path
     # (the degenerate one-block list would be identical, so we keep the simpler concat for it). At PREDICT
     # the estimator is reloaded; its wrapper type tells us the persisted model was multi-block.
+    joined_chain: _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain | None
     if phase == "PREDICT":
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
+        incoming_chain = _fitted_input_chain(task, model_store)
+        joined_chain = incoming_chain if isinstance(incoming_chain, _PredictionFeatureChain) else None
         multi_block = isinstance(estimator, _MultiBlockEstimator)
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
         model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
+        from .framework_estimator import DagMLFrameworkEstimator
+        from .torch_estimator import DagMLTorchEstimator
+
+        if isinstance(model, (DagMLTorchEstimator, DagMLFrameworkEstimator)):
+            dataset = resolver._dataset
+            model.set_params(
+                task_type=str(dataset.task_type or "regression"),
+                num_classes=dataset.num_classes if dataset.is_classification else None,
+            )
         from .training_controls import (
             apply_model_training_controls,
             apply_pipeline_folds_to_model,
@@ -663,10 +1291,24 @@ def run_model_node(
             # Reject invalid controls before an HPO trial or upstream fit. The
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
-        upstream = [
-            route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
+        fitted_chain = _fitted_input_chain(task, model_store)
+        joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
+        if fitted_chain is None and any(
+            (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
             for upstream_id in _upstream_x_chain(node_id, edges)
-        ]
+        ):
+            raise ValueError("model node is missing a fitted preprocessing data-edge artifact")
+        upstream: list[Any]
+        if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None and source_index is not None:
+            upstream = [_FrozenTransform(fitted_chain.for_source(source_index))]
+        else:
+            upstream = [_FrozenTransform(fitted_chain)] if isinstance(fitted_chain, _FittedXChain) else ([] if joined_chain is not None else [
+                route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
+                for upstream_id in _upstream_x_chain(node_id, edges)
+            ])
+        feature_axes = _feature_axes(task)
+        if not (resolver.is_multi_source() and source_index is None) and fitted_chain is None:
+            upstream = _coordinate_chain(upstream, feature_axes, source_index or 0)
         best_params = _resolve_finetune_best_params(
             graph_node=graph_node,
             node_id=node_id,
@@ -677,22 +1319,48 @@ def run_model_node(
             model_store=model_store,
             task=task,
             train_ids=train_ids,
-            y_transform_node=y_transform_node,
+            y_transform_node=None if residual_mode else y_transform_node,
         )
-        if best_params and hasattr(model, "set_params"):
+        from .host_finetune import split_trial_fit_overrides
+
+        selected_model_params, _ = split_trial_fit_overrides(best_params)
+        if selected_model_params and hasattr(model, "set_params"):
             model = clone(model)
-            model.set_params(**best_params)
+            model.set_params(**selected_model_params)
         training_controls = (
             apply_model_training_controls(model, training_metadata, phase)
             if has_training_controls else None
         )
+        # Legacy sampled finetune_params.train_params affect trial fits only.
+        # Terminal CV/refit training uses the step's train/refit_params.
+        if not best_params:
+            _, sampled_fit_params = split_trial_fit_overrides(_variant_overrides(task, node_id))
+            if sampled_fit_params and hasattr(model, "set_params"):
+                model.set_params(**sampled_fit_params)
         source_chains = _source_concat_chains(graph_node)
-        source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
+        from .steps import _needs_wavelength_injection
+
+        source_concat = (
+            source_chains is not None
+            or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
+            or (resolver.is_multi_source() and any(_needs_wavelength_injection(step) for step in upstream))
+        )
         from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
 
         multimodal = isinstance(model, (MultimodalRegressor, MultimodalClassifier))
         multi_block = not source_concat and _is_multi_block_model(model) and (resolver.is_multi_source() or multimodal)
+        source_templates = (
+            [[_FrozenTransform(fitted_chain.for_source(index))] for index in range(len(fitted_chain.source_steps))]
+            if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None else None
+        )
         if source_chains is not None:
+            source_chains = [
+                _coordinate_chain(chain, feature_axes, index)
+                for index, chain in enumerate(source_chains)
+            ]
+        if source_chains is not None:
+            if source_templates is not None:
+                source_chains = [[*fitted, *configured] for fitted, configured in zip(source_templates, source_chains, strict=True)]
             estimator = _SourceConcatEstimator(
                 model,
                 source_chains or [],
@@ -700,22 +1368,38 @@ def run_model_node(
             )
         elif multi_block:
             source_names = tuple(model.transformers) if isinstance(model, (MultimodalRegressor, MultimodalClassifier)) else None
-            estimator = _MultiBlockEstimator(model, upstream, source_names)
+            if source_templates is None and feature_axes is not None:
+                source_templates = [_coordinate_chain(upstream, feature_axes, index) for index in range(len(feature_axes))]
+            estimator = _MultiBlockEstimator(
+                model, [] if source_templates is not None else upstream, source_names,
+                source_chain_templates=source_templates,
+            )
         elif source_concat:
-            estimator = _SourceConcatEstimator(model, shared_chain_template=upstream)
+            if source_templates is None and feature_axes is not None:
+                source_templates = [_coordinate_chain(upstream, feature_axes, index) for index in range(len(feature_axes))]
+            estimator = (
+                _SourceConcatEstimator(model, source_chain_templates=source_templates)
+                if source_templates is not None else _SourceConcatEstimator(model, shared_chain_template=upstream)
+            )
         else:
             estimator = make_pipeline(*upstream, model) if upstream else model
-        y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
+        # The residual learner receives scheduler-derived targets in the original
+        # numeric space. A pipeline target transform applies to the base model;
+        # transforming residuals again would change the quantity being learned.
+        y_transform = route_graph_node(y_transform_node) if y_transform_node is not None and not residual_mode else None
         # Fit views materialize TRAINING rows (FIT_CV fold_train, REFIT full_train): the view carries
-        # BASE ids (dag-ml keeps the FoldSet a clean base-grain OOF partition) + include_augmented_train,
-        # so the host expands each base id to base + its augmented children — those synthetic rows train.
+        # BASE ids (dag-ml keeps the FoldSet a clean base-grain OOF partition). The native view policy
+        # controls whether this model sees augmented children; an earlier model checkpoint can fit only
+        # base rows while a later model in the same graph fits base + synthetic rows.
         # A no-op when no augmentation ran. A child's target is its origin's y (resolve_targets keys by
-        # the origin's sample_id). include_augmented=True so the leakage guard permits the children here.
+        # the origin's sample_id). The core fit view decides whether the leakage guard permits children.
         # FOLD-LOCAL augmentation: a fold's own children only join THAT fold's fit-train — FIT_CV uses
         # the task's fold_id, REFIT the "refit" key (the full-train pass). A child fit inside fold K's
         # train is therefore never expanded into fold L's fit, so a stateful augmenter cannot leak.
         fold_label = task.get("fold_id") if phase == "FIT_CV" else "refit"
-        fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label)
+        fit_view = _view_by_partition(task, "fold_train" if phase == "FIT_CV" else "full_train")
+        include_augmented_fit = bool((fit_view or {}).get("include_augmented"))
+        fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label) if include_augmented_fit else train_ids
         # MULTI-BLOCK (S5): materialize the per-source blocks as a LIST (concat_source=False); the
         # wrapper applies the X-chain per block and fits ``model.fit([X1,X2,…], y)``. BY_SOURCE (S4):
         # materialize ONLY the bound source's block (one 2D matrix — late fusion by source). Otherwise the
@@ -729,7 +1413,7 @@ def run_model_node(
         fit_options: dict[str, Any] = {}
         if source_concat or multi_block:
             resolved = resolver.resolve_feature_blocks(
-                fit_ids, include_augmented=True, source_names=getattr(estimator, "source_names", None),
+                fit_ids, include_augmented=include_augmented_fit, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
             )
             x_train = [np.asarray(block) for block in resolved["blocks"]]
             if "source_masks" in resolved:
@@ -737,11 +1421,29 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 fit_options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"])
+            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
         else:
-            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"])
+            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
+        if joined_chain is not None:
+            if source_concat or multi_block or source_index is not None:
+                raise ValueError("joined prediction/feature data requires one feature source")
+            if isinstance(joined_chain, _PartitionedXChain) and sample_metadata is None:
+                raise ValueError("partition feature join requires sample metadata")
+            x_train = joined_chain.transform_ids(x_train, fit_ids, cast(dict[str, dict[str, Any]], sample_metadata))
         target_block = resolver.resolve_targets(resolver.target_sample_ids(fit_ids))
         y_train = np.asarray(target_block["values"], dtype=float)
+        if residual_mode:
+            residual_targets = task.get("residual_targets")
+            if not isinstance(residual_targets, dict):
+                raise ValueError("residual learner requires scheduler-derived OOF targets")
+            if len(fit_ids) != len(train_ids):
+                raise ValueError("residual learner with augmented fit rows requires native residual target expansion")
+            by_sample = dict(zip(residual_targets["sample_ids"], residual_targets["values"], strict=True))
+            if set(by_sample) != set(fit_ids):
+                raise ValueError("residual learner OOF targets do not exactly cover its fit rows")
+            y_train = np.asarray([by_sample[sample_id] for sample_id in fit_ids], dtype=float)
+            if y_transform is not None:
+                raise ValueError("residual learner cannot apply a second target transform")
         target_mask = target_block.get("validity_masks")
         if target_mask is not None:
             if not isinstance(model, MultimodalRegressor) or getattr(model, "target_policy", "complete") != "per_target":
@@ -782,7 +1484,7 @@ def run_model_node(
         options: dict[str, Any] = {}
         if source_concat or multi_block:
             resolved = resolver.resolve_feature_blocks(
-                ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None),
+                ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
             )
             x = [np.asarray(block) for block in resolved["blocks"]]
             if "source_masks" in resolved:
@@ -790,22 +1492,35 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])
+            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label)["values"])
         else:
-            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"])
+            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
+        if joined_chain is not None:
+            if isinstance(joined_chain, _PartitionedXChain) and sample_metadata is None:
+                raise ValueError("partition feature join requires sample metadata")
+            x = joined_chain.transform_ids(x, ids, cast(dict[str, dict[str, Any]], sample_metadata))
         return x, options
 
-    def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
+    def _predict(ids: list[str], include_augmented: bool, *, full_probabilities: bool = False) -> list[list[float]]:
         features, options = _features(ids, include_augmented)
         with _gpu_device_scope(task, estimator):
-            pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
+            if proba_output or full_probabilities:
+                if y_transform is not None or not hasattr(estimator, "predict_proba"):
+                    raise ValueError(f"classifier model {node_id!r} cannot provide probabilities for proba_mean")
+                pred = np.asarray(estimator.predict_proba(features, **options), dtype=float).reshape(len(ids), -1)
+            else:
+                if isinstance(estimator, _PartitionJoinedEstimator):
+                    if sample_metadata is None:
+                        raise ValueError("partition feature join requires sample metadata")
+                    pred = np.asarray(estimator.predict_with_ids(features, ids, sample_metadata), dtype=float).reshape(len(ids), -1)
+                else:
+                    pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
 
-    # What to predict: the phase's own partition; and — at REFIT — also the held-out TEST partition
-    # so dag-ml scores the final model's test RMSE (nirs4all's best_rmse). The CV fold set does not
-    # cover test, but dag-ml only scope-checks `validation` blocks (runtime validate_prediction_scope),
-    # so a `test` block for the refit model is accepted and scored natively.
+    # What to predict: the phase's own partition and the independent held-out TEST cohort.
+    # FIT_CV receives the cohort through DAG-ML's attested non-fit companion view; the core checks
+    # both its sample scope and fold id. REFIT also scores its separately fitted final estimator.
     #
     # The TEST block is emitted with `fold_id=None` (the OFF-FOLD convention dag-ml keys on): a REFIT
     # runs `fold_id=None`, and dag-ml's `reassemble_branch_merge_off_fold` /
@@ -816,47 +1531,69 @@ def run_model_node(
     # (non-branch) model reaches no merge node — its `(test, None)` block is read straight back by
     # `_scores_to_run_result` for best_rmse, exactly like the prior `(test, "final")` block.
     #
-    # include_augmented per spec mirrors the leakage guard: it is True ONLY when the predicted ids are
-    # TRAINING rows — REFIT predicting its own full_train ("final"-train score). The predict ids are the
-    # view's BASE ids, so resolve_features fetches base rows only (the "final"-train score is over base
-    # train); the synthetic children influenced the FIT, never a scored holdout. FIT_CV's validation/OOF
-    # view, the REFIT held-out TEST, and PREDICT are non-fit holdout views, so include_augmented=False
-    # makes resolve_features REFUSE any augmented child there (the origin-boundary leakage guard).
+    # REFIT training resubstitution can include synthetic children only when
+    # its native fit view explicitly opts in. Validation/OOF, held-out TEST,
+    # and PREDICT remain non-fit holdout views.
     predict_is_train = phase == "REFIT"  # REFIT predict_ids == full_train (training rows); FIT_CV/PREDICT are holdout
+    score_augmented_refit = (
+        phase == "REFIT"
+        and include_augmented_fit
+        and bool((fit_view or {}).get("extra", {}).get("include_augmented_refit_predictions"))
+    )
+    final_ids = fit_ids if phase == "REFIT" and score_augmented_refit else predict_ids
     specs: list[tuple[list[str], str, str | None, bool]] = [
-        (predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
+        (final_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
     ]
-    if phase == "REFIT":
-        test_ids = resolver.partition_wire_ids("test")
-        # A separation-branch refit model only ever trained on its partition, so its TEST prediction
-        # must be restricted to that partition too (the test ids are fetched directly, not via a view).
+    if phase == "FIT_CV" and train_ids:
+        score_augmented_cv_train = (
+            include_augmented_fit
+            and bool((fit_view or {}).get("extra", {}).get("include_augmented_cv_train_predictions"))
+        )
+        specs.append((fit_ids if score_augmented_cv_train else train_ids, "train", task.get("fold_id"), True))
+        # The legacy CV ensemble asks every fold estimator to predict the
+        # complete training pool. Keep this report-only surface distinct from
+        # the fold's own in-sample `train` measurement and validation OOF.
+        train_pool_ids = list(dict.fromkeys([*train_ids, *predict_ids]))
+        specs.append((train_pool_ids, "train_pool", task.get("fold_id"), True))
+    if phase in ("FIT_CV", "REFIT"):
+        if phase == "FIT_CV":
+            test_view = _view_by_partition(task, "predict")
+            test_ids = _sample_ids(test_view) if test_view is not None else []
+        else:
+            test_ids = resolver.partition_wire_ids("test")
+        # A separation-branch model only ever trained on its partition, so its TEST prediction
+        # must be restricted to that partition too.
         selector = _branch_selector(task)
         if selector is not None and sample_metadata is not None:
             test_ids = [sample_id for sample_id in test_ids if _branch_view_keep(sample_id, selector, sample_metadata)]
         if test_ids:
-            specs.append((test_ids, "test", None, False))
+            specs.append((test_ids, "test", task.get("fold_id") if phase == "FIT_CV" else None, False))
 
     # One prediction block per spec, each paired 1:1 with an exactly-matching y_true block (dag-ml
     # scoring requires target units == prediction units). dag-ml matches block↔target by unit set.
     # Skip an empty spec (a branch partition with no validation sample in this fold).
     predictions: list[dict[str, Any]] = []
     regression_targets: list[dict[str, Any]] = []
+    classification_probabilities: list[dict[str, Any]] = []
     for spec_ids, partition, spec_fold, spec_include_augmented in specs:
         if not spec_ids:
             continue
         # MULTI-TARGET (S0): resolve_targets returns list-of-rows (n, n_targets); _predict already builds
         # 2D rows, so both blocks widen to k columns and carry per-target names (rmse:y0/rmse:y1 keys +
         # macro-mean). SINGLE-TARGET stays a flat list → [[v]] rows + ["y"] (BYTE-IDENTICAL legacy emit).
-        target_block = resolver.resolve_targets(spec_ids)
+        target_block = resolver.resolve_targets(resolver.target_sample_ids(spec_ids))
         true_y = target_block["values"]
         multi_target = bool(true_y) and isinstance(true_y[0], list)
         names = [f"y{i}" for i in range(len(true_y[0]))] if multi_target else ["y"]
         names = target_block.get("target_names", names)
+        if proba_output:
+            names = [str(label) for label in estimator.classes_]
         true_values = [[float(value) for value in row] for row in true_y] if multi_target else [[float(value)] for value in true_y]
         predictions.append(
             {
                 "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
                 "producer_node": node_id,
+                **({"producer_port": "oof"} if dual_probability_output else {}),
                 "partition": partition,
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
@@ -864,34 +1601,74 @@ def run_model_node(
                 "target_names": names,
             }
         )
-        regression_targets.append(
-            {
-                "level": "sample",
-                "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in spec_ids],
-                "values": true_values,
-                "target_names": names,
-                **({"validity_masks": target_block["validity_masks"]} if "validity_masks" in target_block else {}),
-            }
-        )
+        if dual_probability_output:
+            predictions.append({
+                "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}:proba",
+                "producer_node": node_id,
+                "producer_port": "proba",
+                "partition": partition,
+                "fold_id": spec_fold,
+                "sample_ids": spec_ids,
+                "values": _predict(spec_ids, spec_include_augmented, full_probabilities=True),
+                "target_names": [str(label) for label in estimator.classes_],
+            })
+        if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and not proba_output
+                and resolver._dataset.is_classification
+                and callable(getattr(estimator, "predict_proba", None))):
+            classes = np.asarray(estimator.classes_, dtype=float)
+            features, options = _features(spec_ids, spec_include_augmented)
+            with _gpu_device_scope(task, estimator):
+                probabilities = np.asarray(estimator.predict_proba(features, **options), dtype=float)
+            classification_probabilities.append({
+                "producer_node": node_id,
+                "partition": partition,
+                "fold_id": spec_fold,
+                "sample_ids": spec_ids,
+                "class_labels": classes.tolist(),
+                "values": probabilities.tolist(),
+            })
+        if not residual_mode and not proba_output:
+            regression_targets.append(
+                {
+                    "level": "sample",
+                    "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in spec_ids],
+                    "values": true_values,
+                    "target_names": names,
+                    **({"validity_masks": target_block["validity_masks"]} if "validity_masks" in target_block else {}),
+                }
+            )
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
+    if (phase == "FIT_CV" and (graph_node.get("metadata") or {}).get("nirs4all_stack_fold_capture")
+            and fold_label in (graph_node.get("metadata") or {}).get("nirs4all_stack_outer_fold_ids", [])):
+        model_store[("stacking_fold_estimator", node_id, variant_label, fold_label)] = estimator
     if phase == "REFIT":
         model_store[artifact_handle] = {
-            "estimator": estimator,
+            "estimator": (_PartitionJoinedEstimator(estimator, joined_chain, joined_chain.metadata_key())
+                          if isinstance(joined_chain, _PartitionedXChain) else
+                          _DuplicationJoinedEstimator(estimator, joined_chain)
+                          if isinstance(joined_chain, _DuplicatedXChain) else estimator),
             "y_transform": y_transform,
             "target_decoder": resolver.target_decoder(),
         }
+        if (graph_node.get("metadata") or {}).get("nirs4all_stack_fold_capture"):
+            model_store[artifact_handle]["fold_estimators"] = {
+                key[3]: value for key, value in model_store.items()
+                if isinstance(key, tuple) and len(key) == 4
+                and key[:3] == ("stacking_fold_estimator", node_id, variant_label)
+            }
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
     from .native_vote import capture_vote_evidence
 
     capture_vote_evidence(task, resolver, estimator, predictions, train_ids, _features, _predict, model_store)
-    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
+    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets, classification_probabilities)
 
 
-def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[list[str], np.ndarray]:
+def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str,
+                         *, project_probability_columns: bool = False) -> tuple[list[str], np.ndarray]:
     """Build ``(sample_ids, X_meta)`` from base prediction-input specs, concatenated per producer.
 
     One column block per base producer in the order ``specs`` is given (the caller passes them in the
@@ -903,6 +1680,9 @@ def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[lis
     rows_by_sample: dict[str, list[float]] = {sample_id: [] for sample_id in sample_ids}
     for spec in specs:
         spec_rows = {sample_id: [float(value) for value in row] for sample_id, row in zip(spec["sample_ids"], spec["values"], strict=True)}
+        if project_probability_columns:
+            spec_rows = {sample_id: [row[1] if len(row) == 2 else row[0]] if len(row) > 1 else row
+                         for sample_id, row in spec_rows.items()}
         for sample_id in sample_ids:
             row = spec_rows.get(sample_id)
             if row is None:
@@ -911,7 +1691,9 @@ def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[lis
     return sample_ids, np.asarray([rows_by_sample[sample_id] for sample_id in sample_ids], dtype=float)
 
 
-def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None) -> list[dict[str, Any]]:
+def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None,
+                       source_order: list[str] | None = None,
+                       source_ports: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """The meta-node's base specs in canonical producer order, selecting one delivery kind.
 
     dag-ml keys each base producer's Validation OOF under ``"{producer}.{port}"`` and its off-fold
@@ -932,10 +1714,17 @@ def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None)
                 key.endswith(":outer")
                 or key.endswith(":refit")
                 or key.endswith(":predict")
+                or key.endswith(":test")
             ):
                 selected[key] = spec
         elif key.endswith(tag):
             selected[key[: -len(tag)]] = spec
+    if source_order and selected:
+        keys = [f"{source}.{(source_ports or {}).get(source, 'oof')}" for source in source_order]
+        missing = [source for source, key in zip(source_order, keys, strict=True) if key not in selected]
+        if missing:
+            raise ValueError(f"meta-model is missing declared prediction sources for {suffix}: {missing}; keys: {list(prediction_inputs)}")
+        return [selected[key] for key in keys]
     return [selected[base_key] for base_key in sorted(selected)]
 
 
@@ -981,10 +1770,53 @@ def run_meta_model_node(
     phase = task["phase"]
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"
+    metadata = node_lookup(node_id).get("metadata") or {}
+    probability_output = metadata.get("nirs4all_prediction_output") == "proba"
+    dual_probability_output = "proba" in metadata.get("auxiliary_prediction_ports", [])
+
+    def predict_values(estimator: Any, features: np.ndarray) -> np.ndarray:
+        if not probability_output:
+            return np.asarray(estimator.predict(features), dtype=float).reshape(len(features), -1)
+        predict_proba = getattr(estimator, "predict_proba", None)
+        if not callable(predict_proba):
+            raise ValueError(f"meta-model node {node_id!r} cannot provide class probabilities")
+        probabilities = np.asarray(predict_proba(features), dtype=float).reshape(len(features), -1)
+        if probabilities.shape[1] < 2:
+            raise ValueError(f"meta-model node {node_id!r} produced fewer than two class probabilities")
+        # Legacy's MetaModel(use_proba=True) uses the positive-class column for
+        # binary classification and the first column for multiclass sources.
+        column = 1 if probabilities.shape[1] == 2 else 0
+        return probabilities[:, column:column + 1]
 
     prediction_inputs = task.get("prediction_inputs") or {}
     if not prediction_inputs:
         raise ValueError(f"meta-model node {node_id!r} received no prediction_inputs (no base branch OOF)")
+    metadata = node_lookup(node_id).get("metadata") or {}
+    source_order = metadata.get("prediction_source_order")
+    source_ports = metadata.get("prediction_source_ports") or {}
+    project_probability_columns = bool(metadata.get("nirs4all_use_proba"))
+
+    def ordered_specs(suffix: str | None) -> list[dict[str, Any]]:
+        return _ordered_oof_specs(prediction_inputs, suffix=suffix, source_order=source_order, source_ports=source_ports)
+
+    def feature_matrix(specs: list[dict[str, Any]]) -> tuple[list[str], np.ndarray]:
+        return _meta_feature_matrix(specs, node_id, project_probability_columns=project_probability_columns)
+
+    def prediction_blocks(estimator: Any, features: np.ndarray, sample_ids: list[str],
+                          partition: str, fold_id: str | None, target_names: list[str]) -> list[dict[str, Any]]:
+        primary = _meta_prediction_block(
+            node_id, phase, variant_label, fold_label, partition, fold_id, sample_ids,
+            predict_values(estimator, features), target_names,
+            producer_port="oof" if dual_probability_output else None,
+        )
+        if not dual_probability_output:
+            return [primary]
+        probabilities = np.asarray(estimator.predict_proba(features), dtype=float).reshape(len(sample_ids), -1)
+        auxiliary = _meta_prediction_block(
+            node_id, phase, variant_label, fold_label, partition, fold_id, sample_ids,
+            probabilities, [str(label) for label in estimator.classes_], producer_port="proba",
+        )
+        return [primary, auxiliary]
 
     if phase == "PREDICT":
         # PREDICT replays the persisted meta-learner over the base producers' PREDICT-set predictions
@@ -993,22 +1825,21 @@ def run_meta_model_node(
         # one is a real wiring error.
         artifact_handle = _stable_handle(_artifact_id(node_id, variant_label))
         estimator = model_store[artifact_handle]["estimator"]
-        predict_specs = _ordered_oof_specs(prediction_inputs, suffix="predict")
+        predict_specs = ordered_specs("predict")
         if not predict_specs:
             raise ValueError(f"meta-model node {node_id!r} REFIT/PREDICT received no `:predict` off-fold inputs (no base predict-set predictions)")
-        sample_ids, x_meta = _meta_feature_matrix(predict_specs, node_id)
-        pred = np.asarray(estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
+        sample_ids, x_meta = feature_matrix(predict_specs)
         target = _meta_target_block(sample_ids, resolver.resolve_targets(sample_ids))
-        predictions = [_meta_prediction_block(node_id, phase, variant_label, fold_label, "final", None, sample_ids, pred, target["target_names"])]
+        predictions = prediction_blocks(estimator, x_meta, sample_ids, "final", None, target["target_names"])
         regression_targets = [target]
         return _build_result(task, predictions, [], {}, regression_targets)
 
     # FIT_CV + REFIT both fit on Validation OOF. The unsuffixed OOF specs are the
     # meta-learner's training features; in FIT_CV they are inner OOF, in REFIT the full OOF.
-    oof_specs = _ordered_oof_specs(prediction_inputs, suffix=None)
+    oof_specs = ordered_specs(None)
     if not oof_specs:
         raise ValueError(f"meta-model node {node_id!r} received no Validation OOF inputs to fit on")
-    sample_ids, x_meta = _meta_feature_matrix(oof_specs, node_id)
+    sample_ids, x_meta = feature_matrix(oof_specs)
     train_target = resolver.resolve_targets(sample_ids)
     if "validity_masks" in train_target:
         raise ValueError("late fusion does not support partial targets")
@@ -1019,7 +1850,6 @@ def run_meta_model_node(
     fit_estimator: Any = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
     from .training_controls import apply_model_training_controls, report_model_training_controls
 
-    metadata = node_lookup(node_id).get("metadata") or {}
     training_controls = (
         apply_model_training_controls(fit_estimator, metadata, phase)
         if any(key in metadata for key in ("nirs4all_train_params", "nirs4all_refit_params")) else None
@@ -1031,26 +1861,44 @@ def run_meta_model_node(
 
     fold_predictions: list[dict[str, Any]] = []
     fold_targets: list[dict[str, Any]] = []
+    fold_class_probabilities: list[dict[str, Any]] = []
     if phase == "FIT_CV":
         # The outer rows must be distinct from the inner rows just used to fit.
         # Refuse a direct/old lowering rather than silently emitting optimistic
         # same-fold predictions.
-        outer_specs = _ordered_oof_specs(prediction_inputs, suffix="outer")
+        outer_specs = ordered_specs("outer")
         if not outer_specs:
             raise ValueError(
                 f"meta-model node {node_id!r} FIT_CV received no `:outer` OOF evaluation inputs; "
                 "nested scheduler evidence is required"
             )
-        outer_ids, x_outer = _meta_feature_matrix(outer_specs, node_id)
-        pred = np.asarray(fit_estimator.predict(x_outer), dtype=float).reshape(len(outer_ids), -1)
+        outer_ids, x_outer = feature_matrix(outer_specs)
         target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
-        fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred, target["target_names"]))
+        fold_predictions.extend(prediction_blocks(fit_estimator, x_outer, outer_ids, "validation", task.get("fold_id"), target["target_names"]))
         fold_targets.append(target)
+        if probability_output or dual_probability_output:
+            fold_class_probabilities.append(_meta_probability_block(node_id, "validation", task.get("fold_id"), outer_ids, fit_estimator, x_outer))
+        test_specs = ordered_specs("test")
+        if test_specs:
+            test_ids, x_test = feature_matrix(test_specs)
+            test_target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
+            fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", task.get("fold_id"), test_target["target_names"]))
+            fold_targets.append(test_target)
+            if probability_output or dual_probability_output:
+                fold_class_probabilities.append(_meta_probability_block(node_id, "test", task.get("fold_id"), test_ids, fit_estimator, x_test))
+        if metadata.get("nirs4all_stack_fold_capture") and fold_label in metadata.get("nirs4all_stack_outer_fold_ids", []):
+            model_store[("stacking_fold_estimator", node_id, variant_label, fold_label)] = fit_estimator
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
         model_store[artifact_handle] = {"estimator": fit_estimator, "y_transform": None, "target_decoder": resolver.target_decoder()}
+        if metadata.get("nirs4all_stack_fold_capture"):
+            model_store[artifact_handle]["fold_estimators"] = {
+                key[3]: value for key, value in model_store.items()
+                if isinstance(key, tuple) and len(key) == 4
+                and key[:3] == ("stacking_fold_estimator", node_id, variant_label)
+            }
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
@@ -1058,30 +1906,52 @@ def run_meta_model_node(
         # held-out Test predictions). The meta-model was fit on Validation OOF ONLY (above), so this is
         # leakage-safe: the Test meta-features come from base Test predictions, never OOF/train. Emit a
         # `(test, fold_id=None)` block so dag-ml scores best_rmse (off-fold convention, like a base model).
-        test_specs = _ordered_oof_specs(prediction_inputs, suffix="refit")
+        test_specs = ordered_specs("refit")
         if test_specs:
-            test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
-            test_pred = np.asarray(fit_estimator.predict(x_test), dtype=float).reshape(len(test_ids), -1)
+            test_ids, x_test = feature_matrix(test_specs)
             target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
-            fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", None, test_ids, test_pred, target["target_names"]))
+            fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", None, target["target_names"]))
             fold_targets.append(target)
+            if probability_output or dual_probability_output:
+                fold_class_probabilities.append(_meta_probability_block(node_id, "test", None, test_ids, fit_estimator, x_test))
 
-    return _build_result(task, fold_predictions, artifacts, artifact_handles, fold_targets)
+    return _build_result(task, fold_predictions, artifacts, artifact_handles, fold_targets, fold_class_probabilities)
 
 
 def _meta_prediction_block(
     node_id: str, phase: str, variant_label: str, fold_label: str, partition: str,
     fold_id: str | None, sample_ids: list[str], values: np.ndarray, target_names: list[str],
+    producer_port: str | None = None,
 ) -> dict[str, Any]:
     """A meta-node prediction block for one partition (validation OOF / test / final)."""
     return {
-        "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
+        "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}{':' + producer_port if producer_port else ''}",
         "producer_node": node_id,
+        **({"producer_port": producer_port} if producer_port else {}),
         "partition": partition,
         "fold_id": fold_id,
         "sample_ids": sample_ids,
         "values": [[float(value) for value in row] for row in values],
         "target_names": target_names,
+    }
+
+
+def _meta_probability_block(
+    node_id: str, partition: str, fold_id: str | None, sample_ids: list[str], estimator: Any,
+    features: np.ndarray,
+) -> dict[str, Any]:
+    """Keep the complete class distribution for native scoring of projected meta features."""
+    probabilities = np.asarray(estimator.predict_proba(features), dtype=float)
+    classes = np.asarray(estimator.classes_, dtype=float)
+    if probabilities.shape != (len(sample_ids), len(classes)) or len(classes) < 2:
+        raise ValueError(f"meta-model node {node_id!r} emitted invalid class probabilities")
+    return {
+        "producer_node": node_id,
+        "partition": partition,
+        "fold_id": fold_id,
+        "sample_ids": sample_ids,
+        "class_labels": classes.tolist(),
+        "values": probabilities.tolist(),
     }
 
 
@@ -1113,9 +1983,10 @@ def run_node(
     A STACKING meta-model node (a ``model``-kind node bound to ``controller:nirs4all.meta_model``,
     recognised by its ``prediction_inputs`` of base-branch OOF) runs the meta-model over those OOF
     meta-features. Other ``model``/``tuner`` nodes execute and (with ``edges``/``y_transform_node``)
-    apply their upstream X-transform chain + target scaling; ``transform``/``y_transform`` are
-    passthrough output-handles (the model node reconstructs the chain), so each preprocessing step is
-    applied exactly once, at the model node. A ``prediction_join`` (concat-merge) node is also a
+    apply their upstream X-transform chain + target scaling. Bound ``transform`` nodes fit
+    their own operator and pass the fitted chain by data-edge handle; unbound transforms are
+    reconstructed at the model. ``y_transform`` remains a floating target transform.
+    A ``prediction_join`` (concat-merge) node is also a
     passthrough here — the dag-ml runtime reassembles it natively before any controller runs.
 
     ``sample_metadata`` (``{wire_id: {col: value}}``) honors separation-branch ``branch_view``
@@ -1126,8 +1997,16 @@ def run_node(
     check_cancellation()
     node_plan = task["node_plan"]
     kind = node_plan["kind"]
+    if kind == "transform" and task.get("data_views"):
+        return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata)
+    if kind == "feature_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("merge_mode") == "concat":
+        return _run_feature_join_node(task, model_store, node_lookup, edges)
+    if kind == "prediction_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("prediction_feature_execution") == "native_oof_v1":
+        return _run_prediction_feature_join_node(task, model_store)
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)
+        if node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID:
+            return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
         return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
     return _build_result(task, [], [], {})

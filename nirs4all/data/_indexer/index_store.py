@@ -132,7 +132,8 @@ class IndexStore:
             data: Dictionary mapping column names to Polars Series.
 
         Raises:
-            ValueError: If data columns don't match schema.
+            ValueError: If data contains unknown columns. Missing existing tag
+                columns are filled with null for newly added samples.
 
         Example:
             >>> data = {
@@ -143,6 +144,15 @@ class IndexStore:
             >>> store.append(data)
         """
         new_df = pl.DataFrame(data)
+        unknown = set(new_df.columns) - set(self._df.columns)
+        if unknown:
+            raise ValueError(f"Unknown index columns: {sorted(unknown)}")
+        # Filters/tags may add columns after the initial samples were indexed.
+        # Fresh augmented rows have no value for those sample-level annotations.
+        for column, dtype in self._df.schema.items():
+            if column not in new_df.columns:
+                new_df = new_df.with_columns(pl.lit(None).cast(dtype).alias(column))
+        new_df = new_df.select(self._df.columns)
         self._df = pl.concat([self._df, new_df], how="vertical")
 
     def update_by_condition(self, condition: pl.Expr, updates: dict[str, Any]) -> None:

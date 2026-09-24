@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from .steps import DagMlSplitStep, FrozenDagMlSplitStep
+from .steps import DagMlSplitStep, FoldFileDagMlSplitStep, FrozenDagMlSplitStep
 
 
 def _pool_features(spectro: Any, pool: list[int]) -> np.ndarray:
@@ -78,6 +78,8 @@ def _groups_aligned_to_pool(spectro: Any, pool: list[int], groups_all: np.ndarra
 
 def _explicit_groups_for_pool(splitter: Any, spectro: Any, pool: list[int]) -> np.ndarray | None:
     """Resolve explicit ``split``-step groups, aligned to ``pool`` order."""
+    if isinstance(splitter, FoldFileDagMlSplitStep):
+        return None
     from nirs4all.data.multimodal import MultimodalSpectroDataset
 
     if isinstance(spectro, MultimodalSpectroDataset) and spectro.cohort.groups is not None:
@@ -163,6 +165,53 @@ def _split_pool(splitter: Any, spectro: Any, pool: list[int]) -> list[tuple[Any,
     return list(op.split(features, **kwargs))
 
 
+def _fold_file_folds(splitter: FoldFileDagMlSplitStep, spectro: Any, pool: list[int], excluded: set[int]) -> list[tuple[list[int], list[int]]]:
+    """Import legacy file folds as absolute sample IDs into DAG-ML's FoldSet.
+
+    Files contain sample IDs, whereas ordinary splitters return positions into
+    ``pool``. Converting them a second time would silently train on wrong rows
+    after filtering or reordering; native fold validation owns that identity.
+    """
+    from nirs4all.controllers.splitters.fold_file_loader import FoldFileParser
+
+    folds = FoldFileParser().parse(splitter.fold_file)
+    if not folds:
+        raise ValueError(f"No folds found in file: {splitter.fold_file}")
+    pool_set = set(pool)
+    all_fold_ids = {sample for train, val in folds for sample in (*train, *val)}
+    missing_ids = all_fold_ids - pool_set
+    if missing_ids:
+        if len(missing_ids) > len(all_fold_ids) * 0.1:
+            raise ValueError(f"Fold file contains {len(missing_ids)} sample IDs not in dataset: {sorted(missing_ids)[:10]}")
+        folds = [([sample for sample in train if sample in pool_set], [sample for sample in val if sample in pool_set]) for train, val in folds]
+    return [([int(sample) for sample in train if sample not in excluded], [int(sample) for sample in val]) for train, val in folds]
+
+
+def lower_fold_file_holdout(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list[int] | None]:
+    """Turn a lone file fold into the train/test partition used by legacy.
+
+    A holdout is not cross-validation: the native full-training phase owns the
+    fit and held-out score, while the host owns parsing the file and updating
+    its dataset partition before a CLI adapter snapshot is taken.
+    """
+    from .steps import _is_split_step, _split_pipeline
+
+    if sum(_is_split_step(step) for step in pipeline) != 1:
+        return pipeline, None
+    steps, splitter = _split_pipeline(pipeline)
+    if not isinstance(splitter, FoldFileDagMlSplitStep) or spectro.index_column("sample", {"partition": "test"}):
+        return pipeline, None
+    pool = [int(sample) for sample in spectro.index_column("sample", {"partition": "train"})]
+    folds = _fold_file_folds(splitter, spectro, pool, set())
+    if len(folds) != 1 or not folds[0][1]:
+        return pipeline, None
+    train, test = folds[0]
+    if not train or len(train) != len(set(train)) or len(test) != len(set(test)) or set(train) & set(test):
+        raise ValueError("single-fold holdout requires non-empty, unique, disjoint train and validation sample IDs")
+    spectro._indexer.update_by_indices(test, {"partition": "test"})
+    return steps, train
+
+
 def _is_repetition_dataset(spectro: Any) -> bool:
     """True when the dataset declares a repetition column (sample-grain grouping of replicate rows)."""
     return bool(getattr(spectro, "repetition", None))
@@ -183,8 +232,12 @@ def _repetition_groups_for_pool(spectro: Any, pool: list[int]) -> np.ndarray:
     groups_all = compute_effective_groups(spectro)
     if groups_all is None:
         raise ValueError("repetition dataset has no effective groups (no repetition/group_by column)")
-    stored = spectro.index_column("sample", {})
-    group_of_sample = {int(sample_int): groups_all[row] for row, sample_int in enumerate(stored)}
+    samples = spectro.index_column("sample", {})
+    origins = spectro.index_column("origin", {})
+    stored = [int(sample) for sample, origin in zip(samples, origins, strict=True) if sample == origin]
+    if len(stored) != len(groups_all):
+        raise ValueError(f"repetition groups do not align with base rows ({len(groups_all)} groups for {len(stored)} rows)")
+    group_of_sample = {sample_int: groups_all[row] for row, sample_int in enumerate(stored)}
     return np.array([group_of_sample[sample_int] for sample_int in pool], dtype=object)
 
 
@@ -236,6 +289,8 @@ def _build_group_folds(splitter: Any, spectro: Any, pool: list[int]) -> list[tup
     """
     if isinstance(splitter, FrozenDagMlSplitStep):
         return splitter.materialized_folds(pool, set())
+    if isinstance(splitter, FoldFileDagMlSplitStep):
+        return _fold_file_folds(splitter, spectro, pool, set())
 
     from nirs4all.controllers.splitters.split import _needs, get_split_grouping_capability
     from nirs4all.operators.splitters import GroupedSplitterWrapper
@@ -286,6 +341,8 @@ def _build_folds(splitter: Any, spectro: Any, pool: list[int], excluded: set[int
     """
     if isinstance(splitter, FrozenDagMlSplitStep):
         folds = splitter.materialized_folds(pool, excluded)
+    elif isinstance(splitter, FoldFileDagMlSplitStep):
+        folds = _fold_file_folds(splitter, spectro, pool, excluded)
     else:
         folds = [
             ([pool[i] for i in train_idx if pool[i] not in excluded], [pool[i] for i in val_idx])

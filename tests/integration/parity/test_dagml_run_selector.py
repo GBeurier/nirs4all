@@ -213,7 +213,6 @@ def test_dagml_run_rejects_legacy_fallback_when_backend_unavailable(monkeypatch:
 @pytest.mark.parametrize(
     "option",
     [
-        pytest.param({"refit": False}, id="refit-disabled"),
         pytest.param({"cache": CacheConfig()}, id="cache-config"),
     ],
 )

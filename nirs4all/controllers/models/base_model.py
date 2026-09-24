@@ -728,10 +728,10 @@ class BaseModelController(OperatorController, ABC):
     ) -> tuple[Any, Any]:
         """Guard model inputs against NaN values according to the step's na_policy.
 
-        For X, NaNs are tolerated when the model declares ``allow_nan`` or the
-        step sets ``na_policy`` to ``"replace"`` (filled with ``fill_value``) or
-        ``"ignore"``; otherwise an :class:`NAError` is raised. NaN targets are
-        always an error.
+        For X, an explicit ``na_policy="replace"`` fills NaNs even when the
+        model accepts them. Otherwise NaNs are tolerated when the model declares
+        ``allow_nan`` or the step sets ``na_policy="ignore"``; an :class:`NAError`
+        is raised for unsupported NaNs. NaN targets are always an error.
 
         Args:
             dataset: SpectroDataset (checked for the ``_may_contain_nan`` flag).
@@ -759,14 +759,13 @@ class BaseModelController(OperatorController, ABC):
         # Check X for NaN
         for X_arr, label in [(X_train, "X_train"), (X_test, "X_test")]:
             if X_arr is not None and X_arr.size > 0 and np.any(np.isnan(X_arr)):
-                allow_nan = getattr(operator, '_tags', {}).get('allow_nan', False)
-                if allow_nan:
-                    pass  # Model natively handles NaN
-                elif na_policy == "replace":
+                if na_policy == "replace":
                     if label == "X_train":
                         X_train = np.where(np.isnan(X_train), model_fill_value, X_train)
                     else:
                         X_test = np.where(np.isnan(X_test), model_fill_value, X_test)
+                elif getattr(operator, '_tags', {}).get('allow_nan', False):
+                    pass  # Model natively handles NaN
                 elif na_policy == "ignore":
                     pass  # NaN samples handled downstream
                 else:

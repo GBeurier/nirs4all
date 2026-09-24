@@ -171,7 +171,7 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_REFUSAL` (1)
+### C.1 Native-coverage boundary — `EXPECTED_REFUSAL` (0)
 
 Shapes the dag-ml host bridge deliberately refuses before execution make **no
 parity claim**. They are pinned by the never-xfailed
@@ -180,13 +180,15 @@ coverage **regression → FAIL**; a native case still on the allowlist is a
 **stale entry → FAIL**. No entry transparently re-runs legacy. **Owner: L5/A3**
 (host-bridge serialization/runtime semantics, not a tolerance question). When
 L5 lands native coverage, the entry leaves the allowlist and the boundary test
-then demands native parity.
+then demands native parity. The registered allowlist is now empty. Stateful
+concat fits within each DAG-ML training fold; a direct fold-local oracle and
+archive-replay test pin the corrected scope.
 
 Source: `test_conformance_dual_engine.py:310-326`.
 
 | Shape group | Cases |
 |---|---|
-| step-level refit semantics | `refit_params_use_all_partitions` |
+| expected refusal | none |
 
 `preprocessing_fit_on_all` and `preprocessing_force_layout_2d` now run native for the registered SNV cases: `fit_on_all=True` is equivalent for stateless transforms, and `force_layout='2d'` on a preprocessing step is not consumed by the legacy preprocessing controller.
 
@@ -216,7 +218,7 @@ Closed on 2026-07-02:
 | `branch_separation_by_metadata_auto` | moved to `with_metadata` and the `group` metadata column; dag-ml now projects stateless by-metadata preprocessing + concat + downstream model |
 | `exclude_multi_any_y_and_x` | raised the Mahalanobis threshold to keep a viable two-filter UNION on `sample_data/regression` |
 | `aggregation_classification_vote` | moved to the repeated multiclass `classification` fixture and aggregates by `Sample_ID` |
-| `refit_params_use_all_partitions` | remains the single explicit fail-closed `EXPECTED_REFUSAL` case until step-level refit semantics are preserved natively |
+| `refit_params_use_all_partitions` | remains a separate step-level parity gap; it is not registered as an `EXPECTED_REFUSAL` conformance case |
 
 ### C.3 `Y_PRED_TOL_OVERRIDES` (6) — band `cross_impl_ypred_firstderiv` (5e-3, guarded)
 
@@ -257,7 +259,7 @@ report §4 and SW5 §6 for the concrete test specs).
 | Workspace cross-engine (legacy SQLite/Parquet/manifest read via runtime V1; native-results triple round-trip) | **EXISTS** (PYREF-009b) | `test_conformance_workspace_cross_engine.py::test_native_results_triple_round_trips_and_agrees_cross_engine` (native triple reads back faithfully via `read_native_results` AND agrees with legacy within `cross_impl_*`; legacy workspace inspectable) | `cross_impl_score` | L17 + L5 |
 | Error / refusal parity (same invalid pipeline → same refusal on both engines) | **EXISTS** (PYREF-err) | `test_conformance_error_parity.py` (invalid pipeline refused by BOTH engines; dag-ml refusal → stable `RtError.cause` from CAP-004/RT-003 — local helper until W7 `rt.py` lands) | `n/a_semantic` | L17 |
 | Studio rides the oracle (records resolved engine; one pipeline through both engines) | **EXISTS** (Studio-side RC gate) | Studio RC `tests/test_runtime_engine.py`, `tests/test_studio_oracle_routes.py`, and `tests/test_runs_engine_routing.py` prove requested/default engine threading, fallback policy, actual-engine recording, and manifest round-trip; Python full parity remains the numerical oracle | `cross_impl_score` (target) | L17 + L12 |
-| methods-installed lane (n4m parity) | **EXISTS** | `methods-installed.yml` pins released `dag-ml==0.3.26` and `nirs4all-methods>=1.0.18,<2`; `scripts/prove_installed_n4m.py` builds a fresh Methods wheel, strips dev overrides, requires `NIRS4ALL_REQUIRE_N4M=1`, and runs the packaging/SNV/PLS slices plus `test_terminal_predict_lowerer.py` and `test_native_methods_witness.py` lifecycle evidence | `kernel_snv` / `kernel_pls` | L17 + L9 |
+| methods-installed lane (n4m parity) | **EXISTS** | `methods-installed.yml` pins released `dag-ml==0.3.27` and `nirs4all-methods>=1.0.18,<2`; `scripts/prove_installed_n4m.py` builds a fresh Methods wheel, strips dev overrides, requires `NIRS4ALL_REQUIRE_N4M=1`, and runs the packaging/SNV/PLS slices plus `test_terminal_predict_lowerer.py` and `test_native_methods_witness.py` lifecycle evidence | `kernel_snv` / `kernel_pls` | L17 + L9 |
 | nirs4all-side wheel / `.so` freshness | **EXISTS** (PYREF-011 consumer-side) | `scripts/prove_installed_n4m.py` verifies SHA-256 identity from the source `libn4m` reported by the methods smoke, to the staged wheel payload, to the library loaded from the proof venv; source-to-binary freshness stays owned by `nirs4all-methods` | n/a | L17 + L9 |
 
 ---
@@ -273,8 +275,8 @@ gate.
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **0** | all registry debt closed |
 | Runnable | **95** | all registered cases run |
-| → fail closed (`EXPECTED_REFUSAL`) | **1** | boundary-asserted, no fallback/parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **94** | native reach asserted; one unseeded `_sample_` is run-only |
+| → fail closed (`EXPECTED_REFUSAL`) | **0** | registered-case target reached; broader feature audit remains open |
+| → run native on dag-ml | **95** | native reach asserted; one unseeded `_sample_` is run-only |
 | Strict-xfail (documented divergence) | **0** | no live strict xfail rows |
 | `pytest.skip` (fixture + unknown-semantics) | **0** | registry skip debt closed |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |

@@ -135,7 +135,8 @@ def _build_handler() -> NodeHandler:
     A **fold-local** augmentation run pickles ``{"dataset": ..., "fold_children": ...}`` instead of a
     bare dataset: ``fold_children`` (``{fold_label: {origin_int: [child_int, ...]}}``) tells the
     resolver which synthetic children belong to which fold's fit-train (a stateful augmenter was fit
-    inside each fold's train only, so each fold has different children). A bare-dataset pickle (the
+    inside each fold's train only, so each fold has different children). Interleaved preprocessing
+    also carries ``fold_feature_views`` for fold-specific fitted spectra. A bare-dataset pickle (the
     stateless global slice) carries no fold map — the resolver discovers the dataset-global children.
     """
     import pickle
@@ -147,6 +148,7 @@ def _build_handler() -> NodeHandler:
     from .resolver import MaterializationResolver
 
     fold_children: dict[str, dict[int, list[int]]] | None = None
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None
     pickle_path = os.environ.get("N4A_DAGML_DATASET_PICKLE")
     if pickle_path:
         with open(pickle_path, "rb") as pickle_file:
@@ -154,11 +156,12 @@ def _build_handler() -> NodeHandler:
         if isinstance(payload, dict):
             dataset = payload["dataset"]
             fold_children = payload.get("fold_children")
+            fold_feature_views = payload.get("fold_feature_views")
         else:
             dataset = payload
     else:
         dataset = DatasetConfigs(os.environ["N4A_DAGML_DATASET_PATH"]).get_dataset_at(0)
-    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children)
+    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children, fold_feature_views)
     with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as graph_file:
         graph = json.load(graph_file)
     nodes = {node["id"]: node for node in graph["nodes"]}
@@ -177,9 +180,24 @@ def _build_handler() -> NodeHandler:
     def handle_task(task: dict[str, Any]) -> dict[str, Any]:
         result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
         _capture_vote_sidecar(task, store, os.environ.get("N4A_DAGML_RESULT_CAPTURE"))
+        _capture_refit_sidecar(result, store, os.environ.get("N4A_DAGML_REFIT_ARTIFACT_DIR"))
         return result
 
     return handle_task
+
+
+def _capture_refit_sidecar(result: dict[str, Any], store: dict[int, Any], directory: str | None) -> None:
+    """Persist the worker's fitted REFIT estimator for host-side archive export."""
+    if not directory or not result.get("artifact_handles"):
+        return
+    from pathlib import Path
+
+    import joblib
+
+    from .in_process_runner import _capture_refit_artifacts, _refit_artifact_path
+
+    for artifact in _capture_refit_artifacts([result], store):
+        joblib.dump(artifact, _refit_artifact_path(Path(directory), artifact["artifact_id"]), compress=3)
 
 
 def _capture_vote_sidecar(task: dict[str, Any], store: dict[Any, Any], capture_path: str | None) -> None:

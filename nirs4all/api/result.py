@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import json
 import math
 import threading
@@ -564,6 +565,28 @@ class _DagmlExportedModel:
             return np.asarray(self.y_transform.inverse_numeric(pred.reshape(len(pred), -1)))
         return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)))
 
+    def predict_proba_numeric(self, X: Any) -> np.ndarray:
+        """Replay every class-probability column of a fitted base classifier."""
+        predict_proba = getattr(self.estimator, "predict_proba", None)
+        if self.y_transform is not None or not callable(predict_proba):
+            raise ValueError("native stacking probability source lacks a fitted classifier")
+        probabilities = np.asarray(predict_proba(X), dtype=float).reshape(len(X), -1)
+        if probabilities.shape[1] < 2 or not np.all(np.isfinite(probabilities)):
+            raise ValueError("native stacking probability source has invalid class columns")
+        return probabilities
+
+    def predict_numeric_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
+        """Replay a fitted feature join using its required row metadata."""
+        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
+        predict = getattr(self.estimator, "predict_with_metadata", None)
+        pred = np.asarray(predict(X, metadata) if callable(predict) else self.estimator.predict(X), dtype=float)
+        if self.y_transform is None:
+            return pred
+        if isinstance(self.y_transform, CapturedTargetTransform):
+            return np.asarray(self.y_transform.inverse_numeric(pred.reshape(len(pred), -1)))
+        return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)))
+
 
 class _DagmlNativeFusionModel:
     """Predict-capable wrapper for a native branch-fusion run's captured REFIT branch models.
@@ -647,6 +670,170 @@ class _DagmlNativeBySourceFusionModel:
         )
 
 
+class _DagmlNativeSelectedSourceModel:
+    """Replay only the caller-selected source from an independent-output run."""
+
+    def __init__(self, source_index: int, source_widths: Sequence[int], member: _DagmlExportedModel) -> None:
+        if not 0 <= source_index < len(source_widths) or any(width <= 0 for width in source_widths):
+            raise ValueError("selected-source replay requires valid source index and feature widths")
+        self.source_index = source_index
+        self.source_widths = tuple(source_widths)
+        self.member = member
+
+    def predict(self, X: Any) -> np.ndarray:
+        if isinstance(X, (list, tuple)) and not isinstance(X, (str, bytes)) and len(X) == len(self.source_widths):
+            block = np.asarray(X[self.source_index])
+        else:
+            features = np.asarray(X)
+            if features.ndim == 3 and features.shape[0] == len(self.source_widths):
+                block = features[self.source_index]
+            elif features.ndim == 3 and features.shape[1] == len(self.source_widths):
+                block = features[:, self.source_index, :]
+            elif features.ndim == 2 and features.shape[1] == self.source_widths[self.source_index]:
+                block = features
+            elif features.ndim == 2 and features.shape[1] == sum(self.source_widths):
+                start = sum(self.source_widths[:self.source_index])
+                block = features[:, start:start + self.source_widths[self.source_index]]
+            else:
+                raise ValueError("selected-source replay requires the selected source matrix or the full source-aligned input")
+        return self.member.predict(block)
+
+
+class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
+    """Retain every source output without defining a default prediction."""
+
+    def __init__(
+        self,
+        members: Sequence[tuple[int, str, str, _DagmlExportedModel]],
+        feature_axes_cm1: Sequence[Sequence[str] | None] | None = None,
+    ) -> None:
+        if len(members) < 2:
+            raise ValueError("independent-source archive requires at least two outputs")
+        ordered = sorted(members, key=lambda item: item[0])
+        self.source_ids = tuple(source_id for _index, source_id, _binding_id, _member in ordered)
+        self.output_binding_ids = tuple(binding_id for _index, _source_id, binding_id, _member in ordered)
+        if len(set(self.source_ids)) != len(self.source_ids) or len(set(self.output_binding_ids)) != len(self.output_binding_ids):
+            raise ValueError("independent-source archive source and output IDs must be unique")
+        super().__init__([(index, member) for index, _source_id, _binding_id, member in ordered])
+        axes = tuple(feature_axes_cm1) if feature_axes_cm1 is not None else (None,) * len(ordered)
+        if len(axes) != len(ordered):
+            raise ValueError("independent-source feature axes must match source count")
+        self.feature_axes_cm1 = tuple(tuple(axis) if axis is not None else None for axis in axes)
+        for index, axis in enumerate(self.feature_axes_cm1):
+            if axis is not None and (len(axis) != self.source_widths[index]
+                                     or not np.all(np.isfinite(np.asarray(axis, dtype=float)))):
+                raise ValueError("independent-source feature axis disagrees with captured width")
+
+    def predict(self, X: Any) -> np.ndarray:
+        raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict or call BundleLoader.predict_output(s)")
+
+    def _source_blocks(self, X: Any) -> list[np.ndarray]:
+        if not isinstance(X, Mapping):
+            return super()._source_blocks(X)
+        if set(X) != {"sample_ids", "sources"} or not isinstance(X["sources"], Mapping):
+            raise ValueError("named-source replay requires sample_ids and a sources mapping")
+        sources = X["sources"]
+        feature_axes = getattr(self, "feature_axes_cm1", (None,) * len(self.source_ids))
+        request_sources = []
+        for source_id, payload in sources.items():
+            if not isinstance(source_id, str) or not isinstance(payload, Mapping):
+                raise ValueError("each named source requires a source ID, sample_ids and values")
+            expected_axis = feature_axes[self.source_ids.index(source_id)] if source_id in self.source_ids else None
+            expected_fields = {"sample_ids", "values"} | ({"feature_axis_cm1"} if expected_axis is not None else set())
+            if set(payload) != expected_fields:
+                raise ValueError(f"named source {source_id!r} requires fields {sorted(expected_fields)!r}")
+            request_sources.append({"source_id": source_id, "sample_ids": payload["sample_ids"]})
+
+        import dag_ml
+
+        alignment = dag_ml.align_named_source_rows({
+            "sample_ids": X["sample_ids"],
+            "required_source_ids": list(self.source_ids),
+            "sources": request_sources,
+        })
+        blocks = []
+        for index, selection in enumerate(alignment["sources"]):
+            source_id = selection["source_id"]
+            payload = sources[source_id]
+            values = np.asarray(payload["values"])
+            width = self.source_widths[index]
+            if values.ndim != 2 or width is None or values.shape != (len(payload["sample_ids"]), width):
+                raise ValueError(f"named source {source_id!r} has incompatible feature rows or width")
+            if not np.issubdtype(values.dtype, np.number) or not np.all(np.isfinite(values)):
+                raise ValueError(f"named source {source_id!r} requires finite numeric features")
+            expected_axis = feature_axes[index]
+            if expected_axis is not None:
+                try:
+                    axis = np.asarray(payload["feature_axis_cm1"], dtype=float)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"named source {source_id!r} has invalid spectral axis") from exc
+                if axis.shape != (width,) or not np.array_equal(axis, np.asarray(expected_axis, dtype=float)):
+                    raise ValueError(f"named source {source_id!r} spectral axis differs from training")
+            blocks.append(values[np.asarray(selection["row_indices"], dtype=int)])
+        return blocks
+
+    def predict_output(self, binding_id: str, X: Any) -> np.ndarray:
+        if binding_id not in self.output_binding_ids:
+            raise ValueError(f"unknown named output {binding_id!r}; available outputs: {list(self.output_binding_ids)!r}")
+        index = self.output_binding_ids.index(binding_id)
+        return np.asarray(self.members[index].predict(self._source_blocks(X)[index]))
+
+    def predict_outputs(self, X: Any) -> dict[str, np.ndarray]:
+        blocks = self._source_blocks(X)
+        return {
+            binding_id: np.asarray(member.predict(blocks[index]))
+            for index, (binding_id, member) in enumerate(zip(self.output_binding_ids, self.members, strict=True))
+        }
+
+    def aligned_source_matrix(self, X: Mapping[str, Any]) -> np.ndarray:
+        """Build the sample-aligned host matrix for a DAG PREDICT phase."""
+        return np.concatenate(self._source_blocks(X), axis=1)
+
+
+class _DagmlNativeMetadataConcatModel:
+    """Replay fanned REFIT models using the required metadata partition key."""
+
+    def __init__(self, metadata_key: str, members: Sequence[tuple[str, _DagmlExportedModel]]) -> None:
+        if not members or len({value for value, _ in members}) != len(members):
+            raise ValueError("metadata concat export requires distinct partition models")
+        self.metadata_key = metadata_key
+        self.members = dict(members)
+
+    def predict(self, X: Any) -> np.ndarray:
+        raise ValueError(
+            f"metadata column {self.metadata_key!r} is required for this by_metadata bundle; "
+            "use predict_with_metadata(X, metadata) or pass a dataset with that column"
+        )
+
+    def predict_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
+        if self.metadata_key not in metadata:
+            raise ValueError(f"metadata column {self.metadata_key!r} is required for by_metadata bundle prediction")
+        features = np.asarray(X)
+        if features.ndim != 2:
+            raise ValueError("metadata concat bundle expects a 2D feature matrix")
+        groups = np.asarray(metadata[self.metadata_key], dtype=object).reshape(-1)
+        if len(groups) != len(features):
+            raise ValueError(f"metadata column {self.metadata_key!r} has {len(groups)} rows, expected {len(features)}")
+        labels = np.asarray([str(value) for value in groups], dtype=object)
+        unknown = sorted(set(labels) - set(self.members))
+        if unknown:
+            raise ValueError(f"unknown {self.metadata_key!r} partition values: {unknown!r}")
+        output: np.ndarray | None = None
+        for value, member in self.members.items():
+            positions = np.flatnonzero(labels == value)
+            if not len(positions):
+                continue
+            prediction = np.asarray(member.predict(features[positions])).reshape(len(positions), -1)
+            if output is None:
+                output = np.empty((len(features), prediction.shape[1]), dtype=prediction.dtype)
+            if prediction.shape[1] != output.shape[1]:
+                raise ValueError("metadata partition models produced different target widths")
+            output[positions] = prediction
+        if output is None:
+            raise ValueError("metadata concat bundle received no prediction rows")
+        return output.ravel() if output.shape[1] == 1 else output
+
+
 class _DagmlNativeStackingModel:
     """Predict-capable wrapper for native branch stacking artifacts.
 
@@ -657,12 +844,29 @@ class _DagmlNativeStackingModel:
 
     multimodal_input_schema: dict[str, Any]
 
-    def __init__(self, base_members: Sequence[_DagmlExportedModel], meta_member: _DagmlExportedModel, source_names: Sequence[str] | None = None) -> None:
-        if len(base_members) < 2:
-            raise ValueError("native stacking export requires at least two base member models")
+    def __init__(
+        self, base_members: Sequence[_DagmlExportedModel | _DagmlNativeStackingModel | _DagmlFoldStackingModel], meta_member: _DagmlExportedModel,
+        source_names: Sequence[str] | None = None,
+        reduction_groups: Sequence[Mapping[str, Any]] | None = None,
+        probability_base: bool = False,
+        probability_sources: Sequence[bool] | None = None,
+        selected_probability_sources: Sequence[bool] | None = None,
+    ) -> None:
+        if not base_members:
+            raise ValueError("native stacking export requires at least one base member model")
         self.base_members = list(base_members)
         self.meta_member = meta_member
         self.source_names = tuple(source_names) if source_names is not None else None
+        self.reduction_groups = [dict(group) for group in reduction_groups] if reduction_groups is not None else None
+        if probability_base and (len(base_members) != 1 or not isinstance(base_members[0], (_DagmlNativeStackingModel, _DagmlFoldStackingModel))):
+            raise ValueError("nested probability stacking requires one preceding native stacking model")
+        self.probability_base = probability_base
+        self.probability_sources = tuple(probability_sources) if probability_sources is not None else (probability_base,) * len(base_members)
+        if len(self.probability_sources) != len(base_members):
+            raise ValueError("native stacking probability source flags must match base members")
+        self.selected_probability_sources = tuple(selected_probability_sources) if selected_probability_sources is not None else (False,) * len(base_members)
+        if len(self.selected_probability_sources) != len(base_members):
+            raise ValueError("native stacking probability projections must match base members")
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
             raise ValueError("native raw stacking requires one distinct named source per base model")
 
@@ -672,14 +876,67 @@ class _DagmlNativeStackingModel:
         if self.source_names is not None and (not isinstance(X, list | tuple) or len(X) != len(self.source_names)):
             raise ValueError("native raw stacking requires its ordered raw source blocks")
         for index, member in enumerate(self.base_members):
-            pred = member.predict_numeric(X[index] if self.source_names is not None else X)
+            source = X[index] if self.source_names is not None else X
+            if self.probability_sources[index]:
+                pred = member.predict_proba_numeric(source)
+                if self.selected_probability_sources[index] and pred.shape[1] > 1:
+                    column = 1 if pred.shape[1] == 2 else 0
+                    pred = pred[:, column:column + 1]
+            else:
+                pred = member.predict_numeric(source)
             rows = len(pred)
             if expected_rows is None:
                 expected_rows = rows
             elif rows != expected_rows:
                 raise ValueError(f"native stacking base predictions have incompatible row counts: expected {expected_rows}, got {rows}")
             base_blocks.append(pred.reshape(rows, -1))
-        return np.column_stack(base_blocks)
+        if self.reduction_groups is None:
+            return np.column_stack(base_blocks)
+        selected_blocks: list[np.ndarray] = []
+        for group in self.reduction_groups:
+            indices = group.get("members")
+            if (not isinstance(indices, list) or not indices
+                    or any(not isinstance(index, int) or isinstance(index, bool)
+                           or not 0 <= index < len(base_blocks) for index in indices)):
+                raise ValueError("native stacking replay has invalid selected base members")
+            blocks = []
+            for index in indices:
+                if group.get("proba") and not self.selected_probability_sources[index]:
+                    member = self.base_members[index]
+                    if not isinstance(member, _DagmlExportedModel):
+                        raise ValueError("nested stacking probability replay requires a probability-capable base model")
+                    source = X[index] if self.source_names is not None else X
+                    block = np.asarray(member.estimator.predict_proba(source), dtype=float).reshape(len(base_blocks[index]), -1)
+                else:
+                    block = base_blocks[index]
+                blocks.append(block)
+            aggregate = group.get("aggregate")
+            if aggregate is None:
+                if len(blocks) != 1:
+                    raise ValueError("unaggregated stacking replay group must select one model")
+                selected_blocks.append(blocks[0])
+                continue
+            if aggregate not in {"mean", "weighted_mean", "proba_mean"}:
+                raise ValueError("native stacking replay has an unsupported aggregation")
+            width = max(block.shape[1] for block in blocks)
+            if aggregate == "proba_mean" and width > 1:
+                blocks = [np.pad(block, ((0, 0), (0, width - block.shape[1]))) for block in blocks]
+            elif any(block.shape[1] != width for block in blocks):
+                raise ValueError("native stacking replay members have different prediction widths")
+            weights = group.get("weights") if aggregate == "weighted_mean" else None
+            if weights is None:
+                weights = [1.0] * len(blocks)
+            if (len(weights) != len(blocks) or any(not np.isfinite(weight) or weight < 0 for weight in weights)
+                    or sum(weights) <= 0):
+                raise ValueError("native stacking replay has invalid model weights")
+            reduced = sum(block * weight for block, weight in zip(blocks, weights, strict=True)) / sum(weights)
+            if aggregate == "proba_mean" and width > 1:
+                totals = reduced.sum(axis=1, keepdims=True)
+                if np.any(totals <= 0):
+                    raise ValueError("native stacking probability replay has zero row mass")
+                reduced = reduced / totals
+            selected_blocks.append(reduced)
+        return np.column_stack(selected_blocks)
 
     def predict(self, X: Any) -> np.ndarray:
         """Predict public labels or regression values from captured source models."""
@@ -688,6 +945,122 @@ class _DagmlNativeStackingModel:
     def predict_numeric(self, X: Any) -> np.ndarray:
         """Keep final class labels encoded until native replay has validated them."""
         return np.asarray(self.meta_member.predict_numeric(self._meta_features(X)), dtype=float)
+
+    def predict_proba_numeric(self, X: Any) -> np.ndarray:
+        """Replay the upstream meta-classifier's probability columns."""
+        estimator = self.meta_member.estimator
+        predict_proba = getattr(estimator, "predict_proba", None)
+        if self.meta_member.y_transform is not None or not callable(predict_proba):
+            raise ValueError("nested probability stacking requires a fitted classifier without target transform")
+        probabilities = np.asarray(predict_proba(self._meta_features(X)), dtype=float)
+        if probabilities.ndim != 2 or probabilities.shape[1] < 2:
+            raise ValueError("nested probability stacking requires at least two probability columns")
+        column = 1 if probabilities.shape[1] == 2 else 0
+        return probabilities[:, column:column + 1]
+
+
+class _DagmlFoldStackingModel:
+    """Replay selected/weighted complete CV stacks, pairing each meta with its base fold models."""
+
+    def __init__(self, folds: Mapping[str, _DagmlNativeStackingModel], selection: Mapping[str, Any]) -> None:
+        if not folds:
+            raise ValueError("fold stacking replay requires captured CV stacks")
+        selected = selection.get("selected_fold")
+        weights = selection.get("weights")
+        if (selected is None) == (weights is None):
+            raise ValueError("fold stacking replay requires one native fold selection or weight vector")
+        if selected is not None and (not isinstance(selected, str) or selected not in folds):
+            raise ValueError("selected CV stack has no matching captured fold")
+        if weights is not None and (
+            not isinstance(weights, Mapping) or set(weights) != set(folds)
+            or any(not np.isfinite(value) or float(value) < 0 for value in weights.values())
+            or not np.isclose(sum(float(value) for value in weights.values()), 1.0)
+        ):
+            raise ValueError("weighted CV stack must cover every fold with normalized weights")
+        self.folds = dict(folds)
+        self.selected_fold = selected
+        self.weights = dict(weights) if weights is not None else None
+
+    def _predict(self, method: str, X: Any) -> np.ndarray:
+        if self.selected_fold is not None:
+            return np.asarray(getattr(self.folds[self.selected_fold], method)(X), dtype=float)
+        assert self.weights is not None
+        return cast(np.ndarray, sum(
+            float(weight) * np.asarray(getattr(self.folds[fold], method)(X), dtype=float)
+            for fold, weight in self.weights.items()
+        ))
+
+    def predict_numeric(self, X: Any) -> np.ndarray:
+        return self._predict("predict_numeric", X)
+
+    def predict_proba_numeric(self, X: Any) -> np.ndarray:
+        return self._predict("predict_proba_numeric", X)
+
+    def predict(self, X: Any) -> np.ndarray:
+        return self.predict_numeric(X)
+
+
+class _DagmlNativeResidualModel:
+    """Replay two captured stage models with DAG-ML's fitted scalar fusion."""
+
+    def __init__(
+        self, base: _DagmlExportedModel, learner: _DagmlExportedModel, weight: float,
+        feature_members: list[_DagmlExportedModel] | None = None,
+    ) -> None:
+        if not np.isfinite(weight):
+            raise ValueError("residual replay weight must be finite")
+        self.base = base
+        self.learner = learner
+        self.weight = float(weight)
+        self.feature_members = feature_members or []
+
+    def _features(self, X: Any, metadata: Mapping[str, Any] | None = None) -> Any:
+        if not self.feature_members:
+            return X
+        blocks = [
+            np.asarray(
+                member.predict_numeric_with_metadata(X, metadata) if metadata is not None else member.predict_numeric(X),
+                dtype=float,
+            ).reshape(len(X), -1)
+            for member in self.feature_members
+        ]
+        if any(len(block) != len(X) for block in blocks):
+            raise ValueError("residual prediction-feature replay changed sample count")
+        return np.column_stack(blocks)
+
+    @property
+    def metadata_key(self) -> str | None:
+        keys = {getattr(member.estimator, "metadata_key", None) for member in (self.base, self.learner)}
+        return next(iter(keys)) if len(keys) == 1 else None
+
+    def predict_numeric(self, X: Any) -> np.ndarray:
+        X = self._features(X)
+        base = np.asarray(self.base.predict_numeric(X), dtype=float)
+        learner = np.asarray(self.learner.predict_numeric(X), dtype=float)
+        base = base.reshape(len(base), -1)
+        learner = learner.reshape(len(learner), -1)
+        if base.shape != learner.shape:
+            raise ValueError("residual replay stages produced different prediction shapes")
+        result = cast(np.ndarray, base + self.weight * learner)
+        if not np.all(np.isfinite(result)):
+            raise ValueError("residual replay produced non-finite predictions")
+        return result
+
+    def predict(self, X: Any) -> np.ndarray:
+        return self.predict_numeric(X)
+
+    def predict_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
+        X = self._features(X, metadata)
+        base = np.asarray(self.base.predict_numeric_with_metadata(X, metadata), dtype=float)
+        learner = np.asarray(self.learner.predict_numeric_with_metadata(X, metadata), dtype=float)
+        base = base.reshape(len(base), -1)
+        learner = learner.reshape(len(learner), -1)
+        if base.shape != learner.shape:
+            raise ValueError("residual replay stages produced different prediction shapes")
+        result = cast(np.ndarray, base + self.weight * learner)
+        if not np.all(np.isfinite(result)):
+            raise ValueError("residual replay produced non-finite predictions")
+        return result
 
 
 def _native_manifest_strings(manifest: Mapping[str, Any], key: str) -> set[str]:
@@ -817,6 +1190,7 @@ def _dagml_native_bundle_provenance(
         "source_stacking",
         "stacking_evaluation",
         "host_hpo",
+        "residual_replay",
     ):
         if isinstance(native_manifest.get(key), Mapping):
             provenance[key] = copy.deepcopy(dict(native_manifest[key]))
@@ -848,10 +1222,13 @@ def _is_native_by_source_fusion_bundle(native: Mapping[str, Any], artifacts: Seq
     return _indexed_branch_artifacts(artifacts) is not None
 
 
-def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]]) -> tuple[list[Mapping[str, Any]], Mapping[str, Any]] | None:
+def _native_stacking_artifacts(
+    native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]],
+    *, require_full_closure: bool = True,
+) -> tuple[list[Mapping[str, Any]], Mapping[str, Any]] | None:
     """Return ``(base_artifacts_in_meta_feature_order, meta_artifact)`` from ``stacking_replay``."""
     replay = native_manifest.get("stacking_replay")
-    if not isinstance(replay, Mapping) or replay.get("producer_node") != _DAGML_STACKING_PRODUCER_NODE:
+    if not isinstance(replay, Mapping) or not isinstance(replay.get("producer_node"), str):
         return None
     construction = replay.get("meta_feature_construction")
     if not isinstance(construction, Mapping) or construction.get("kind") != "base_prediction_column_stack":
@@ -859,10 +1236,11 @@ def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Se
 
     by_id = {str(artifact.get("artifact_id")): artifact for artifact in artifacts if artifact.get("artifact_id") is not None}
     meta_artifact_id = replay.get("meta_artifact_id")
-    if meta_artifact_id is None or str(meta_artifact_id) not in by_id:
+    if (meta_artifact_id is None or str(meta_artifact_id) not in by_id
+            or by_id[str(meta_artifact_id)].get("producer_node") != replay["producer_node"]):
         return None
     base_producers = replay.get("base_producers")
-    if not isinstance(base_producers, Sequence) or isinstance(base_producers, (str, bytes)) or len(base_producers) < 2:
+    if not isinstance(base_producers, Sequence) or isinstance(base_producers, (str, bytes)) or not base_producers:
         return None
 
     base_artifacts: list[Mapping[str, Any]] = []
@@ -873,7 +1251,57 @@ def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Se
         if artifact_id is None or str(artifact_id) not in by_id:
             return None
         base_artifacts.append(by_id[str(artifact_id)])
+    if require_full_closure and len({str(artifact["artifact_id"]) for artifact in [*base_artifacts, by_id[str(meta_artifact_id)]]}) != len(artifacts):
+        return None
     return base_artifacts, by_id[str(meta_artifact_id)]
+
+
+def _native_multi_stacking_artifacts(
+    native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]],
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]]] | None:
+    """Resolve attested REFIT stages, including reusable earlier prediction sources."""
+    replay = native_manifest.get("stacking_replay")
+    if not isinstance(replay, Mapping) or replay.get("schema_version") != 2:
+        return None
+    stages = replay.get("stages")
+    if not isinstance(stages, list) or len(stages) < 2 or not all(isinstance(stage, Mapping) for stage in stages):
+        return None
+    first_stage = stages[0]
+    if first_stage.get("schema_version") != 1 or replay.get("producer_node") != stages[-1].get("producer_node"):
+        return None
+    first = _native_stacking_artifacts(
+        {"stacking_replay": first_stage}, artifacts, require_full_closure=False,
+    )
+    if first is None:
+        return None
+    base_artifacts, first_meta = first
+    by_id = {str(artifact.get("artifact_id")): artifact for artifact in artifacts if artifact.get("artifact_id") is not None}
+    if len(by_id) != len(artifacts) or len(artifacts) != len(base_artifacts) + len(stages):
+        return None
+    meta_artifacts = [first_meta]
+    available = {
+        str(artifact.get("artifact_id")): str(artifact.get("producer_node"))
+        for artifact in [*base_artifacts, first_meta]
+    }
+    for level, stage in enumerate(stages[1:], start=2):
+        meta_id = stage.get("meta_artifact_id")
+        meta = by_id.get(str(meta_id)) if meta_id is not None else None
+        construction = stage.get("meta_feature_construction")
+        producers = stage.get("base_producers")
+        if (meta is None or any(meta is existing for existing in meta_artifacts)
+                or stage.get("schema_version") != 1 or stage.get("producer_node") != f"merge:stack.level{level}"
+                or not isinstance(construction, Mapping) or construction.get("kind") != "base_prediction_column_stack"
+                or not isinstance(producers, list) or not producers
+                or any(not isinstance(producer, Mapping)
+                       or available.get(str(producer.get("artifact_id"))) != producer.get("producer_node")
+                       or producer.get("column_block") not in {"prediction_values", "probability_values"}
+                       for producer in producers)):
+            return None
+        meta_artifacts.append(meta)
+        available[str(meta.get("artifact_id"))] = str(stage.get("producer_node"))
+    if {id(artifact) for artifact in [*base_artifacts, *meta_artifacts]} != {id(artifact) for artifact in artifacts}:
+        return None
+    return base_artifacts, meta_artifacts, stages
 
 
 @dataclass
@@ -1148,6 +1576,14 @@ class RunResult:
     # (its child-process models are unreachable) and for a legacy result. In-memory metadata only, OFF by
     # default (the writer fires solely when native results are enabled).
     _dagml_refit_artifacts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    # Independent terminal stacking views persist only their own refit closure.
+    _dagml_stacking_replay_producer: str = field(default="merge:stack", repr=False)
+    _dagml_stacking_independent_terminal: bool = field(default=False, repr=False)
+    # Signed evidence from an in-process by_source CV execute_training run.
+    _dagml_training_outcome: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_portable_predictor_package: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_initial_full_refit_package: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_source_feature_axes: tuple[list[str] | None, ...] | None = field(default=None, repr=False)
 
     # The on-disk native results directory the 2b-i writer produced for this dag-ml run (recorded by
     # ``run_via_dagml`` when native results were enabled; ``None`` for an in-memory-only dag-ml run or a
@@ -1925,13 +2361,15 @@ class RunResult:
         ``RtError`` that points to ``nirs4all-tools`` conversion or the explicit compatibility opt-in. It
         never re-runs the pipeline through ``engine="legacy"`` implicitly. To deliberately request the old
         refit bridge, pass ``compatibility="legacy-refit"``; this re-runs the frozen pipeline through the
-        legacy engine and is best-effort for stochastic pipelines. ``source`` / ``chain_id`` are not
-        supported for a dag-ml run (they reference its non-existent workspace).
+        legacy engine and is best-effort for stochastic pipelines. Independent ``by_source`` outputs
+        can instead export one explicitly selected final prediction row with ``source=``.
+        ``chain_id`` is not supported for a dag-ml run.
 
         Args:
             output_path: Path for the exported bundle file.
             format: Export format ('n4a' or 'n4a.py').
-            source: Prediction dict to export. If None, exports best model.
+            source: Final prediction row to export from an independent dag-ml
+                ``by_source`` result. Otherwise, a legacy workspace prediction dict.
             chain_id: Chain identifier for store-based export.
                 When provided, ``source`` is ignored and the chain is
                 exported directly from the workspace store.
@@ -1952,6 +2390,39 @@ class RunResult:
         # dag-ml exports use captured native artifacts by default. The legacy refit bridge is available
         # only through the explicit compatibility opt-in above.
         if self._is_dagml_engine():
+            independent_sources = any(
+                dataset.get("output_topology") == "independent_by_source"
+                for dataset in self.per_dataset.values()
+            )
+            if independent_sources:
+                if chain_id is not None or legacy_refit_compatibility:
+                    from nirs4all.pipeline.dagml.rt import RtError
+
+                    raise RtError(
+                        "export",
+                        "unsupported_capability",
+                        "engine='dag-ml' by_source merge:auto has independent source predictions; "
+                        "chain_id and legacy-refit cannot identify a named output.",
+                        mitigation="Export all named outputs, or pass one final prediction row as source=.",
+                        unsupported_capability=_DAGML_EXPORT_UNSUPPORTED_CAPABILITY,
+                    )
+                if source is None:
+                    native = self._dagml_native_export_bundle(output_path, format, independent_outputs=True)
+                    if native is not None:
+                        return native
+                    raise self._dagml_export_refusal(
+                        "export", "the independent outputs have no complete replayable native REFIT artifacts",
+                    )
+                identifier = source.get("id") or source.get("prediction_id")
+                selected = self.predictions.get_prediction_by_id(identifier, load_arrays=False) if identifier else None
+                if selected is None or selected.get("fold_id") != "final" or selected.get("branch_id") is None:
+                    raise ValueError("source= must identify one final prediction row from this independent-source result")
+                native = self._dagml_native_export_bundle(output_path, format, selected_source=selected)
+                if native is not None:
+                    return native
+                raise self._dagml_export_refusal(
+                    "export", "the selected source has no replayable native REFIT artifact",
+                )
             if source is not None or chain_id is not None:
                 raise NotImplementedError(
                     "engine='dag-ml' export does not support an explicit source=/chain_id= (they reference "
@@ -2039,7 +2510,10 @@ class RunResult:
 
         Returns the written path on success, or ``None`` to signal that the native export is not applicable.
         The default caller raises a structured refusal; only ``compatibility="legacy-refit"`` can choose the
-        legacy bridge before this helper is attempted.
+        legacy bridge before this helper is attempted. For an independent
+        ``by_source`` result, ``source=`` must name one final prediction row;
+        its captured source model is exported without selecting or combining
+        the other outputs.
 
         * no native dir;
         * the requested export is NOT joblib (an explicit non-joblib ``format`` such as ``cloudpickle`` /
@@ -2076,6 +2550,12 @@ class RunResult:
             # The broad catch is SCOPED to the read+rehydrate only, so a real bug in the write below escapes.
             logger.debug("native dag-ml export_model is unavailable: %s", exc)
             return None
+        if len(artifacts) > 1:
+            primary = self._dagml_top_k_primary_artifact(artifacts)
+            if primary is None:
+                primary = self._dagml_checkpoint_primary_artifact(artifacts)
+            if primary is not None:
+                artifacts = [primary]
         # EXACTLY ONE concrete artifact only (D4): a multi-model / branch / stacking run captures several
         # REFIT artifacts and is NOT cleanly a single exportable model on this lightweight model-only path.
         if len(artifacts) != 1:
@@ -2093,6 +2573,38 @@ class RunResult:
 
         joblib.dump(model, output_path, compress=3)
         return output_path
+
+    def _dagml_top_k_primary_artifact(self, artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Identify the CV-best artifact of an explicit multi-refit parameter sweep."""
+        selections = [
+            metadata.get("selected_refit_variant_ids")
+            for metadata in self.per_dataset.values()
+            if isinstance(metadata.get("selected_refit_variant_ids"), list)
+        ]
+        if len(selections) != 1 or len(selections[0]) < 2 or not isinstance(selections[0][0], str):
+            return None
+        selected_id = selections[0][0]
+        matches = [
+            artifact for artifact in artifacts
+            if str(artifact.get("artifact_id", "")).endswith(f":nirs4all:refit:{selected_id}")
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    def _dagml_checkpoint_primary_artifact(self, artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Select the attested CV-best artifact of a multi-producer checkpoint DAG."""
+        producers = [metadata.get("checkpoint_producers") for metadata in self.per_dataset.values()
+                     if isinstance(metadata.get("checkpoint_producers"), list)]
+        if len(producers) != 1 or len(producers[0]) < 2 or not all(isinstance(node, str) for node in producers[0]):
+            return None
+        by_producer = {artifact.get("producer_node"): artifact for artifact in artifacts}
+        if len(by_producer) != len(artifacts) or set(by_producer) != set(producers[0]):
+            return None
+        winner = self.cv_best
+        if winner is None:
+            return None
+        projection = (winner.get("result_metadata") or {}).get("dagml_projection") or {}
+        producer = projection.get("producer_node")
+        return by_producer.get(producer)
 
     def _dagml_replayable_train_steps(self) -> list[Any] | None:
         """Serialize the FROZEN run pipeline into replayable training steps for the native ``.n4a``.
@@ -2138,7 +2650,10 @@ class RunResult:
             logger.debug("native dag-ml train_pipeline.json is unavailable: %s", exc)
             return None
 
-    def _dagml_native_export_bundle(self, output_path: str | Path, format: str) -> Path | None:
+    def _dagml_native_export_bundle(
+        self, output_path: str | Path, format: str, *, selected_source: Mapping[str, Any] | None = None,
+        independent_outputs: bool = False,
+    ) -> Path | None:
         """Export a NATIVE ``.n4a`` bundle from captured dag-ml refit artifacts when safely replayable.
 
         The single-artifact path is the ``.n4a`` bundle counterpart of
@@ -2163,13 +2678,17 @@ class RunResult:
 
         Returns the written path on success, or ``None`` to signal that the native bundle is not applicable.
         The default caller raises a structured refusal; only ``compatibility="legacy-refit"`` can choose the
-        legacy bridge before this helper is attempted.
+        legacy bridge before this helper is attempted. For an independent
+        ``by_source`` result, ``source=`` must name one final prediction row;
+        its captured source model is exported without selecting or combining
+        the other outputs.
 
         * no native dir;
         * a non-``n4a`` format (the ``n4a.py`` PORTABLE SCRIPT embeds artifacts through the legacy
-          generator's template path and is out of this native writer's scope; the default path refuses
+        generator's template path and is out of this native writer's scope; the default path refuses
           rather than silently substituting a ZIP bundle);
-        * a multi-artifact shape other than the supported branch / by_source mean-fusion or stacking replay;
+        * a multi-artifact shape other than the supported branch / by_source mean-fusion,
+          explicitly selected independent source, or stacking replay;
         * ANY native-read/rehydrate failure — a tampered/edited manifest (verify-then-load ``ValueError``), a
           missing/malformed native dir (``FileNotFoundError`` / ``KeyError`` / parquet error), OR a
           fingerprint-valid but UNLOADABLE artifact (``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError``
@@ -2195,18 +2714,158 @@ class RunResult:
         except Exception as exc:  # noqa: BLE001 -- default contract: ANY native-read failure → stable refusal
             logger.debug("native dag-ml .n4a export is unavailable: %s", exc)
             return None
+        if independent_outputs:
+            indexed = _indexed_branch_artifacts(artifacts)
+            if indexed is None or len(indexed) < 2:
+                return None
+            names: dict[int, str] = {}
+            for row in self.predictions.filter_predictions(load_arrays=False):
+                if row.get("fold_id") != "final" or row.get("branch_id") is None:
+                    continue
+                try:
+                    index = int(row["branch_id"])
+                except (TypeError, ValueError):
+                    return None
+                name = row.get("branch_name")
+                if not isinstance(name, str) or not name or index in names and names[index] != name:
+                    return None
+                names[index] = name
+            if set(names) != {index for index, _artifact in indexed}:
+                return None
+            independent_members = [
+                (index, names[index], f"output:source_{index}", _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]))
+                for index, artifact in indexed
+            ]
+            captured_axes = self._dagml_source_feature_axes
+            if captured_axes is not None and len(captured_axes) != len(independent_members):
+                return None
+            feature_axes = tuple(
+                axis if axis is not None and len(axis) == _estimator_feature_width(member.estimator) else None
+                for axis, (_index, _source_id, _binding_id, member) in zip(
+                    captured_axes or (None,) * len(independent_members), independent_members, strict=True,
+                )
+            )
+            independent_model = _DagmlNativeIndependentSourceModels(independent_members, feature_axes)
+            if any(width is None for width in independent_model.source_widths):
+                return None
+            native_manifest = cast(Mapping[str, Any], native["manifest"])
+            initial_package = native.get("initial_full_refit_package")
+            native_output_by_node: dict[str, str] = {}
+            native_artifact_by_node: dict[str, str] = {}
+            if initial_package is not None:
+                for binding in initial_package["outputs"]:
+                    node_id, output_id = binding["node_id"], binding["output_id"]
+                    if node_id in native_output_by_node:
+                        return None
+                    native_output_by_node[node_id] = output_id
+                for item in initial_package["artifacts"]:
+                    record = item["record"]
+                    node_id = record["node_id"]
+                    if node_id in native_artifact_by_node:
+                        return None
+                    native_artifact_by_node[node_id] = record["artifact"]["id"]
+                if any(
+                    artifact.get("producer_node") not in native_output_by_node
+                    or artifact.get("artifact_id") != native_artifact_by_node.get(cast(str, artifact.get("producer_node")))
+                    for _index, artifact in indexed
+                ):
+                    return None
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest, export_path="dagml_native_independent_sources",
+                artifact_count=len(independent_members), export_shape="independent_by_source_multi",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
+            )
+            extra_members: dict[str, bytes] = {}
+            if initial_package is not None:
+                package_member = "dagml_initial_full_refit_package.json"
+                package_bytes = json.dumps(initial_package, sort_keys=True, separators=(",", ":")).encode()
+                provenance["dagml_initial_full_refit_package_ref"] = {
+                    "path": package_member,
+                    "sha256": hashlib.sha256(package_bytes).hexdigest(),
+                }
+                extra_members[package_member] = package_bytes
+            provenance["dagml_independent_output_topology"] = {
+                "schema_id": "dag-ml.host_independent_outputs.v1",
+                "kind": "independent_by_source",
+                "input_relation": "aligned_rows",
+                "outputs": [
+                    {"source_id": source_id, "source_index": index, "output_binding_id": binding_id,
+                     "producer_node": artifact.get("producer_node"), "feature_width": independent_model.source_widths[index],
+                     **({"dagml_output_id": native_output_by_node[artifact["producer_node"]]} if initial_package is not None else {}),
+                     **({"dagml_artifact_id": artifact["artifact_id"]} if initial_package is not None else {}),
+                     **({"feature_axis_cm1": list(independent_model.feature_axes_cm1[index] or ())}
+                        if independent_model.feature_axes_cm1[index] is not None else {})}
+                    for (index, artifact), source_id, binding_id in zip(
+                        indexed, independent_model.source_ids, independent_model.output_binding_ids, strict=True,
+                    )
+                ],
+            }
+            from nirs4all.pipeline.bundle import write_single_model_bundle
+
+            return write_single_model_bundle(
+                independent_model, output_path, model_label="dagml_independent_sources",
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance, extra_members=extra_members, train_steps=None,
+            )
+        if selected_source is not None:
+            indexed = _indexed_branch_artifacts(artifacts)
+            if indexed is None or len(indexed) < 2:
+                return None
+            try:
+                source_index = int(selected_source["branch_id"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            source_artifacts = [artifact for index, artifact in indexed if index == source_index]
+            if len(source_artifacts) != 1:
+                return None
+            artifact = source_artifacts[0]
+            widths = [_estimator_feature_width(member["estimator"]) for _index, member in indexed]
+            if any(width is None for width in widths):
+                return None
+            selected_model = _DagmlNativeSelectedSourceModel(
+                source_index, cast(list[int], widths),
+                _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
+            )
+            from nirs4all.pipeline.bundle import write_single_model_bundle
+
+            native_manifest = cast(Mapping[str, Any], native["manifest"])
+            source_name = str(selected_source.get("branch_name") or f"source_{source_index}")
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest, export_path="dagml_native_selected_source",
+                artifact_count=1, export_shape="independent_by_source_selected",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
+            )
+            provenance["dagml_selected_source"] = {"name": source_name, "index": source_index,
+                                                   "producer_node": artifact.get("producer_node")}
+            provenance["dagml_source_widths"] = widths
+            return write_single_model_bundle(
+                selected_model, output_path,
+                model_label=str(selected_source.get("model_name") or source_name),
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance,
+                train_steps=None,  # The original multi-output pipeline is not this selected model.
+            )
+        checkpoint_selected = False
+        if len(artifacts) > 1:
+            primary = self._dagml_top_k_primary_artifact(artifacts)
+            if primary is None:
+                primary = self._dagml_checkpoint_primary_artifact(artifacts)
+                checkpoint_selected = primary is not None
+            if primary is not None:
+                artifacts = [primary]
         native_manifest = cast(Mapping[str, Any], native["manifest"])
         model_names = _native_model_names(native_manifest)
         from nirs4all.pipeline.bundle import write_single_model_bundle
 
         # Replayable ORIGINAL training steps (train_pipeline.json) so retrain(mode="full") works from the
         # exported bundle; None (predict-only bundle) for generator sweeps / unserializable pipelines.
-        train_steps = self._dagml_replayable_train_steps()
+        train_steps = None if checkpoint_selected else self._dagml_replayable_train_steps()
 
         if len(artifacts) == 1:
             artifact = artifacts[0]
             model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
-            model_label = model_names[0] if model_names else type(artifact["estimator"]).__name__
+            model_label = (str(self.cv_best.get("model_name")) if checkpoint_selected and self.cv_best is not None
+                           else model_names[0] if model_names else type(artifact["estimator"]).__name__)
             from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
 
             multimodal_provenance = archive_metadata(artifact["estimator"])
@@ -2224,6 +2883,122 @@ class RunResult:
                     retrain_lineage=getattr(self, "_retrain_lineage", None),
                 ), **multimodal_provenance},
                 train_steps=train_steps,
+            )
+
+        residual = native_manifest.get("residual_replay")
+        if isinstance(residual, Mapping) and residual.get("producer_node") in _native_final_producers(native):
+            feature_nodes = residual.get("feature_producer_nodes") or []
+            if (residual.get("schema_version") != 1 or not isinstance(feature_nodes, list)
+                    or any(not isinstance(node, str) for node in feature_nodes)
+                    or len(set(feature_nodes)) != len(feature_nodes)
+                    or len(artifacts) != 2 + len(feature_nodes)):
+                return None
+            by_producer = {str(artifact.get("producer_node")): artifact for artifact in artifacts}
+            if len(by_producer) != len(artifacts):
+                return None
+            base = by_producer.get(str(residual.get("base_producer_node")))
+            learner = by_producer.get(str(residual.get("learner_producer_node")))
+            if base is None or learner is None or base is learner:
+                return None
+            feature_artifacts = [by_producer.get(node) for node in feature_nodes]
+            if any(artifact is None for artifact in feature_artifacts) or set(by_producer) != {
+                str(residual.get("base_producer_node")), str(residual.get("learner_producer_node")), *feature_nodes,
+            }:
+                return None
+            try:
+                weight = float(residual["lambda"]) * float(residual["gate"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            residual_model = _DagmlNativeResidualModel(
+                _DagmlExportedModel(base["estimator"], base["y_transform"]),
+                _DagmlExportedModel(learner["estimator"], learner["y_transform"]),
+                weight,
+                [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in cast(list[dict[str, Any]], feature_artifacts)],
+            )
+            return write_single_model_bundle(
+                residual_model,
+                output_path,
+                model_label=model_names[0] if model_names else "dagml_native_residual",
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=_dagml_native_bundle_provenance(
+                    native_manifest, export_path="dagml_native_residual",
+                    artifact_count=len(artifacts), export_shape="residual_prediction_features" if feature_nodes else "residual_base_plus_learner",
+                    retrain_lineage=getattr(self, "_retrain_lineage", None),
+                ),
+                train_steps=train_steps,
+            )
+
+        multi_stacking = _native_multi_stacking_artifacts(native_manifest, artifacts)
+        if multi_stacking is not None:
+            base_artifacts, meta_artifacts, stages = multi_stacking
+            base_members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in base_artifacts]
+            if any(getattr(member.estimator, "multimodal_source_name", None) is not None for member in base_members):
+                return None
+            stacked_model: _DagmlNativeStackingModel | _DagmlFoldStackingModel = _DagmlNativeStackingModel(
+                base_members,
+                _DagmlExportedModel(meta_artifacts[0]["estimator"], meta_artifacts[0]["y_transform"]),
+                reduction_groups=cast(list[dict[str, Any]] | None, stages[0].get("reduction_groups")),
+                probability_sources=[source["column_block"] == "probability_values" for source in stages[0]["base_producers"]],
+                selected_probability_sources=[source.get("column_projection") == "selected_class" for source in stages[0]["base_producers"]],
+            )
+            members_by_artifact: dict[str, _DagmlExportedModel | _DagmlNativeStackingModel | _DagmlFoldStackingModel] = {
+                str(artifact["artifact_id"]): member
+                for artifact, member in zip(base_artifacts, base_members, strict=True)
+            }
+            for stage_index, (artifact, stage) in enumerate(zip(meta_artifacts, stages, strict=True)):
+                if stage_index:
+                    source_specs = stage["base_producers"]
+                    stacked_model = _DagmlNativeStackingModel(
+                        [members_by_artifact[str(source["artifact_id"])] for source in source_specs],
+                        _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
+                        probability_sources=[source["column_block"] == "probability_values" for source in source_specs],
+                        selected_probability_sources=[source.get("column_projection") == "selected_class" for source in source_specs],
+                    )
+                fold_selection = artifact.get("fold_selection")
+                if fold_selection is not None:
+                    if not isinstance(fold_selection, Mapping):
+                        raise ValueError("native multi-stacking fold selection is malformed")
+                    paired_artifacts = [*base_artifacts, *meta_artifacts[:stage_index + 1]]
+                    fold_maps = [item.get("fold_estimators") for item in paired_artifacts]
+                    if any(not isinstance(folds, Mapping) for folds in fold_maps):
+                        raise ValueError("native multi-stacking fold replay lacks paired CV estimators")
+                    expected_folds = set(cast(Mapping[str, Any], fold_maps[-1]))
+                    if not expected_folds or any(set(cast(Mapping[str, Any], folds)) != expected_folds for folds in fold_maps):
+                        raise ValueError("native multi-stacking base and meta CV fold IDs differ")
+                    fold_stacks = {}
+                    for fold in sorted(expected_folds):
+                        fold_members: dict[str, _DagmlExportedModel | _DagmlNativeStackingModel] = {
+                            str(item["artifact_id"]): _DagmlExportedModel(cast(Mapping[str, Any], folds)[fold], item["y_transform"])
+                            for item, folds in zip(base_artifacts, fold_maps[:len(base_artifacts)], strict=True)
+                        }
+                        for prior_stage, prior_artifact, prior_folds in zip(
+                            stages[:stage_index + 1], meta_artifacts[:stage_index + 1], fold_maps[len(base_artifacts):], strict=True,
+                        ):
+                            source_specs = prior_stage["base_producers"]
+                            fold_stack = _DagmlNativeStackingModel(
+                                [fold_members[str(source["artifact_id"])] for source in source_specs],
+                                _DagmlExportedModel(cast(Mapping[str, Any], prior_folds)[fold], prior_artifact["y_transform"]),
+                                reduction_groups=cast(list[dict[str, Any]] | None, prior_stage.get("reduction_groups")),
+                                probability_sources=[source["column_block"] == "probability_values" for source in source_specs],
+                                selected_probability_sources=[source.get("column_projection") == "selected_class" for source in source_specs],
+                            )
+                            fold_members[str(prior_artifact["artifact_id"])] = fold_stack
+                        fold_stacks[fold] = fold_stack
+                    stacked_model = _DagmlFoldStackingModel(fold_stacks, fold_selection)
+                members_by_artifact[str(artifact["artifact_id"])] = stacked_model
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest,
+                export_path="dagml_native_multi_stacking",
+                artifact_count=len(artifacts),
+                export_shape="dependent_meta_prediction_chain",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
+            )
+            provenance["dagml_stacking_stage_artifact_ids"] = [artifact.get("artifact_id") for artifact in meta_artifacts]
+            return write_single_model_bundle(
+                stacked_model, output_path,
+                model_label=model_names[0] if model_names else "dagml_native_multi_stacking",
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance, train_steps=train_steps,
             )
 
         stacking = _native_stacking_artifacts(native_manifest, artifacts)
@@ -2244,7 +3019,13 @@ class RunResult:
             source_names = [getattr(member.estimator, "multimodal_source_name", None) for member in base_members]
             if any(name is not None for name in source_names) and any(name is None for name in source_names):
                 raise ValueError("raw stacking archive is missing a base source binding")
-            stacked_model = _DagmlNativeStackingModel(base_members, meta_member, cast(list[str], source_names) if all(source_names) else None)
+            replay = cast(Mapping[str, Any], native_manifest["stacking_replay"])
+            stacked_model = _DagmlNativeStackingModel(
+                base_members, meta_member, cast(list[str], source_names) if all(source_names) else None,
+                cast(list[dict[str, Any]] | None, replay.get("reduction_groups")),
+                probability_sources=[source["column_block"] == "probability_values" for source in replay["base_producers"]],
+                selected_probability_sources=[source.get("column_projection") == "selected_class" for source in replay["base_producers"]],
+            )
             if stacked_model.source_names is not None:
                 from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
 
@@ -2257,6 +3038,49 @@ class RunResult:
                     provenance["multimodal_host"]["tuning"] = self._tuning_result.to_dict()
             return write_single_model_bundle(
                 stacked_model,
+                output_path,
+                model_label=model_label,
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance,
+                train_steps=train_steps,
+            )
+
+        separation = native_manifest.get("separation_replay")
+        if isinstance(separation, Mapping) and separation.get("kind") == "by_metadata_concat":
+            metadata_key = separation.get("metadata_key")
+            member_specs = separation.get("members")
+            if not isinstance(metadata_key, str) or not isinstance(member_specs, list) or len(member_specs) < 2:
+                return None
+            by_id = {str(artifact.get("artifact_id")): artifact for artifact in artifacts}
+            separation_members: list[tuple[str, _DagmlExportedModel]] = []
+            used_ids: set[str] = set()
+            for spec in member_specs:
+                if not isinstance(spec, Mapping) or not isinstance(spec.get("value"), str):
+                    return None
+                artifact_id = str(spec.get("artifact_id"))
+                separation_artifact = by_id.get(artifact_id)
+                if separation_artifact is None or artifact_id in used_ids:
+                    return None
+                used_ids.add(artifact_id)
+                separation_members.append((spec["value"], _DagmlExportedModel(separation_artifact["estimator"], separation_artifact["y_transform"])))
+            if used_ids != set(by_id) or len({value for value, _ in separation_members}) != len(separation_members):
+                return None
+            model_label = model_names[0] if model_names else "dagml_native_metadata_concat"
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest,
+                export_path="dagml_native_metadata_concat",
+                artifact_count=len(artifacts),
+                export_shape="by_metadata_concat",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
+            )
+            provenance["partitioner_routing"] = {"1": {
+                "native_replay": "by_metadata_concat",
+                "column": metadata_key,
+                "partitions": [value for value, _ in separation_members],
+                "branch_count": len(separation_members),
+            }}
+            return write_single_model_bundle(
+                _DagmlNativeMetadataConcatModel(metadata_key, separation_members),
                 output_path,
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),

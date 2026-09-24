@@ -2,6 +2,18 @@
 
 `sample_augmentation` creates extra training samples. It runs during training and is skipped during prediction.
 
+## DAG-ML execution
+
+With `engine="dag-ml"`, augmentation trains on original and synthetic training rows. Validation and test scores still cover the original rows only. Without a cross-validator, DAG-ML fits once and reports no CV score. With a cross-validator, stateless augmenters can generate rows before splitting; balanced or data-dependent augmenters generate separate rows within each fold's training partition and during refit. Repetition datasets retain group-aware folds.
+
+Consecutive augmentation steps work with or without CV. Augmentation steps can also be separated by preprocessing steps. For balanced or data-dependent augmentation, each CV fold materializes its own ordered augmentation and preprocessing chain, including transformed validation spectra; refit uses the full training partition. The fitted refit preprocessing is replayed when the result is exported. `exclude` can appear before augmentation, between augmentation steps, or after preprocessing following augmentation. For fold-local augmentation, each fold applies exclusion only to its own training rows; validation rows remain available for scoring. Supported branch combinations include duplication branches merged as features, mean fusion of regression models, and `by_metadata` separation with `merge: concat`.
+
+An exported `by_metadata` separation model needs the same metadata column at prediction time. For example, pass `{"X": X_new, "metadata": {"group": group_values}}` to `nirs4all.predict`; a bare feature matrix does not identify which branch model applies to each row.
+
+Balanced augmentation is fit within each DAG-ML training fold. Legacy nirs4all performs augmentation before creating CV folds, so its CV score may differ even when the final refit and test predictions agree.
+
+Both the in-process runtime and the CLI subprocess retain fitted refit models for `.n4a` export.
+
 ## Simple YAML
 
 ```yaml

@@ -7,15 +7,31 @@ against corruption, not a malicious producer: joblib can execute Python code.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
+import math
+import shutil
+import tempfile
 import warnings
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult
+
+_MAX_INLINE_MODEL_BYTES = 512 * 1024 * 1024
+
+
+class _NamedOutputAdapter:
+    """Expose one explicitly selected archive output to the DAG PREDICT phase."""
+
+    def __init__(self, model: Any, output: str) -> None:
+        self.model = model
+        self.output = output
+
+    def predict(self, X: Any) -> Any:
+        return self.model.predict_output(self.output, X)
 
 
 def general_archive_manifest(path: str | Path) -> dict[str, Any] | None:
@@ -35,21 +51,66 @@ def general_archive_manifest(path: str | Path) -> dict[str, Any] | None:
 
 def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str | None = None) -> dict[str, Any]:
     """Verify the exact archive member bytes before loading one trusted model."""
+    source = Path(path)
+    from .host_artifacts import file_fingerprint
+
+    # Copy the source into a private snapshot in bounded memory. The digest binds
+    # the Session identity to the exact ZIP later parsed and deserialized.
+    with tempfile.TemporaryDirectory(prefix="nirs4all_archive_snapshot_") as snapshot_dir:
+        snapshot = Path(snapshot_dir) / "source.n4a"
+        with source.open("rb") as source_stream, snapshot.open("wb") as snapshot_stream:
+            shutil.copyfileobj(source_stream, snapshot_stream, 1024 * 1024)
+        archive_fingerprint = file_fingerprint(snapshot)[0]
+        if expected_archive_fingerprint is not None and archive_fingerprint != expected_archive_fingerprint:
+            raise ValueError("general Session source archive changed after loading")
+        with zipfile.ZipFile(snapshot) as archive:
+            model, manifest, member, fingerprint, expected, initial_package = _load_verified_archive(archive)
+    if not callable(getattr(model, "predict", None)):
+        raise ValueError("general archive model is not predict-capable")
+    return {
+        "artifact": {"artifact_id": member, "estimator": model, "y_transform": None, "content_fingerprint": fingerprint},
+        "manifest": manifest, "archive_fingerprint": archive_fingerprint,
+        "initial_full_refit_package": initial_package,
+        "artifact_integrity_verified": expected is not None,
+        "pipeline": [{"model": model}],
+        "model_name": source.stem, "source_path": source.resolve(),
+    }
+
+
+def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any], str, str, str | None, dict[str, Any] | None]:
     import joblib
 
-    source = Path(path)
-    # One immutable byte snapshot prevents a manifest/payload replacement race.
-    data = source.read_bytes()
-    archive_fingerprint = "sha256:" + hashlib.sha256(data).hexdigest()
-    if expected_archive_fingerprint is not None and archive_fingerprint != expected_archive_fingerprint:
-        raise ValueError("general Session source archive changed after loading")
-    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+    from .host_artifacts import file_fingerprint, hydrate_host_artifacts, verify_host_artifacts
+
+    with tempfile.TemporaryDirectory(prefix="nirs4all_archive_model_") as model_dir:
         names = archive.namelist()
         if len(names) != len(set(names)):
             raise ValueError("general archive contains duplicate ZIP member names")
+        if archive.getinfo("manifest.json").file_size > 1024 * 1024:
+            raise ValueError("general archive manifest exceeds 1 MiB")
         manifest = json.loads(archive.read("manifest.json"))
         if not isinstance(manifest, dict) or manifest.get("source_type") != "dagml_native":
             raise ValueError("archive is not a captured DAG host-model archive")
+        initial_package = None
+        package_ref = manifest.get("dagml_initial_full_refit_package_ref")
+        if package_ref is not None:
+            if not isinstance(package_ref, dict) or package_ref.get("path") != "dagml_initial_full_refit_package.json":
+                raise ValueError("general archive has an invalid initial full-refit package reference")
+            package_member = package_ref["path"]
+            if package_member not in names or archive.getinfo(package_member).file_size > 64 * 1024 * 1024:
+                raise ValueError("general archive initial full-refit package is missing or oversized")
+            package_bytes = archive.read(package_member)
+            if hashlib.sha256(package_bytes).hexdigest() != package_ref.get("sha256"):
+                raise ValueError("general archive initial full-refit package fingerprint mismatch")
+            initial_package = json.loads(package_bytes)
+            if not isinstance(initial_package, dict):
+                raise ValueError("general archive initial full-refit package must be an object")
+            from dag_ml import DagMlError, InitialFullRefitPackage
+
+            try:
+                InitialFullRefitPackage(initial_package)
+            except DagMlError as exc:
+                raise ValueError(f"general archive initial full-refit package is invalid: {exc}") from exc
         from .multimodal_contracts import validate_dependencies
 
         validate_dependencies(manifest)
@@ -57,10 +118,12 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
         if len(members) != 1 or not members[0].endswith(".joblib"):
             raise ValueError("general archive requires exactly one captured host-model payload")
         member = members[0]
-        if archive.getinfo(member).file_size > 512 * 1024 * 1024:
+        if archive.getinfo(member).file_size > _MAX_INLINE_MODEL_BYTES:
             raise ValueError("general archive model payload exceeds 512 MiB")
-        payload = archive.read(member)
-        fingerprint = "sha256:" + hashlib.sha256(payload).hexdigest()
+        model_path = Path(model_dir) / "model.joblib"
+        with archive.open(member) as source_stream, model_path.open("wb") as target_stream:
+            shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
+        fingerprint = file_fingerprint(model_path)[0]
         expected = manifest.get("artifact_integrity", {}).get(member)
         if expected is not None and expected != fingerprint:
             raise ValueError("general archive artifact content fingerprint mismatch; refusing to deserialize")
@@ -68,16 +131,40 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
             raise ValueError("general archive integrity manifest omits its model artifact")
         if expected is None:
             warnings.warn("This older DAG host archive has no recorded artifact digest. Load only from a trusted producer; integrity provenance is unavailable.", UserWarning, stacklevel=2)
-        model = joblib.load(io.BytesIO(payload))
-    if not callable(getattr(model, "predict", None)):
-        raise ValueError("general archive model is not predict-capable")
-    return {
-        "artifact": {"artifact_id": member, "estimator": model, "y_transform": None, "content_fingerprint": fingerprint},
-        "manifest": manifest, "archive_fingerprint": archive_fingerprint,
-        "artifact_integrity_verified": expected is not None,
-        "pipeline": [{"model": model}],
-        "model_name": source.stem, "source_path": source.resolve(),
-    }
+        sidecar_refs = manifest.get("host_artifacts")
+        if sidecar_refs is not None and (
+            not isinstance(sidecar_refs, list)
+            or any(not isinstance(directory, dict) or not isinstance(directory.get("files"), list)
+                   or any(not isinstance(file_ref, dict) or not isinstance(file_ref.get("uri"), str)
+                          for file_ref in directory["files"])
+                   for directory in sidecar_refs)
+        ):
+            raise ValueError("general archive has an invalid host sidecar manifest")
+        declared = {file_ref["uri"] for directory in sidecar_refs or [] for file_ref in directory["files"]}
+        actual_sidecars = {name for name in names if name.startswith("host_artifacts/") and not name.endswith("/")}
+        if actual_sidecars != declared:
+            raise ValueError("general archive sidecar manifest does not match ZIP members")
+        # AutoGluon may lazily read its directory after load; keep the verified
+        # extracted files for the lifetime of the returned estimator.
+        sidecar_owner = tempfile.TemporaryDirectory(prefix="nirs4all_archive_sidecars_")
+        sidecar_root = Path(sidecar_owner.name)
+        try:
+            for uri in declared:
+                from .host_artifacts import _safe_uri
+
+                target = sidecar_root / _safe_uri(uri)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(uri) as source_stream, target.open("wb") as target_stream:
+                    shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
+            directories = verify_host_artifacts(sidecar_root, sidecar_refs)
+            model = joblib.load(model_path)
+            hydrate_host_artifacts(model, directories, owner=sidecar_owner)
+        except Exception:
+            sidecar_owner.cleanup()
+            raise
+        if not declared:
+            sidecar_owner.cleanup()
+    return model, manifest, member, fingerprint, expected, initial_package
 
 
 def predict_general_archive(
@@ -86,6 +173,7 @@ def predict_general_archive(
     *,
     expected_archive_fingerprint: str | None = None,
     loaded_archive: dict[str, Any] | None = None,
+    output: str | None = None,
 ) -> PredictResult:
     """Replay a captured aggregate model; no old executor or retraining is used."""
     from nirs4all.api.result import PredictResult
@@ -107,15 +195,94 @@ def predict_general_archive(
             fingerprint = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
         if fingerprint != loaded["archive_fingerprint"]:
             raise ValueError("general Session source archive changed after loading")
-    values, metadata = predict_captured_artifact(
-        loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
-        target_names=loaded["manifest"].get("target_names", ["y"]),
-    )
+    topology = loaded["manifest"].get("dagml_independent_output_topology")
+    named_outputs = topology.get("outputs") if isinstance(topology, dict) else None
+    initial_package = None
+    if loaded["manifest"].get("dagml_native_export_shape") == "independent_by_source_multi":
+        if (not isinstance(topology, dict)
+                or topology.get("schema_id") != "dag-ml.host_independent_outputs.v1"
+                or topology.get("kind") != "independent_by_source"
+                or topology.get("input_relation") != "aligned_rows"
+                or not isinstance(named_outputs, list) or len(named_outputs) < 2):
+            raise ValueError("archive has an invalid independent-output topology")
+        ids = tuple(item.get("output_binding_id") for item in named_outputs if isinstance(item, dict))
+        if len(ids) != len(named_outputs) or ids != tuple(f"output:source_{index}" for index in range(len(ids))):
+            raise ValueError("archive has invalid output binding IDs")
+        for item in named_outputs:
+            if "feature_axis_cm1" not in item:
+                continue
+            axis = item["feature_axis_cm1"]
+            if (not isinstance(axis, list) or len(axis) != item.get("feature_width")
+                    or not all(isinstance(value, str) for value in axis)):
+                raise ValueError("archive has an invalid independent-source spectral axis")
+            try:
+                if not all(math.isfinite(float(value)) for value in axis):
+                    raise ValueError("archive has a non-finite independent-source spectral axis")
+            except (TypeError, ValueError) as exc:
+                raise ValueError("archive has an invalid independent-source spectral axis") from exc
+        initial_package = loaded.get("initial_full_refit_package")
+        if initial_package is not None:
+            from dag_ml import InitialFullRefitPackage
+
+            InitialFullRefitPackage(initial_package)
+            output_by_node = {binding["node_id"]: binding["output_id"] for binding in initial_package["outputs"]}
+            artifact_by_node = {item["record"]["node_id"]: item["record"]["artifact"]["id"] for item in initial_package["artifacts"]}
+            if len(output_by_node) != len(initial_package["outputs"]) or any(
+                item.get("dagml_output_id") != output_by_node.get(item.get("producer_node"))
+                or item.get("dagml_artifact_id") != artifact_by_node.get(item.get("producer_node"))
+                for item in named_outputs
+            ) or len(artifact_by_node) != len(initial_package["artifacts"]):
+                raise ValueError("archive independent outputs disagree with its initial full-refit package")
+        model = loaded["artifact"]["estimator"]
+        manifest_axes = tuple(
+            tuple(item["feature_axis_cm1"]) if isinstance(item.get("feature_axis_cm1"), list) else None
+            for item in named_outputs
+        )
+        if (tuple(getattr(model, "output_binding_ids", ())) != ids
+                or tuple(getattr(model, "source_ids", ())) != tuple(item.get("source_id") for item in named_outputs)
+                or tuple(getattr(model, "source_widths", ())) != tuple(item.get("feature_width") for item in named_outputs)
+                or tuple(getattr(model, "feature_axes_cm1", (None,) * len(ids))) != manifest_axes):
+            raise ValueError("archive model disagrees with its independent-output topology")
+    if isinstance(named_outputs, list) and output is None:
+        raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict")
+    if output is not None:
+        if not isinstance(named_outputs, list) or output not in [item.get("output_binding_id") for item in named_outputs if isinstance(item, dict)]:
+            raise ValueError(f"archive has no named output {output!r}")
+        adapter = _NamedOutputAdapter(loaded["artifact"]["estimator"], output)
+        loaded = {**loaded, "artifact": {**loaded["artifact"], "estimator": adapter},
+                  "pipeline": [{"model": adapter}]}
+    source_sample_ids = None
+    if isinstance(data, Mapping) and isinstance(named_outputs, list):
+        if output is None:
+            raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict")
+        model = loaded["artifact"]["estimator"]
+        assert isinstance(model, _NamedOutputAdapter)
+        named_data = data
+        data = model.model.aligned_source_matrix(named_data)
+        source_sample_ids = list(named_data["sample_ids"])
+    if initial_package is not None and output is not None:
+        from .initial_refit_replay import predict_initial_refit_output
+
+        assert isinstance(loaded["artifact"]["estimator"], _NamedOutputAdapter)
+        values, metadata = predict_initial_refit_output(
+            initial_package, loaded["artifact"]["estimator"].model,
+            _materialize_dataset(data), topology, output,
+            loaded["manifest"].get("target_names", ["y"]),
+        )
+    else:
+        values, metadata = predict_captured_artifact(
+            loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
+            target_names=loaded["manifest"].get("target_names", ["y"]),
+        )
     metadata.update({
         "archive_fingerprint": loaded["archive_fingerprint"],
         "artifact_integrity_verified": loaded["artifact_integrity_verified"],
         "training_provenance": loaded["manifest"], "portable": False,
     })
+    if output is not None:
+        metadata["selected_output"] = output
+    if source_sample_ids is not None:
+        metadata["source_sample_ids"] = source_sample_ids
     return PredictResult(y_pred=values, metadata=metadata, model_name=loaded["model_name"])
 
 

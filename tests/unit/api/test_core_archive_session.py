@@ -23,6 +23,12 @@ from nirs4all.pipeline.dagml import core_archive_replay
 from nirs4all.pipeline.dagml.rt import RtError
 
 
+@pytest.fixture(autouse=True)
+def _isolate_engine_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Core archive selector tests own their default, independent of the DAG-ML suite profile."""
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+
+
 def _archive(path: Path, version: int, *, core: bool = True) -> Path:
     if core:
         manifest = {

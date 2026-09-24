@@ -12,9 +12,10 @@ from __future__ import annotations
 import copy
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
 
 from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import eval_list, get_default_metrics, is_higher_better
@@ -26,7 +27,7 @@ from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
 from .detect import _generation_kind, _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
 from .envelope import build_envelope, build_fold_set
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
-from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_group_grain, _split_pool
+from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_grain, _split_base_samples, _split_group_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
@@ -120,6 +121,21 @@ class DuplicationBranchMergeTransformer:
         return self._as_2d(current)
 
 
+class DuplicationFusionEstimator(RegressorMixin, DuplicationBranchMergeTransformer):
+    """Fit branch-local models on one native training pool and average predictions."""
+
+    def __init__(self, branches: list[dict[str, Any]], merge_mode: str = "all") -> None:
+        super().__init__(branches, merge_mode)
+
+    def predict(self, X: Any) -> np.ndarray:
+        x = np.asarray(X)
+        predictions = [
+            self._as_2d(branch["model"].predict(self._transform_branch_features(x, branch["transforms"])))
+            for branch in self._fitted_branches
+        ]
+        return np.asarray(np.mean(predictions, axis=0))
+
+
 def _native_param_winner_config_name(
     refit_artifacts: list[dict[str, Any]] | None,
     variant_config_names: list[str] | None,
@@ -164,6 +180,39 @@ def _native_param_winner_config_name(
     return next(iter(matches)) if len(matches) == 1 else None
 
 
+def _native_param_config_map_from_catalog(
+    catalog: list[dict[str, Any]],
+    config_names: list[str] | None,
+    model_params: list[dict[str, Any]] | None,
+) -> dict[str, str]:
+    """Match native param variants to legacy config names by their Rust-planned overrides."""
+    if not config_names or not model_params or len(config_names) != len(model_params):
+        return {}
+    matched: dict[str, str] = {}
+    for variant in catalog:
+        variant_id = variant.get("variant_id")
+        choices = variant.get("choices")
+        if not isinstance(variant_id, str) or not isinstance(choices, dict):
+            continue
+        overrides: dict[str, Any] = {}
+        for choice in choices.values():
+            if not isinstance(choice, dict):
+                continue
+            for override in choice.get("param_overrides", []):
+                if isinstance(override, dict) and isinstance(override.get("params"), dict):
+                    overrides.update(override["params"])
+        if not overrides:
+            continue
+        names = {
+            name
+            for name, params in zip(config_names, model_params, strict=True)
+            if all(params.get(key) == value for key, value in overrides.items())
+        }
+        if len(names) == 1:
+            matched[variant_id] = names.pop()
+    return matched
+
+
 def _run_native_generation(
     pipeline: list[Any],
     spectro: Any,
@@ -181,6 +230,8 @@ def _run_native_generation(
     variant_config_names: list[str] | None = None,
     variant_model_params: list[dict[str, Any]] | None = None,
     random_state: int | None = None,
+    refit: bool = True,
+    refit_top_k: int = 1,
 ) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
@@ -211,7 +262,7 @@ def _run_native_generation(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit, refit_top_k=refit_top_k
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
@@ -222,8 +273,16 @@ def _run_native_generation(
     # sweep (`_grid_`) selects the true CV-best, whose config_name is the WINNING variant's name (NOT
     # index 0): recover it by matching the winner's refit model params against the per-variant model params
     # (aligned with `variant_config_names`), so the winner is content-paired exactly like the operator path.
+    catalog_map = _native_param_config_map_from_catalog(
+        outcome.get("variant_catalog", []), variant_config_names, variant_model_params,
+    )
+    if not refit and variant_config_names and len(catalog_map) != len(variant_config_names):
+        raise DagMlUnsupported("native CV-only parameter sweep did not expose an unambiguous variant-to-parameter mapping")
     winner_config_name = _native_param_winner_config_name(outcome["refit_artifacts"], variant_config_names, variant_model_params)
-    variant_config_map = _native_variant_config_map(outcome["scores"], variant_config_names, winner_config_name) if variant_config_names else None
+    variant_config_map = (
+        catalog_map or _native_variant_config_map(outcome["scores"], variant_config_names, winner_config_name)
+        if variant_config_names else None
+    )
 
     # FILL the strict direct-block rows with this run's per-sample y_pred/y_true/sample_indices (the
     # winner's refit `(final, train)` + `(final, test)` + per-fold OOF; each loser's per-fold OOF). dag-ml
@@ -236,10 +295,18 @@ def _run_native_generation(
         (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", []) if report["partition"] == "final" and report.get("fold_id") is None),
         None,
     )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", []) if report["partition"] == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id)
-    return _scores_to_run_result(
-        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+    result = _scores_to_run_result(
+        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"], emit_all_refits=refit_top_k > 1, refit_name_suffix=f"_refit_rmsecvt{refit_top_k}" if refit_top_k > 1 else "_refit"
     )
+    if refit_top_k > 1:
+        result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
+    return result
 
 
 def _run_native_operator_generation(
@@ -258,14 +325,17 @@ def _run_native_operator_generation(
     config_name: str = "",
     variant_config_names: list[str] | None = None,
     random_state: int | None = None,
+    refit: bool = True,
+    refit_top_k: int = 1,
 ) -> RunResult:
     """Run a FLAT-SINGLE operator ``_or_`` as ONE native dag-ml operator-SELECT + refit run (#23 Phase 7).
 
     The generator sits on a TRANSFORM step (the model is concrete): the bridge lowers the ``_or_`` to a
     compat ``Generator`` step, dag-ml's ``compile_operator_variant_models`` expands the operator-variant
-    models, and the in-process binding scores EACH choice by its cross-fold OOF ``metric``, refits ONLY the
-    winner, and surfaces every variant's validation reports — each stamped with the cross-language
-    ``variant_label`` content fingerprint (the WINNER too). ``bundle.scores`` is mapped to the full
+    models, and the in-process binding scores EACH choice by its cross-fold OOF ``metric``, refits the
+    requested top-k candidates on their own pruned plans, and surfaces every variant's validation reports.
+    Each report carries the cross-language ``variant_label`` content fingerprint (the WINNER too).
+    ``bundle.scores`` is mapped to the full
     PER-VARIANT legacy table, keyed CONTENT-WISE (``variant_label`` → ``config_name``), so a sweep's
     num_predictions + winner identity match the Python-expand path.
 
@@ -343,7 +413,7 @@ def _run_native_operator_generation(
     dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit, refit_top_k=refit_top_k
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml operator-generation run failed")
@@ -358,6 +428,11 @@ def _run_native_operator_generation(
         (report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "final" and report.get("fold_id") is None),
         None,
     )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
     # Split the surfaced frames PER VARIANT so a LOSER variant's per-fold val rows fill from ITS OWN
     # validation (OOF) predictions, not just the winner's. dag-ml surfaces each loser's per-fold val
     # blocks re-tagged with the loser's variant_id (top-level in-process / `lineage.variant_id`
@@ -365,9 +440,12 @@ def _run_native_operator_generation(
     # (the winner's OOF-average frame) default to the winner. NO cross-variant leakage: a frame routes
     # to its OWN variant only.
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
-    return _scores_to_run_result(
-        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+    result = _scores_to_run_result(
+        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"], emit_all_refits=refit_top_k > 1, refit_name_suffix=f"_refit_rmsecvt{refit_top_k}" if refit_top_k > 1 else "_refit"
     )
+    if refit_top_k > 1:
+        result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
+    return result
 
 
 def _run_concrete_scores(
@@ -382,6 +460,8 @@ def _run_concrete_scores(
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
     random_state: int | None = None,
+    refit: bool = True,
+    metric: str = "rmse",
 ) -> tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, results, identity, refit_artifacts)``.
 
@@ -408,7 +488,7 @@ def _run_concrete_scores(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
@@ -431,6 +511,7 @@ def _run_concrete(
     dataset_pickle: str | None = None,
     config_name: str = "",
     random_state: int | None = None,
+    refit: bool = True,
 ) -> RunResult:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
 
@@ -438,7 +519,7 @@ def _run_concrete(
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
     scores, model_name, results, identity, refit_artifacts = _run_concrete_scores(
-        pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
+        pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state, refit=refit, metric=metric
     )
     return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
 
@@ -621,7 +702,7 @@ def _run_source_concat_merge(
     )
 
 
-def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, refit: bool = True) -> RunResult:
     """Run a REPETITION (sample-grain grouped) pipeline as ONE native dag-ml CV+refit run.
 
     The CV universe is the repetition ROWS of the train partition (each stored row is its own
@@ -643,7 +724,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
 
     variants = expand_spec(pipeline)
     results = [
-        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state)
+        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state, refit=refit)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -662,26 +743,28 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
     return min(results, key=_cv_rank)
 
 
-def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, refit: bool = True) -> RunResult:
     """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
+    from .exclude import _resolve_exclude
+
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps, pool, excluded = _resolve_exclude(steps, spectro)
     _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
-    pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_group_folds(splitter, spectro, pool)
     group_by_sample = _split_group_grain(splitter, spectro, pool) or _repetition_grain(spectro, pool)
-    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded, group_by_sample=group_by_sample)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml repetition run failed")
@@ -1085,8 +1168,8 @@ def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any, context: 
     SampleAugmentationController().execute(step_info, spectro, context, runtime_context, mode="train")
 
 
-def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list[int], context: Any | None = None) -> list[tuple[int, np.ndarray]]:
-    """Augment a fold's TRAIN only and return the synthetic children as ``[(origin_int, child_X(1,F)), ...]``.
+def _augment_fold_train(aug_steps: list[dict[str, Any]], spectro: Any, fold_train: list[int], context: Any | None = None, chart_snapshots: list[Any] | None = None) -> list[tuple[int, np.ndarray | list[np.ndarray]]]:
+    """Augment a fold's TRAIN only and return each child's source-preserving features.
 
     A FRESH copy of ``spectro`` is restricted so ``partition: train`` is exactly ``fold_train`` (the
     rest held out), then nirs4all's real augmentation machinery runs — so a STATEFUL/SUPERVISED/balanced
@@ -1105,17 +1188,20 @@ def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list
     fold_ds._invalidate_content_hash()  # noqa: SLF001
 
     before = {int(s) for s in fold_ds.index_column("sample", {})}
-    _apply_sample_augmentation(aug_step, fold_ds, context)
+    for aug_step in aug_steps:
+        _apply_sample_augmentation(aug_step, fold_ds, context)
+        if chart_snapshots is not None:
+            chart_snapshots.append(copy.deepcopy(fold_ds))
     samples = [int(s) for s in fold_ds.index_column("sample", {})]
     origins = [int(o) for o in fold_ds.index_column("origin", {})]
-    children: list[tuple[int, np.ndarray]] = []
+    children: list[tuple[int, np.ndarray | list[np.ndarray]]] = []
     for sample_int, origin_int in zip(samples, origins, strict=True):
         if sample_int not in before and sample_int != origin_int:
-            children.append((origin_int, np.asarray(fold_ds.x_rows([sample_int], layout="2d"), dtype=float).reshape(1, -1)))
+            children.append((origin_int, fold_ds.x_rows([sample_int], layout="3d", concat_source=False)))
     return children
 
 
-def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int], context: Any | None = None) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
+def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int], context: Any | None = None, chart_snapshots: list[Any] | None = None) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
     """Augment fold-by-fold + a full-train refit pass; insert all children into ``spectro`` in place.
 
     For each fold (key ``"fold{i}"``, matching :func:`build_fold_set`'s fold ids) and the full-train
@@ -1130,18 +1216,24 @@ def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_fold
     they are kept fold-distinct host-side via the returned map — a fold's children only ever join that
     fold's fit-train (see :meth:`MaterializationResolver.expand_with_augmented_children`).
     """
-    transform_label = _augmentation_label(aug_step)
+    transform_label = "+".join(_augmentation_label(step) for step in aug_steps)
     passes: list[tuple[str, list[int]]] = [(f"fold{index}", train_ints) for index, (train_ints, _val) in enumerate(base_folds)]
     passes.append(("refit", base_train))
 
     fold_children: dict[str, dict[int, list[int]]] = {}
     augmentation_by_sample: dict[int, str] = {}
+    base_spectro = copy.deepcopy(spectro)
     for fold_label, fold_train in passes:
-        children = _augment_fold_train(aug_step, spectro, fold_train, context)
+        children = _augment_fold_train(aug_steps, base_spectro, fold_train, context, chart_snapshots if fold_label == "refit" else None)
         if not children:
             fold_children[fold_label] = {}
             continue
-        rows = np.stack([child_x for _origin, child_x in children])  # (n, 1, F), one row per child
+        first_child = children[0][1]
+        rows: np.ndarray | list[np.ndarray]
+        if isinstance(first_child, list):
+            rows = [np.concatenate([child_x[source] for _, child_x in children], axis=0) for source in range(len(first_child))]
+        else:
+            rows = np.concatenate([child_x for _, child_x in children], axis=0)
         indexes = [{"partition": "train", "origin": origin_int, "augmentation": f"{transform_label}|{fold_label}"} for origin_int, _x in children]
         before = {int(s) for s in spectro.index_column("sample", {})}
         spectro.add_samples_batch(data=rows, indexes_list=indexes)
@@ -1156,30 +1248,250 @@ def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_fold
     return fold_children, augmentation_by_sample
 
 
-def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any) -> Any:
-    """Replay concrete transforms before sample augmentation and return their context."""
+def _build_fold_local_prefix_views(
+    prefix: list[Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]],
+    base_train: list[int], context: Any | None = None, chart_snapshots: list[Any] | None = None,
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = None,
+    chart_transform_offset: int = 0,
+) -> tuple[dict[str, dict[int, list[int]]], dict[int, str], dict[str, tuple[Any, dict[int, int], set[int]]], list[Any]]:
+    """Run the ordered augmentation prefix in every train fold and in the refit pool.
+
+    The master dataset owns stable wire identities and targets. Each fold copy owns its fitted
+    preprocessing and synthetic spectra; ``local_ids`` translates master child ids back to the
+    corresponding child in that copy. No validation row participates in a fold's augmentation or
+    fitted preprocessing, though its transformed features remain available for prediction.
+    """
+    label = "+".join(_augmentation_label(step) for step in prefix if _is_augmentation_step(step))
+    passes = [(f"fold{index}", train) for index, (train, _val) in enumerate(base_folds)]
+    passes.append(("refit", base_train))
+    fold_children: dict[str, dict[int, list[int]]] = {}
+    augmentation_by_sample: dict[int, str] = {}
+    feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] = {}
+    replay_stages: list[Any] = []
+    base_spectro = copy.deepcopy(spectro)
+    for fold_label, fold_train in passes:
+        fold_ds = copy.deepcopy(base_spectro)
+        fold_ds._indexer.update_by_filter({"partition": "train"}, {"partition": "hold"})  # noqa: SLF001
+        fold_ds._indexer.update_by_indices(list(fold_train), {"partition": "train"})  # noqa: SLF001
+        fold_ds._invalidate_content_hash()  # noqa: SLF001
+        before = {int(sample) for sample in fold_ds.index_column("sample", {})}
+        stages = _materialize_augmentation_prefix(
+            prefix, fold_ds, copy.deepcopy(context),
+            chart_snapshots if fold_label == "refit" else None,
+            chart_transform_snapshots if fold_label == "refit" else None,
+            transform_offset=chart_transform_offset,
+        )
+        if fold_label == "refit":
+            replay_stages = stages
+        samples = [int(sample) for sample in fold_ds.index_column("sample", {})]
+        origins = [int(origin) for origin in fold_ds.index_column("origin", {})]
+        local_origins = dict(zip(samples, origins, strict=True))
+        new_samples = [sample for sample in samples if sample not in before]
+        roots: list[int] = []
+        for child in new_samples:
+            root = local_origins[child]
+            visited = {child}
+            while root not in before:
+                if root in visited or root not in local_origins:
+                    raise ValueError(f"invalid augmentation origin chain for sample {child}")
+                visited.add(root)
+                root = local_origins[root]
+            roots.append(root)
+        local_ids: dict[int, int] = {}
+        by_origin: dict[int, list[int]] = {}
+        if new_samples:
+            # Master rows are identity/target placeholders only; all feature requests for this
+            # regime are served from the selected fold copy by MaterializationResolver.
+            placeholder_rows = [spectro.x_rows([root], layout="3d", concat_source=False) for root in roots]
+            first = placeholder_rows[0]
+            rows = ([np.concatenate([row[source] for row in placeholder_rows], axis=0) for source in range(len(first))]
+                    if isinstance(first, list) else np.concatenate(placeholder_rows, axis=0))
+            indexes = [{"partition": "train", "origin": root, "augmentation": f"{label}|{fold_label}"} for root in roots]
+            master_before = {int(sample) for sample in spectro.index_column("sample", {})}
+            spectro.add_samples_batch(data=rows, indexes_list=indexes)
+            master_new = [int(sample) for sample in spectro.index_column("sample", {}) if int(sample) not in master_before]
+            if len(master_new) != len(new_samples):
+                raise ValueError("fold-local augmentation changed child count while assigning identities")
+            for master_child, local_child, root in zip(master_new, new_samples, roots, strict=True):
+                local_ids[master_child] = local_child
+                by_origin.setdefault(root, []).append(master_child)
+                augmentation_by_sample[master_child] = label
+        fold_children[fold_label] = by_origin
+        excluded_local = {int(sample) for sample in fold_ds.index_column("sample", {"excluded": True})}
+        excluded_master = (excluded_local & before) | {master for master, local in local_ids.items() if local in excluded_local}
+        feature_views[fold_label] = (fold_ds, local_ids, excluded_master)
+    return fold_children, augmentation_by_sample, feature_views, replay_stages
+
+
+def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any, context: Any | None = None, chart_capture: Callable[[Any, Any], None] | None = None) -> tuple[Any, list[Any]]:
+    """Materialize preceding transforms/exclusions and capture transform replay in order."""
     from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
     from nirs4all.pipeline.steps.step_runner import StepRunner
 
-    context = ExecutionContext(
-        selector=DataSelector(partition=None, processing=[["raw"]] * spectro.features_sources()),
-        state=PipelineState(),
-        metadata=StepMetadata(),
-    )
+    if context is None:
+        context = ExecutionContext(
+            selector=DataSelector(partition=None, processing=[["raw"]] * spectro.features_sources()),
+            state=PipelineState(),
+            metadata=StepMetadata(),
+        )
     if not pre_aug_steps:
-        return context
+        return context, []
 
     _assert_supported_operators(pre_aug_steps)
+    replay_stages: list[Any] = []
     runner = StepRunner(verbose=0, mode="train")
     runtime_context = RuntimeContext()
     runtime_context.step_runner = runner
     runtime_context.save_artifacts = False
     runtime_context.save_charts = False
-    for step in pre_aug_steps:
-        result = runner.execute(step, spectro, context, runtime_context, prediction_store=None)
-        context = result.updated_context
-        runtime_context.step_number += 1
-    return context
+    index = 0
+    while index < len(pre_aug_steps):
+        step = pre_aug_steps[index]
+        from .detect import _simple_duplication_merge_mode
+
+        branch_pair = (
+            isinstance(step, dict) and "branch" in step
+            and index + 1 < len(pre_aug_steps)
+            and _simple_duplication_merge_mode(pre_aug_steps[index + 1]) == "features"
+        )
+        replay_steps = pre_aug_steps[index:index + 2] if branch_pair else [step]
+        changes_x = not (isinstance(step, dict) and any(key in step for key in ("exclude", "tag", "y_processing")))
+        raw_train = np.asarray(spectro.x({"partition": "train"}, layout="2d", include_augmented=True)).copy() if changes_x else None
+        replay_stage = _capture_pre_augmentation_replay(replay_steps, spectro) if changes_x else None
+        for replay_step in replay_steps:
+            result = runner.execute(replay_step, spectro, context, runtime_context, prediction_store=None)
+            context = result.updated_context
+            runtime_context.step_number += 1
+        _verify_pre_augmentation_replay(replay_stage, spectro, raw_train)
+        if replay_stage is not None:
+            replay_stages.append(replay_stage)
+        if changes_x and chart_capture is not None:
+            chart_capture(replay_steps[-1], spectro)
+        index += len(replay_steps)
+    return context, replay_stages
+
+
+class _SourcePreAugmentationReplay(TransformerMixin, BaseEstimator):
+    """Replay fitted pre-augmentation transforms on each raw source block."""
+
+    def __init__(self, chains: list[Any], input_widths: list[int]) -> None:
+        self.chains = chains
+        self.input_widths = input_widths
+
+    def fit(self, X: np.ndarray, y: Any = None) -> _SourcePreAugmentationReplay:
+        """Refit the per-source chains when a captured predictor is retrained."""
+        start = 0
+        for width, chain in zip(self.input_widths, self.chains, strict=True):
+            chain.fit(np.asarray(X)[:, start:start + width], y)
+            start += width
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Split the raw fusion matrix, transform sources, then concatenate."""
+        x = np.asarray(X)
+        if x.shape[1] != sum(self.input_widths):
+            raise ValueError("pre-augmentation source widths differ from the fitted layout")
+        blocks = []
+        start = 0
+        for width, chain in zip(self.input_widths, self.chains, strict=True):
+            block = x[:, start:start + width]
+            for _, transformer in chain.steps:
+                block = np.asarray(transformer.transform(block))
+            blocks.append(block)
+            start += width
+        return np.concatenate(blocks, axis=1)
+
+
+def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> Any | None:
+    """Fit the same prefix on raw training rows for captured predictor replay."""
+    if not pre_aug_steps:
+        return None
+    from sklearn.base import clone
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.concat import FeatureConcat
+    from nirs4all.pipeline.dagml.node_runner import _CoordinateTransform
+    from nirs4all.pipeline.dagml.steps import _needs_wavelength_injection
+    from nirs4all.pipeline.dagml_bridge import _lower_feature_augmentation
+
+    _assert_supported_operators(pre_aug_steps)
+    branch_merge = len(pre_aug_steps) == 2 and isinstance(pre_aug_steps[0], dict) and "branch" in pre_aug_steps[0]
+    if branch_merge:
+        from .detect import _duplication_branch_bodies, _selected_duplication_feature_branches, _simple_duplication_merge_mode
+
+        branches = _duplication_branch_bodies(pre_aug_steps[0])
+        mode = _simple_duplication_merge_mode(pre_aug_steps[1])
+        if branches is None or mode != "features":
+            raise DagMlUnsupported("pre-augmentation branch replay requires a duplication feature merge")
+        branches = _selected_duplication_feature_branches(branches, pre_aug_steps[1])
+        if branches is None:
+            raise DagMlUnsupported("pre-augmentation branch replay has an invalid feature selection")
+    try:
+        # A wrapped preprocessing step carries fit-scope metadata, not estimator
+        # parameters. Mirror the legacy controller's fit cohort while keeping the
+        # full feature chain available for prediction replay.
+        fit_on_all = any(isinstance(step, dict) and step.get("fit_on_all") is True
+                         for step in pre_aug_steps)
+        fit_selector = {} if fit_on_all else {"partition": "train"}
+        y = np.asarray(spectro.y(fit_selector, include_augmented=True))
+        raw_blocks = spectro.x(fit_selector, layout="2d", concat_source=False, include_augmented=True)
+        blocks = raw_blocks if isinstance(raw_blocks, list) else [raw_blocks]
+        chains = []
+        for source_index, block in enumerate(blocks):
+            transforms = (
+                [_branch_merge_transformer_step(cast(list[list[Any]], branches), "features")]
+                if branch_merge else [
+                    FeatureConcat(**_lower_feature_augmentation(step)["params"])
+                    if isinstance(step, dict) and "feature_augmentation" in step else
+                    clone(step["preprocessing"] if isinstance(step, dict) and "preprocessing" in step else step)
+                    for step in pre_aug_steps
+                ]
+            )
+            transforms = [
+                _CoordinateTransform(transform, tuple(str(value) for value in spectro.wavelengths_cm1(source_index)), source_index)
+                if _needs_wavelength_injection(transform) else transform
+                for transform in transforms
+            ]
+            chain = make_pipeline(*transforms)
+            chain.fit(np.asarray(block), y[:, 0] if y.ndim > 1 else y)
+            chains.append(chain)
+    except (TypeError, AttributeError) as exc:
+        raise DagMlUnsupported(f"cannot capture pre-augmentation transform replay: {exc}") from exc
+    if len(chains) == 1:
+        return chains[0]
+    return _SourcePreAugmentationReplay(chains, [np.asarray(block).shape[1] for block in blocks])
+
+
+def _attach_pre_augmentation_replay(result: RunResult, stages: list[Any]) -> RunResult:
+    """Prepend the fitted, verified prefix to each captured final model."""
+    if not stages:
+        return result
+    from sklearn.pipeline import Pipeline
+
+    pre_steps = [
+        (f"pre_augmentation_{index}", stage if isinstance(stage, _SourcePreAugmentationReplay) else stage.steps[0][1])
+        for index, stage in enumerate(stages)
+    ]
+    for artifact in result._dagml_refit_artifacts:  # noqa: SLF001 - captured host artifact contract
+        artifact["estimator"] = Pipeline([*pre_steps, ("model", artifact["estimator"])])
+    return result
+
+
+def _verify_pre_augmentation_replay(chain: Any | None, spectro: Any, raw_train: np.ndarray | None) -> None:
+    """Refuse an export prefix that differs from the data the controller materialized."""
+    if chain is None or raw_train is None:
+        return
+    actual = np.asarray(spectro.x({"partition": "train"}, layout="2d", include_augmented=True))
+    if isinstance(chain, _SourcePreAugmentationReplay):
+        expected = chain.transform(raw_train)
+    else:
+        expected = raw_train
+        for _, transformer in chain.steps:
+            expected = np.asarray(transformer.transform(expected))
+    # Fitting a float32 projection twice can differ by a few ulps near zero even when the
+    # production controller and export replay use the same training rows and operator.
+    if actual.shape != expected.shape or not np.allclose(actual, expected, rtol=1e-5, atol=1e-5):
+        raise DagMlUnsupported("pre-augmentation transform replay differs from the fitted controller output")
 
 
 def _augmentation_grain(spectro: Any, transform_label: str) -> tuple[list[int], dict[int, str]]:
@@ -1280,7 +1592,311 @@ def _augmentation_is_leakage_free(aug_step: dict[str, Any]) -> bool:
     return bool(transformers) and all(_operator_is_stateless(transformer) for transformer in transformers)
 
 
-def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _materialize_augmentation_prefix(
+    prefix: list[Any], spectro: Any, context: Any | None = None,
+    chart_snapshots: list[Any] | None = None,
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = None,
+    *, transform_offset: int = 0,
+) -> list[Any]:
+    """Execute transforms and augmentation in public order, capturing prediction replay."""
+    replay_stages: list[Any] = []
+    pending: list[Any] = []
+    augmentation_index = 0
+    transform_index = transform_offset
+
+    def capture_transform(_step: Any, dataset: Any) -> None:
+        nonlocal transform_index
+        transform_index += 1
+        if chart_transform_snapshots is not None:
+            chart_transform_snapshots[(augmentation_index, transform_index)] = copy.deepcopy(dataset)
+
+    for step in prefix:
+        if _is_augmentation_step(step):
+            context, stages = _apply_pre_augmentation_steps(pending, spectro, context, capture_transform)
+            replay_stages.extend(stages)
+            pending = []
+            _apply_sample_augmentation(step, spectro, context)
+            augmentation_index += 1
+            if chart_snapshots is not None:
+                chart_snapshots.append(copy.deepcopy(spectro))
+        else:
+            pending.append(step)
+    if pending:
+        _context, stages = _apply_pre_augmentation_steps(pending, spectro, context, capture_transform)
+        replay_stages.extend(stages)
+    return replay_stages
+
+
+def _post_augmentation_exclusion_prefix_length(steps: list[Any]) -> int:
+    """How much of a post-augmentation transform/exclude prefix runs before modeling."""
+    from .detect import _is_exclude_step
+
+    transform_end = 0
+    for step in steps:
+        is_transform = (
+            isinstance(step, dict) and "preprocessing" in step
+        ) or (not isinstance(step, dict) and hasattr(step, "fit") and hasattr(step, "transform")
+              and not hasattr(step, "predict"))
+        if not (is_transform or _is_exclude_step(step)):
+            break
+        transform_end += 1
+    exclude_indices = [index for index, step in enumerate(steps) if _is_exclude_step(step)]
+    if not exclude_indices:
+        return transform_end
+    end = exclude_indices[-1] + 1
+    if any(_is_split_step(step) or (isinstance(step, dict) and any(key in step for key in ("model", "branch", "merge"))) for step in steps[:end]):
+        raise DagMlUnsupported("exclude after a splitter, model or branch cannot be materialized before augmentation training")
+    return max(end, transform_end)
+
+
+def _run_augmentation_full_train(
+    pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str,
+    venv_python: str, run_dir: Path, *, metric: str, task_type: str,
+    config_name: str, random_state: int | None = None,
+    train_sample_ids: list[int] | None = None,
+) -> RunResult:
+    """Apply sample augmentation before a DAG-owned full-training phase."""
+    from .full_train import run_full_train
+
+    aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
+    from .detect import _is_exclude_step
+
+    pre_aug_steps = pipeline[:aug_indices[0]]
+    early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    next_model = next((index for index in range(aug_indices[-1] + 1, len(pipeline))
+                       if isinstance(pipeline[index], dict) and "model" in pipeline[index]), len(pipeline))
+    if early_models and (
+        pre_aug_steps[-len(early_models):] != early_models
+        or len(aug_indices) > 1
+        or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
+        or any(not _is_split_step(step) for step in pipeline[aug_indices[-1] + 1:next_model])
+        or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
+    ):
+        return _run_interleaved_full_train_checkpoints(
+            pipeline, spectro, dataset_arg, cli, venv_python, run_dir,
+            metric=metric, task_type=task_type, config_name=config_name,
+            random_state=random_state, train_sample_ids=train_sample_ids,
+        )
+    chart_snapshots: list[Any] | None = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = {} if chart_snapshots is not None else None
+    after_aug = aug_indices[-1] + 1
+    materialize_end = after_aug + _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
+    pre_aug_steps = pipeline[:aug_indices[0]]
+    checkpoint_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    if checkpoint_steps:
+        if (len(aug_indices) != 1 or materialize_end != after_aug
+                or pre_aug_steps[-len(checkpoint_steps):] != checkpoint_steps
+                or not any(isinstance(step, dict) and "model" in step for step in pipeline[after_aug:])):
+            raise DagMlUnsupported("sequential full-training checkpoints across this augmentation shape need distinct native fit views")
+        materialize_prefix = [*pre_aug_steps[:-len(checkpoint_steps)], *pipeline[aug_indices[0]:materialize_end]]
+    else:
+        materialize_prefix = pipeline[:materialize_end]
+    replay_stages = _materialize_augmentation_prefix(
+        materialize_prefix, spectro,
+        chart_snapshots=chart_snapshots, chart_transform_snapshots=chart_transform_snapshots,
+    )
+    # The host model still needs the Y transform: materializing the prefix for the
+    # augmentation controller does not add a Y node to the native model graph.
+    y_prefix_steps = [step for step in pipeline[:aug_indices[0]] if isinstance(step, dict) and "y_processing" in step]
+    post_aug_steps = [*y_prefix_steps, *checkpoint_steps, *pipeline[materialize_end:]]
+    from .detect import _detect_duplication_branch
+
+    duplication = _detect_duplication_branch(post_aug_steps)
+    if duplication is not None and duplication[1] == "mean":
+        post_aug_steps = [_branch_fusion_model_step(duplication[0], duplication[1], task_type)]
+    import pickle
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = run_dir / "augmented_dataset.pkl"
+    pickle_path.write_bytes(pickle.dumps(spectro))
+    result = run_full_train(
+        post_aug_steps, spectro, metric=metric, task_type=task_type,
+        config_name=config_name, augmented_train=True,
+        cli=cli, venv_python=venv_python, dataset_path=dataset_arg,
+        dataset_pickle=str(pickle_path), workdir=run_dir / "refit",
+        random_state=random_state, train_sample_ids=train_sample_ids,
+        base_fit_model_count=len(checkpoint_steps),
+    )
+    result = _attach_pre_augmentation_replay(result, replay_stages)
+    result._dagml_chart_aug_snapshots = chart_snapshots  # type: ignore[attr-defined]
+    result._dagml_chart_transform_snapshots = chart_transform_snapshots  # type: ignore[attr-defined]
+    return result
+
+
+def _run_interleaved_full_train_checkpoints(
+    pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str,
+    venv_python: str, run_dir: Path, *, metric: str, task_type: str,
+    config_name: str, random_state: int | None,
+    train_sample_ids: list[int] | None,
+) -> RunResult:
+    """Project independent unsplit checkpoint campaigns into one public result."""
+    import inspect
+    import pickle
+
+    import dag_ml
+
+    from nirs4all.data.predictions import Predictions
+
+    from .full_train import run_full_train
+
+    model_indices = [index for index, step in enumerate(pipeline) if isinstance(step, dict) and "model" in step]
+    if len(model_indices) < 2:
+        raise DagMlUnsupported("interleaved full-training checkpoints require at least two models")
+    campaigns: list[RunResult] = []
+    for candidate_index, model_index in enumerate(model_indices):
+        candidate = [
+            step for index, step in enumerate(pipeline[:model_index + 1])
+            if index == model_index or not (isinstance(step, dict) and "model" in step)
+        ]
+        candidate_spectro = copy.deepcopy(spectro)
+        candidate_dir = run_dir / f"checkpoint{candidate_index}"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        if any(_is_augmentation_step(step) for step in candidate):
+            campaigns.append(_run_augmentation_full_train(
+                candidate, candidate_spectro, dataset_arg, cli, venv_python,
+                candidate_dir, metric=metric, task_type=task_type,
+                config_name=config_name, random_state=random_state,
+                train_sample_ids=train_sample_ids,
+            ))
+        else:
+            pickle_path = candidate_dir / "checkpoint_dataset.pkl"
+            pickle_path.write_bytes(pickle.dumps(candidate_spectro))
+            campaigns.append(run_full_train(
+                candidate, candidate_spectro, metric=metric, task_type=task_type,
+                config_name=config_name, cli=cli, venv_python=venv_python,
+                dataset_path=dataset_arg, dataset_pickle=str(pickle_path),
+                workdir=candidate_dir / "refit", random_state=random_state,
+                train_sample_ids=train_sample_ids,
+            ))
+
+    candidate_scores = []
+    for index, campaign in enumerate(campaigns):
+        reports = cast(dict[str, Any], campaign._dagml_score_set)["reports"]
+        test_report = next((report for report in reports if report["partition"] == "test" and report["level"] == "sample"), None)
+        fit_report = next((report for report in reports if report["partition"] == "final" and report["level"] == "sample"), None)
+        report = test_report or fit_report
+        if report is None:
+            raise ValueError("full-training checkpoint lacks a native score report")
+        candidate_scores.append({"candidate_id": str(index), "metrics": {metric: float(report["metrics"][metric])}})
+    decision = dag_ml.select_candidate(
+        {"id": "select:interleaved_full_train_checkpoints", "metric": {
+            "name": metric, "objective": "maximize" if is_higher_better(metric) else "minimize",
+        }},
+        candidate_scores,
+    )
+    selected_index = int(decision["selected_candidate_id"])
+    accepted_fields = set(inspect.signature(Predictions.add_prediction).parameters) - {"self"}
+    predictions = Predictions()
+    for campaign in campaigns:
+        for row in campaign.predictions.filter_predictions():
+            predictions.add_prediction(**{key: value for key, value in row.items() if key in accepted_fields})
+    predictions.flush()
+    selected = campaigns[selected_index]
+    result = RunResult(predictions=predictions, per_dataset=copy.deepcopy(selected.per_dataset))
+    result._dagml_score_set = selected._dagml_score_set
+    result._dagml_checkpoint_score_sets = [campaign._dagml_score_set for campaign in campaigns]  # type: ignore[attr-defined]
+    result._dagml_node_results = selected._dagml_node_results
+    result._dagml_refit_artifacts = selected._dagml_refit_artifacts
+    chart_source = next((campaign for campaign in reversed(campaigns) if hasattr(campaign, "_dagml_chart_aug_snapshots")), None)
+    if chart_source is not None:
+        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots  # type: ignore[attr-defined]
+        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots  # type: ignore[attr-defined]
+    return result
+
+
+def _run_interleaved_augmentation_checkpoints(
+    pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str,
+    venv_python: str, run_dir: Path, metric: str, task_type: str,
+    config_name: str, random_state: int | None, refit: bool,
+) -> RunResult:
+    """Run independent legacy checkpoints as separate native campaigns.
+
+    A transform or exclusion between checkpoints changes the data seen by the
+    later model. In particular an exclusion can change its validation FoldSet.
+    The native campaign has one FoldSet, so each prefix gets its own native
+    graph and envelope; core SELECT chooses the exported checkpoint.
+    """
+    import pickle
+
+    import dag_ml
+
+    from .detect import _is_exclude_step
+    from .result import _variant_cv_score
+
+    model_indices = [index for index, step in enumerate(pipeline) if isinstance(step, dict) and "model" in step]
+    if len(model_indices) < 2:
+        raise DagMlUnsupported("interleaved augmentation checkpoints require at least two models")
+    campaigns: list[tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]] = []
+    chart_source: RunResult | None = None
+    for candidate_index, model_index in enumerate(model_indices):
+        # Legacy's ordinary model steps are independent checkpoints. Preserve
+        # every data-changing predecessor, omitting only earlier model steps.
+        candidate = [
+            step for index, step in enumerate(pipeline[:model_index + 1])
+            if index == model_index or not (isinstance(step, dict) and "model" in step)
+        ]
+        splitter_steps = [step for step in candidate if _is_split_step(step)]
+        if len(splitter_steps) != 1:
+            raise DagMlUnsupported("interleaved checkpoints require one shared public splitter")
+        original_folds = None
+        # An exclusion after augmentation must finish before the later model's
+        # splitter. Keep the public splitter's ORIGINAL fold assignment and
+        # filter excluded ids within each side, as legacy does when its splitter
+        # ran before the exclusion step.
+        if any(_is_exclude_step(step) for step in candidate):
+            original_folds = _build_folds(
+                splitter_steps[0], spectro, _split_base_samples(spectro), set(),
+            )
+            candidate = [step for step in candidate if not _is_split_step(step)]
+            candidate.insert(-1, splitter_steps[0])
+        candidate_spectro = copy.deepcopy(spectro)
+        candidate_dir = run_dir / f"checkpoint{candidate_index}"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        if any(_is_augmentation_step(step) for step in candidate):
+            capture: dict[str, Any] = {}
+            candidate_result = _run_augmentation(
+                candidate, candidate_spectro, dataset_arg, cli, venv_python,
+                candidate_dir, metric, task_type, config_name=config_name,
+                random_state=random_state, capture=capture, refit=refit,
+                base_folds_override=original_folds,
+            )
+            campaigns.append((
+                capture["scores"], capture["model_name"], capture["results"],
+                capture["identity"], capture["refit_artifacts"],
+            ))
+            chart_source = candidate_result
+        else:
+            pickle_path = candidate_dir / "checkpoint_dataset.pkl"
+            pickle_path.write_bytes(pickle.dumps(candidate_spectro))
+            campaigns.append(_run_concrete_scores(
+                candidate, candidate_spectro, dataset_arg, cli, venv_python,
+                candidate_dir, dataset_pickle=str(pickle_path),
+                random_state=random_state, refit=refit, metric=metric,
+            ))
+
+    decision = dag_ml.select_candidate(
+        {"id": "select:interleaved_augmentation_checkpoints", "metric": {
+            "name": metric, "objective": "maximize" if is_higher_better(metric) else "minimize",
+        }},
+        [{"candidate_id": str(index), "metrics": {metric: _variant_cv_score(scores, metric)}}
+         for index, (scores, *_rest) in enumerate(campaigns)],
+    )
+    result = _project_operator_sweep(
+        [(scores, model_name) for scores, model_name, *_rest in campaigns],
+        spectro.name, metric, task_type, task_type != "regression",
+        [config_name] * len(campaigns),
+        results_by_index=[results for _scores, _name, results, _identity, _artifacts in campaigns],
+        identities_by_index=[identity for _scores, _name, _results, identity, _artifacts in campaigns],
+        refit_artifacts_by_index=[artifacts for _scores, _name, _results, _identity, artifacts in campaigns],
+        selected_index=int(decision["selected_candidate_id"]), emit_all_refits=True,
+    )
+    if chart_source is not None:
+        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots  # type: ignore[attr-defined]
+        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots  # type: ignore[attr-defined]
+    return result
+
+
+def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None, capture: dict[str, Any] | None = None, refit: bool = True, base_folds_override: list[tuple[list[int], list[int]]] | None = None) -> RunResult:
     """Run a ``sample_augmentation`` pipeline as ONE native dag-ml CV+refit on augmented train.
 
     Adds the synthetic train rows (real augmentation machinery), builds BASE-grain folds (each base
@@ -1301,34 +1917,137 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
       the dataset so the adapter expands the right children per fold (#32). This is what makes the
       stateful case (mixup neighbors, global-mean scatter, class balancing) leakage-safe.
 
-    Only the supported ``transform* + sample_augmentation + splitter + model`` shape runs here; the
-    remaining steps are lowered through the bridge (a raw ``sample_augmentation`` still raises, keeping
-    the coverage boundary). A branch / exclude / generator beside it is out of scope and fails loud.
+    Ordered transforms/exclusions around augmentation are materialized before the native phase;
+    duplicate feature/fusion branches and by-metadata separation use their native model paths.
+    Interleaved fold-local augmentation uses separate, ordered feature views for every fold and refit.
     """
     import pickle
+    chart_snapshots: list[Any] | None = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = {} if chart_snapshots is not None else None
 
-    aug_steps = [step for step in pipeline if _is_augmentation_step(step)]
-    if len(aug_steps) != 1:
-        raise NotImplementedError("engine='dag-ml' supports exactly one sample_augmentation step")
-    aug_index = next(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
-    aug_step = pipeline[aug_index]
+    from .detect import _is_exclude_step
+
+    aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
+    pre_aug_steps = pipeline[:aug_indices[0]]
+    early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    next_model = next((index for index in range(aug_indices[-1] + 1, len(pipeline))
+                       if isinstance(pipeline[index], dict) and "model" in pipeline[index]), len(pipeline))
+    if early_models and (
+        pre_aug_steps[-len(early_models):] != early_models
+        or len(aug_indices) > 1
+        or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
+        or any(not _is_split_step(step) for step in pipeline[aug_indices[-1] + 1:next_model])
+        or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
+    ):
+        return _run_interleaved_augmentation_checkpoints(
+            pipeline, spectro, dataset_arg, cli, venv_python, run_dir,
+            metric, task_type, config_name, random_state, refit,
+        )
+
+    # Legacy accepts the splitter before augmentation. Native folds are built on
+    # base sample ids independently of its position, so route it after the last
+    # augmentation while preserving the order of all data-changing steps.
+    last_aug = max(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
+    early_splitters = [index for index, step in enumerate(pipeline[:last_aug]) if _is_split_step(step)]
+    if early_splitters:
+        if len(early_splitters) != 1 or any(_is_split_step(step) for step in pipeline[last_aug + 1:]):
+            raise DagMlUnsupported("sample augmentation with multiple splitters needs an explicit fold policy")
+        pipeline = list(pipeline)
+        splitter_step = pipeline.pop(early_splitters[0])
+        last_aug = max(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
+        ordered_post_aug = _post_augmentation_exclusion_prefix_length(pipeline[last_aug + 1:])
+        pipeline.insert(last_aug + 1 + ordered_post_aug, splitter_step)
+
+    aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
+    interleaved = aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
+    aug_steps = [pipeline[index] for index in aug_indices]
+    fold_local = not all(_augmentation_is_leakage_free(step) for step in aug_steps)
+    aug_index, after_aug = aug_indices[0], aug_indices[-1] + 1
+    from .detect import _is_exclude_step
+
     pre_aug_steps = pipeline[:aug_index]
-    post_aug_steps = pipeline[aug_index + 1:]
-    prefix_context = _apply_pre_augmentation_steps(pre_aug_steps, spectro)
+    checkpoint_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    if checkpoint_steps:
+        if (not any(isinstance(step, dict) and "model" in step for step in pipeline[after_aug:])
+                or fold_local or interleaved
+                or pre_aug_steps[-len(checkpoint_steps):] != checkpoint_steps):
+            raise DagMlUnsupported("sequential model checkpoints across this augmentation shape need distinct native fit views")
+        pre_aug_steps = pre_aug_steps[:-len(checkpoint_steps)]
+    chart_transform_offset = sum(
+        (isinstance(step, dict) and set(step) == {"preprocessing"})
+        or (not isinstance(step, dict) and hasattr(step, "transform") and not hasattr(step, "predict"))
+        for step in pre_aug_steps
+    )
+    y_prefix_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "y_processing" in step]
+    late_exclusion_length = _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
+    post_aug_steps = pipeline[after_aug + late_exclusion_length:]
+    materialized_early = bool((interleaved or late_exclusion_length) and not fold_local)
+    if checkpoint_steps and materialized_early:
+        raise DagMlUnsupported("sequential model checkpoints with ordered exclusion need distinct native fit views")
+    if materialized_early:
+        replay_stages = _materialize_augmentation_prefix(
+            pipeline[:after_aug + late_exclusion_length], spectro,
+            chart_snapshots=chart_snapshots, chart_transform_snapshots=chart_transform_snapshots,
+        )
+        prefix_context = None
+    else:
+        prefix_context, replay_stages = _apply_pre_augmentation_steps(pre_aug_steps, spectro)
     steps, splitter = _split_pipeline(post_aug_steps)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
-    _assert_supported_operators(steps)
-    steps = _apply_model_params(steps)
+    steps = [*y_prefix_steps, *checkpoint_steps, *steps]
+    if any(_is_exclude_step(step) for step in steps):
+        from .exclude import _resolve_exclude
 
-    base_train = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
-    fold_local = not _augmentation_is_leakage_free(aug_step)
+        first_non_exclude = next((index for index, step in enumerate(steps) if not _is_exclude_step(step)), len(steps))
+        if any(_is_exclude_step(step) for step in steps[first_non_exclude:]):
+            raise DagMlUnsupported("exclude after post-augmentation transforms needs ordered transform materialization")
+        steps, allowed, marked = _resolve_exclude(steps, spectro)
+        allowed_base = set(allowed) - marked
+    else:
+        allowed_base = None
+    from .detect import _detect_duplication_branch
+
+    duplication = _detect_duplication_branch(steps)
+    if duplication is not None:
+        branches, merge_mode = duplication
+        if merge_mode == "features":
+            model_step = next(step for step in steps if isinstance(step, dict) and "model" in step)
+            steps = [_branch_merge_transformer_step(branches, merge_mode), model_step]
+        elif merge_mode == "mean":
+            steps = [_branch_fusion_model_step(branches, merge_mode, task_type)]
+    from .detect import _detect_separation_branch
+
+    separation = _detect_separation_branch(steps)
+    if separation is not None:
+        if allowed_base is not None:
+            raise DagMlUnsupported("separation branch with post-augmentation exclusion needs branch-scoped exclusion views")
+    else:
+        _assert_supported_operators(steps)
+        steps = _apply_model_params(steps)
+
+    base_train = _split_base_samples(spectro)
+    if allowed_base is not None:
+        base_train = [sample for sample in base_train if sample in allowed_base]
+    group_by_sample = _split_group_grain(splitter, spectro, base_train)
+    if _is_repetition_dataset(spectro):
+        group_by_sample = group_by_sample or _repetition_grain(spectro, base_train)
 
     # BASE-grain folds: split the base train pool only; train = base-train, val = base-val. The children
     # are NEVER listed in a fold (the FoldSet stays a clean base-grain OOF partition); they are pulled
     # into fit-train by the host expansion keyed on the origin's fold side. The split runs over the BASE
     # rows only (before any child exists), so the fold partition is identical for both augmentation paths.
-    base_folds = [([base_train[i] for i in train_idx], [base_train[i] for i in val_idx]) for train_idx, val_idx in _split_pool(splitter, spectro, base_train)]
+    if base_folds_override is not None:
+        remaining = set(base_train)
+        base_folds = [
+            ([sample for sample in train if sample in remaining],
+             [sample for sample in validation if sample in remaining])
+            for train, validation in base_folds_override
+        ]
+    elif _is_repetition_dataset(spectro):
+        base_folds = _build_group_folds(splitter, spectro, base_train)
+    else:
+        base_folds = _build_folds(splitter, spectro, base_train, set())
 
     # GLOBAL stateless augmentation (#8): fit once on the whole train (leakage-free only for stateless
     # per-sample augmenters), children shared across all folds (resolver discovers them from identity).
@@ -1336,11 +2055,45 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     # train only, so each fold (+ the full-train refit) has its OWN children — leakage-safe for the
     # stateful case. `fold_children` keys the per-fold expansion; it is pickled for the adapter's resolver.
     fold_children: dict[str, dict[int, list[int]]] | None = None
-    if fold_local:
-        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_step, spectro, base_folds, base_train, prefix_context)
-    else:
-        _apply_sample_augmentation(aug_step, spectro, prefix_context)
-        _augmented_ints, augmentation_by_sample_int = _augmentation_grain(spectro, _augmentation_label(aug_step))
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None
+    if fold_local and (interleaved or late_exclusion_length):
+        fold_children, augmentation_by_sample_int, fold_feature_views, fold_replay = _build_fold_local_prefix_views(
+            pipeline[aug_index:after_aug + late_exclusion_length], spectro, base_folds, base_train,
+            prefix_context, chart_snapshots, chart_transform_snapshots, chart_transform_offset,
+        )
+        replay_stages.extend(fold_replay)
+    elif fold_local:
+        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_steps, spectro, base_folds, base_train, prefix_context, chart_snapshots)
+    elif interleaved and not materialized_early:
+        replay_stages = _materialize_augmentation_prefix(
+            pipeline[:after_aug], spectro,
+            chart_snapshots=chart_snapshots, chart_transform_snapshots=chart_transform_snapshots,
+        )
+    elif not materialized_early:
+        for aug_step in aug_steps:
+            _apply_sample_augmentation(aug_step, spectro, prefix_context)
+            if chart_snapshots is not None:
+                chart_snapshots.append(copy.deepcopy(spectro))
+    if not fold_local:
+        _augmented_ints, augmentation_by_sample_int = _augmentation_grain(spectro, "+".join(_augmentation_label(step) for step in aug_steps))
+
+    if separation is not None:
+        branch_step, branch_body = separation
+        run_dir.mkdir(parents=True, exist_ok=True)
+        pickle_path = run_dir / "augmented_dataset.pkl"
+        pickle_path.write_bytes(pickle.dumps({"dataset": spectro, "fold_children": fold_children, "fold_feature_views": fold_feature_views} if fold_local else spectro))
+        result = _run_separation_branch(
+            post_aug_steps, branch_step, branch_body, spectro, dataset_arg, cli,
+            venv_python, run_dir / "separation", metric, task_type,
+            dataset_pickle=str(pickle_path), config_name=config_name,
+            random_state=random_state, augmentation_by_sample=augmentation_by_sample_int,
+            fold_children=fold_children, fold_feature_views=fold_feature_views, folds_override=base_folds,
+            refit=refit,
+        )
+        result = _attach_pre_augmentation_replay(result, replay_stages)
+        result._dagml_chart_aug_snapshots = chart_snapshots  # type: ignore[attr-defined]
+        result._dagml_chart_transform_snapshots = chart_transform_snapshots  # type: ignore[attr-defined]
+        return result
 
     # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
     # sample_id (augmented=True). The CV universe = base train + the augmented children.
@@ -1348,50 +2101,125 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     samples = [int(s) for s in spectro.index_column("sample", {})]
     origins = [int(o) for o in spectro.index_column("origin", {})]
     augmented_ints = [sample_int for sample_int, origin_int in zip(samples, origins, strict=True) if sample_int != origin_int]
-    cv_universe = base_train + augmented_ints
+    allowed_origins = set(base_train)
+    cv_universe = base_train + [sample for sample, origin in zip(samples, origins, strict=True) if sample != origin and origin in allowed_origins]
 
+    if group_by_sample:
+        group_by_sample.update({sample: group_by_sample[origin] for sample, origin in zip(samples, origins, strict=True) if sample != origin and origin in group_by_sample})
     envelope = build_envelope(
         spectro,
         identity,
         sample_ints=cv_universe,
         augmentation_by_sample=augmentation_by_sample_int,
-        group_by_sample=_split_group_grain(splitter, spectro, base_train),
+        group_by_sample=group_by_sample,
     )
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, base_folds, dsl_id="nirs4all-augmentation", n_splits=len(base_folds))
 
     import dag_ml
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    # Operator generators materialize one model node per choice. Bind the
+    # augmentation envelope to every candidate in the native union graph.
+    from .cli_runner import data_bindings_for_nodes
+
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if len(model_ids) > 1:
+        dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+        for binding in dsl["data_bindings"][:len(checkpoint_steps)]:
+            binding["view_policy"] = {"include_augmented_train": False}
+
+    # The native FoldSet stays base-grain for OOF validation. Declare the exact
+    # synthetic observations fitted in each fold separately so only the CV
+    # in-sample `train` report can include them. A fold-local augmenter creates
+    # distinct children per fold; a global stateless augmenter shares children
+    # whose origins belong to the fold's training cohort.
+    origin_by_sample = dict(zip(samples, origins, strict=True))
+    augmented_train_by_fold: dict[str, list[str]] = {}
+    for fold_index, (train_ints, _validation_ints) in enumerate(base_folds):
+        fold_label = f"fold{fold_index}"
+        train_set = set(train_ints)
+        if fold_children is None:
+            children = [sample for sample in augmented_ints if origin_by_sample[sample] in train_set]
+        else:
+            excluded = (fold_feature_views[fold_label][2]
+                        if fold_feature_views is not None and fold_label in fold_feature_views else set())
+            children = [sample for child_ids in fold_children.get(fold_label, {}).values()
+                        for sample in child_ids if origin_by_sample[sample] in train_set and sample not in excluded]
+        augmented_train_by_fold[fold_label] = [identity.to_wire(sample) for sample in children]
+    for binding in dsl["data_bindings"][len(checkpoint_steps):]:
+        binding.setdefault("view_policy", {}).update({
+            "include_augmented_cv_train_predictions": True,
+            "augmented_cv_train_prediction_ids_by_fold": augmented_train_by_fold,
+        })
 
     run_dir.mkdir(parents=True, exist_ok=True)
     pickle_path = run_dir / "augmented_dataset.pkl"
     # Fold-local pickles the dataset + the fold→children map (the resolver's per-fold expansion); the
     # global path pickles the bare dataset (the resolver discovers dataset-global children from identity).
-    pickle_path.write_bytes(pickle.dumps({"dataset": spectro, "fold_children": fold_children} if fold_local else spectro))
+    pickle_path.write_bytes(pickle.dumps({"dataset": spectro, "fold_children": fold_children, "fold_feature_views": fold_feature_views} if fold_local else spectro))
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children, fold_feature_views=fold_feature_views, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml augmentation run failed")
 
-    return _scores_to_run_result(
-        outcome["scores"],
-        spectro.name,
-        _model_name(steps),
-        metric,
-        task_type,
-        config_name=config_name,
-        results=outcome["results"],
-        identity=identity,
-        refit_artifacts=outcome["refit_artifacts"],
-    )
+    if checkpoint_steps:
+        from .result import _variant_cv_score
+
+        producer_scores = [
+            {**outcome["scores"], "reports": [report for report in outcome["scores"]["reports"] if report["producer_node"] == model_id]}
+            for model_id in model_ids
+        ]
+        decision = dag_ml.select_candidate(
+            {"id": "select:augmentation_checkpoints", "metric": {"name": metric, "objective": "maximize" if is_higher_better(metric) else "minimize"}},
+            [{"candidate_id": str(index), "metrics": {metric: _variant_cv_score(scores, metric)}} for index, scores in enumerate(producer_scores)],
+        )
+        result = _project_operator_sweep(
+            list(zip(producer_scores, [_model_name([step]) for step in steps if isinstance(step, dict) and "model" in step], strict=True)),
+            spectro.name, metric, task_type, task_type != "regression", [config_name] * len(model_ids),
+            results_by_index=[
+                [frame for frame in outcome["results"] if any(
+                    block.get("producer_node") == model_id
+                    for block in (frame.get("result", frame).get("predictions") or [])
+                )]
+                for model_id in model_ids
+            ],
+            identities_by_index=[identity] * len(model_ids),
+            refit_artifacts_by_index=[
+                [artifact for artifact in outcome["refit_artifacts"] if f":{model_id}:" in artifact["artifact_id"]]
+                for model_id in model_ids
+            ],
+            selected_index=int(decision["selected_candidate_id"]),
+            emit_all_refits=True,
+        )
+    else:
+        result = _scores_to_run_result(
+            outcome["scores"],
+            spectro.name,
+            _model_name(steps),
+            metric,
+            task_type,
+            config_name=config_name,
+            results=outcome["results"],
+            identity=identity,
+            refit_artifacts=outcome["refit_artifacts"],
+        )
+    result = _attach_pre_augmentation_replay(result, replay_stages)
+    result._dagml_chart_aug_snapshots = chart_snapshots  # type: ignore[attr-defined]
+    result._dagml_chart_transform_snapshots = chart_transform_snapshots  # type: ignore[attr-defined]
+    if capture is not None:
+        capture.update(
+            scores=outcome["scores"], results=outcome["results"], identity=identity,
+            refit_artifacts=result._dagml_refit_artifacts, model_name=_model_name(steps),
+        )
+    return result
 
 
 _MERGE_NODE_ID = "merge:concat"
 
 
-def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, augmentation_by_sample: dict[int, str] | None = None, fold_children: dict[str, dict[int, list[int]]] | None = None, fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None, folds_override: list[tuple[list[int], list[int]]] | None = None, cv_pool: list[int] | None = None, excluded_sample_ints: set[int] | None = None, refit: bool = True) -> RunResult:
     """Run a by_metadata/by_tag separation branch + concat merge as ONE native dag-ml fan-out run.
 
     Lowers the branch to an ``auto_separate`` template (one branch carrying the criterion + the
@@ -1422,25 +2250,39 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     body_steps = _supported_body_steps([step for step in branch_body if not _is_split_step(step)])
 
     identity = mint_identity(spectro)
-    # The handled shape rejects any exclude step, so the CV universe is the full train pool.
-    pool = spectro.index_column("sample", {"partition": "train"})
-    folds = _build_folds(splitter, spectro, pool, set())
+    pool = cv_pool if cv_pool is not None else (_split_base_samples(spectro) if augmentation_by_sample is not None else spectro.index_column("sample", {"partition": "train"}))
+    excluded = excluded_sample_ints or set()
+    folds = folds_override if folds_override is not None else (_build_group_folds(splitter, spectro, pool) if _is_repetition_dataset(spectro) else _build_folds(splitter, spectro, pool, excluded))
 
     # Per-sample criterion values: the first map seeds the envelope relations (native fan-out reads
     # partition values from it); the second is the adapter's sample_id→metadata map for branch_view.
     metadata_by_sample, sample_metadata = _branch_metadata(spectro, identity, mode, key)
-    envelope = build_envelope(spectro, identity, sample_ints=pool, metadata_by_sample=metadata_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
+    group_by_sample = _split_group_grain(splitter, spectro, pool)
+    if _is_repetition_dataset(spectro):
+        group_by_sample = group_by_sample or _repetition_grain(spectro, pool)
+    if augmentation_by_sample is not None:
+        samples = [int(sample) for sample in spectro.index_column("sample", {})]
+        origins = [int(origin) for origin in spectro.index_column("origin", {})]
+        allowed_origins = set(pool)
+        children = [sample for sample, origin in zip(samples, origins, strict=True) if sample != origin and origin in allowed_origins]
+        if group_by_sample:
+            group_by_sample.update({sample: group_by_sample[origin] for sample, origin in zip(samples, origins, strict=True) if sample != origin and origin in group_by_sample})
+        universe = [*pool, *children]
+    else:
+        universe = pool
+    envelope = build_envelope(spectro, identity, sample_ints=universe, excluded_sample_ints=excluded, metadata_by_sample=metadata_by_sample, augmentation_by_sample=augmentation_by_sample, group_by_sample=group_by_sample)
 
     # Compat auto_separate template: ONE branch (the model sub-pipeline) carrying the criterion +
     # mode, marked auto_separate; the native fan-out expands it into N per-partition branches.
     template = {"id": "per_partition", "steps": [_branch_compat_step(step) for step in body_steps]}
     # Always by_metadata mode: the criterion (whether nirs4all by_metadata or by_tag) is emitted as a
     # metadata column on the relations, so the native fan-out discovers its values from there.
+    has_concat_merge = any(isinstance(step, dict) and step.get("merge") == "concat" for step in pipeline)
     compat_dsl = {
         "id": "nirs4all-separation-branch",
         "pipeline": [
             {"branch": {"branches": [template]}, "mode": "by_metadata", "selector": {"metadata_key": key}, "metadata": {"auto_separate": True}},
-            {"merge": "concat", "output_as": "predictions", "id": _MERGE_NODE_ID},
+            *([{"merge": "concat", "output_as": "predictions", "id": _MERGE_NODE_ID}] if has_concat_merge else []),
         ],
     }
 
@@ -1459,17 +2301,56 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     fanned_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro, fold_children=fold_children, fold_feature_views=fold_feature_views, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml separation-branch run failed")
+
+    winner_variant_id = next(
+        (
+            report.get("variant_id")
+            for report in (outcome["scores"] or {}).get("reports", [])
+            if report.get("partition") == "final" and report.get("fold_id") is None
+        ),
+        None,
+    )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", [])
+             if report.get("partition") == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
+    results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
 
     # The concat-merge producer's reports carry both the full-universe cross-fold OOF average
     # (`cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`): dag-ml's native
     # off-fold merge handler reassembles each per-partition refit model's held-out TEST prediction
     # (the node runner emits it with `fold_id=None`) into one full-universe test block under the merge
     # node. Both scores are the separation branch's, surfaced by `_scores_to_run_result`.
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])
+    if has_concat_merge:
+        result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])
+    else:
+        predictions = Predictions()
+        for branch_index, model_id in enumerate(model_ids):
+            local = _scores_to_run_result(
+                outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type,
+                producer=model_id, config_name=config_name,
+                results_by_variant=results_by_variant, identity=identity,
+            )
+            for row in local.predictions.filter_predictions(load_arrays=True):
+                row["branch_id"] = branch_index
+                row["branch_name"] = str(((next(node for node in graph["nodes"] if node["id"] == model_id).get("metadata") or {}).get("dsl_branch_selector") or {}).get("metadata", {}).get(key, branch_index))
+                predictions.extend_from_list([row])
+        predictions.flush()
+        result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+        result._dagml_score_set = outcome["scores"]  # noqa: SLF001
+        result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    from .native_results import separation_replay_manifest
+
+    replay_manifest = separation_replay_manifest(graph, key, outcome["refit_artifacts"])
+    if replay_manifest is not None:
+        result.per_dataset[spectro.name]["separation_replay"] = replay_manifest
+    return result
 
 
 def _branch_compat_step(step: Any) -> dict[str, Any]:
@@ -1488,8 +2369,18 @@ def _branch_metadata(spectro: Any, identity: Any, mode: str, key: str) -> tuple[
     the envelope's metadata-carried relations.
     """
     sample_ints = [int(value) for value in spectro.index_column("sample", {})]
+    origin_ints = [int(value) for value in spectro.index_column("origin", {})]
     values = spectro.metadata_column(key, {}) if mode == "by_metadata" else spectro.get_tag(key, {})
-    by_int = {sample_int: (str(value) if value is not None else None) for sample_int, value in zip(sample_ints, values, strict=True)}
+    base_ints = [sample for sample, origin in zip(sample_ints, origin_ints, strict=True) if sample == origin]
+    if len(values) == len(sample_ints):
+        by_int = {sample_int: (str(value) if value is not None else None) for sample_int, value in zip(sample_ints, values, strict=True)}
+    elif len(values) == len(base_ints):
+        by_int = {sample_int: (str(value) if value is not None else None) for sample_int, value in zip(base_ints, values, strict=True)}
+    else:
+        raise ValueError(f"branch metadata {key!r} has {len(values)} values for {len(base_ints)} base rows")
+    for sample_int, origin_int in zip(sample_ints, origin_ints, strict=True):
+        if sample_int != origin_int and by_int.get(sample_int) is None:
+            by_int[sample_int] = by_int[origin_int]
     metadata_by_sample = {key: dict(by_int)}
     sample_metadata = {identity.to_wire(sample_int): {key: value} for sample_int, value in by_int.items()}
     return metadata_by_sample, sample_metadata
@@ -1524,6 +2415,14 @@ def _canonical_branch_step(step: Any, node_id: str) -> dict[str, Any]:
     if "y_processing" in compat:
         inner = compat["y_processing"]
         return {"kind": "y_transform", "id": node_id, "operator": {"class": inner["class"]}, "params": inner.get("params", {})}
+    if "preprocessing" in compat:
+        inner = compat["preprocessing"]
+        return {
+            "kind": "transform", "id": node_id,
+            "operator": {"class": inner["class"]}, "params": inner.get("params", {}),
+            **({"metadata": compat["metadata"]} if "metadata" in compat else {}),
+            **({"shape": compat["shape"]} if "shape" in compat else {}),
+        }
     # Bare transform: compat is {"class": FQN, "params": {...}}.
     return {"kind": "transform", "id": node_id, "operator": {"class": compat["class"]}, "params": compat.get("params", {})}
 
@@ -1540,6 +2439,147 @@ def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, An
         "id": f"branch_{branch_index}",
         "steps": [_canonical_branch_step(step, f"branch:{branch_index}.node:{node_index}") for node_index, step in enumerate(steps)],
     }
+
+
+def _run_checkpoint_before_duplication_branch(
+    pipeline: list[Any], branches: list[list[Any]], first_model: dict[str, Any], last_model: dict[str, Any],
+    spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path,
+    metric: str, task_type: str, dataset_pickle: str | None, config_name: str,
+    random_state: int | None, refit: bool,
+) -> RunResult:
+    """Run the prior checkpoint and each branch model in one native DAG campaign."""
+    import dag_ml
+
+    from .cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    splitter = pipeline[0]
+    identity = mint_identity(spectro)
+    pool = list(spectro.index_column("sample", {"partition": "train"}))
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool,
+                              group_by_sample=_split_group_grain(splitter, spectro, pool))
+    prior_id = "model:checkpoint_before_branch"
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-checkpoint-duplication",
+        "steps": [
+            _canonical_branch_step(first_model, prior_id),
+            {"kind": "branch", "mode": "duplication", "branches": [
+                _canonical_branch([*body, last_model], index) for index, body in enumerate(branches)
+            ]},
+        ],
+    }
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    producer_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if len(producer_ids) != len(branches) + 1 or producer_ids[0] != prior_id:
+        raise DagMlUnsupported("checkpoint branch compilation did not preserve every model producer")
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(producer_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
+        workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
+        selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
+        random_state=random_state, refit=refit,
+    )
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml checkpoint branch run failed")
+
+    predictions = Predictions()
+    for index, producer in enumerate(producer_ids):
+        model_name = _model_name([first_model if index == 0 else last_model])
+        frames = [frame for frame in outcome["results"]
+                  if (frame.get("result") if frame.get("type") == "result" else frame).get("node_id") == producer]
+        projected = _scores_to_run_result(
+            outcome["scores"], spectro.name, model_name, metric, task_type,
+            producer=producer, config_name=config_name, results=frames,
+            identity=identity, refit_artifacts=outcome["refit_artifacts"],
+        )
+        for row in projected.predictions.filter_predictions(load_arrays=True):
+            if index:
+                row["branch_id"] = index - 1
+                row["branch_name"] = f"branch_{index - 1}"
+            predictions.extend_from_list([row])
+    predictions.flush()
+    result = RunResult(predictions=predictions, per_dataset={spectro.name: {
+        "engine": "dag-ml", "refit_enabled": refit,
+        "checkpoint_producers": producer_ids,
+    }})
+    result._dagml_score_set = outcome["scores"]  # noqa: SLF001 - preserve native multi-producer evidence
+    result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    result._dagml_node_results = outcome["results"]  # noqa: SLF001
+    return result
+
+
+def _run_checkpoint_inside_duplication_feature_merge(
+    pipeline: list[Any], branches: list[list[Any]], first_model: dict[str, Any], last_model: dict[str, Any],
+    spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path,
+    metric: str, task_type: str, dataset_pickle: str | None, config_name: str,
+    random_state: int | None, refit: bool,
+) -> RunResult:
+    """Keep branch-local model scores and fitted feature joins in one native graph."""
+    import dag_ml
+
+    from .cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    splitter = pipeline[0]
+    identity = mint_identity(spectro)
+    pool = list(spectro.index_column("sample", {"partition": "train"}))
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool,
+                              group_by_sample=_split_group_grain(splitter, spectro, pool))
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-checkpoint-duplication-feature-merge",
+        "steps": [
+            {"kind": "branch", "mode": "duplication", "branches": [
+                _canonical_branch([*body, first_model, last_model], index) for index, body in enumerate(branches)
+            ]},
+            {"kind": "merge", "id": "merge:features", "merge_mode": "concat",
+             "output_as": "features", "include_original_data": False},
+        ],
+    }
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    producer_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if len(producer_ids) != 2 * len(branches):
+        raise DagMlUnsupported("checkpoint feature merge compilation did not preserve every model producer")
+    bound_ids = [node["id"] for node in graph["nodes"] if node["kind"] in {"transform", "model"}]
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(bound_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
+        workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
+        selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
+        random_state=random_state, refit=refit,
+    )
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml checkpoint feature merge run failed")
+
+    predictions = Predictions()
+    for index, producer in enumerate(producer_ids):
+        model_name = _model_name([first_model if index % 2 == 0 else last_model])
+        frames = [frame for frame in outcome["results"]
+                  if (frame.get("result") if frame.get("type") == "result" else frame).get("node_id") == producer]
+        projected = _scores_to_run_result(
+            outcome["scores"], spectro.name, model_name, metric, task_type,
+            producer=producer, config_name=config_name, results=frames,
+            identity=identity, refit_artifacts=outcome["refit_artifacts"],
+        )
+        for row in projected.predictions.filter_predictions(load_arrays=True):
+            branch_index = index // 2
+            if index % 2 == 0:
+                if row["fold_id"] != "final":
+                    row["branch_id"] = branch_index
+                    row["branch_name"] = f"branch_{branch_index}"
+            elif branch_index and row["fold_id"] != "final":
+                # Legacy computes the second Ridge only in its terminal branch replay.
+                continue
+            predictions.extend_from_list([row])
+    predictions.flush()
+    result = RunResult(predictions=predictions, per_dataset={spectro.name: {
+        "engine": "dag-ml", "refit_enabled": refit, "checkpoint_producers": producer_ids,
+    }})
+    result._dagml_score_set = outcome["scores"]  # noqa: SLF001
+    result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    result._dagml_node_results = outcome["results"]  # noqa: SLF001
+    return result
 
 
 def _branch_merge_transformer_step(branches: list[list[Any]], merge_mode: str) -> DuplicationBranchMergeTransformer:
@@ -1574,7 +2614,15 @@ def _branch_merge_transformer_step(branches: list[list[Any]], merge_mode: str) -
     return DuplicationBranchMergeTransformer(branches=lowered_branches, merge_mode=merge_mode)
 
 
-def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[str, Any]:
+def _branch_fusion_model_step(branches: list[list[Any]], aggregate: str, task_type: str) -> dict[str, Any]:
+    """Represent legacy mean-fusion branches as one cloneable native model task."""
+    if aggregate != "mean" or task_type != "regression":
+        raise DagMlUnsupported("augmentation with branch model fusion currently supports regression mean only")
+    lowered = _branch_merge_transformer_step(branches, "all")
+    return {"model": DuplicationFusionEstimator(lowered.branches)}
+
+
+def _canonical_source_branch(branch_body: list[Any], source_index: int, *, force_generator: bool = False) -> dict[str, Any]:
     """Lower the shared by_source body to a canonical branch BOUND to one source (S4).
 
     Same lowering as :func:`_canonical_branch` (the shared model sub-pipeline, unique node ids per
@@ -1583,10 +2631,56 @@ def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[
     (one branch per source), so a fold view stays full-sample (all branches see all samples) while
     each branch's model sees a different source's columns.
     """
-    branch = _canonical_branch(branch_body, source_index)
-    for node in branch["steps"]:
-        if node["kind"] == "model":
-            node["metadata"] = {**node.get("metadata", {}), "source_index": source_index}
+    steps = _supported_body_steps([step for step in branch_body if not _is_split_step(step)])
+    branch: dict[str, Any]
+    generator_indices = [index for index, step in enumerate(steps) if isinstance(step, dict) and "_or_" in step]
+    if generator_indices:
+        if len(generator_indices) != 1:
+            raise DagMlUnsupported("by_source supports one _or_ operator generator per source branch")
+        generator_index = generator_indices[0]
+        generator = steps[generator_index]
+        if set(generator) != {"_or_"} or not isinstance(generator["_or_"], list) or not generator["_or_"]:
+            raise DagMlUnsupported("by_source operator generation requires a bare nonempty _or_ list")
+        choice_branches: list[dict[str, Any]] = [
+            {"id": f"choice_{choice_index}", "steps": [_canonical_branch_step(choice, f"source:{source_index}.choice:{choice_index}")]}
+            for choice_index, choice in enumerate(generator["_or_"])
+        ]
+        if any(choice["steps"][0]["kind"] != "transform" for choice in choice_branches):
+            raise DagMlUnsupported("by_source _or_ choices must be X transforms")
+        tail = [
+            _canonical_branch_step(step, f"source:{source_index}.tail:{index}")
+            for index, step in enumerate(steps[generator_index + 1:])
+        ]
+        if not tail or tail[-1]["kind"] != "model":
+            raise DagMlUnsupported("by_source _or_ must be followed by a branch-local model")
+        prefix = [
+            _canonical_branch_step(step, f"source:{source_index}.prefix:{index}")
+            for index, step in enumerate(steps[:generator_index])
+        ]
+        branch = {"id": f"branch_{source_index}", "steps": [*prefix, {
+            "kind": "generator", "id": f"generator:source_{source_index}", "mode": "or",
+            "branches": choice_branches, "tail": tail,
+        }]}
+    else:
+        branch = _canonical_branch(steps, source_index)
+        if force_generator:
+            # A one-choice generator makes the static source an explicit member
+            # of the same native Cartesian SELECT as the generated source.
+            branch["steps"] = [{
+                "kind": "generator", "id": f"generator:source_{source_index}",
+                "mode": "or", "branches": [{"id": "only", "steps": branch["steps"]}],
+            }]
+
+    def bind_source(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            if node["kind"] == "model":
+                node["metadata"] = {**node.get("metadata", {}), "source_index": source_index}
+            elif node["kind"] == "generator":
+                bind_source(node.get("tail", []))
+                for choice in node["branches"]:
+                    bind_source(choice["steps"])
+
+    bind_source(branch["steps"])
     return branch
 
 
@@ -2973,6 +4067,154 @@ def _source_names(spectro: Any, n_sources: int) -> list[str]:
     return names
 
 
+def _run_rep_to_sources_by_source(
+    pipeline: list[Any], rep_step: dict[str, Any], branch_body: list[Any], spectro: Any,
+    dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str,
+    task_type: str, config_name: str = "", random_state: int | None = None,
+) -> RunResult:
+    """Materialize the legacy repetition reshape, then run native source-local models."""
+    import copy
+    import pickle
+
+    reshaped = copy.deepcopy(spectro)
+    _reshape_for_rep_fusion(rep_step, reshaped)
+    n_sources = reshaped.features_sources()
+    if n_sources < 2:
+        raise DagMlUnsupported("rep_to_sources by_source requires at least two aligned sources")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = run_dir / "reshaped_dataset.pkl"
+    pickle_path.write_bytes(pickle.dumps(reshaped))
+    source_bodies = dict.fromkeys(_source_names(reshaped, n_sources), branch_body)
+    body_pipeline = [step for step in pipeline if step is not rep_step]
+    return _run_by_source_auto_models(
+        body_pipeline, source_bodies, [], n_sources, reshaped, dataset_arg, cli,
+        venv_python, run_dir / "source_models", metric, task_type,
+        dataset_pickle=str(pickle_path), config_name=config_name,
+        random_state=random_state,
+    )
+
+
+def _run_by_source_auto_models(
+    pipeline: list[Any], source_bodies: dict[str, list[Any]], y_steps: list[Any],
+    n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str,
+    run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None,
+    config_name: str = "", random_state: int | None = None,
+    refit_top_k: int = 1,
+    refit: bool = True,
+) -> RunResult:
+    """Score every source-local model when auto merge has no downstream estimator."""
+    import dag_ml
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    names = _source_names(spectro, n_sources)
+    if set(source_bodies) != set(names):
+        raise DagMlUnsupported(f"by_source model names {list(source_bodies)!r} must match source names {names!r}")
+    _, splitter = _split_pipeline(pipeline)
+    if splitter is None:
+        raise DagMlUnsupported("by_source per-source model comparison requires a cross-validator")
+    identity = mint_identity(spectro)
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
+    has_operator_generator = any(
+        isinstance(step, dict) and "_or_" in step
+        for body in source_bodies.values() for step in body
+    )
+    branches = [
+        _canonical_source_branch([*y_steps, *source_bodies[name]], index, force_generator=has_operator_generator)
+        for index, name in enumerate(names)
+    ]
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-by-source-auto-models",
+        "steps": [{"kind": "branch", "mode": "duplication", "branches": branches}],
+    }
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
+    model_ids = [node["id"] for node in model_nodes]
+    compiled_model_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
+    if len(compiled_model_ids) < n_sources or len(model_ids) != len(compiled_model_ids):
+        raise DagMlUnsupported(f"by_source auto model compile produced {compiled_model_ids!r}, expected {model_ids!r}")
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+    attested = None
+    if refit and refit_top_k == 1 and not has_operator_generator:
+        from .in_process_runner import _dagml_extension_loads, in_process_enabled
+
+        if in_process_enabled() and _dagml_extension_loads():
+            from .attested_by_source import execute_attested_by_source_cv
+
+            attested = execute_attested_by_source_cv(
+                dsl=canonical_dsl, envelope=envelope, graph=graph, spectro=spectro,
+                identity=identity, folds=folds, source_names=names,
+                selection_metric=metric, random_state=random_state,
+            )
+    if attested is None:
+        outcome = run_cv_refit_bundle(
+            dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
+            workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
+            selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
+            random_state=random_state, refit_top_k=refit_top_k, refit=refit,
+        )
+    else:
+        outcome = {
+            "returncode": 0, "scores": attested["scores"], "results": attested["results"],
+            "refit_artifacts": attested["refit_artifacts"],
+        }
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml by_source auto model run failed")
+    winner_variant_id = next(
+        (
+            report.get("variant_id")
+            for report in (outcome["scores"] or {}).get("reports", [])
+            if report.get("partition") == "final" and report.get("fold_id") is None
+        ),
+        None,
+    )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", [])
+             if report.get("partition") == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
+    results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
+    predictions = Predictions()
+    for node in model_nodes:
+        model_id = node["id"]
+        index = (node.get("metadata") or {}).get("source_index")
+        if not isinstance(index, int) or not 0 <= index < n_sources:
+            raise DagMlUnsupported(f"by_source model {model_id!r} has no valid native source_index")
+        name = names[index]
+        local = _scores_to_run_result(
+            outcome["scores"], spectro.name, _model_name(source_bodies[name]), metric,
+            task_type, producer=model_id, config_name=config_name,
+            results_by_variant=results_by_variant, identity=identity,
+            refit_artifacts=outcome["refit_artifacts"],
+            emit_all_refits=refit_top_k > 1,
+            refit_name_suffix=f"_refit_rmsecvt{refit_top_k}" if refit_top_k > 1 else "_refit",
+        )
+        for row in local.predictions.filter_predictions(load_arrays=True):
+            row["branch_id"] = index
+            row["branch_name"] = name
+            predictions.extend_from_list([row])
+    predictions.flush()
+    result = RunResult(predictions=predictions, per_dataset={spectro.name: {
+        "engine": "dag-ml", "output_topology": "independent_by_source",
+    }})
+    result._dagml_score_set = outcome["scores"]  # noqa: SLF001
+    result._dagml_node_results = outcome["results"]  # noqa: SLF001
+    result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    from .envelope import _numeric_feature_axis
+
+    result._dagml_source_feature_axes = tuple(_numeric_feature_axis(spectro, index) for index in range(n_sources))  # noqa: SLF001
+    if attested is not None:
+        result._dagml_training_outcome = attested["training_result"].outcome.to_dict()  # noqa: SLF001
+        result._dagml_portable_predictor_package = attested["portable_package"].to_dict()  # noqa: SLF001
+    if refit_top_k > 1:
+        result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
+    return result
+
+
 def _run_by_source_stacking_branch(
     pipeline: list[Any],
     branch_body: list[Any] | dict[str, list[Any]],
@@ -3014,7 +4256,7 @@ def _run_by_source_stacking_branch(
     )
 
 
-def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[list[Any]], merge_mode: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None, config_name: str, random_state: int | None) -> RunResult:
+def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[list[Any]], merge_mode: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None, config_name: str, random_state: int | None, refit: bool = True) -> RunResult:
     """Run legacy duplication ``merge=features``/``merge=all`` through one concrete native model."""
     if merge_mode not in ("features", "all"):
         raise DagMlUnsupported("engine='dag-ml' supports duplication branch feature merge only for merge='features' or merge='all'")
@@ -3027,7 +4269,7 @@ def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[li
         transformer = _branch_merge_transformer_step(branches, merge_mode)
         synthetic_pipeline = [splitter, transformer, model_step]
         downstream_result = _run_concrete(
-            synthetic_pipeline, spectro, dataset_arg, cli, venv_python, run_dir / "downstream", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state
+            synthetic_pipeline, spectro, dataset_arg, cli, venv_python, run_dir / "downstream", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state, refit=refit
         )
         return downstream_result
 
@@ -3040,7 +4282,7 @@ def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[li
     return _combine_duplication_merge_all_rows(branch_results, branch_names, downstream_result, _model_name([model_step]), spectro.name)
 
 
-def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, refit: bool = True) -> RunResult:
     """Run a duplication branch (``[[A], [B], …]``) + avg/mean fusion merge as ONE native dag-ml run.
 
     Lowers each inner sub-pipeline to a canonical branch (``mode: "duplication"`` — every branch model
@@ -3064,7 +4306,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     """
     if aggregate in ("features", "all"):
         return _run_duplication_branch_feature_merge(
-            pipeline, branches, aggregate, spectro, dataset_arg, cli, venv_python, run_dir, metric, task_type, dataset_pickle, config_name, random_state
+            pipeline, branches, aggregate, spectro, dataset_arg, cli, venv_python, run_dir, metric, task_type, dataset_pickle, config_name, random_state, refit=refit
         )
 
     import dag_ml
@@ -3378,9 +4620,9 @@ def _stacking_model_metadata(pipeline: list[Any]) -> dict[str, Any]:
     from nirs4all.pipeline.dagml_bridge import _step_to_dsl
 
     model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
-    if len(model_steps) != 1:
-        raise DagMlUnsupported("stacking needs exactly one downstream meta-model step")
-    return dict(_step_to_dsl(model_steps[0]).get("metadata") or {})
+    if not model_steps:
+        raise DagMlUnsupported("stacking needs a downstream meta-model step")
+    return dict(_step_to_dsl(model_steps[-1]).get("metadata") or {})
 
 
 def _stacking_inner_cv(
@@ -3434,9 +4676,36 @@ def _assemble_stacking_dsl(
     identity: Any, pool: list[int], folds: list[tuple[list[int], list[int]]], envelope: dict[str, Any], *,
     task_type: str, random_state: int | None, group_by_sample: dict[int, str] | None,
     source_layout: dict[str, Any] | None = None,
+    prediction_aggregations: list[dict[str, Any]] | None = None,
+    selection_metric: str = "rmse",
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     """Declare the same nested OOF graph for concrete runs and whole-stack HPO."""
     meta_metadata = _stacking_model_metadata(pipeline)
+    from nirs4all.operators.models.meta import CoverageStrategy, MetaModel, TestAggregation
+
+    meta_wrapper = next((step.get("model") for step in reversed(pipeline)
+                         if isinstance(step, dict) and isinstance(step.get("model"), MetaModel)), None)
+    fold_aggregation = (
+        meta_wrapper.stacking_config.test_aggregation
+        if meta_wrapper is not None else TestAggregation.MEAN
+    )
+    if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+        meta_metadata["stacking_test_aggregation"] = "best" if fold_aggregation == TestAggregation.BEST_FOLD else "weighted"
+        meta_metadata["stacking_test_metric"] = selection_metric
+    if meta_wrapper is not None and meta_wrapper.stacking_config.coverage_strategy in (
+        CoverageStrategy.DROP_INCOMPLETE, CoverageStrategy.IMPUTE_MEAN,
+        CoverageStrategy.IMPUTE_ZERO, CoverageStrategy.IMPUTE_FOLD_MEAN,
+    ):
+        meta_metadata["stacking_oof_coverage_contract"] = {
+            "min_coverage_ratio": meta_wrapper.stacking_config.min_coverage_ratio,
+        }
+    if meta_wrapper is not None and meta_wrapper.stacking_config.coverage_strategy in (
+        CoverageStrategy.IMPUTE_MEAN, CoverageStrategy.IMPUTE_ZERO, CoverageStrategy.IMPUTE_FOLD_MEAN,
+    ):
+        # Nested OOF is complete by construction. The core checks every input
+        # source against the requested IDs; a genuine hole is rejected until
+        # the requested imputation policy has native coverage and lineage.
+        meta_metadata["stacking_missing_prediction_policy"] = "complete_inner_oof_no_imputation"
     if meta_metadata.get("nirs4all_finetune_params"):
         raise DagMlUnsupported(
             "meta-model HPO requires a native whole-stack nested search; "
@@ -3448,7 +4717,8 @@ def _assemble_stacking_dsl(
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
     from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
 
-    outer_partition_mode = build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode")
+    outer_fold_set = build_fold_set(identity, folds, set_id="folds.stacking.outer")
+    outer_partition_mode = outer_fold_set.get("partition_mode")
     refit_oof = {"stacking_refit_oof": "partitioned_inner_v1"} if outer_partition_mode == "resampled" else {}
     refit_policy = "require_full_coverage"
     # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
@@ -3467,14 +4737,89 @@ def _assemble_stacking_dsl(
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
                     **meta_metadata,
+                    "nirs4all_use_proba": bool(task_type == "classification" and meta_wrapper is not None and meta_wrapper.use_proba),
                     "controller_id": _META_MODEL_CONTROLLER_ID,
                     "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": refit_policy},
                     **refit_oof,
                 },
+                **({"selectors": prediction_aggregations} if prediction_aggregations else {}),
             },
         ],
     }
+
+    if prediction_aggregations:
+        canonical_branches = {branch["id"]: branch for branch in canonical_dsl["steps"][0]["branches"]}
+        for selector in prediction_aggregations:
+            if isinstance(selector.get("select"), dict) and (
+                "fold_candidates_top_k" in selector["select"]
+                or "diverse_fold_candidates" in selector["select"]
+            ):
+                if selector.get("metric") == "val_score":
+                    selector["metric"] = selection_metric
+                continue
+            requested_names = selector.get("select")
+            if not isinstance(requested_names, list):
+                continue
+            branch = canonical_branches[selector["branch"]]
+            models = [step for step in branch["steps"] if step["kind"] == "model"]
+            selected_ids = [
+                step["id"]
+                for name in requested_names
+                for step in models
+                if step["operator"]["class"].rsplit(".", 1)[-1] == name
+            ]
+            # Legacy skips unknown names. Preserve that behavior while making
+            # an entirely unmatched selection an explicit unsupported shape.
+            if not selected_ids:
+                raise DagMlUnsupported(
+                    f"merge branch {selector['branch']} has no models matching {requested_names}"
+                )
+            selector["select"] = {"models": list(dict.fromkeys(selected_ids))}
+
+        # A legacy explicit selection fixes both membership and column order.
+        # The native graph supports ordered `sources`; without it the host sees
+        # the selected prediction inputs in lexical producer-id order.
+        if all(selector.get("aggregate") is None and selector.get("branch") in canonical_branches
+               and (selector.get("select", "all") == "all" or
+                    isinstance(selector.get("select"), dict) and set(selector["select"]) == {"models"})
+               for selector in prediction_aggregations):
+            ordered_sources: list[str] = []
+            for selector in prediction_aggregations:
+                branch_models = [step["id"] for step in canonical_branches[selector["branch"]]["steps"] if step["kind"] == "model"]
+                requested = selector.get("select", "all")
+                ordered_sources.extend(branch_models if requested == "all" else requested["models"])
+            canonical_dsl["steps"][1]["sources"] = list(dict.fromkeys(ordered_sources))
+
+    if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+        for branch in canonical_dsl["steps"][0]["branches"]:
+            for step in branch["steps"]:
+                if step["kind"] == "model":
+                    step["metadata"] = {
+                        **step.get("metadata", {}),
+                        "nirs4all_stack_fold_capture": True,
+                        "nirs4all_stack_outer_fold_ids": [fold["fold_id"] for fold in outer_fold_set["folds"]],
+                    }
+
+    probability_branches = {
+        selector["branch"] for selector in prediction_aggregations or []
+        if selector.get("aggregate") == "proba_mean"
+        or selector.get("metadata", {}).get("prediction_output") == "proba"
+    }
+    if task_type == "classification" and (probability_branches or (meta_wrapper is not None and meta_wrapper.use_proba)):
+        from .operator_routing import route_graph_node
+
+        first_source_ports: dict[str, str] = {}
+        for branch in canonical_dsl["steps"][0]["branches"]:
+            if branch["id"] not in probability_branches and not (meta_wrapper is not None and meta_wrapper.use_proba):
+                continue
+            for source_step in branch["steps"]:
+                if source_step["kind"] != "model" or not callable(getattr(route_graph_node(source_step), "predict_proba", None)):
+                    continue
+                source_step["prediction_output_ports"] = ["proba"]
+                first_source_ports[source_step["id"]] = "proba"
+        if first_source_ports:
+            canonical_dsl["steps"][1]["source_ports"] = first_source_ports
 
     if source_layout is not None:
         # Put source bindings in the DSL BEFORE compilation/fingerprinting,
@@ -3494,8 +4839,8 @@ def _assemble_stacking_dsl(
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
-    if len(base_model_ids) < 2:
-        raise DagMlUnsupported("stacking compile produced fewer than two base model nodes")
+    if not base_model_ids:
+        raise DagMlUnsupported("stacking compile produced no base model node")
     if _META_NODE_ID not in model_ids:
         raise DagMlUnsupported("stacking compile produced no meta-model node")
 
@@ -3511,7 +4856,7 @@ def _assemble_stacking_dsl(
     return canonical_dsl, graph, base_model_ids
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None) -> RunResult:
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True, prediction_aggregations: list[dict[str, Any]] | None = None, downstream_meta_steps: list[dict[str, Any]] | None = None, meta_per_branch: bool = False) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -3551,41 +4896,298 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
 
-    outer_partition_mode = build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode")
+    outer_fold_set = build_fold_set(identity, folds, set_id="folds.stacking.outer")
+    outer_partition_mode = outer_fold_set.get("partition_mode")
     refit_oof = {"stacking_refit_oof": "partitioned_inner_v1"} if outer_partition_mode == "resampled" else {}
 
     group_by_sample = _split_group_grain(splitter, spectro, pool)
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
 
     canonical_dsl, graph, base_model_ids = _assemble_stacking_dsl(
-        pipeline, branches, meta_learner, spectro, identity, pool, folds, envelope,
+        pipeline[:-len(downstream_meta_steps)] if downstream_meta_steps else pipeline,
+        branches, meta_learner, spectro, identity, pool, folds, envelope,
         task_type=task_type, random_state=random_state, group_by_sample=group_by_sample, source_layout=source_layout,
+        prediction_aggregations=prediction_aggregations,
+        selection_metric=metric,
     )
+    stacking_source_ports: dict[str, dict[str, str]] = {
+        _META_NODE_ID: canonical_dsl["steps"][1].get("source_ports", {}),
+    }
+    final_meta_node_id = _META_NODE_ID
+    final_meta_learner = meta_learner
+    stacking_source_orders: dict[str, list[str]] = {}
+    if canonical_dsl["steps"][1].get("sources"):
+        stacking_source_orders[_META_NODE_ID] = canonical_dsl["steps"][1]["sources"]
+    meta_source_nodes: dict[str, list[str]] = {}
+    meta_labels: dict[str, str] = {}
+    if downstream_meta_steps:
+        import dag_ml
+
+        from nirs4all.operators.models.meta import TestAggregation
+        from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
+
+        source_nodes: dict[str, list[str]] = {}
+        source_steps: dict[str, dict[str, Any]] = {}
+        source_estimators: dict[str, Any] = {}
+        from .operator_routing import route_graph_node
+
+        for branch in canonical_dsl["steps"][0]["branches"]:
+            for source_step in branch["steps"]:
+                if source_step["kind"] == "model":
+                    source_name = source_step["operator"]["class"].rsplit(".", 1)[-1]
+                    source_nodes.setdefault(source_name, []).append(source_step["id"])
+                    source_steps[source_step["id"]] = source_step
+                    source_estimators[source_step["id"]] = route_graph_node(source_step)
+        first_meta_step = pipeline[-len(downstream_meta_steps) - 1]
+        first_meta_name = first_meta_step.get("name") or first_meta_step["model"].name
+        meta_labels[_META_NODE_ID] = first_meta_name
+        selected_first_sources = [
+            model_id
+            for selector in prediction_aggregations or []
+            for model_id in (
+                selector["select"].get("models", [])
+                if isinstance(selector.get("select"), dict)
+                else ([selector["model"]] if selector.get("model") in base_model_ids else [])
+            )
+        ]
+        meta_source_nodes[_META_NODE_ID] = list(dict.fromkeys(selected_first_sources)) or base_model_ids
+        source_nodes[first_meta_name] = [_META_NODE_ID]
+        source_steps[_META_NODE_ID] = canonical_dsl["steps"][-1]
+        source_estimators[_META_NODE_ID] = meta_learner
+        previous_meta_name = first_meta_name
+        for level, step in enumerate(downstream_meta_steps, start=2):
+            next_aggregation = step["model"].stacking_config.test_aggregation
+            if next_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+                canonical_dsl["steps"][-1]["metadata"].update({
+                    "stacking_fold_test_capture": True,
+                    "nirs4all_stack_fold_capture": True,
+                    "nirs4all_stack_outer_fold_ids": [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]],
+                })
+            final_meta_learner = step["model"].model
+            final_meta_node_id = f"{_META_NODE_ID}.level{level}"
+            requested_names = list(dict.fromkeys(step["model"].source_models))
+            explicit_sources = requested_names != [previous_meta_name]
+            requested_sources = [node_id for name in requested_names for node_id in source_nodes[name]]
+            sources = requested_sources if explicit_sources else []
+            meta_source_nodes[final_meta_node_id] = requested_sources
+            if sources:
+                stacking_source_orders[final_meta_node_id] = sources
+            source_ports: dict[str, str] = {}
+            if task_type == "classification" and step["model"].use_proba:
+                for source_id in requested_sources:
+                    if not callable(getattr(source_estimators[source_id], "predict_proba", None)):
+                        continue  # Legacy uses class labels when a classifier has no probability method.
+                    source_step = source_steps[source_id]
+                    source_step["prediction_output_ports"] = ["proba"]
+                    source_ports[source_id] = "proba"
+            if source_ports:
+                stacking_source_ports[final_meta_node_id] = source_ports
+            canonical_dsl["steps"].append({
+                "kind": "merge_model",
+                "id": final_meta_node_id,
+                "operator": {"class": _qualname(final_meta_learner), "ref": _META_MODEL_REF},
+                "params": _json_safe_params(final_meta_learner),
+                **({"sources": sources} if sources else {}),
+                **({"source_ports": source_ports} if source_ports else {}),
+                "metadata": {
+                    **_stacking_model_metadata([step]),
+                    "nirs4all_use_proba": bool(task_type == "classification" and step["model"].use_proba),
+                    "controller_id": _META_MODEL_CONTROLLER_ID,
+                    "stacking_oof_execution": "nested_oof_v1",
+                    "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
+                    **refit_oof,
+                    **({
+                        "stacking_test_aggregation": "best" if next_aggregation == TestAggregation.BEST_FOLD else "weighted",
+                        "stacking_test_metric": metric,
+                    } if next_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN) else {}),
+                },
+            })
+            current_name = step.get("name") or step["model"].name
+            meta_labels[final_meta_node_id] = current_name
+            source_nodes[current_name] = [final_meta_node_id]
+            source_steps[final_meta_node_id] = canonical_dsl["steps"][-1]
+            source_estimators[final_meta_node_id] = final_meta_learner
+            previous_meta_name = current_name
+        if any(step["model"].stacking_config.test_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN)
+               for step in downstream_meta_steps):
+            outer_fold_ids = [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]]
+            for branch in canonical_dsl["steps"][0]["branches"]:
+                for base_step in branch["steps"]:
+                    if base_step["kind"] == "model":
+                        base_step["metadata"] = {
+                            **base_step.get("metadata", {}),
+                            "nirs4all_stack_fold_capture": True,
+                            "nirs4all_stack_outer_fold_ids": outer_fold_ids,
+                        }
+            for meta_step in canonical_dsl["steps"][1:-1]:
+                if meta_step["kind"] == "merge_model":
+                    meta_step["metadata"].update({
+                        "stacking_fold_test_capture": True,
+                        "nirs4all_stack_fold_capture": True,
+                        "nirs4all_stack_outer_fold_ids": outer_fold_ids,
+                    })
+        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(
+            canonical_dsl, controller_manifests(),
+        ).graph.to_dict()
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml stacking run failed")
 
+    from nirs4all.operators.models.meta import MetaModel, TestAggregation
+
+    fold_aggregation = next((
+        step["model"].stacking_config.test_aggregation
+        for step in pipeline
+        if isinstance(step, dict) and isinstance(step.get("model"), MetaModel)
+    ), TestAggregation.MEAN)
+    if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN) and outcome["refit_artifacts"]:
+        import json
+
+        import dag_ml
+
+        from .native_results import _producer_node_from_artifact_id
+        from .node_runner import _DagmlSelectedFoldEstimator
+
+        reports = outcome["scores"].get("reports", [])
+        outer_fold_ids = [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]]
+        for artifact in outcome["refit_artifacts"]:
+            producer = _producer_node_from_artifact_id(artifact.get("artifact_id"))
+            if producer not in base_model_ids:
+                continue
+            fold_estimators = artifact.get("fold_estimators")
+            if not fold_estimators:
+                raise DagMlUnsupported(f"stacking fold aggregation has no captured CV estimators for {producer}")
+            if any(fold_id not in fold_estimators for fold_id in outer_fold_ids):
+                raise DagMlUnsupported(f"stacking fold aggregation is missing an outer-fold estimator for {producer}")
+            fold_estimators = {fold_id: fold_estimators[fold_id] for fold_id in outer_fold_ids}
+            request = json.dumps({
+                "producer_node": producer,
+                "fold_ids": list(fold_estimators),
+                "metric": metric,
+                "reports": reports,
+            })
+            if fold_aggregation == TestAggregation.BEST_FOLD:
+                selected = json.loads(dag_ml.select_stacking_fold_json(request))  # type: ignore[attr-defined]
+                artifact["estimator"] = _DagmlSelectedFoldEstimator(fold_estimators, selected_fold=selected)
+            else:
+                weights = json.loads(dag_ml.stacking_fold_weights_json(request))  # type: ignore[attr-defined]
+                artifact["estimator"] = _DagmlSelectedFoldEstimator(
+                    fold_estimators, weights=dict(zip(fold_estimators, weights, strict=True)),
+                )
+
+    if downstream_meta_steps and outcome["refit_artifacts"]:
+        import json
+
+        import dag_ml
+
+        from .native_results import _producer_node_from_artifact_id
+
+        for level, step in enumerate(downstream_meta_steps, start=2):
+            aggregation = step["model"].stacking_config.test_aggregation
+            if aggregation not in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+                continue
+            outer_fold_ids = [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]]
+            reports = outcome["scores"].get("reports", [])
+            previous_meta_node = _META_NODE_ID if level == 2 else f"{_META_NODE_ID}.level{level - 1}"
+            required_nodes = [*base_model_ids, _META_NODE_ID, *(f"{_META_NODE_ID}.level{stage}" for stage in range(2, level))]
+            for artifact in outcome["refit_artifacts"]:
+                producer = _producer_node_from_artifact_id(artifact.get("artifact_id"))
+                if producer not in required_nodes:
+                    continue
+                captured = artifact.get("fold_estimators")
+                if not isinstance(captured, dict) or any(fold not in captured for fold in outer_fold_ids):
+                    raise DagMlUnsupported(f"level-{level} stacking fold aggregation lacks paired CV estimators for {producer}")
+                artifact["fold_estimators"] = {fold: captured[fold] for fold in outer_fold_ids}
+                if producer != previous_meta_node:
+                    continue
+                request = json.dumps({
+                    "producer_node": producer, "fold_ids": outer_fold_ids,
+                    "metric": metric, "reports": reports,
+                })
+                if aggregation == TestAggregation.BEST_FOLD:
+                    artifact["fold_selection"] = {"selected_fold": json.loads(dag_ml.select_stacking_fold_json(request))}  # type: ignore[attr-defined]
+                else:
+                    weights = json.loads(dag_ml.stacking_fold_weights_json(request))  # type: ignore[attr-defined]
+                    artifact["fold_selection"] = {"weights": dict(zip(outer_fold_ids, weights, strict=True))}
+
     # List form exposes the ensemble; named form also exposes each base producer.
-    model_label = f"MetaModel_{type(meta_learner).__name__}"
+    model_label = f"MetaModel_{type(final_meta_learner).__name__}"
     result: RunResult
-    if named_duplication:
+    if named_duplication or meta_per_branch:
         from .named_stacking import project_named_stacking
 
         result = project_named_stacking(
             outcome, branches=branches, branch_names=_duplication_branch_names(pipeline, len(branches)),
             base_model_ids=base_model_ids, meta_node_id=_META_NODE_ID, meta_learner=meta_learner,
             spectro=spectro, identity=identity, metric=metric, task_type=task_type, config_name=config_name,
-            pipeline=pipeline, random_state=random_state,
+            pipeline=pipeline, random_state=random_state, meta_per_branch=meta_per_branch,
         )
     else:
-        result = _scores_to_run_result(
-            outcome["scores"], spectro.name, model_label, metric, task_type,
-            producer=_META_NODE_ID, config_name=config_name, results=outcome["results"],
-            identity=identity, refit_artifacts=outcome["refit_artifacts"],
-        )
+        referenced_meta_nodes = {
+            source for sources in meta_source_nodes.values() for source in sources
+            if source in meta_source_nodes
+        }
+        terminal_meta_nodes = [node for node in meta_source_nodes if node not in referenced_meta_nodes]
+        if len(terminal_meta_nodes) > 1:
+            import dag_ml
+
+            from .envelope import target_names
+            from .native_results import _producer_node_from_artifact_id
+            from .public_batch import DagMLBatchResult
+            from .run_backend import _metric_objective
+
+            def closure(node: str) -> set[str]:
+                return {node}.union(*(
+                    closure(source) if source in meta_source_nodes else {source}
+                    for source in meta_source_nodes[node]
+                ))
+
+            children: list[RunResult] = []
+            for node in terminal_meta_nodes:
+                own_producers = closure(node)
+                own_scores = {
+                    **outcome["scores"],
+                    "reports": [report for report in outcome["scores"].get("reports", [])
+                                if report.get("producer_node") in own_producers],
+                }
+                own_artifacts = [
+                    artifact for artifact in outcome["refit_artifacts"]
+                    if _producer_node_from_artifact_id(artifact.get("artifact_id")) in own_producers
+                ]
+                child = _scores_to_run_result(
+                    own_scores, spectro.name, meta_labels[node], metric, task_type,
+                    producer=node, config_name=config_name, results=outcome["results"],
+                    identity=identity, refit_artifacts=own_artifacts,
+                )
+                child._dagml_target_names = target_names(spectro)  # noqa: SLF001
+                child._dagml_stacking_replay_producer = node  # noqa: SLF001
+                child._dagml_stacking_independent_terminal = True  # noqa: SLF001
+                for metadata in child.per_dataset.values():
+                    metadata["producer_node"] = node
+                    metadata["output_topology"] = "independent_metamodel"
+                children.append(child)
+            result = DagMLBatchResult(children)
+            result._dagml_score_set = outcome["scores"]  # noqa: SLF001
+            result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+            result._dagml_node_results = outcome["results"]  # noqa: SLF001
+            result._dagml_stacking_replay_producer = ""  # noqa: SLF001
+            decision = dag_ml.select_candidate(
+                {"id": "select:terminal_metamodel", "metric": {"name": metric, "objective": _metric_objective(metric)},
+                 "evaluation_scope": "oof", "require_finite": True},
+                [{"candidate_id": node, "metrics": {metric: child.cv_best_score}}
+                 for node, child in zip(terminal_meta_nodes, children, strict=True)],
+            )
+            result._dagml_selection_decision = decision  # noqa: SLF001
+            result._dagml_selected_run = children[terminal_meta_nodes.index(decision["selected_candidate_id"])]  # noqa: SLF001
+        else:
+            result = _scores_to_run_result(
+                outcome["scores"], spectro.name, model_label, metric, task_type,
+                producer=final_meta_node_id, config_name=config_name, results=outcome["results"],
+                identity=identity, refit_artifacts=outcome["refit_artifacts"],
+            )
     if source_layout is not None:
         for view in [result, *getattr(result, "runs", [])]:
             for metadata in view.per_dataset.values():
@@ -3606,4 +5208,28 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         for view in [result, *getattr(result, "runs", [])]:
             for metadata in view.per_dataset.values():
                 metadata["stacking_evaluation"] = evidence
+    for view in [result, *getattr(result, "runs", [])]:
+        view._dagml_stacking_selectors = (  # noqa: SLF001
+            prediction_aggregations
+            if getattr(view, "_dagml_stacking_replay_producer", _META_NODE_ID) == _META_NODE_ID
+            else None
+        )
+        view._dagml_stacking_outer_fold_ids = [fold["fold_id"] for fold in outer_fold_set["folds"]]  # noqa: SLF001
+        view._dagml_stacking_producer_classes = {
+            step["id"]: step["operator"]["class"].rsplit(".", 1)[-1]
+            for branch in canonical_dsl["steps"][0]["branches"]
+            for step in branch["steps"] if step.get("kind") == "model"
+        }  # noqa: SLF001
+        view._dagml_stacking_probability_producers = {
+            step["id"] for step in canonical_dsl["steps"]
+            if step.get("kind") == "merge_model"
+            and step.get("metadata", {}).get("nirs4all_prediction_output") == "proba"
+        } | {
+            step["id"] for branch in canonical_dsl["steps"][0]["branches"]
+            for step in branch["steps"]
+            if step.get("kind") == "model"
+            and step.get("metadata", {}).get("nirs4all_prediction_output") == "proba"
+        }  # noqa: SLF001
+        view._dagml_stacking_source_orders = stacking_source_orders  # noqa: SLF001
+        view._dagml_stacking_source_ports = stacking_source_ports  # noqa: SLF001
     return result

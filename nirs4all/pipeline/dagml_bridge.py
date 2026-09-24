@@ -36,6 +36,9 @@ from nirs4all.pipeline.dagml.errors import DagMlUnsupported
 # operator-selector token that keeps the meta-model manifest out of the generic model-kind catch-all.
 _META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
 _META_MODEL_REF = "nirs4all.meta_model"
+_RESIDUAL_LEARNER_CONTROLLER_ID = "controller:nirs4all.residual_learner"
+_RESIDUAL_LEARNER_REF = "nirs4all.residual_learner"
+_PREDICTION_FEATURE_CONTROLLER_ID = "controller:nirs4all.prediction_feature_join"
 
 # Every nirs4all generation keyword (mirrors config._generator.keywords.GENERATION_KEYWORDS). Used
 # to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
@@ -99,6 +102,7 @@ _MODEL_DATA_REQUIREMENTS: dict[str, Any] = {
 # natively (``_grid_``/dict-form/modifier sweeps stay on the Python expand path).
 _RESERVED_MODEL_KEYS = frozenset({
     "model",
+    "model_params",
     "params",
     "metadata",
     "steps",
@@ -875,7 +879,9 @@ def _lower_feature_augmentation(step: dict[str, Any]) -> dict[str, Any]:
     * **extend / add** — keep the raw layer beside the new ones: ``[raw, op1(raw), …, opN(raw)]`` →
       ``FeatureConcat([None, op1, …, opN])`` (the ``None`` pass-through is the raw layer).
     * **replace** — legacy's 2D materialization still exposes the raw layer before
-      the new views: ``[raw, op1(raw), …, opN(raw)]`` → ``FeatureConcat([None, op1, …, opN])``.
+      ordinary transform views: ``[raw, op1(raw), …, opN(raw)]`` → ``FeatureConcat([None, op1, …, opN])``.
+      A sole ``Resampler`` is different: its controller replaces the source
+      processing, so only the resampled lane survives in all three modes.
 
     The ``FeatureConcat`` node lives in the model's upstream X-chain, so each augmentation
     sub-transformer is fit on fold-train only (leakage-safe) and re-applied to fold-val/test, exactly
@@ -909,6 +915,13 @@ def _lower_feature_augmentation(step: dict[str, Any]) -> dict[str, Any]:
             "dag-ml bridge does not lower an empty `feature_augmentation` (no operations to add)"
         )
     specs = [_concat_operation_spec(op) for op in layers]
+    from nirs4all.operators.transforms.resampler import Resampler
+
+    # The legacy ResamplerController replaces the source processing in the dataset,
+    # even when invoked beneath feature_augmentation. There is consequently no raw
+    # lane for the model in this single-operation case, for any action mode.
+    if len(layers) == 1 and isinstance(layers[0], Resampler):
+        return {"class": _FEATURE_CONCAT_CLASS, "params": {"operations": specs}}
     if action in ("extend", "add", "replace"):
         # Prepend the raw pass-through layer (FeatureConcat lowers None → sklearn "passthrough").
         specs = [None, *specs]
@@ -922,7 +935,35 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             op = step["model"]
             # The model id is the fully-qualified class (like transforms), so any sklearn-style
             # estimator — regressor or classifier — resolves by import, not a hardcoded table.
-            dsl_step: dict[str, Any] = {"model": _qualname(op), "params": _json_safe_params(op)}
+            from nirs4all.pipeline.dagml.framework_estimator import DagMLFrameworkEstimator, framework_model_params
+            from nirs4all.pipeline.dagml.torch_estimator import DagMLTorchEstimator, torch_model_params
+
+            torch_params = torch_model_params(op)
+            framework_params = framework_model_params(op) if torch_params is None else None
+            dsl_step: dict[str, Any] = (
+                {"model": _qualname(DagMLTorchEstimator), "params": torch_params}
+                if torch_params is not None else
+                {"model": _qualname(DagMLFrameworkEstimator), "params": framework_params}
+                if framework_params is not None else
+                {"model": _qualname(op), "params": _json_safe_params(op)}
+            )
+            configured_model_params = step.get("model_params") or {}
+            if not isinstance(configured_model_params, dict):
+                raise TypeError("model_params must be a parameter mapping")
+            if torch_params is not None or framework_params is not None:
+                dsl_step["params"]["factory_params"] = {
+                    **(dsl_step["params"].get("factory_params") or {}),
+                    **configured_model_params,
+                }
+                if step.get("force_layout") is not None:
+                    layout = step["force_layout"]
+                    if layout not in {"2d", "2d_interleaved", "3d", "3d_transpose"}:
+                        raise ValueError(f"invalid model force_layout {layout!r}")
+                    dsl_step["params"]["force_layout"] = layout
+            else:
+                if step.get("force_layout") not in (None, "2d"):
+                    raise NotImplementedError("non-2D force_layout on a sklearn model requires a shaped data-plane binding")
+                dsl_step["params"].update(configured_model_params)
             host_metadata: dict[str, Any] = {}
             if "finetune_params" in step:
                 host_metadata["nirs4all_finetune_params"] = json.loads(json.dumps(step["finetune_params"], default=repr))
@@ -978,6 +1019,29 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             if generators:
                 dsl_step["generators"] = generators
             return dsl_step
+        if "preprocessing" in step and set(step) == {"preprocessing", "fit_on_all"} and step["fit_on_all"] is True:
+            op = step["preprocessing"]
+            return {
+                "preprocessing": {"class": _qualname(op), "params": _json_safe_params(op)},
+                "metadata": {"nirs4all_fit_on_all": True},
+                "shape": {"fit_rows": "all_observations"},
+            }
+        if "auto_transfer_preproc" in step:
+            if set(step) != {"auto_transfer_preproc"}:
+                raise NotImplementedError("auto_transfer_preproc does not support sibling step keywords in DAG-ML")
+            config = step["auto_transfer_preproc"] or {}
+            if not isinstance(config, dict):
+                raise TypeError("auto_transfer_preproc configuration must be a mapping")
+            if config.get("source_partition", "train") not in {"train", "test"} or config.get("target_partition", "test") not in {"train", "test"}:
+                raise NotImplementedError("DAG-ML auto_transfer_preproc currently supports train/test source and target partitions")
+            return {
+                "preprocessing": {
+                    "class": "nirs4all.pipeline.dagml.auto_transfer.DagMLAutoTransferPreprocessor",
+                    "params": {"config": config},
+                },
+                "metadata": {"nirs4all_fit_on_all": True, "nirs4all_auto_transfer_preproc": True},
+                "shape": {"fit_rows": "all_observations"},
+            }
         if "y_processing" in step:
             op = step["y_processing"]
             return {"y_processing": {"class": _qualname(op), "params": _json_safe_params(op)}}
@@ -1032,6 +1096,8 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
     run on the already-concatenated matrix. Repeated augmentations retain the
     stored layers separately from the active processing selection: ``replace``
     changes that selection but legacy 2D model materialization retains all layers.
+    A later ``concat_transform`` replaces each stored layer with its own
+    concatenated transform output before the final 2D flattening.
     All channel estimators fit on fold-training rows through the normal DAG X-chain.
 
     Raises:
@@ -1047,7 +1113,18 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
                 raise NotImplementedError("Expand sequential model checkpoints before lowering later per-channel transforms")
             if isinstance(step, dict):
                 if "feature_augmentation" not in step:
-                    raise NotImplementedError("concat_transform after feature_augmentation needs a qualified processing-axis lowering")
+                    # Legacy's concat controller replaces every stored processing layer after a
+                    # feature-augmentation step. Keep those layers distinct until the outer
+                    # FeatureConcat flattens them for the model; fitting the nested concat on
+                    # the already-flattened matrix would mix the processing axes.
+                    operation = _lower_concat_transform(step)
+                    layers = channels["params"]["operations"]
+                    channels["params"]["operations"] = [
+                        [*(layer if isinstance(layer, list) else [] if layer is None else [layer]), operation]
+                        for layer in layers
+                    ]
+                    active_channels = list(range(len(layers)))
+                    continue
                 additions = _lower_feature_augmentation(step)["params"]["operations"][1:]
                 layers = channels["params"]["operations"]
                 action = step.get("action", "add")
@@ -1064,12 +1141,23 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
                 active_channels = [index for index in range(len(layers)) if action != "replace" or index not in active_channels]
                 continue
             operation = _concat_operation_spec(step)
+            from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+            if isinstance(step, (CARS, MCUVE)):
+                # Legacy fits one selector on the first active processing lane
+                # and applies that same selected-index mask to every lane.
+                # Independent FeatureUnion fits can choose different masks.
+                operation["shared_fit_id"] = f"selector_{len(lowered)}_{sum(len(layer if isinstance(layer, list) else [layer]) for layer in channels['params']['operations'])}"
             channels["params"]["operations"] = [
                 [*(layer if isinstance(layer, list) else [] if layer is None else [layer]), operation] if index in active_channels else layer
                 for index, layer in enumerate(channels["params"]["operations"])
             ]
             continue
         node = _step_to_dsl(step)
+        if channels is not None and isinstance(step, dict) and "auto_transfer_preproc" in step:
+            # The selector sees the flattened feature matrix, but the chosen
+            # preprocessing is fitted/applied to each existing processing lane.
+            node.setdefault("metadata", {})["nirs4all_upstream_processing_channels"] = True
         lowered.append(node)
         if isinstance(step, dict) and "feature_augmentation" in step:
             channels = node
@@ -1097,6 +1185,8 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
     not by its class — so a ``y_transform`` selector claiming those class names
     would wrongly re-type a bare X-scaler as a target transform.
     """
+    residual_requirements = copy.deepcopy(_MODEL_DATA_REQUIREMENTS)
+    residual_requirements["ports"][0]["name"] = "x_original"
     return [
         {
             "controller_id": "controller:nirs4all.transform",
@@ -1106,7 +1196,7 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
             "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
             "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
-            "data_requirements": None,
+            "data_requirements": _MODEL_DATA_REQUIREMENTS,
             "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng"],
             "operator_selectors": [],  # empty => bind any transform-kind node
             "fit_scope": "fold_train",
@@ -1124,6 +1214,21 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "data_requirements": None,
             "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng"],
             "operator_selectors": [],  # empty => bind any y_transform-kind node (the {"y_processing": …} wrapper, not the class)
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
+            "controller_id": "controller:nirs4all.feature_join",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "feature_join",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "many"}],
+            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "data_requirements": None,
+            "capabilities": ["deterministic", "thread_safe", "process_safe"],
+            "operator_selectors": [],
             "fit_scope": "fold_train",
             "rng_policy": "uses_core_seed",
             "artifact_policy": "serializable",
@@ -1170,6 +1275,21 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "artifact_policy": "serializable",
         },
         {
+            "controller_id": _PREDICTION_FEATURE_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "prediction_join",
+            "priority": 10,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "data_requirements": None,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "consumes_oof_predictions"],
+            "operator_selectors": [],
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
             # Stacking meta-model (backlog #10). The meta-node compiles to a `model`-kind node (it fits
             # a real estimator) but is distinguished from a base model by `metadata.controller_id` set to
             # this id (dag-ml's `requested_controller` binds it directly). It declares
@@ -1198,23 +1318,55 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "rng_policy": "uses_core_seed",
             "artifact_policy": "serializable",
         },
+        {
+            "controller_id": _RESIDUAL_LEARNER_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
+            "output_ports": [
+                {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+            ],
+            "data_requirements": residual_requirements,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng", "consumes_oof_predictions", "emits_predictions", "emits_artifacts", "stateful"],
+            "operator_selectors": [{"refs": [_RESIDUAL_LEARNER_REF]}],
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
     ]
 
 
 def _controller_manifest_specs() -> list[dict[str, Any]]:
     """HostControllerSpec payloads that derive to the public controller-manifest shape."""
+    residual_requirements = copy.deepcopy(_MODEL_DATA_REQUIREMENTS)
+    residual_requirements["ports"][0]["name"] = "x_original"
     return [
         {
             "controller_id": "controller:nirs4all.transform",
             "controller_version": _NIRS4ALL_VERSION,
             "operator_kind": "transform",
             "priority": 20,
+            "data_requirements": _MODEL_DATA_REQUIREMENTS,
         },
         {
             "controller_id": "controller:nirs4all.y_transform",
             "controller_version": _NIRS4ALL_VERSION,
             "operator_kind": "y_transform",
             "priority": 20,
+        },
+        {
+            "controller_id": "controller:nirs4all.feature_join",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "feature_join",
+            "priority": 20,
+            "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "many"}],
+            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
         },
         {
             "controller_id": "controller:nirs4all.model",
@@ -1230,6 +1382,15 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "priority": 20,
         },
         {
+            "controller_id": _PREDICTION_FEATURE_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "prediction_join",
+            "priority": 10,
+            "added_capabilities": ["consumes_oof_predictions"],
+            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+        },
+        {
             "controller_id": "controller:nirs4all.meta_model",
             "controller_version": _NIRS4ALL_VERSION,
             "operator_kind": "model",
@@ -1237,6 +1398,19 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "added_capabilities": ["consumes_oof_predictions"],
             "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
             "operator_selectors": [{"refs": [_META_MODEL_REF]}],
+        },
+        {
+            "controller_id": _RESIDUAL_LEARNER_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "data_requirements": residual_requirements,
+            "added_capabilities": ["consumes_oof_predictions"],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
+            "operator_selectors": [{"refs": [_RESIDUAL_LEARNER_REF]}],
         },
     ]
 

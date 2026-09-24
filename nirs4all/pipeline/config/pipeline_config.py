@@ -174,16 +174,28 @@ class PipelineConfigs:
                 # Get the base key (remove '_params' suffix)
                 base_key = params_key[:-7]  # Remove '_params'
 
-                if base_key in result:
+                # A scalar switch plus its *_params mapping is a control
+                # policy (for example reduce_lr_on_plateau + its options),
+                # not a component constructor with a class to instantiate.
+                if base_key in result and not isinstance(result[base_key], (bool, int, float)):
                     # Merge base_key and params_key into standard format
                     base_value = result[base_key]
                     params_value = result[params_key]
 
-                    # Convert to standard {"class": ..., "params": ...} format
-                    result[base_key] = {
-                        "class": base_value,
-                        "params": params_value
-                    }
+                    # Decorated framework factories are functions, not classes.
+                    # Keep their serialized function form so deserialization can
+                    # defer construction until the dataset supplies input_shape.
+                    import inspect
+
+                    if inspect.isfunction(base_value) and hasattr(base_value, "framework"):
+                        function_spec = serialize_component(base_value)
+                        result[base_key] = {**function_spec, "params": params_value}
+                    else:
+                        # Convert ordinary components to the standard class form.
+                        result[base_key] = {
+                            "class": base_value,
+                            "params": params_value
+                        }
 
                     # Remove the params key
                     del result[params_key]

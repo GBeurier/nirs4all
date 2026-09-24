@@ -19,12 +19,11 @@ import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
-from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.model_selection import KFold
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
 from nirs4all.pipeline.dagml.envelope import build_envelope
-from nirs4all.pipeline.dagml.errors import DagMlStatefulConcatTransformMigrationRequired
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
 from nirs4all.pipeline.dagml.rt import RtError
@@ -545,10 +544,7 @@ def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monke
 
 
 def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> None:
-    """The sole native OOF average matches direct sklearn predictions by sample.
-
-    Weighted averages require their own native evidence and are not synthesized.
-    """
+    """Native OOF averages match direct sklearn predictions by sample."""
     from sklearn.pipeline import make_pipeline
 
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
@@ -573,7 +569,7 @@ def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> Non
             sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
 
     avg_by_sample: dict[str, dict[int, float]] = {}
-    for fold_id in ("avg",):
+    for fold_id in ("avg", "w_avg"):
         rows = result.predictions.filter_predictions(partition="val", fold_id=fold_id)
         assert len(rows) == 1, f"exactly one (val, {fold_id}) row"
         row = rows[0]
@@ -582,9 +578,6 @@ def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> Non
         avg_by_sample[fold_id] = {int(sid): float(p) for sid, p in zip(row["sample_indices"], np.asarray(row["y_pred"], dtype=float).ravel(), strict=True)}
         diffs = [abs(avg_by_sample[fold_id][sample_int] - sklearn_oof[sample_int]) for sample_int in sklearn_oof]
         assert max(diffs) < 1e-6, f"(val, {fold_id}) y_pred drift vs direct sklearn OOF mean: {max(diffs)}"
-
-    assert result.predictions.filter_predictions(fold_id="w_avg") == []
-
 
 @pytest.mark.parametrize(
     "inprocess",
@@ -1634,14 +1627,15 @@ def test_separation_branch_detection() -> None:
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}, {"merge": "predictions"}]) is None
     # a model placed AFTER the concat merge (a different shape).
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [StandardNormalVariate()]}}, {"merge": "concat"}, {"model": PLSRegression()}]) is None
-    # no merge at all.
-    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}]) is None
+    # A model branch without a merge retains its partition-local predictions.
+    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}]) is not None
     # a top-level transform beside the branch (only the branch body is lowered → would be dropped).
     assert _detect_separation_branch([StandardNormalVariate(), splitter, branch, {"merge": "concat"}]) is None
     # a top-level y_processing / tag step beside the branch.
     assert _detect_separation_branch([splitter, {"y_processing": StandardNormalVariate()}, branch, {"merge": "concat"}]) is None
-    # an exclude step beside the branch (the exclusion would be silently lost — out of scope).
-    assert _detect_separation_branch([{"exclude": StandardNormalVariate()}, splitter, branch, {"merge": "concat"}]) is None
+    # Leading exclusions are resolved into the native fold/envelope views; later ones change order.
+    assert _detect_separation_branch([{"exclude": StandardNormalVariate()}, splitter, branch, {"merge": "concat"}]) is not None
+    assert _detect_separation_branch([splitter, {"exclude": StandardNormalVariate()}, branch, {"merge": "concat"}]) is None
     # unhandled branch options: explicit `values` grouping / `min_samples` cardinality drop.
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "values": {"a": ["group_0"]}, "steps": [{"model": PLSRegression()}]}}, {"merge": "concat"}]) is None
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "min_samples": 5, "steps": [{"model": PLSRegression()}]}}, {"merge": "concat"}]) is None
@@ -1652,14 +1646,13 @@ def test_separation_branch_unsupported_shapes_fail_loud() -> None:
     """Out-of-scope branch shapes raise NotImplementedError end-to-end — never silently mishandled.
 
     The detector admits ONLY the exact handled shape; anything `_run_separation_branch` does not honor
-    (a top-level preprocessing step that would be dropped, an `exclude` whose exclusion would be lost,
+    (a top-level preprocessing step that would be dropped, an out-of-order `exclude`,
     a `values`/`min_samples` branch whose grouping is not applied) must fall through to the bridge's
     raw-branch NotImplementedError (the coverage-boundary fail-loud guarantee). These are known
-    limitations for follow-up slices (top-level preproc+branch, exclude+branch, values/min_samples).
+    limitations for follow-up slices (top-level preproc+branch, out-of-order exclude, values/min_samples).
 
-    Asserts on the dag-ml backend (`run_via_dagml`) directly: `nirs4all.run(engine="dag-ml")` now wraps
-    it in the cutover fallback (catches the catchable NotImplementedError → re-runs on legacy), so the
-    loud rejection is observable only at the backend, not through the fallback-wrapped public `run`."""
+    Asserts on the dag-ml backend (`run_via_dagml`) directly so the coverage boundary is observable
+    without the public API's structured error wrapper."""
     from nirs4all.operators.filters.y_outlier import YOutlierFilter
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
@@ -1672,7 +1665,7 @@ def test_separation_branch_unsupported_shapes_fail_loud() -> None:
 
     rejected = {
         "top_level_transform": [StandardNormalVariate(), split(), branch(), {"merge": "concat"}],
-        "exclude_plus_branch": [{"exclude": YOutlierFilter(method="iqr", threshold=1.0)}, split(), branch(), {"merge": "concat"}],
+        "exclude_after_split": [split(), {"exclude": YOutlierFilter(method="iqr", threshold=1.0)}, branch(), {"merge": "concat"}],
         "values_branch": [split(), {"branch": {"by_metadata": "group", "values": {"a": ["group_0"]}, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}],
         "min_samples_branch": [split(), {"branch": {"by_metadata": "group", "min_samples": 5, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}],
     }
@@ -1903,6 +1896,8 @@ def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> No
 
     def _fake_run(args, **kwargs):  # noqa: ANN001, ANN003 - test stub mirroring subprocess.run
         captured["env"] = kwargs["env"]
+        Path(args[args.index("--oof-average-output") + 1]).write_text("[]")
+        Path(args[args.index("--node-results-output") + 1]).write_text("[]")
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr(cli_runner.subprocess, "run", _fake_run)
@@ -2429,23 +2424,33 @@ def test_public_run_engine_dagml_concat_transform_with_chain() -> None:
     assert abs(result.best_rmse - test_rmse) < 1e-6, (result.best_rmse, test_rmse)
 
 
-def test_public_run_engine_dagml_refuses_stateful_concat_transform_before_cv() -> None:
-    """Require explicit migration rather than silently changing legacy PCA/SVD semantics."""
+def test_public_run_engine_dagml_fits_stateful_concat_inside_folds(tmp_path) -> None:
+    """Stateful concat trains natively inside folds and retains replayable refit state."""
     import nirs4all
-    from nirs4all.operators.transforms.scalers import StandardNormalVariate
 
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    def make_step():
+        return {"concat_transform": [PCA(n_components=15, random_state=42), TruncatedSVD(n_components=10, random_state=42)]}
+
+    cv_oracle, test_oracle = _concat_oof_and_test(dataset, make_step)
     pipeline = [
-        StandardNormalVariate(),
-        {"concat_transform": [PCA(n_components=15, random_state=42), TruncatedSVD(n_components=10, random_state=42)]},
-        ShuffleSplit(n_splits=3, random_state=42),
+        make_step(),
+        KFold(n_splits=3, shuffle=True, random_state=42),
         {"model": PLSRegression(n_components=15)},
     ]
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
-        nirs4all.run(pipeline, DatasetConfigs(dataset_path("regression")).get_dataset_at(0), verbose=0, engine="dag-ml")
+    result = nirs4all.run(pipeline, dataset, verbose=0, engine="dag-ml")
+    assert result.execution_engine == "dag-ml"
+    assert result.cv_best_score == pytest.approx(cv_oracle, abs=1e-6)
+    assert result.best_rmse == pytest.approx(test_oracle, abs=1e-6)
+    archive = result.export(tmp_path / "stateful_concat.n4a")
+    fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
+    replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(test_oracle, abs=1e-6)
 
 
-def test_concat_transform_model_param_sweeps_preserve_stateful_refusal() -> None:
-    """A downstream model sweep cannot bypass the pre-CV stateful-concat guard."""
+def test_concat_transform_model_param_sweeps_run_natively() -> None:
+    """A downstream model sweep keeps the learned concat inside each fold."""
     from sklearn.linear_model import Ridge
 
     import nirs4all
@@ -2458,8 +2463,9 @@ def test_concat_transform_model_param_sweeps_preserve_stateful_refusal() -> None
         {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 0.3]}},
     ]
 
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
-        nirs4all.run(pipeline, DatasetConfigs(dataset_path("regression")), engine="dag-ml", verbose=0)
+    result = nirs4all.run(pipeline, DatasetConfigs(dataset_path("regression")), engine="dag-ml", verbose=0)
+    assert result.execution_engine == "dag-ml"
+    assert np.isfinite(result.cv_best_score)
 
 
 # ---------------------------------------------------------------------------
@@ -2473,8 +2479,9 @@ def test_concat_transform_model_param_sweeps_preserve_stateful_refusal() -> None
 #   * replace    → `[raw, op1(raw), …]` = FeatureConcat([None, op1, …]) (legacy 2D materialization).
 # The processing axis is a FEATURE axis (no new SAMPLE rows — distinct from sample_augmentation), so
 # sample-keying is preserved. Parity uses ROW-INDEPENDENT transforms (SNV / SavitzkyGolay derivative)
-# for exact, order-insensitive agreement. The 3D shapes that must deliver parallel processing CHANNELS
-# to a DL model (stacked feature_augmentation / a per-layer step after it) stay fail-loud (#29/#31).
+# for exact, order-insensitive agreement. A later concat_transform is applied to
+# each stored processing layer before the model flattens them. Shapes that need
+# true 3D processing channels at a DL model still require the data-plane (#29/#31).
 # ---------------------------------------------------------------------------
 
 
@@ -2556,9 +2563,9 @@ def test_feature_augmentation_bridge_lowers_to_feature_concat() -> None:
 def test_feature_augmentation_3d_shapes_fail_loud() -> None:
     """The shapes that need the 3D data-plane (parallel processing channels) fail loud naming #29/#31.
 
-    Ordinary downstream X transforms and repeated augmentation run in each
-    channel before flattening (independent proofs in test_repeated_feature_augmentation).
-    Nested concat and unexpanded generators still require explicit lowering.
+    Ordinary downstream X transforms, concat and repeated augmentation run in
+    each channel before flattening. Nested concat operations inside the initial
+    augmentation and unexpanded generators still require explicit lowering.
     """
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.decomposition import PCA
@@ -2578,9 +2585,38 @@ def test_feature_augmentation_3d_shapes_fail_loud() -> None:
     # Repeated augmentation has a qualified channel lowering, not an implicit fallback.
     lowered = pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"feature_augmentation": [MinMaxScaler()]}, model], "boundary")
     assert lowered["pipeline"], "repeated augmentation must retain an executable model path"
-    # A nested concat still changes the processing-axis contract.
-    with pytest.raises(NotImplementedError, match="concat_transform.*processing-axis"):
-        pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"concat_transform": [MinMaxScaler()]}, model], "boundary")
+    # A following concat replaces each stored processing separately before flattening.
+    lowered = pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"concat_transform": [MinMaxScaler()]}, model], "boundary")
+    layers = lowered["pipeline"][0]["params"]["operations"]
+    assert len(layers) == 2
+    assert all(layer[-1]["class"] == "nirs4all.operators.transforms.concat.FeatureConcat" for layer in layers)
+
+
+@pytest.mark.parametrize("action", ["add", "replace", "extend"])
+def test_feature_augmentation_then_concat_transform_matches_legacy_and_replays(tmp_path, action: str) -> None:
+    """Concat operates on each processing layer produced by feature augmentation."""
+    import nirs4all
+    from nirs4all.operators.transforms.nirs import SavitzkyGolay
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = [
+        {"feature_augmentation": [StandardNormalVariate()], "action": action},
+        {"concat_transform": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)]},
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=3)},
+    ]
+    path = dataset_path("regression")
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    assert native.execution_engine == "dag-ml"
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+
+    archive = native.export(tmp_path / f"feature_concat_{action}.n4a")
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    test_x = dataset.x({"partition": "test"}, layout="2d")
+    replay = nirs4all.predict(archive, test_x)
+    assert np.sqrt(np.mean((np.asarray(dataset.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2)) == pytest.approx(native.best_rmse, abs=1e-8)
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -2738,19 +2774,17 @@ def test_public_run_engine_dagml_repetitions() -> None:
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_repetition_unsupported_composition_fails_loud() -> None:
-    """A repetition dataset combined with a branch or augmentation FAILS LOUD (the bypass is closed).
+    """A repetition dataset combined with a branch FAILS LOUD (the bypass is closed).
 
-    The repetition guard in `run_via_dagml` runs BEFORE the separation-branch and augmentation dispatch
-    (both of which build folds WITHOUT the group constraint, so a rep dataset reaching them could split a
-    sample's replicates across train/val = silent group leakage). This pins that closure: each composition
-    must raise `NotImplementedError` naming `repetition`/`#21` rather than silently take the group-free path.
+    The repetition guard in `run_via_dagml` runs BEFORE the separation-branch dispatch,
+    which would otherwise split a sample's replicates across train/val. Augmentation now
+    constructs group-aware folds and is covered by the public augmentation test.
 
     The branch/augmentation steps are real shapes (`_detect_separation_branch` / `_is_augmentation_step`
     recognise them) so the guard is exercised on the actual dispatch — the guard raises before any CLI
     subprocess, so no real run happens despite the binary being present.
     """
-    from nirs4all.operators.augmentation import GaussianAdditiveNoise
-    from nirs4all.pipeline.dagml.run_backend import _detect_separation_branch, _is_augmentation_step, run_via_dagml
+    from nirs4all.pipeline.dagml.run_backend import _detect_separation_branch, run_via_dagml
 
     configs = DatasetConfigs(str(_REPETITION_DS), repetition=_REP_COL)
 
@@ -2762,16 +2796,6 @@ def test_repetition_unsupported_composition_fails_loud() -> None:
     assert _detect_separation_branch(branch_pipeline) is not None, "branch step must reach the dispatch for this to be a real lock"
     with pytest.raises(NotImplementedError, match=r"repetition.*#21"):
         run_via_dagml(branch_pipeline, configs, dagml_cli=str(_DAGML_CLI))
-
-    aug_pipeline = [
-        {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all", "random_state": 42}},
-        {"model": PLSRegression(n_components=5)},
-        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
-    ]
-    assert any(_is_augmentation_step(step) for step in aug_pipeline), "augmentation step must reach the dispatch for this to be a real lock"
-    with pytest.raises(NotImplementedError, match=r"repetition.*#21"):
-        run_via_dagml(aug_pipeline, configs, dagml_cli=str(_DAGML_CLI))
-
 
 def test_repetition_classification_vote_aggregation_executes_without_fallback() -> None:
     """Native row scores and captured vote presentation coexist without refitting."""
@@ -2795,13 +2819,18 @@ def test_repetition_classification_vote_aggregation_executes_without_fallback() 
     assert len(result.predictions) > 0
 
 
-def test_adaptive_finetune_params_execute_with_native_inner_fold_scores() -> None:
-    """General Optuna proposals retain native grouped inner-CV ownership."""
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_adaptive_finetune_params_execute_with_native_inner_fold_scores(monkeypatch, mechanism: str) -> None:
+    """General Optuna proposals retain native grouped inner-CV ownership on both mechanisms."""
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import ShuffleSplit
 
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
+    if mechanism == "subprocess" and not _DAGML_CLI.exists():
+        pytest.skip(f"dag-ml-cli binary not built at {_DAGML_CLI}")
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
     configs = DatasetConfigs(dataset_path("regression"))
     pipeline = [
         ShuffleSplit(n_splits=3, random_state=42),
@@ -3262,9 +3291,10 @@ def test_stacking_branch_detection() -> None:
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(test_aggregation=TestAggregation.WEIGHTED_MEAN))}]) is None
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(coverage_strategy=CoverageStrategy.DROP_INCOMPLETE))}]) is None
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(min_coverage_ratio=0.5))}]) is None
-    # A sibling param or a generator on the meta-model step is silently dropped by the bare-estimator
-    # lowering (no _apply_model_params / native generation runs for it) → fail loud, not a silent mis-run.
-    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": 0.2}]) is None
+    # Concrete sibling parameters are applied to the meta-estimator; sweeps
+    # still need a separate variant-selection path.
+    concrete = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": 0.2}])
+    assert concrete is not None and concrete[1].alpha == 0.2
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 3]}}]) is None
     # Shared transforms are lowered into each base's fold-local fitted chain.
     shared = _detect_stacking_branch([StandardNormalVariate(), splitter, branch, {"merge": "predictions"}, {"model": Ridge()}])
@@ -3301,14 +3331,18 @@ def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested
     assert not legacy._is_dagml_engine()  # noqa: SLF001
     assert legacy.num_predictions == 45
     native_cv = [row for row in native.predictions.filter_predictions() if row["fold_id"] != "final"]
-    assert len(native_cv) == 12
-    assert all(row["partition"] == "val" and row["train_score"] is None and row["test_score"] is None for row in native_cv)
+    meta_cv = [row for row in native_cv if row["branch_name"] is None]
+    assert len(meta_cv) == 5
+    assert all(row["partition"] == "val" and row["train_score"] is None and row["test_score"] is None for row in meta_cv)
+    for branch in ("pls", "ridge"):
+        for partition in ("train", "val", "test"):
+            assert len([row for row in native_cv if row["branch_name"] == branch and row["partition"] == partition]) == 5
     assert native.predictions.filter_predictions(fold_id="final", load_arrays=False)
     assert legacy.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
 
     native_rows = native.predictions.filter_predictions(load_arrays=False)
     legacy_rows = legacy.predictions.filter_predictions(load_arrays=False)
-    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final"]
+    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final", "w_avg"]
     assert sorted({str(row.get("fold_id")) for row in legacy_rows}) == ["0", "1", "2", "avg", "w_avg"]
     assert {row["branch_name"] for row in native_rows} == {"pls", "ridge", None}
     # Legacy's meta CV-only projection fitted a different, non-nested protocol.
@@ -3425,13 +3459,11 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> None:
-    """Stacking with an IGNORED MetaModel option or a sibling-param/generator meta step fails LOUD (#10).
+    """Stacking applies concrete meta parameters and rejects unsupported controls.
 
-    Both are silently-dropped-config gaps the dag-ml stacking lowering would otherwise ignore: a non-default
-    `StackingConfig` field (e.g. `test_aggregation`, which this slice cannot honor at all — best_rmse is NaN)
-    and a sibling param / generator on the bare meta-model step (the bare-estimator lowering never runs
-    `_apply_model_params` / native generation for it). Each must raise `NotImplementedError` naming #10
-    rather than run with the option silently dropped — the project's never-silently-drop-config discipline.
+    A non-default `StackingConfig` field and a meta-parameter generator still
+    fail loudly. A concrete sibling parameter is applied to the fitted native
+    meta-estimator instead of being silently dropped.
 
     Asserts on the dag-ml backend (`run_via_dagml`) directly: the public `nirs4all.run(engine="dag-ml")`
     now wraps it in the cutover fallback (catchable NotImplementedError → legacy), so the loud rejection
@@ -3458,8 +3490,14 @@ def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> Non
         {"merge": "predictions"},
         {"model": Ridge(), "alpha": 0.2},
     ]
-    with pytest.raises(NotImplementedError, match="#10"):
-        run_via_dagml(sibling_param, dataset_path("regression"))
+    native = run_via_dagml(sibling_param, dataset_path("regression"))
+    assert np.isfinite(native.cv_best_score)
+    meta_artifacts = [
+        artifact for artifact in native._dagml_refit_artifacts
+        if artifact["artifact_id"].startswith("artifact:merge:stack:")
+    ]
+    assert len(meta_artifacts) == 1 and meta_artifacts[0]["estimator"].alpha == 0.2
+    native.close()
 
     swept_meta = [
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
@@ -4434,22 +4472,13 @@ def test_or_none_variant_is_handled_as_passthrough() -> None:
     assert swept.cv_best_score == swept.cv_best_score  # not NaN
 
 
-def test_wavelength_and_custom_operators_fail_loud_catchably() -> None:
-    """P0: a wavelength-requiring op and a non-sklearn custom op raise a CATCHABLE ``DagMlUnsupported``.
-
-    The dag-ml X-chain fits transforms with ``(X, y)`` only (a plain sklearn ``make_pipeline``); two
-    recognizable unsupported shapes are rejected UP FRONT (so :func:`run`'s fallback redirects them to
-    legacy instead of crashing mid-run with a ``DagMlRuntimeError``):
-
-    * a configured :class:`Resampler` (needs ``wavelengths=`` injected into ``fit``); and
-    * a custom NON-sklearn operator (no ``fit``/``transform`` — unroutable by the X-chain).
-    """
+def test_wavelength_operator_is_routable_and_custom_operator_refuses() -> None:
+    """Feature-axis injection admits Resampler; an unroutable custom op refuses."""
     from nirs4all.operators.transforms.resampler import Resampler
     from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
+    from nirs4all.pipeline.dagml.steps import _assert_supported_operators
 
-    wavelength_pipeline = [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0])), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(wavelength_pipeline, dataset_path("regression"))
+    _assert_supported_operators([Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))])
 
     class _CustomOp:  # non-sklearn: no fit/transform — only a dedicated controller could run it
         pass
@@ -4490,13 +4519,11 @@ def test_supported_operator_precheck_does_not_swallow_real_bugs() -> None:
 
 
 def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchably() -> None:
-    """P0: a wavelength-requiring op INSIDE a branch / by_source / augmentation body raises a catchable error.
+    """Invalid fixture wavelengths fail at runtime, even when Resampler is nested.
 
-    The X-side precheck must reach EVERY leaf/body lowerer, not just the simple/native/repetition paths.
-    A configured ``Resampler`` (needs ``wavelengths=`` injected into ``fit``) buried inside a duplication
-    branch, a by_metadata separation branch, a by_source branch, or a sample_augmentation pipeline used to
-    crash mid-run (uncaught ``DagMlRuntimeError`` in-process → ``run()`` could not fall back). It now raises
-    a catchable ``DagMlUnsupported`` BEFORE any ``estimator.fit`` reaches the runtime, anywhere it appears."""
+    These fixture headers are not a usable spectral axis. The operator is supported,
+    so a numerical fit failure must never be disguised as ``DagMlUnsupported``.
+    """
     from sklearn.linear_model import Ridge
 
     from nirs4all.operators.transforms.resampler import Resampler
@@ -4507,17 +4534,19 @@ def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchabl
 
     split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
+    def assert_bad_wavelengths(pipeline, dataset):
+        with pytest.raises(Exception, match="[Ww]avelength") as exc_info:  # noqa: PT011 - runtime wrapper varies by mechanism
+            run_via_dagml(pipeline, dataset)
+        assert not isinstance(exc_info.value, DagMlUnsupported)
+
     duplication = [split, {"branch": [[resampler(), {"model": PLSRegression(n_components=2)}], [{"model": Ridge(alpha=1.0)}]]}, {"merge": "mean"}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(duplication, dataset_path("regression"))
+    assert_bad_wavelengths(duplication, dataset_path("regression"))
 
     separation = [split, {"branch": {"by_metadata": "group", "steps": [resampler(), {"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(separation, dataset_path("with_metadata"))
+    assert_bad_wavelengths(separation, dataset_path("with_metadata"))
 
     by_source = [split, {"branch": {"by_source": True, "steps": [resampler(), {"model": PLSRegression(n_components=2)}]}}, {"merge": "mean"}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(by_source, dataset_path("multi"))
+    assert_bad_wavelengths(by_source, dataset_path("multi"))
 
     augmentation = [
         resampler(),
@@ -4525,8 +4554,7 @@ def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchabl
         split,
         {"model": PLSRegression(n_components=2)},
     ]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(augmentation, dataset_path("regression"))
+    assert_bad_wavelengths(augmentation, dataset_path("regression"))
 
 
 def test_none_step_inside_branch_bodies_is_handled() -> None:
@@ -4595,13 +4623,13 @@ def test_non_reconstructible_custom_transform_fails_loud_catchably() -> None:
 
 
 def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> None:
-    """P0: an unsupported transform NESTED inside concat_transform / feature_augmentation is caught up front.
+    """Invalid numerical input and non-reconstructible nested transforms fail distinctly.
 
     ``FeatureConcat`` reconstructs + fits each transform inside a ``concat_transform`` /
     ``feature_augmentation`` spec (the same import + ``cls(**params)`` round-trip as a bare transform), so a
-    wavelength-requiring or non-reconstructible op nested there used to bypass the dict-skipping precheck
-    and crash uncaught in ``FeatureConcat.fit``. The precheck now recurses into those nested X-ops and
-    raises a catchable ``DagMlUnsupported``."""
+    non-reconstructible op is unsupported; configured Resampler is supported but
+    invalid fixture wavelengths cause a real runtime fit error.
+    """
     from sklearn.preprocessing import FunctionTransformer
 
     from nirs4all.operators.transforms.resampler import Resampler
@@ -4610,8 +4638,9 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
     split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
     concat_wavelength = [{"concat_transform": [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]}, split, {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
+    with pytest.raises(Exception, match="[Ww]avelength") as concat_error:  # noqa: PT011 - runtime wrapper varies by mechanism
         run_via_dagml(concat_wavelength, dataset_path("regression"))
+    assert not isinstance(concat_error.value, DagMlUnsupported)
 
     feataug_lambda = [{"feature_augmentation": [FunctionTransformer(func=lambda x: x)]}, split, {"model": PLSRegression(n_components=2)}]
     with pytest.raises(DagMlUnsupported, match="reconstructible"):
@@ -4623,8 +4652,9 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
     from sklearn.preprocessing import StandardScaler
 
     nested_chain = [{"concat_transform": [[StandardScaler(), [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]]]}, split, {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
+    with pytest.raises(Exception, match="[Ww]avelength") as nested_error:  # noqa: PT011 - runtime wrapper varies by mechanism
         run_via_dagml(nested_chain, dataset_path("regression"))
+    assert not isinstance(nested_error.value, DagMlUnsupported)
 
 
 def test_non_serializable_param_transform_fails_loud_catchably() -> None:
@@ -4644,16 +4674,15 @@ def test_non_serializable_param_transform_fails_loud_catchably() -> None:
         run_via_dagml(pipeline, dataset_path("regression"))
 
 
-def test_bare_class_runs_natively_and_stateful_nested_transform_is_refused() -> None:
-    """A bare class remains native while pre-CV stateful nesting requires migration.
+def test_bare_class_and_stateful_nested_transform_run_natively() -> None:
+    """A bare class and a stateful concat remain native.
 
     The reconstructibility checks must not over-reject:
 
     * a bare CLASS step (``StandardScaler`` the class, not an instance) is reconstructible — ``_qualname``
       handles class objects, so it must run natively (the FQN-import check used to compare against
       ``type(StandardScaler)`` = ``type`` and wrongly rejected it); and
-    * a ``concat_transform`` wrapping a stateful sklearn transform (``StandardScaler()``) is refused
-      before CV because silently changing legacy global-fit semantics is not a fallback boundary.
+    * a ``concat_transform`` wrapping a stateful sklearn transform fits in each fold.
     """
     from sklearn.preprocessing import StandardScaler
 
@@ -4664,8 +4693,9 @@ def test_bare_class_runs_natively_and_stateful_nested_transform_is_refused() -> 
     class_step = run_via_dagml([StandardScaler, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
     assert class_step.cv_best_score == class_step.cv_best_score  # not NaN — it ran natively
 
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
-        run_via_dagml([{"concat_transform": [StandardScaler()]}, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    concat = run_via_dagml([{"concat_transform": [StandardScaler()]}, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    assert concat.execution_engine == "dag-ml"
+    assert np.isfinite(concat.cv_best_score)
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

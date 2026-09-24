@@ -1,9 +1,9 @@
 """Project native DAG-ML score evidence into ``RunResult``.
 
-Each public row represents an actually scored native partition: validation for
-individual folds and the sample-averaged OOF aggregate, and train/test for the
-refitted model. Missing fold train/test or weighted-ensemble reports are absent;
-validation scores must never stand in for training measurements.
+Each public row represents an actually scored native partition: train and
+validation for individual folds, their scored cross-fold aggregates, and
+train/test for the refitted model. Validation scores never stand in for
+training measurements.
 
 Refit rows retain their originating CV score for model selection, with explicit
 provenance in ``result_metadata.dagml_projection.score_provenance``. That score
@@ -17,11 +17,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
 from nirs4all.data.predictions import Predictions
 
 if TYPE_CHECKING:
+    from nirs4all.api.result import RunResult
+
     from .identity import IdentityMap
 
 # Public partition names in the Predictions schema.
@@ -277,8 +278,11 @@ def _scores_to_run_result(
     results: list[dict[str, Any]] | None = None,
     results_by_variant: dict[Any, list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
+    identities_by_variant: dict[Any, IdentityMap] | None = None,
     refit_artifacts: list[dict[str, Any]] | None = None,
     report_fold_ids: set[str] | None = None,
+    emit_all_refits: bool = False,
+    refit_name_suffix: str = "_refit",
 ) -> RunResult:
     """Project each variant's actual native reports without inventing partitions.
 
@@ -290,8 +294,11 @@ def _scores_to_run_result(
     Overlapping validation folds use DAG-ML's sample-level OOF aggregation:
     average each physical sample's predictions first, then score unique samples.
     This differs from legacy's concatenation, which weights repeated samples
-    multiple times. No weighted-average report is synthesized.
+    multiple times. Held-out test fold and ensemble reports are projected when
+    DAG-ML emits them; their scores remain native.
     """
+    from nirs4all.api.result import RunResult
+
     reports = [
         report for report in (scores or {}).get("reports", [])
         if (producer is None or report.get("producer_node") == producer)
@@ -342,7 +349,7 @@ def _scores_to_run_result(
     # one producer (all variants reuse the SAME node id — keying by producer alone WOULD collide). Every
     # other call site passes neither → an empty index → score-only (empty arrays) unchanged.
     sample_blocks_by_variant: dict[Any, dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any] | None]]] = {}
-    if identity is not None:
+    if identity is not None or identities_by_variant:
         variant_results = results_by_variant if results_by_variant is not None else ({"variant:base": results} if results is not None else {})
         for variant_id, variant_frames in variant_results.items():
             sample_blocks_by_variant[variant_id] = {
@@ -374,6 +381,7 @@ def _scores_to_run_result(
         if arrays is not None:
             sample_indices, sample_ids, y_true, y_pred = arrays
             kwargs["sample_indices"] = sample_indices
+            kwargs["n_samples"] = len(sample_ids)
             # Native wire IDs are authoritative; positional indices are not.
             # Preserve them in the legacy-shaped buffer for native archive
             # persistence and later conformal presentation attachment.
@@ -414,15 +422,16 @@ def _scores_to_run_result(
         wire ``sample_id`` to its in-memory ``sample`` int via ``identity.to_int``, and pairs ``y_pred``
         (the ``PredictionBlock.values``) with ``y_true`` (the paired ``regression_targets.values``, same
         sample order). ``None`` when no such block was emitted for this variant (so the row stays
-        score-only) — e.g. a no-test run has no ``(test, None)`` block, a fold-train row has no fold-train
-        block, and a native loser (no threaded frames) has no blocks at all. Single-target blocks are
+        score-only) — e.g. a no-test run has no ``(test, None)`` block, and a native loser (no
+        threaded frames) has no blocks at all. Single-target blocks are
         flattened to 1-D arrays (legacy ``.ravel()`` shape).
         """
         pair = sample_blocks_by_variant.get(variant_id, {}).get((partition, fold_id))
-        if pair is None or identity is None:
+        variant_identity = (identities_by_variant or {}).get(variant_id, identity)
+        if pair is None or variant_identity is None:
             return None
         block, target = pair
-        sample_indices = [identity.to_int(sample_id) for sample_id in block["sample_ids"]]
+        sample_indices = [variant_identity.to_int(sample_id) for sample_id in block["sample_ids"]]
         y_pred = np.asarray(block["values"], dtype=float)
         y_pred = y_pred.ravel() if y_pred.ndim == 2 and y_pred.shape[1] == 1 else y_pred
         if target is None:
@@ -445,7 +454,7 @@ def _scores_to_run_result(
     # the winner's avg with `None`; the portable Methods controller keeps the sole concrete
     # `variant:base` identity instead. Both are the same single-producer OOF evidence, so the lookup
     # below accepts the latter only when the former is absent.
-    cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id != "avg"))
+    cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id not in ("avg", "w_avg")))
     # Scheduler-owned Methods HPO deliberately persists only one terminal
     # sample-level OOF-average report per candidate.  It does not invent
     # fold-grain reports merely for the legacy compatibility table.  Preserve
@@ -453,6 +462,12 @@ def _scores_to_run_result(
     # the normal fold path above remains authoritative whenever it exists.
     if not cv_variant_ids:
         cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id == "avg" and variant_id is not None))
+    # A CV-only native sweep still SELECTS its winner, but deliberately emits no REFIT report.
+    # The selected variant's fold reports lead the ScoreSet and own the untagged OOF-average
+    # report; without this owner the average would be dropped and cv_best_score could point to
+    # a losing variant's average instead.
+    if final_variant_id is _MISSING and (None, "validation", "avg") in by_key and cv_variant_ids:
+        final_variant_id = cv_variant_ids[0]
     if final_variant_id is not _MISSING and final_variant_id in cv_variant_ids:
         cv_variant_ids = [final_variant_id] + [variant_id for variant_id in cv_variant_ids if variant_id != final_variant_id]
 
@@ -473,7 +488,7 @@ def _scores_to_run_result(
             if other_variant_id == variant_id
             and partition == "validation"
             and fold_id is not None
-            and fold_id != "avg"
+            and fold_id not in ("avg", "w_avg")
         ]
         # The cross-fold OOF average for THIS variant. dag-ml emits the avg with `variant_id = None` for
         # the SOLE producer (a single concrete pipeline or a merge node) and for the SWEEP WINNER; a sweep
@@ -495,31 +510,96 @@ def _scores_to_run_result(
         # refit report has no final train/test measurements to expose.
         variant_test = by_key.get((variant_id, "test", None))
         variant_final_train = by_key.get((variant_id, "final", None))
-        is_final_owner = is_winner or len(cv_variant_ids) == 1
+        is_final_owner = is_winner or len(cv_variant_ids) == 1 or (emit_all_refits and (variant_final_train is not None or variant_test is not None))
 
-        # A fold owns validation evidence only. Refit metrics describe a
-        # different fitted estimator and cannot be attached to a CV fold.
+        # Each CV estimator can also predict the independent held-out test cohort.
+        # Keep that measurement tied to its fold, never to the refitted estimator.
         for fold_id in fold_keys:
             fold_block = by_key[(variant_id, "validation", fold_id)]
+            fold_train = by_key.get((variant_id, "train", fold_id))
+            fold_test = by_key.get((variant_id, "test", fold_id))
+            fold_blocks = {"train": fold_train, "val": fold_block, "test": fold_test}
+            fold_provenance = {"val": {"partition": "validation", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}}
+            if fold_train is not None:
+                fold_provenance["train"] = {"partition": "train", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}
+            if fold_test is not None:
+                fold_provenance["test"] = {"partition": "test", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}
+            if fold_train is not None:
+                add(
+                    _legacy_fold_id(fold_id), "train", fold_blocks,
+                    row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "train", fold_id),
+                    score_provenance=fold_provenance,
+                )
             add(
-                _legacy_fold_id(fold_id), "val", {"val": fold_block},
+                _legacy_fold_id(fold_id), "val", fold_blocks,
                 row_config_name=variant_config_name, row_model_name=variant_model_name,
                 arrays=_row_arrays(variant_id, "validation", fold_id),
-                score_provenance={"val": {"partition": "validation", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}},
+                score_provenance=fold_provenance,
             )
+            if fold_test is not None:
+                add(
+                    _legacy_fold_id(fold_id), "test", fold_blocks,
+                    row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "test", fold_id),
+                    score_provenance=fold_provenance,
+                )
 
         if has_avg and avg is not None:
+            def average_report(
+                partition: str, fold_id: str,
+                owners: tuple[Any, ...] = (avg_variant_id, variant_id, None) if is_winner else (avg_variant_id,),
+            ) -> dict[str, float] | None:
+                # A selected native training outcome can retain its concrete
+                # variant on validation averages while core-owned train/test
+                # ensembles use the untagged winner identity. Both refer to
+                # this winner; never borrow an untagged row for a loser.
+                return next((by_key[(owner, partition, fold_id)] for owner in dict.fromkeys(owners)
+                             if (owner, partition, fold_id) in by_key), None)
+
+            avg_train = average_report("train", "avg")
+            avg_test = average_report("test", "avg")
+            avg_blocks = {"train": avg_train, "val": avg, "test": avg_test}
+            avg_provenance = {"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}}
+            if avg_train is not None:
+                avg_provenance["train"] = {"partition": "train", "fold_id": "avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_training_sample"}
+            if avg_test is not None:
+                avg_provenance["test"] = {"partition": "test", "fold_id": "avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}
+            if avg_train is not None:
+                add("avg", "train", avg_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "train", "avg"), score_provenance=avg_provenance)
             add(
-                "avg", "val", {"val": avg},
+                "avg", "val", avg_blocks,
                 row_config_name=variant_config_name, row_model_name=variant_model_name,
                 arrays=_row_arrays(variant_id, "validation", "avg"),
-                score_provenance={"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}},
+                score_provenance=avg_provenance,
             )
+            if avg_test is not None:
+                add("avg", "test", avg_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "test", "avg"), score_provenance=avg_provenance)
+            weighted_test = average_report("test", "w_avg")
+            weighted_train = average_report("train", "w_avg")
+            weighted_val = average_report("validation", "w_avg")
+            if weighted_train is not None:
+                add("w_avg", "train", {"train": weighted_train, "val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "train", "w_avg"),
+                    score_provenance={"train": {"partition": "train", "fold_id": "w_avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "validation_weighted_mean_prediction_per_training_sample"}})
+            if weighted_val is not None or weighted_train is not None or weighted_test is not None:
+                # Legacy's weighted ensemble retains the same OOF validation
+                # predictions as `avg`: each sample is predicted only by its
+                # held-out fold, so weights cannot change that measurement.
+                add("w_avg", "val", {"train": weighted_train, "val": weighted_val or avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "validation", "w_avg") or _row_arrays(variant_id, "validation", "avg"),
+                    score_provenance={"val": {"partition": "validation", "fold_id": "w_avg" if weighted_val is not None else "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "same_oof_as_avg"}})
+            if weighted_test is not None:
+                add("w_avg", "test", {"val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "test", "w_avg"),
+                    score_provenance={"test": {"partition": "test", "fold_id": "w_avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "validation_weighted_mean_prediction_per_sample"}})
 
         # Preserve CV as selection evidence for REFIT ranking, explicitly
         # distinguished from measurements of the refitted estimator.
         if is_final_owner:
-            refit_config_name = variant_config_name + "_refit" if variant_config_name else variant_config_name
+            refit_config_name = variant_config_name + refit_name_suffix if variant_config_name else variant_config_name
             final_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train, "val": avg, "test": variant_test}
             final_provenance = {
                 part: {"partition": native_part, "fold_id": None, "variant_id": variant_id, "purpose": "measurement"}
@@ -592,6 +672,9 @@ def _project_operator_sweep(
     results_by_index: list[list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
     refit_artifacts_by_index: list[list[dict[str, Any]]] | None = None,
+    identities_by_index: list[IdentityMap] | None = None,
+    selected_index: int | None = None,
+    emit_all_refits: bool = False,
 ) -> RunResult:
     """Combine each operator-expanded variant's single-variant ScoreSet into ONE per-variant projection.
 
@@ -603,6 +686,7 @@ def _project_operator_sweep(
     the native SELECT direction) keeps ALL its reports (incl. the refit ``(final/test, None)`` and the
     ``None``-tagged avg — only the winner refits); every LOSER keeps only its VALIDATION reports, re-tagged
     with a distinct ``variant_id`` (its avg re-tagged too, so it no longer claims the winner's ``None`` avg).
+    With ``emit_all_refits``, losers also retain their own final/test reports and prediction arrays.
 
     Each variant's rows are labeled by its OWN ``variant_id`` via the ``variant_config_names`` /
     ``variant_model_names`` maps — the winner gets ITS expansion ``config_name`` (+ ``_refit``) and ITS
@@ -622,7 +706,8 @@ def _project_operator_sweep(
     ``refit_artifacts_by_index`` (P3 Slice 2c-i) is each variant's captured fitted REFIT estimators
     (``_run_concrete_scores``'s ``outcome["refit_artifacts"]``); ONLY the WINNER's are forwarded for native
     persistence — the projection refits + describes the winner, so the losers' refit models are not
-    surfaced. ``None`` (rep-fusion sweep) → no artifacts persisted.
+    surfaced. ``None`` (rep-fusion sweep) → no artifacts persisted. ``emit_all_refits`` preserves
+    each checkpoint's final/test rows while export still targets the selected model artifact.
     """
     scores_by_variant = [scores for scores, _ in variant_scores]
     model_names = [name for _, name in variant_scores]
@@ -635,7 +720,9 @@ def _project_operator_sweep(
             return float("inf")
         return -score if maximize else score
 
-    winner_index = min(range(len(scores_by_variant)), key=_rank)
+    winner_index = selected_index if selected_index is not None else min(range(len(scores_by_variant)), key=_rank)
+    if winner_index not in range(len(scores_by_variant)):
+        raise ValueError(f"selected variant index {winner_index} is outside the operator sweep")
     # Winner first, then the losers in expand order — the projection iterates / labels by variant_id, so
     # the order here only sets which reports lead, not the labels.
     ordered_indices = [winner_index] + [index for index in range(len(scores_by_variant)) if index != winner_index]
@@ -646,6 +733,7 @@ def _project_operator_sweep(
     # Per-variant-TAG frames for the direct-block value fill (2a-ii): variant `index`'s own frames keyed
     # by the SAME tag we stamp its reports with, so a row reads its OWN variant's blocks (no leakage).
     results_by_variant: dict[Any, list[dict[str, Any]]] = {}
+    identities_by_variant: dict[Any, IdentityMap] = {}
     for position, index in enumerate(ordered_indices):
         is_winner = position == 0
         variant_tag = "variant:base" if is_winner else f"variant:v{index}"
@@ -657,6 +745,8 @@ def _project_operator_sweep(
         variant_model_map[variant_tag] = model_names[index]
         if results_by_index is not None:
             results_by_variant[variant_tag] = results_by_index[index]
+        if identities_by_index is not None:
+            identities_by_variant[variant_tag] = identities_by_index[index]
         for report in scores_by_variant[index].get("reports", []):
             partition, fold_id = report.get("partition"), report.get("fold_id")
             entry = dict(report)
@@ -686,10 +776,12 @@ def _project_operator_sweep(
         variant_model_names=variant_model_map,
         results_by_variant=results_by_variant or None,
         identity=identity,
+        identities_by_variant=identities_by_variant or None,
         # Persist ONLY the WINNER's fitted REFIT estimators (the variant the projection refits + describes).
         # Every operator-expanded variant refits in its own in-process run (its own store), but the
         # standalone-refit rows — and therefore the model the RunResult describes — are the winner's, so the
         # losers' refit models are not surfaced and not persisted. ``None`` (rep-fusion sweep, no capture)
         # falls back to no artifacts.
         refit_artifacts=refit_artifacts_by_index[winner_index] if refit_artifacts_by_index is not None else None,
+        emit_all_refits=emit_all_refits,
     )

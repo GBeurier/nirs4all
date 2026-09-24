@@ -4,19 +4,104 @@ name: Build & Publish
 on:
   release:
     types: [ published ]     # clicking "Publish Release" triggers real PyPI
-  # Manual runs are deliberately dry-runs: tests, docs, and distributions only.
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing immutable release tag to republish after a failed gate'
+        required: false
+        type: string
+      publish_release:
+        description: 'Publish the existing tag after all gates pass (main only)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  # Run full test suite before publishing
-  run-tests:
+  release-preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.target.outputs.release_tag }}
+      tag_sha: ${{ steps.target.outputs.tag_sha }}
+      docker_version: ${{ steps.target.outputs.docker_version }}
+      prerelease: ${{ steps.target.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+
+      - name: Verify manual publication target
+        id: target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'release' ]]; then
+            echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            echo "docker_version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=$RELEASE_PRERELEASE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$PUBLISH_RELEASE" != 'true' ]]; then
+            echo 'Manual dry-run: publication disabled.'
+            exit 0
+          fi
+          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo '::error::Manual publication must run from main.'
+            exit 1
+          fi
+          if [[ ! "$INPUT_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo '::error::release_tag must be an existing SemVer release tag.'
+            exit 1
+          fi
+          release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$INPUT_TAG")
+          if ! jq -e --arg tag "$INPUT_TAG" \
+            '.tag_name == $tag and .draft == false and .published_at != null' \
+            <<< "$release_json" >/dev/null; then
+            echo '::error::The matching GitHub Release must already be published.'
+            exit 1
+          fi
+          package_version="${INPUT_TAG//-rc./rc}"
+          pypi_status=$(curl --retry 2 --retry-delay 2 -sS -o /dev/null \
+            -w '%{http_code}' "https://pypi.org/pypi/nirs4all/$package_version/json")
+          if [[ "$pypi_status" != '404' ]]; then
+            echo "::error::PyPI returned HTTP $pypi_status for nirs4all==$package_version; publication requires absence."
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/tags/$INPUT_TAG:refs/tags/$INPUT_TAG"
+          tag_sha=$(git rev-parse "$INPUT_TAG^{commit}")
+          prerelease=$(jq -r '.prerelease' <<< "$release_json")
+          echo "release_tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=$tag_sha" >> "$GITHUB_OUTPUT"
+          echo "docker_version=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Verified published Release $INPUT_TAG at $tag_sha; PyPI version is absent."
+
+  # Run the fast source gate; exhaustive DAG-ML coverage runs weekly/on demand.
+  run-tests:
+    needs: release-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
+
+      - name: Checkout pinned dag-ml CLI source
+        uses: actions/checkout@v6
+        with:
+          repository: GBeurier/dag-ml
+          ref: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
+          path: dag-ml-cli-src
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -37,32 +122,53 @@ jobs:
           python -m pip install numpy -r requirements-test-linux.txt
           python -m pip install --index-url https://download.pytorch.org/whl/cpu \
             'torch==2.13.0+cpu'
+          # The previous dependency resolution can leave an orphaned Triton
+          # package behind. Torch probes it at optimizer creation even with a
+          # CPU wheel; its import segfaulted repeatedly in the release runner.
+          python -m pip uninstall -y triton
+          python -c "import importlib.util; assert importlib.util.find_spec('triton') is None"
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
+
+      - name: Build pinned dag-ml CLI for subprocess parity tests
+        run: cargo build -p dag-ml-cli --manifest-path dag-ml-cli-src/Cargo.toml
 
       - name: Gate real library usability
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
 
-      - name: Run full pytest + coverage
+      - name: Run fast DAG-ML unit, API, and parity smoke tests
         shell: bash
+        env:
+          N4A_ENGINE: dag-ml
+          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+          CUDA_VISIBLE_DEVICES: ''
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
         run: |
-          python -m coverage erase
-          python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py \
-            --cov=nirs4all --cov-append
-          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append
-          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append --cov-report=xml
+          mkdir -p fast-dagml-pytest-report
+          python -m pytest -q --timeout=300 -n 2 --dist worksteal \
+            -m 'not slow and not gpu and not stress' \
+            tests/unit/ tests/integration/api/ \
+            tests/integration/parity/test_parity_compiles.py \
+            tests/integration/parity/test_cv_test_parity.py \
+            tests/integration/parity/test_native_single_model_bundle_export.py \
+            tests/integration/parity/test_conformance_examples_smoke.py \
+            tests/integration/parity/test_marker_audit.py \
+            --junitxml=fast-dagml-pytest-report/junit.xml \
+            --cov=nirs4all --cov-report=xml
+
+      - name: Upload fast DAG-ML pytest report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fast-dagml-pytest-report
+          path: |
+            fast-dagml-pytest-report/
+            coverage.xml
+          if-no-files-found: warn
 
       - name: Upload coverage to Codecov
         # Coverage is already uploaded by the PR CI. Codecov's OIDC endpoint
@@ -77,6 +183,7 @@ jobs:
 
   # Build and verify documentation
   build-docs:
+    needs: release-preflight
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -114,6 +221,7 @@ jobs:
   # Release publication is blocked unless every dynamically discovered example
   # passes strict output checks (tracebacks, NaNs, and empty results).
   verify-examples:
+    needs: release-preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -144,12 +252,14 @@ jobs:
 
   # Build distribution packages (after tests, docs, and examples pass)
   build:
-    needs: [run-tests, build-docs, verify-examples]
+    needs: [release-preflight, run-tests, build-docs, verify-examples]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag) || github.ref }}
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -160,19 +270,27 @@ jobs:
           cache: 'pip'
 
       - name: Verify version consistency
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.publish_release
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
+          EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
         run: |
+          set -euo pipefail
           # Version is single-sourced from nirs4all/__init__.py (pyproject declares it
           # dynamically via attr:), so read __version__ directly rather than pyproject.
           PKG_VERSION=$(grep -E '^__version__' nirs4all/__init__.py | cut -d'"' -f2)
-          TAG_VERSION="${{ github.event.release.tag_name }}"
+          TAG_VERSION="$RELEASE_TAG"
           TAG_VERSION="${TAG_VERSION#v}"
           # Product RC tags use SemVer spelling (1.0.0-rc.1), while Python
           # package metadata uses the equivalent PEP 440 spelling (1.0.0rc1).
           TAG_VERSION="${TAG_VERSION//-rc./rc}"
           if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
             echo "::error::Version mismatch: nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION"
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_TAG_SHA" && "$(git rev-parse HEAD)" != "$EXPECTED_TAG_SHA" ]]; then
+            echo '::error::Release tag changed after preflight.'
             exit 1
           fi
           echo "Version verified: $PKG_VERSION"
@@ -190,7 +308,7 @@ jobs:
   # Publish to PyPI (only after build succeeds, which requires tests + docs)
   publish-pypi:
     needs: build
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.publish_release
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -205,12 +323,11 @@ jobs:
       - name: Upload to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-  # Verify the exact public artifact in a clean environment. The full suite has
-  # already run once above; this gate catches packaging, dependency-resolution,
-  # and publication mistakes without repeating it.
+  # Verify the exact public artifact in a clean environment. This gate catches
+  # packaging, dependency-resolution, and publication mistakes.
   post-publish-smoke:
-    needs: publish-pypi
-    if: github.event_name == 'release'
+    needs: [release-preflight, publish-pypi]
+    if: github.event_name == 'release' || inputs.publish_release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-python@v7
@@ -220,7 +337,7 @@ jobs:
       - name: Install the exact PyPI release
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
         run: |
           set -euo pipefail
           package_version="${RELEASE_TAG#v}"
@@ -241,7 +358,7 @@ jobs:
       - name: Verify installed metadata, native ABI, and DAG-ML execution
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -276,16 +393,29 @@ jobs:
           PY
           python -m pip check
 
-  # Build and push Docker image to GHCR after the release tag/version check.
+  # Build the image from the same verified tag after PyPI has accepted it.
   publish-docker:
-    needs: [run-tests, build]
-    if: github.event_name == 'release'
+    needs: [release-preflight, build, publish-pypi]
+    if: github.event_name == 'release' || inputs.publish_release
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-preflight.outputs.release_tag }}
+
+      - name: Verify Docker source tag
+        shell: bash
+        env:
+          EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$EXPECTED_TAG_SHA" && "$(git rev-parse HEAD)" != "$EXPECTED_TAG_SHA" ]]; then
+            echo '::error::Release tag changed after preflight.'
+            exit 1
+          fi
 
       - uses: docker/setup-buildx-action@v4
 
@@ -300,9 +430,10 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
+            type=raw,value=${{ needs.release-preflight.outputs.docker_version }}
+            type=raw,value=latest,enable=${{ needs.release-preflight.outputs.prerelease == 'false' }}
 
       - uses: docker/build-push-action@v7
         with:
@@ -315,9 +446,9 @@ jobs:
 
   # Notify about conda-forge feedstock update (after PyPI publish)
   notify-conda-forge:
-    needs: publish-pypi
+    needs: [release-preflight, publish-pypi]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.publish_release
     steps:
       - uses: actions/checkout@v6
 
@@ -327,8 +458,10 @@ jobs:
 
       - name: Fetch SHA256 and generate conda-forge update instructions
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="$RELEASE_TAG"
           VERSION="${VERSION#v}"
 
           # Wait for PyPI to index the new version (up to 5 minutes)

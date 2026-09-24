@@ -20,6 +20,7 @@ ids) match — the only divergence is that the materialization happens in THIS p
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pickle
@@ -73,11 +74,11 @@ def _dagml_extension_loads() -> bool:
     return True
 
 
-def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, dict[str, dict[int, list[int]]] | None]:
-    """Load the dataset + optional fold-local children, mirroring :func:`process_adapter._build_handler`.
+def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, dict[str, dict[int, list[int]]] | None, dict[str, tuple[Any, dict[int, int], set[int]]] | None]:
+    """Load the dataset and optional fold-local data, mirroring the subprocess adapter.
 
     A ``dataset_pickle`` (augmentation runs) is preferred over the reloadable path: a dict payload
-    carries ``{"dataset": ..., "fold_children": ...}`` (fold-local augmentation), a bare pickle is the
+    carries ``{"dataset": ..., "fold_children": ..., "fold_feature_views": ...}``, a bare pickle is the
     dataset alone; without a pickle the dataset is reloaded from the path. Identical to the subprocess
     child's load, so ``mint_identity`` yields the same wire ids the DSL / envelope / fold-set use.
     """
@@ -85,11 +86,11 @@ def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, d
         with open(dataset_pickle, "rb") as handle:
             payload = pickle.load(handle)  # noqa: S301 - host-written dataset for this run
         if isinstance(payload, dict):
-            return payload["dataset"], payload.get("fold_children")
-        return payload, None
+            return payload["dataset"], payload.get("fold_children"), payload.get("fold_feature_views")
+        return payload, None, None
     from nirs4all.data.config import DatasetConfigs
 
-    return DatasetConfigs(dataset_path).get_dataset_at(0), None
+    return DatasetConfigs(dataset_path).get_dataset_at(0), None, None
 
 
 def run_cv_refit_bundle(
@@ -103,6 +104,9 @@ def run_cv_refit_bundle(
     dataset_pickle: str | None = None,
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
+    refit: bool = True,
+    refit_top_k: int = 1,
 ) -> dict[str, Any]:
     """Run a CV+refit bundle IN-PROCESS; return ``{returncode, stdout, results, scores}``.
 
@@ -117,7 +121,8 @@ def run_cv_refit_bundle(
       (``DagMlError``) instead of returning a non-zero code, so the caller's ``returncode != 0`` guard
       is a no-op here (success-path parity).
 
-    ``dataset`` is the host's ALREADY-MATERIALIZED ``SpectroDataset`` (with ``fold_children`` for a
+    ``dataset`` is the host's ALREADY-MATERIALIZED ``SpectroDataset`` (with ``fold_children`` and
+    optional ``fold_feature_views`` for a
     fold-local augmentation run): when given, the resolver is built from it directly — no disk reload.
     ``run_via_dagml`` already materialized this exact dataset (its identity fingerprint equals the
     reloadable path's, verified in :func:`dataset._dataset_inputs`) and, for augmentation / rep-fusion,
@@ -131,7 +136,7 @@ def run_cv_refit_bundle(
     dag_ml_ext = importlib.import_module("dag_ml._dag_ml")
 
     if dataset is None:
-        dataset, fold_children = _load_dataset(dataset_path, dataset_pickle)
+        dataset, fold_children, fold_feature_views = _load_dataset(dataset_path, dataset_pickle)
     if sample_metadata is None:
         meta_path = os.environ.get("N4A_DAGML_SAMPLE_META_PATH")
         if meta_path and Path(meta_path).exists():
@@ -139,7 +144,7 @@ def run_cv_refit_bundle(
 
     # The op_callback IS process_adapter._build_handler's lambda — the SAME run_node over the SAME
     # resolver/nodes/edges/y_transform/store, so operators execute identically to the subprocess.
-    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children)
+    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children, fold_feature_views)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
     y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
@@ -154,6 +159,8 @@ def run_cv_refit_bundle(
             op_callback,
             selection_metric,
             json.dumps(current_execution_resources().to_contract()),
+            refit,
+            refit_top_k,
         )
     )
     node_results = payload.get("node_results", [])
@@ -164,14 +171,16 @@ def run_cv_refit_bundle(
         "stdout": "",
         "results": node_results,
         "scores": payload.get("scores"),
+        "residual_gates": payload.get("residual_gates", []),
+        "variant_catalog": payload.get("variant_catalog", []),
+        "selected_refit_variant_ids": payload.get("selected_refit_variant_ids", []),
         "classification_evidence": collect_vote_evidence(store),
         # The fitted REFIT estimators the run produced, captured HOST-SIDE from the live `store` the
         # op_callback closed over (P3 Slice 2c-i, D1 — zero ABI change). The store STILL holds the REFIT
         # estimators keyed by the artifact-handle ints, and each REFIT NodeResult carries those same
         # handles in `artifact_handles`, so we read the fitted models back without any node_runner / bridge
-        # / Rust change. Captured ONLY for Mechanism B (in-process); the subprocess branch can't reach a
-        # child process's store and returns []. OFF-by-default downstream (the native-results writer fires
-        # solely when results are enabled), so a plain run never touches these.
+        # / Rust change. The subprocess adapter serializes the same capture shape to a run-local
+        # sidecar, which its parent loads after CLI completion.
         "refit_artifacts": _capture_refit_artifacts(node_results, store),
     }
 
@@ -212,6 +221,7 @@ def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int
                 {
                     "artifact_id": artifact_id,
                     "estimator": bundle["estimator"],
+                    **({"fold_estimators": bundle["fold_estimators"]} if "fold_estimators" in bundle else {}),
                     "y_transform": captured_target_transform(
                         bundle["y_transform"], bundle.get("target_decoder"), bundle["estimator"]
                     ),
@@ -220,6 +230,32 @@ def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int
                     "backend": descriptor.get("backend"),
                 }
             )
+    return captured
+
+
+def _refit_artifact_path(directory: Path, artifact_id: str) -> Path:
+    """Use a stable, filename-safe key for a run-local fitted artifact."""
+    return directory / f"{hashlib.sha256(artifact_id.encode('utf-8')).hexdigest()}.joblib"
+
+
+def _load_subprocess_refit_artifacts(node_results: list[dict[str, Any]], directory: Path) -> list[dict[str, Any]]:
+    """Load only artifacts declared by this run's native REFIT result frames."""
+    import joblib
+
+    captured: list[dict[str, Any]] = []
+    for frame in node_results:
+        result = frame.get("result") if frame.get("type") == "result" else frame
+        if not isinstance(result, dict):
+            continue
+        for descriptor in result.get("artifacts", []) or []:
+            artifact_id = descriptor["id"]
+            path = _refit_artifact_path(directory, artifact_id)
+            if not path.exists():
+                raise RuntimeError(f"subprocess REFIT artifact {artifact_id!r} was not captured")
+            payload = joblib.load(path)  # noqa: S301 - run-local file written by the trusted adapter
+            if not isinstance(payload, dict) or payload.get("artifact_id") != artifact_id:
+                raise ValueError(f"subprocess REFIT artifact {artifact_id!r} does not match its descriptor")
+            captured.append(payload)
     return captured
 
 
@@ -237,7 +273,10 @@ def run_cv_refit_bundle_router(
     dataset_pickle: str | None = None,
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
     random_state: int | None = None,
+    refit: bool = True,
+    refit_top_k: int = 1,
 ) -> dict[str, Any]:
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
 
@@ -272,6 +311,34 @@ def run_cv_refit_bundle_router(
     branch ignores it: it fits operators in THIS process, whose global RNG ``run_via_dagml`` already
     seeded — so re-seeding here would be redundant.
     """
+    # A held-out test cohort is a separate native authority. FIT_CV may read it
+    # through a non-fit companion view, but the ordinary training envelope and
+    # fold relations must continue to describe only the CV universe.
+    test = list(dataset.index_column("sample", {"partition": "test"})) if dataset is not None else []
+    if dataset is not None and test:
+        import dag_ml
+
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        from .envelope import build_envelope, target_names
+        from .raw_training_lowerer import _array_content_fingerprint
+
+        test_envelope = build_envelope(dataset, mint_identity(dataset), sample_ints=test)
+        cohort_builder = getattr(dag_ml, "attach_predict_cohort_to_envelope", None)
+        if not callable(cohort_builder):
+            raise RuntimeError("the installed DAG-ML runtime lacks the native test-cohort constructor")
+        if isinstance(dataset, MultimodalSpectroDataset):
+            # Raw source blocks cannot be concatenated into a numeric matrix.
+            # Bind the external cohort to its typed, source-aware buffers.
+            data_content_fingerprint = dataset.content_hash(sample_rows=test)
+        else:
+            data_content_fingerprint = _array_content_fingerprint("X", dataset.x({"partition": "test"}, layout="2d"))
+        envelope.update(cohort_builder(envelope, {
+            "role": "external_test", "relations": test_envelope["coordinator_relations"],
+            "target_names": target_names(dataset),
+            "data_content_fingerprint": data_content_fingerprint,
+            "target_content_fingerprint": _array_content_fingerprint("y", dataset.y({"partition": "test"})),
+        }).to_dict())
     fold_set = (dsl.get("split_invocation") or {}).get("fold_set")
     if isinstance(fold_set, dict):
         for node in graph.get("nodes", []):
@@ -290,6 +357,9 @@ def run_cv_refit_bundle_router(
             dataset_pickle=dataset_pickle,
             dataset=dataset,
             fold_children=fold_children,
+            fold_feature_views=fold_feature_views,
+            refit=refit,
+            refit_top_k=refit_top_k,
         )
 
     # Subprocess branch (Mechanism A): either in-process was disabled or its extension did not load.
@@ -319,6 +389,8 @@ def run_cv_refit_bundle_router(
         sample_metadata=sample_metadata,
         dataset_pickle=dataset_pickle,
         random_state=random_state,
+        refit=refit,
+        refit_top_k=refit_top_k,
     )
     # Host-only frames share the run-local capture file, not the coordinator
     # protocol. Keep them out of the native NodeResult audit trail.
@@ -338,9 +410,12 @@ def run_cv_refit_bundle_router(
     # in-process branch (the call sites read outcome["scores"], not bundle.json). Only on success;
     # a non-zero returncode is handled by the caller's guard before scores are ever consumed.
     bundle_path = Path(workdir) / "bundle.json"
-    outcome["scores"] = json.loads(bundle_path.read_text()).get("scores") if outcome["returncode"] == 0 and bundle_path.exists() else None
-    # Mechanism A (subprocess) fits the models in a CHILD process whose store this process cannot reach,
-    # so NO fitted estimators are capturable here (P3 Slice 2c-i): an empty list → the writer sets
-    # has_model_artifacts:false and emits no loadable artifacts[] entries (it never fakes a payload).
-    outcome["refit_artifacts"] = []
+    bundle = json.loads(bundle_path.read_text()) if outcome["returncode"] == 0 and bundle_path.exists() else {}
+    outcome["scores"] = bundle.get("scores")
+    outcome["residual_gates"] = bundle.get("metadata", {}).get("residual_gates", [])
+    outcome["variant_catalog"] = bundle.get("metadata", {}).get("variant_catalog", [])
+    outcome["selected_refit_variant_ids"] = bundle.get("metadata", {}).get("selected_refit_variant_ids", [])
+    # The adapter serializes its fitted REFIT models to this run's private artifact directory.
+    # Only descriptors in the captured native results can select files for loading.
+    outcome["refit_artifacts"] = _load_subprocess_refit_artifacts(native_frames, Path(workdir) / "refit_artifacts") if outcome["returncode"] == 0 else []
     return outcome

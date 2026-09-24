@@ -471,12 +471,14 @@ class TransformerMixinController(OperatorController):
                 had_nan_before = False
                 if dataset._may_contain_nan and np.any(np.isnan(all_2d)):
                     had_nan_before = True
-                    allow_nan = self._allows_nan(op)
-                    if allow_nan:
-                        pass  # Operator natively handles NaN
-                    elif na_policy == "replace":
+                    # An explicit replacement policy takes precedence over an
+                    # operator's allow_nan tag (e.g. StandardScaler propagates
+                    # NaNs even though it accepts them during fit/transform).
+                    if na_policy == "replace":
                         all_2d = np.where(np.isnan(all_2d), fill_value, all_2d)
                         fit_2d = np.where(np.isnan(fit_2d), fill_value, fit_2d)
+                    elif self._allows_nan(op):
+                        pass  # Operator natively handles NaN
                     elif na_policy == "ignore":
                         pass  # NaN samples will be handled below after transform
                     else:

@@ -8,29 +8,107 @@ from .public_normalization import normalize_model_steps
 from .steps import DagMlSplitStep, FrozenDagMlSplitStep, _is_split_step, _split_pipeline
 
 
+def _is_model_checkpoint(step: Any) -> bool:
+    if not isinstance(step, dict):
+        return False
+    if "model" in step:
+        return True
+    if set(step) != {"residual"}:
+        return False
+    from nirs4all.operators.models.residual import ResidualModel
+
+    operator = step["residual"]
+    return isinstance(operator, ResidualModel) or (isinstance(operator, dict) and {"base", "learner"} <= set(operator))
+
+
 def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
     """Retain the cumulative non-model prefix at each top-level model checkpoint.
 
     Models do not transform the input of the following checkpoint. In particular,
     a transform after a model must not be retroactively applied to that model.
-    Branches and merges have their own execution semantics and are not expanded.
+    A later splitter replaces the earlier checkpoint's splitter and receives its
+    own native FoldSet. Legacy duplicates that later model's four CV test rows
+    under the ``final`` label; DAG keeps those CV rows and a real full-train
+    REFIT artifact instead. Branches and merges have their own execution
+    semantics and are not expanded.
     """
     if not isinstance(pipeline, list):
         return None
     steps = normalize_model_steps(pipeline)
-    if any(isinstance(step, dict) and any(key in step for key in ("branch", "merge", "exclude", "sample_augmentation")) for step in steps):
+    from nirs4all.operators.models.meta import MetaModel
+    from nirs4all.operators.models.residual import ResidualModel
+
+    if any(isinstance(step, dict) and isinstance(step.get("model"), MetaModel) for step in steps):
+        # The residual checkpoint after a sequential MetaModel does not consume
+        # that MetaModel's predictions: legacy fits it from its own base and
+        # original X. Keep the base -> MetaModel pair in one native stacking
+        # request, then schedule the independent residual checkpoint separately.
+        # Other MetaModel shapes remain intact for the stacking router.
+        model_positions = [index for index, step in enumerate(steps) if _is_model_checkpoint(step)]
+        meta_positions = [index for index in model_positions if isinstance(steps[index].get("model"), MetaModel)]
+        if (
+            len(meta_positions) == 1
+            and len(model_positions) >= 3
+            and meta_positions[0] == model_positions[-2]
+            and (
+                isinstance(steps[model_positions[-1]].get("model"), ResidualModel)
+                or "residual" in steps[model_positions[-1]]
+            )
+            and all(
+                index < model_positions[0]
+                for index in range(len(steps))
+                if index not in model_positions
+            )
+            and all(not isinstance(step, dict) or not any(key in step for key in ("branch", "merge", "exclude", "sample_augmentation")) for step in steps)
+            and all(
+                index == model_positions[-1]
+                or index == meta_positions[0]
+                or (
+                    hasattr(steps[index]["model"], "fit")
+                    and hasattr(steps[index]["model"], "predict")
+                )
+                for index in model_positions
+            )
+        ):
+            meta_prefix = [step for step in steps if not _is_model_checkpoint(step)]
+            bases = [steps[index] for index in model_positions[:-2]]
+            children = [[*meta_prefix, base] for base in bases]
+            children.append([*meta_prefix, *bases, steps[meta_positions[0]]])
+            children.append([*meta_prefix, steps[model_positions[-1]]])
+            return children
         return None
-    if sum(isinstance(step, dict) and "model" in step for step in steps) < 2:
+    if any(isinstance(step, dict) and any(key in step for key in ("branch", "merge", "sample_augmentation")) for step in steps):
+        return None
+    model_positions = [index for index, step in enumerate(steps) if _is_model_checkpoint(step)]
+    if len(model_positions) < 2:
+        return None
+    exclude_positions = [index for index, step in enumerate(steps) if isinstance(step, dict) and "exclude" in step]
+    if exclude_positions and not (
+        len(model_positions) == 2
+        and len(exclude_positions) == 1
+        and model_positions[0] < exclude_positions[0] < model_positions[1]
+        and all(
+            index == exclude_positions[0] or _is_split_step(step)
+            for index, step in enumerate(steps)
+            if index not in model_positions
+        )
+    ):
+        # Host SampleFilters currently see the original X. Do not reorder an
+        # intervening transform across exclusion without a fold-local view.
         return None
     prefix: list[Any] = []
     children = []
     for step in steps:
-        if isinstance(step, dict) and "model" in step:
+        if _is_model_checkpoint(step):
             children.append([*prefix, step])
         else:
+            if _is_split_step(step):
+                # A later checkpoint's splitter supersedes the earlier one;
+                # each public child run owns its own native FoldSet.
+                prefix = [earlier for earlier in prefix if not _is_split_step(earlier)]
             prefix.append(step)
     # A final chart still describes the final checkpoint, not an earlier model.
-    last_model = max(index for index, step in enumerate(steps) if isinstance(step, dict) and "model" in step)
+    last_model = max(index for index, step in enumerate(steps) if _is_model_checkpoint(step))
     children[-1].extend(steps[last_model + 1:])
     return children
 

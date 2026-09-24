@@ -64,7 +64,7 @@ _VALID_INVALIDATIONS = {
     "not_applicable",
 }
 _VALID_ENGINE_SUPPORT = {"supported", "partial", "planned", "unsupported", "legacy_fallback", "not_applicable"}
-EXPECTED_PUBLISHED_REGISTRY_SHA256 = "8ef748aaec954006dab225b80ca3e7fd6a1bb908f09bb4996d9daa5c146bd95c"
+EXPECTED_PUBLISHED_REGISTRY_SHA256 = "dd448a70cfe8c2d5493d3955ce884c48f08f7aa2c45f242df291e2d8a967ce06"
 
 
 def _entries_by_id() -> dict[str, KeywordEntry]:
@@ -76,7 +76,7 @@ def test_registry_document_has_versioned_stable_shape() -> None:
 
     assert registry["schema_id"] == KEYWORD_REGISTRY_SCHEMA_ID
     assert registry["schema_version"] == KEYWORD_REGISTRY_SCHEMA_VERSION == 1
-    assert registry["registry_version"] == KEYWORD_REGISTRY_VERSION == "1.0.1"
+    assert registry["registry_version"] == KEYWORD_REGISTRY_VERSION == "1.0.3"
     assert registry["scope"] == "lifecycle-v1"
     assert registry["entries"]
     assert public_get_keyword_registry() == registry
@@ -362,7 +362,7 @@ def test_model_local_finetune_keyword_controls_are_machine_readable() -> None:
     assert entries["pipeline.step.finetune_params.direction"]["value_schema"]["enum"] == ["minimize", "maximize"]
     assert "contradict the selected metric" in entries["pipeline.step.finetune_params.direction"]["summary"]
     assert entries["pipeline.step.finetune_params.n_trials"]["value_schema"] == {"type": "integer", "minimum": 1}
-    assert entries["pipeline.step.finetune_params.n_trials"]["engine_support"]["dag-ml"] == "unsupported"
+    assert entries["pipeline.step.finetune_params.n_trials"]["engine_support"]["dag-ml"] == "partial"
     assert entries["pipeline.step.finetune_params.approach"]["value_schema"]["enum"] == ["single", "grouped", "individual"]
     assert entries["pipeline.step.finetune_params.approach"]["engine_support"]["dag-ml"] == "partial"
     assert entries["pipeline.step.finetune_params.pruner"]["value_schema"]["enum"] == [
@@ -381,25 +381,27 @@ def test_partial_hpo_behaviors_and_dag_training_limits_are_not_overclaimed() -> 
 
     assert entries["pipeline.step.finetune_params"]["engine_support"]["dag-ml"] == "partial"
     assert "deterministic model_params grids/ranges" in entries["pipeline.step.finetune_params"]["summary"]
-    assert entries["pipeline.step.finetune_params.n_trials"]["engine_support"]["dag-ml"] == "unsupported"
+    assert "scoped host Optuna" in entries["pipeline.step.finetune_params"]["summary"]
+    assert entries["pipeline.step.finetune_params.n_trials"]["engine_support"]["dag-ml"] == "partial"
     assert entries["pipeline.step.finetune_params.pruner"]["engine_support"]["dag-ml"] == "unsupported"
     assert entries["pipeline.step.finetune_params.approach"]["engine_support"]["dag-ml"] == "partial"
     assert entries["pipeline.step.finetune_params.sampler"]["status"] == "partial"
     assert entries["pipeline.step.finetune_params.sampler"]["engine_support"]["n4m"] == "partial"
+    assert entries["pipeline.step.finetune_params.sampler"]["engine_support"]["dag-ml"] == "partial"
     assert entries["pipeline.step.finetune_params.eval_mode"]["status"] == "partial"
     assert entries["pipeline.step.finetune_params.eval_mode"]["engine_support"] == {
         "optuna": "partial",
         "n4m": "partial",
+        "dag-ml": "partial",
     }
-    assert entries["pipeline.step.finetune_params.train_params"]["engine_support"]["dag-ml"] == "unsupported"
-    assert "rejects it until optimizer adapters" in entries["pipeline.step.finetune_params.train_params"]["summary"]
-    assert entries["pipeline.step.train_params"]["engine_support"]["dag-ml"] == "unsupported"
+    assert entries["pipeline.step.finetune_params.train_params"]["engine_support"]["dag-ml"] == "partial"
+    assert "terminal CV/refit training uses step-level" in entries["pipeline.step.finetune_params.train_params"]["summary"]
+    assert entries["pipeline.step.train_params"]["engine_support"]["dag-ml"] == "supported"
     refit_params = entries["pipeline.step.refit_params"]
     assert refit_params["engine_support"]["dag-ml"] == "partial"
-    assert "rejects it before native execution" in entries["pipeline.step.train_params"]["summary"]
-    assert "exact {'use_all_partitions': True} no-op" in refit_params["summary"]
-    assert "one top-level exact PLSRegression model step" in refit_params["summary"]
-    assert "every other refit_params shape is rejected before native execution" in refit_params["summary"]
+    assert "recognized estimator overrides" in entries["pipeline.step.train_params"]["summary"]
+    assert "exact {'use_all_partitions': True} PLSRegression no-op" in refit_params["summary"]
+    assert "specialized warm starts" in refit_params["summary"]
 
 
 def test_planned_python_surfaces_are_absent_or_fail_closed_in_current_public_api() -> None:

@@ -3,8 +3,10 @@
 import numpy as np
 import pytest
 
+from nirs4all.controllers.models.components.score_calculator import ScoreCalculator
 from nirs4all.core import metrics as evaluator
 from nirs4all.core.metrics import HIGHER_IS_BETTER_METRICS, infer_ascending, is_higher_better
+from nirs4all.core.task_type import TaskType
 
 
 class TestMetricsDefaults:
@@ -59,6 +61,29 @@ class TestMetricsDefaults:
         scores = evaluator.eval_list(y_true, y_pred, metrics)
         assert len(scores) == 3
         assert all(isinstance(s, float) for s in scores)
+
+
+def test_multi_target_regression_metrics_average_per_target() -> None:
+    y_true = np.asarray([[0.0, 100.0], [1.0, 110.0], [2.0, 120.0], [3.0, 130.0]])
+    y_pred = np.asarray([[0.0, 110.0], [1.0, 120.0], [2.0, 130.0], [3.0, 140.0]])
+
+    assert evaluator.eval(y_true, y_pred, "rmse") == pytest.approx(5.0)
+    assert evaluator.eval(y_true, y_pred, "r2") == pytest.approx(0.6)
+    scores = evaluator.eval_multi(y_true, y_pred, "regression")
+    assert scores["rmse"] == pytest.approx(5.0)
+    assert scores["r2"] == pytest.approx(0.6)
+
+    partitions = {"train": y_true, "val": y_true, "test": y_true}
+    predictions = {"train": y_pred, "val": y_pred, "test": y_pred}
+    assert ScoreCalculator().calculate(partitions, predictions, TaskType.REGRESSION).val == pytest.approx(5.0)
+
+
+def test_multi_target_regression_rejects_missing_prediction_columns() -> None:
+    y_true = np.ones((4, 3))
+    y_pred = np.ones((4, 1))
+
+    with pytest.raises(ValueError, match="Target shape mismatch"):
+        evaluator.eval(y_true, y_pred, "rmse")
 
 
 class TestMetricDirection:

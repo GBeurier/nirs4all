@@ -116,7 +116,7 @@ print("Training Pipeline")
 print("-" * 60)
 
 result = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=pipeline,
     dataset="sample_data/regression",
     name="BasicRegression",
@@ -168,19 +168,19 @@ fig2 = analyzer.plot_heatmap(
     rank_metric="rmse",
     rank_partition="val",
     display_metric="rmse",
-    display_partition="test"
+    display_partition="val"
 )
 print("   ✓ Created heatmap: models vs preprocessing")
 
 # Plot candlestick chart for model performance distribution
 fig3 = analyzer.plot_candlestick(
     variable="model_name",
-    display_partition="test"
+    display_partition="val"
 )
 print("   ✓ Created candlestick chart")
 
 # Plot histogram of RMSE values
-fig4 = analyzer.plot_histogram(display_partition="test")
+fig4 = analyzer.plot_histogram(display_partition="val")
 print("   ✓ Created histogram")
 
 # =============================================================================

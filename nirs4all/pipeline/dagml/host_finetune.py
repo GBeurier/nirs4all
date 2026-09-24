@@ -1,44 +1,163 @@
-"""Scoped Optuna proposals evaluated by native DAG, not a Python CV loop."""
+"""Scoped host-optimizer proposals evaluated by native DAG, not a Python CV loop."""
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from hashlib import sha256
+from typing import Any, cast
 
 import numpy as np
 
 _HOST_KEYS = {"n_trials", "sampler", "sample", "verbose", "seed", "storage", "phases", "pruner", "n_jobs"}
+_N4M_ENGINE_NAMES = {"n4m", "native", "methods", "libn4m"}
+TRIAL_TRAIN_PREFIX = "nirs4all_trial_fit__"
+_NATIVE_CHECKPOINT_ATTR = "nirs4all_dagml_host_hpo_checkpoint_v1"
+_NATIVE_PREPARED_ATTR = "nirs4all_dagml_host_hpo_prepared_v1"
+_NATIVE_PENDING_ATTR = "nirs4all_dagml_host_hpo_pending_v1"
+
+
+def _content_fingerprint(values: np.ndarray) -> str:
+    """Bind actual host array bytes to the native checkpoint's data envelope."""
+    array = np.ascontiguousarray(np.asarray(values))
+    if array.dtype.hasobject:
+        raise TypeError("Host HPO checkpoint content must have a numeric array dtype")
+    digest = sha256()
+    digest.update(array.dtype.str.encode())
+    digest.update(json.dumps(array.shape).encode())
+    digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+def _recover_interrupted_optuna_study(study: Any, saved: dict[str, Any]) -> dict[str, Any]:
+    """Pair a prepared native terminal and fail unfinished concurrent work."""
+    import dag_ml
+    from optuna.trial import TrialState
+
+    terminal = saved["trials"]
+    prepared = study.user_attrs.get(_NATIVE_PREPARED_ATTR)
+    if isinstance(prepared, dict):
+        prepared_count = len(prepared.get("trials", []))
+        if prepared_count <= len(terminal):
+            prepared = None  # Checkpoint publication won the crash race.
+        elif prepared_count != len(terminal) + 1:
+            raise RuntimeError("Optuna native prepared terminal has a non-contiguous trial index")
+    elif prepared is not None:
+        raise RuntimeError("Optuna native prepared terminal is malformed")
+    first_orphan = len(terminal) + int(prepared is not None)
+    observed = study.trials
+    if len(observed) < first_orphan:
+        raise RuntimeError("Optuna study is shorter than its native terminal journal")
+    pending = study.user_attrs.get(_NATIVE_PENDING_ATTR) or {}
+    if not isinstance(pending, dict):
+        raise RuntimeError("Optuna native pending proposal journal is malformed")
+    interrupted = []
+    for index in range(first_orphan, len(observed)):
+        trial = observed[index]
+        if trial.number != index or trial.state not in (TrialState.RUNNING, TrialState.FAIL):
+            raise RuntimeError("Optuna has an unpaired completed trial without native score evidence")
+        values = pending.get(str(index), trial.params)
+        if not isinstance(values, dict):
+            raise RuntimeError("Optuna native pending proposal is malformed")
+        interrupted.append({"trial_index": index, "params": values})
+    recovered = cast(dict[str, Any], dag_ml.recover_host_hpo_checkpoint(saved, prepared, interrupted))  # type: ignore[attr-defined]
+    if prepared is not None:
+        index = len(terminal)
+        trial = observed[index]
+        event = prepared["trials"][-1]
+        state = event["state"]
+        expected = {"complete": TrialState.COMPLETE, "pruned": TrialState.PRUNED,
+                    "failed": TrialState.FAIL}[state]
+        if trial.state == TrialState.RUNNING:
+            if state == "complete":
+                study.tell(index, event["evidence"]["score"])
+            else:
+                study.tell(index, state=expected)
+        elif trial.state != expected:
+            raise RuntimeError("Optuna prepared terminal disagrees with optimizer trial state")
+        elif state == "complete" and trial.value != event["evidence"]["score"]:
+            raise RuntimeError("Optuna prepared terminal disagrees with optimizer trial score")
+    for orphan in interrupted:
+        if observed[orphan["trial_index"]].state == TrialState.RUNNING:
+            study.tell(orphan["trial_index"], state=TrialState.FAIL)
+    study.set_user_attr(_NATIVE_CHECKPOINT_ATTR, recovered)
+    study.set_user_attr(_NATIVE_PREPARED_ATTR, None)
+    study.set_user_attr(_NATIVE_PENDING_ATTR, {})
+    return recovered
+
+
+def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate sampled fit controls from model-constructor candidates."""
+    model_params = {key: value for key, value in params.items() if not key.startswith(TRIAL_TRAIN_PREFIX)}
+    fit_params = {key[len(TRIAL_TRAIN_PREFIX):]: value for key, value in params.items() if key.startswith(TRIAL_TRAIN_PREFIX)}
+    return model_params, fit_params
 
 
 def is_host_finetune(config: dict[str, Any]) -> bool:
     """Choose the host optimizer before execution, never after native failure."""
     engine = str(config.get("engine", "")).lower()
-    return engine == "optuna" or (not engine and (bool(_HOST_KEYS & config.keys()) or config.get("approach") == "single"))
+    return engine == "optuna" or engine in _N4M_ENGINE_NAMES or (not engine and (bool(_HOST_KEYS & config.keys()) or config.get("approach") == "single"))
 
 
 def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) -> dict[str, Any]:
     """Normalize the first restored host profile without ignoring controls."""
-    from nirs4all.optimization.optuna import OptunaManager
-
-    manager = OptunaManager()
-    if not manager.is_available:
-        raise ImportError("General finetuning requires the optuna installation extra")
     values = dict(config)
     inner_splitter = values.pop("__dagml_inner_splitter", None) if internal else None
-    params = manager._validate_and_normalize_finetune_params(values)  # noqa: SLF001 -- optimizer owns its grammar
-    allowed = {"model_params", "n_trials", "sampler", "verbose", "seed", "approach", "metric", "direction", "eval_mode", "engine", "pruner", "n_jobs"}
+    engine = str(values.get("engine", "optuna")).strip().lower()
+    if engine in _N4M_ENGINE_NAMES:
+        engine = "n4m"
+        values["engine"] = engine
+    manager: Any
+    params: dict[str, Any]
+    if engine == "n4m":
+        from nirs4all.optimization.n4m_engine import N4MFinetuneManager
+
+        manager = N4MFinetuneManager()
+        if not manager.is_available:
+            raise ImportError("finetune_params.engine='n4m' requires the n4m optimizer bindings")
+        params = manager._normalize(values)  # noqa: SLF001 -- native optimizer owns its grammar
+    else:
+        from nirs4all.optimization.optuna import OptunaManager
+
+        manager = OptunaManager()
+        if not manager.is_available:
+            raise ImportError("General finetuning requires the optuna installation extra")
+        params = manager._validate_and_normalize_finetune_params(values)  # noqa: SLF001 -- optimizer owns its grammar
+    allowed = {"model_params", "train_params", "n_trials", "sampler", "verbose", "seed", "approach", "metric", "direction", "eval_mode", "engine", "pruner", "n_jobs"}
+    if engine == "n4m":
+        allowed.update({"force_params", "n_startup_trials", "reduction_factor"})
+    else:
+        allowed.update({"storage", "study_name", "resume", "force_params", "phases"})
     unknown = params.keys() - allowed
     if unknown:
         raise NotImplementedError(f"DAG host finetuning controls not wired yet: {sorted(unknown)}")
-    if params.get("pruner", "none") != "none" or params.get("n_jobs", 1) != 1:
-        raise NotImplementedError("DAG host single-holdout search has no progressive pruning or parallel-trial contract yet")
+    if engine == "optuna" and params.get("n_jobs", 1) != 1:
+        n_jobs = params["n_jobs"]
+        if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
+            raise ValueError("DAG host Optuna n_jobs must be positive or -1")
+    if engine == "optuna":
+        if "storage" in params and (not isinstance(params["storage"], str) or not params["storage"].strip()):
+            raise TypeError("DAG host finetune_params.storage requires a nonempty Optuna storage URL")
+        if "study_name" in params and (not isinstance(params["study_name"], str) or not params["study_name"].strip()):
+            raise TypeError("DAG host finetune_params.study_name requires a nonempty string")
+        if "resume" in params and not isinstance(params["resume"], bool):
+            raise TypeError("DAG host finetune_params.resume must be a boolean")
+        if params.get("resume") and not params.get("storage"):
+            raise ValueError("DAG host finetune_params.resume requires durable storage")
+        if params.get("resume") and not params.get("study_name"):
+            raise ValueError("DAG host finetune_params.resume requires study_name")
     budget = params.get("n_trials", 50)
     if type(budget) is not int or not 0 < budget <= 2**32 - 1:
         raise ValueError("finetune_params.n_trials must be a positive u32 integer")
+    if engine == "optuna" and "phases" in params:
+        phase_budgets = [phase["n_trials"] for phase in params["phases"]]
+        if any(type(value) is not int or value <= 0 for value in phase_budgets) or sum(phase_budgets) > 2**32 - 1:
+            raise ValueError("finetune_params.phases require positive u32 trial budgets")
     if not isinstance(params.get("model_params"), dict) or not params["model_params"]:
         raise ValueError("finetune_params.model_params must be a nonempty mapping")
+    if "train_params" in params and not isinstance(params["train_params"], dict):
+        raise TypeError("finetune_params.train_params must be a parameter mapping")
     params["n_trials"] = budget
-    params["engine"] = "optuna"
+    params["engine"] = engine
     if inner_splitter is not None:
         params["__dagml_inner_splitter"] = inner_splitter
     return params
@@ -121,7 +240,6 @@ def run_scoped_finetune(
     from sklearn.model_selection import ShuffleSplit
 
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.optimization.optuna import OptunaManager
     from nirs4all.pipeline.dagml_bridge import controller_manifests
 
     from .cli_runner import assemble_cv_refit_dsl
@@ -131,8 +249,8 @@ def run_scoped_finetune(
     from .resolver import MaterializationResolver
 
     params = validate_host_finetune(config, internal=True)
-    manager = OptunaManager()
-    seed = params.setdefault("seed", 42)
+    engine = params["engine"]
+    seed = params.setdefault("seed", 0 if engine == "n4m" else 42)
     metric = params.get("metric", "balanced_accuracy" if "classif" in str(task_type) else "rmse")
     if metric not in {"rmse", "mse", "mae", "r2", "accuracy", "balanced_accuracy"}:
         raise ValueError(f"DAG host finetuning metric {metric!r} is not supported by native scoring")
@@ -145,7 +263,7 @@ def run_scoped_finetune(
     identity = mint_identity(dataset)
     pool = dataset.index_column("sample", {"partition": "train"})
     # Historical single search uses a deterministic 80/20 training-only holdout.
-    splitter = ShuffleSplit(1, test_size=0.2, random_state=seed)
+    splitter = ShuffleSplit(1, test_size=0.2, random_state=42 if engine == "n4m" else seed)
     folds = inner_cv["folds"] if inner_cv is not None else [(train.tolist(), val.tolist()) for train, val in splitter.split(x, y)]
     pipeline = [*upstream]
     if y_transform is not None:
@@ -155,6 +273,8 @@ def run_scoped_finetune(
         model_step["train_params"] = training_controls
     pipeline.append(model_step)
     envelope = build_envelope(dataset, identity, sample_ints=pool, group_by_sample=inner_cv["group_by_sample"] if inner_cv is not None else None)
+    envelope["data_content_fingerprint"] = _content_fingerprint(x)
+    envelope["target_content_fingerprint"] = _content_fingerprint(y)
     dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="nirs4all-host-hpo", n_splits=len(folds))
     graph = json.loads(dag_ml.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
     nodes = {node["id"]: node for node in graph["nodes"]}
@@ -162,8 +282,58 @@ def run_scoped_finetune(
     target_transform = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     resolver = MaterializationResolver(dataset, identity)
     store: dict[Any, Any] = {}
-    manager._configure_logging(params.get("verbose", 0))  # noqa: SLF001
-    study = manager._create_study(params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
+    manager: Any
+    study: Any = None
+    optimizer = None
+    if engine == "n4m":
+        from nirs4all.optimization import n4m_engine
+
+        manager = n4m_engine.N4MFinetuneManager()
+        space, slots, static_model, static_train = manager._compile_space(params)  # noqa: SLF001
+        flat_heads = {slot.origin_name for slot in slots if not slot.is_train and "__" not in slot.origin_name}
+        flat_heads.update(key for key in static_model if "__" not in key)
+        pruner_name = n4m_engine._PRUNER_MAP[params.get("pruner", "none")]  # noqa: SLF001 -- optimizer owns token grammar
+        optimizer = n4m_engine.Optimizer(
+            space,
+            sampler=manager._native_sampler(params["sampler"]),  # noqa: SLF001
+            pruner=n4m_engine.Pruner[pruner_name.upper()],
+            direction=n4m_engine.Direction.MAXIMIZE if direction == "maximize" else n4m_engine.Direction.MINIMIZE,
+            n_startup_trials=int(params.get("n_startup_trials", 10)),
+            seed=int(seed or 0),
+            max_resource=len(folds) if pruner_name == "hyperband" else 0,
+            reduction_factor=int(params.get("reduction_factor", 0)),
+        )
+        if params.get("force_params"):
+            manager._enqueue_force_params(optimizer, slots, params["force_params"])  # noqa: SLF001
+        study = None
+    else:
+        from nirs4all.optimization.optuna import OptunaManager
+
+        manager = OptunaManager()
+        manager._configure_logging(params.get("verbose", 0))  # noqa: SLF001
+        study_params = dict(params)
+        if params.get("study_name"):
+            # Every outer fold and REFIT owns a separate training universe. A
+            # shared Optuna study would mix candidates evaluated on different
+            # rows, so suffix the requested name with a stable scope identity.
+            scope_key = sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()[:16]
+            study_params["study_name"] = f"{params['study_name']}:scope:{scope_key}"
+        study = manager._create_study(study_params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
+        saved_checkpoint = study.user_attrs.get(_NATIVE_CHECKPOINT_ATTR)
+        if study.trials:
+            if not params.get("resume") or not isinstance(saved_checkpoint, dict):
+                raise NotImplementedError(
+                    "DAG host Optuna resume requires a paired native DAG trial checkpoint; "
+                    "an existing optimizer study cannot be replayed as new candidate evidence"
+                )
+            if params.get("n_jobs", 1) != 1:
+                saved_checkpoint = _recover_interrupted_optuna_study(study, saved_checkpoint)
+            terminal = saved_checkpoint.get("trials", [])
+            if len(terminal) != len(study.trials) or any(
+                observed.number != index or observed.state.name.lower() != {"failed": "fail"}.get(native.get("state"), native.get("state"))
+                for index, (observed, native) in enumerate(zip(study.trials, terminal, strict=True))
+            ):
+                raise RuntimeError("Optuna study and native DAG trial checkpoint terminal states disagree")
     pending: dict[int, Any] = {}
     stopped = False
 
@@ -174,42 +344,157 @@ def run_scoped_finetune(
         nonlocal stopped
         stopped = True
 
-    study.stop = stop_search
+    if study is not None:
+        study.stop = stop_search
+
+    phases = params.get("phases", [])
+    active_phase: int | None = None
 
     def optimizer_callback(request: dict[str, Any]) -> Any:
+        nonlocal active_phase
         index = request["trial_index"]
+        if request["operation"] == "report_intermediate":
+            trial = pending[index]
+            if optimizer is not None:
+                return bool(optimizer.tell_intermediate(trial.id, request["step"], request["score"]))
+            trial.report(request["score"], request["step"])
+            return bool(trial.should_prune())
+        if request["operation"] == "pruned":
+            trial = pending.pop(index)
+            if optimizer is not None:
+                from nirs4all.optimization import n4m_engine
+
+                optimizer.tell_result(trial.id, n4m_engine.TrialStatus.PRUNED)
+            else:
+                from optuna.trial import TrialState
+
+                study.tell(trial, state=TrialState.PRUNED)
+            return None
+        if request["operation"] == "fail":
+            if optimizer is None:
+                from optuna.trial import TrialState
+
+                study.tell(pending.pop(index), state=TrialState.FAIL)
+            return None
         if request["operation"] == "ask":
-            if stopped or (hasattr(study.sampler, "is_exhausted") and study.sampler.is_exhausted(study)):
-                return None
-            trial = study.ask()
+            if optimizer is None:
+                phase_index = request.get("phase_index")
+                if phases:
+                    if type(phase_index) is not int or not 0 <= phase_index < len(phases):
+                        raise ValueError("Native DAG optimizer phase index is missing or invalid")
+                    if phase_index != active_phase:
+                        phase_sampler = phases[phase_index].get("sampler", "tpe")
+                        study.sampler = manager._create_sampler(phase_sampler, params, seed)  # noqa: SLF001
+                        active_phase = phase_index
+                if stopped or (hasattr(study.sampler, "is_exhausted") and study.sampler.is_exhausted(study)):
+                    return None
+                trial = study.ask()
+                values, train_params = manager.sample_hyperparameters(trial, params)
+            else:
+                trial = optimizer.ask()
+                if trial.id != index:
+                    raise ValueError("Native DAG and n4m optimizer trial IDs disagree")
+                values, train_params = manager._resolve(trial, slots, static_model, static_train, flat_heads)  # noqa: SLF001
             pending[index] = trial
-            values, train_params = manager.sample_hyperparameters(trial, params)
             if train_params:
-                raise ValueError("Host HPO cannot silently discard sampled train_params")
+                available = model.get_params(deep=False) if hasattr(model, "get_params") else {}
+                unknown = sorted(set(train_params) - set(available))
+                if unknown:
+                    raise ValueError(f"Host HPO training controls are not supported by {type(model).__name__}: {unknown}")
+                # The host adapter exposes training controls as estimator
+                # parameters, so one native variant carries both architecture
+                # and fit choices through every inner fit and final refit.
+                values = {
+                    **{f"{TRIAL_TRAIN_PREFIX}{key}": value for key, value in train_params.items() if key not in values},
+                    **values,
+                }
             # Canonical JSON restoration preserves tuple/type-token grammars in
             # configuration; concrete proposed parameters are ordinary JSON.
-            return json.loads(json.dumps(values))
+            values = cast(dict[str, Any], json.loads(json.dumps(values)))
+            if study is not None and params.get("storage") and params.get("n_jobs", 1) != 1:
+                journal = dict(study.user_attrs.get(_NATIVE_PENDING_ATTR) or {})
+                journal[str(index)] = values
+                study.set_user_attr(_NATIVE_PENDING_ATTR, journal)
+            return values
         if request["operation"] != "tell" or index not in pending:
             raise ValueError("Unexpected native optimizer transition")
-        study.tell(pending.pop(index), request["score"])
+        trial = pending.pop(index)
+        if optimizer is None:
+            study.tell(trial, request["score"])
+        else:
+            optimizer.tell(trial.id, request["score"])
         return None
 
     def op_callback(task: dict[str, Any]) -> dict[str, Any]:
-        return run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform)
+        return cast(dict[str, Any], run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform))
+
+    def candidate_callback_factory(_trial_index: int) -> Any:
+        candidate_resolver = MaterializationResolver(dataset, identity)
+        candidate_store: dict[Any, Any] = {}
+
+        def candidate_callback(task: dict[str, Any]) -> dict[str, Any]:
+            return cast(dict[str, Any], run_node(task, candidate_resolver, nodes.__getitem__, candidate_store,
+                                                 graph.get("edges", []), target_transform))
+
+        return candidate_callback
 
     import importlib
 
     # The source facade is additive; installed dependency stubs may predate it.
     native = importlib.import_module("dag_ml")
-    request = {"target_node": target, "trial_budget": params["n_trials"], "metric": metric,
-               "direction": direction, "optimizer_descriptor": json.loads(json.dumps(params))}
+    optimizer_descriptor = json.loads(json.dumps(params))
+    if engine == "n4m":
+        # The legacy N4M manager accepts n_jobs but evaluates its native
+        # ask/tell optimizer serially. Preserve that observable contract.
+        optimizer_descriptor["n_jobs"] = 1
+    request = {"target_node": target, "trial_budget": sum(phase["n_trials"] for phase in phases) if phases else params["n_trials"], "metric": metric,
+               "direction": direction, "optimizer_descriptor": optimizer_descriptor}
+    if phases:
+        request["phase_trial_budgets"] = [phase["n_trials"] for phase in phases]
+    if engine == "optuna" and params.get("approach", "grouped") == "grouped" and params.get("pruner", "none") != "none":
+        request["progressive_pruning"] = True
+    if engine == "n4m" and len(folds) > 1 and params.get("pruner", "none") != "none":
+        request["progressive_pruning"] = True
     if inner_cv is not None:
         request["fold_score_reduction"] = params.get("eval_mode", "best")
-    evidence: dict[str, Any] = native.run_host_hpo_search_in_process(
-        dsl, envelope, controller_manifests(),
-        request,
-        op_callback, optimizer_callback,
-    )
+    try:
+        native_kwargs: dict[str, Any] = {"candidate_callback_factory": candidate_callback_factory}
+        if study is not None and params.get("storage"):
+            if saved_checkpoint is not None and params.get("resume"):
+                native_kwargs["resume_checkpoint"] = saved_checkpoint
+
+            def checkpoint_callback(event: dict[str, Any]) -> bool:
+                if event["operation"] == "prepare_terminal":
+                    study.set_user_attr(_NATIVE_PREPARED_ATTR, event["checkpoint"])
+                    return True
+                study.set_user_attr(_NATIVE_CHECKPOINT_ATTR, event["checkpoint"])
+                study.set_user_attr(_NATIVE_PREPARED_ATTR, None)
+                if params.get("n_jobs", 1) != 1:
+                    terminal_count = len(event["checkpoint"]["trials"])
+                    journal = {key: value for key, value in (study.user_attrs.get(_NATIVE_PENDING_ATTR) or {}).items()
+                               if int(key) >= terminal_count}
+                    study.set_user_attr(_NATIVE_PENDING_ATTR, journal)
+                return True
+
+            native_kwargs["progress_callback"] = checkpoint_callback
+        evidence: dict[str, Any] = native.run_host_hpo_search_in_process(
+            dsl, envelope, controller_manifests(),
+            request,
+            op_callback, optimizer_callback,
+            **native_kwargs,
+        )
+        if optimizer is None:
+            best_trial_number = study.best_trial.number
+            sampler_class = type(study.sampler).__name__
+        else:
+            best = optimizer.best()
+            if best is None:
+                raise RuntimeError("n4m optimizer completed without a best trial")
+            best_trial_number = best[0].id
+            sampler_class = params["sampler"]
+    finally:
+        if optimizer is not None:
+            optimizer.close()
     evidence["scope"] = scope
     if training_controls:
         from .training_controls import encode_training_controls
@@ -217,15 +502,21 @@ def run_scoped_finetune(
         evidence["training_controls"] = encode_training_controls(training_controls, name="training controls")
         model_overrides = {key: value for key, value in evidence["training_controls"].items() if key != "verbose"}
         for candidate in evidence["trials"]:
-            candidate["effective_model_params"] = {**candidate["params"], **model_overrides}
-        evidence["effective_selected_model_params"] = {**evidence["selected_params"], **model_overrides}
+            model_params, sampled_fit = split_trial_fit_overrides(candidate["params"])
+            candidate["effective_model_params"] = {**model_params, **model_overrides, **sampled_fit}
+        selected_model_params, _ = split_trial_fit_overrides(evidence["selected_params"])
+        evidence["effective_selected_model_params"] = {**selected_model_params, **model_overrides}
     evidence["evaluation"] = {"role": "inner_parameter_selection", "outer_validation_used": False, "test_used": False}
     evidence["evaluation"].update({"approach": params.get("approach", "grouped"),
                                   "inner_fold_count": len(folds),
                                   "score_reduction": request.get("fold_score_reduction", "native_holdout")})
     if inner_cv is not None:
         evidence["inner_cv"] = inner_cv
-    evidence["optimizer"] = {"name": "optuna", "sampler_class": type(study.sampler).__name__, "best_trial_number": study.best_trial.number}
-    if evidence["selected_trial_index"] != study.best_trial.number:
+    evidence["optimizer"] = {"name": engine, "sampler_class": sampler_class, "best_trial_number": best_trial_number}
+    if phases:
+        evidence["optimizer"]["phase_trial_budgets"] = request["phase_trial_budgets"]
+    if study is not None and params.get("storage"):
+        evidence["optimizer"]["study_name"] = study.study_name
+    if evidence["selected_trial_index"] != best_trial_number:
         raise RuntimeError("Native selection and optimizer incumbent disagree")
     return dict(evidence["selected_params"]), evidence

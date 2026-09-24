@@ -162,7 +162,7 @@ def test_native_results_round_trip_single(tmp_path: Path) -> None:
     assert len(run_dirs) == 1, "exactly one run directory written"
     run_dir = run_dirs[0]
     # The 3 core files + the artifacts/ model tree (P3 Slice 2c-i: the in-process path captures the fitted
-    # REFIT estimator). The subprocess path would write no artifacts/ — but the default here is in-process.
+    # REFIT estimator). Both execution mechanisms capture the same artifact payload.
     assert {p.name for p in run_dir.iterdir()} == {"manifest.json", "score_set.json", "predictions.parquet", "artifacts"}
 
     # score_set.json == the RAW native ScoreSet captured on the result (VERBATIM, no re-author).
@@ -550,12 +550,11 @@ def test_native_results_model_artifact_tamper_raises_before_load(tmp_path: Path)
         read_native_results(run_dir)
 
 
-def test_native_results_subprocess_has_no_model_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The SUBPROCESS mechanism (Mechanism A) cannot reach the child-process models → has_model_artifacts:false,
-    NO loadable artifacts[] entries (it never fakes a payload)."""
+def test_native_results_subprocess_persists_model_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The subprocess adapter returns its fitted REFIT model through a run-local sidecar."""
     if not _DAGML_CLI.exists():
         pytest.skip(f"dag-ml-cli binary not built at {_DAGML_CLI}")
-    # Force the subprocess path (Mechanism A) so the models are fit in a child process this one can't capture.
+    # Force the subprocess path so the model is fitted and serialized by a child process.
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "0")
     results_root = tmp_path / "results"
     result = run_via_dagml(
@@ -566,14 +565,15 @@ def test_native_results_subprocess_has_no_model_artifacts(tmp_path: Path, monkey
         venv_python=sys.executable,
         results_path=str(results_root),
     )
-    assert result._dagml_refit_artifacts == [], "the subprocess mechanism captures no fitted estimators"  # noqa: SLF001
+    assert len(result._dagml_refit_artifacts) == 1  # noqa: SLF001
     run_dir = sorted(results_root.iterdir())[0]
     manifest = json.loads((run_dir / "manifest.json").read_text())
-    assert manifest["capabilities"]["has_model_artifacts"] is False
-    assert manifest["artifacts"] == []
-    assert not (run_dir / "artifacts").exists(), "no artifacts/ payload when nothing was captured"
-    # The reader returns no artifacts (and never tries to load a non-existent payload).
-    assert read_native_results(run_dir)["artifacts"] == []
+    assert manifest["capabilities"]["has_model_artifacts"] is True
+    assert len(manifest["artifacts"]) == 1
+    assert (run_dir / "artifacts").exists()
+    rehydrated = read_native_results(run_dir)["artifacts"]
+    assert len(rehydrated) == 1
+    assert rehydrated[0]["estimator"].predict is not None
 
 
 # ---------------------------------------------------------------------------

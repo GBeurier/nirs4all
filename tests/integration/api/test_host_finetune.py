@@ -218,3 +218,476 @@ def test_private_inner_splitter_context_cannot_be_injected_by_public_config():
     with pytest.raises(NotImplementedError, match="__dagml_inner_splitter"):
         validate_host_finetune({"approach": "grouped", "n_trials": 2, "model_params": {"alpha": [1]},
                                 "__dagml_inner_splitter": {"operator_json": "untrusted"}})
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("approach", ["single", "grouped", "individual"])
+def test_n4m_finetune_params_use_native_scoped_search_and_export(tmp_path, monkeypatch, mechanism, approach):
+    pytest.importorskip("n4m")
+    import nirs4all
+    from nirs4all.optimization.n4m_engine import N4MFinetuneManager
+
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": "n4m", "sampler": "random", "seed": 7, "n_trials": 2, "approach": approach,
+        "model_params": {"n_components": [1, 2]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    monkeypatch.setattr(N4MFinetuneManager, "finetune", lambda *args, **kwargs: pytest.fail("legacy n4m CV execution"))
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    assert np.isfinite(result.cv_best_score)
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001
+    history = fitted._nirs4all_host_hpo_history
+    assert [search["scope"]["phase"] for search in history] == ["FIT_CV", "FIT_CV", "REFIT"]
+    assert all(search["optimizer"]["name"] == "n4m" and len(search["trials"]) == 2 for search in history)
+    for search in history:
+        assert search["evaluation"]["approach"] == approach
+        assert search["evaluation"]["inner_fold_count"] == (2 if approach == "grouped" else 1)
+        assert search["selected_params"] in [trial["params"] for trial in search["trials"]]
+        assert search["evaluation"]["outer_validation_used"] is False
+    expected = fitted.predict(X[:4]).ravel()
+    archive = result.export(tmp_path / "n4m_finetuned.n4a")
+    np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, expected)
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_storage_keeps_outer_training_scopes_separate(tmp_path, monkeypatch, mechanism):
+    optuna = pytest.importorskip("optuna")
+    import nirs4all
+
+    X, y = _data()
+    storage = f"sqlite:///{tmp_path / 'scoped_optuna.sqlite3'}"
+    base = {"engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+            "n_trials": 2, "model_params": {"n_components": [1, 2]}, "storage": storage}
+    legacy = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "legacy"}}],
+        (X, y), engine="legacy", save_charts=False,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "dag"}}]
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    names = [search["optimizer"]["study_name"] for search in history]
+    assert len(names) == len(set(names)) == 3
+    assert all(name.startswith("dag:scope:") for name in names)
+    assert np.isfinite(result.cv_best_score)
+    first_score = result.cv_best_score
+    result.close()
+
+    resumed = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "dag", "resume": True}}],
+        (X, y), engine="dag-ml", save_charts=False,
+    )
+    assert resumed.cv_best_score == pytest.approx(first_score)
+    assert all(len(optuna.load_study(study_name=name, storage=storage).trials) == 2 for name in names)
+    resumed.close()
+
+    extended = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "n_trials": 3, "study_name": "dag", "resume": True}}],
+        (X, y), engine="dag-ml", save_charts=False,
+    )
+    assert all(len(optuna.load_study(study_name=name, storage=storage).trials) == 3 for name in names)
+    extended.close()
+
+    changed_y = y.copy()
+    changed_y[0] += 1
+    with pytest.raises(Exception) as changed_content:
+        nirs4all.run(
+            [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "n_trials": 3, "study_name": "dag", "resume": True}}],
+            (X, changed_y), engine="dag-ml", save_charts=False,
+        )
+    expected_mismatch = "checkpoint objective/graph/controller/data/fold binding mismatch" if mechanism == "in_process" else "dag-ml engine run failed"
+    assert expected_mismatch in str(changed_content.value)
+
+    unpaired = optuna.load_study(study_name=names[0], storage=storage)
+    unpaired.set_user_attr("nirs4all_dagml_host_hpo_checkpoint_v1", None)
+    with pytest.raises(Exception) as missing_pair:
+        nirs4all.run(
+            [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "n_trials": 3, "study_name": "dag", "resume": True}}],
+            (X, y), engine="dag-ml", save_charts=False,
+        )
+    expected_error = "paired native DAG trial checkpoint" if mechanism == "in_process" else "dag-ml engine run failed"
+    assert expected_error in str(missing_pair.value)
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_phases_follow_native_budgets_and_replay(tmp_path, monkeypatch, mechanism):
+    pytest.importorskip("optuna")
+    import nirs4all
+    from nirs4all.optimization.optuna import OptunaManager
+
+    X, y = _data()
+    settings = {"engine": "optuna", "approach": "grouped", "sampler": "grid", "seed": 7,
+                "n_trials": 1, "phases": [{"n_trials": 1, "sampler": "random"},
+                                          {"n_trials": 2, "sampler": "tpe"}],
+                "model_params": {"n_components": ["int", 1, 3]}}
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": settings}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    original_sampler = OptunaManager._create_sampler  # noqa: SLF001
+    sampler_calls = []
+
+    def record_sampler(self, sampler_type, params, seed=None):
+        sampler_calls.append(sampler_type)
+        return original_sampler(self, sampler_type, params, seed)
+
+    monkeypatch.setattr(OptunaManager, "_create_sampler", record_sampler)
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert len(history) == 3
+    assert all(len(search["trials"]) == 3 for search in history)
+    assert all(search["optimizer"]["phase_trial_budgets"] == [1, 2] for search in history)
+    if mechanism == "in_process":
+        assert sampler_calls.count("random") == sampler_calls.count("tpe") == 3
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001
+    expected = fitted.predict(X[:4]).ravel()
+    archive = result.export(tmp_path / "phased.n4a")
+    np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, expected)
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_pruner_receives_native_fold_scores(tmp_path, monkeypatch, mechanism):
+    optuna = pytest.importorskip("optuna")
+    import nirs4all
+
+    X, y = _data()
+    storage = f"sqlite:///{tmp_path / 'pruned.sqlite3'}"
+    settings = {"engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+                "n_trials": 3, "pruner": "median", "eval_mode": "mean", "storage": storage,
+                "model_params": {"n_components": ["int", 1, 3]}}
+    legacy = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**settings, "study_name": "legacy-pruning"}}],
+        (X, y), engine="legacy", save_charts=False,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**settings, "study_name": "dag-pruning"}}],
+        (X, y), engine="dag-ml", save_charts=False,
+    )
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert len(history) == 3
+    for search in history:
+        study = optuna.load_study(study_name=search["optimizer"]["study_name"], storage=storage)
+        assert len(study.trials) == 3
+        assert all(set(trial.intermediate_values) == {0, 1} for trial in study.trials)
+        assert len(search["trials"]) + len(search.get("pruned_trials", [])) == 3
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001
+    archive = result.export(tmp_path / "pruned.n4a")
+    np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, fitted.predict(X[:4]).ravel())
+    result.close()
+
+
+def test_optuna_pruned_trial_is_terminal_without_final_score(tmp_path, monkeypatch):
+    optuna = pytest.importorskip("optuna")
+    import nirs4all
+    from nirs4all.optimization.optuna import OptunaManager
+
+    class PruneSecond(optuna.pruners.BasePruner):
+        def prune(self, study, trial):
+            return trial.number == 1
+
+    monkeypatch.setattr(OptunaManager, "_create_pruner", lambda self, kind: PruneSecond())
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    X, y = _data()
+    storage = f"sqlite:///{tmp_path / 'forced_pruning.sqlite3'}"
+    settings = {"engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+                "n_trials": 3, "pruner": "median", "eval_mode": "mean", "storage": storage,
+                "study_name": "forced-pruning", "model_params": {"n_components": ["int", 1, 3]}}
+    result = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": settings}],
+        (X, y), engine="dag-ml", save_charts=False,
+    )
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    for search in history:
+        assert [trial["trial_index"] for trial in search["trials"]] == [0, 2]
+        pruned = search["pruned_trials"]
+        assert len(pruned) == 1 and pruned[0]["trial_index"] == 1
+        assert len(pruned[0]["intermediate_scores"]) == 1
+        assert pruned[0]["scores"]["reports"]
+        study = optuna.load_study(study_name=search["optimizer"]["study_name"], storage=storage)
+        assert study.trials[1].state == optuna.trial.TrialState.PRUNED
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_n4m_pruner_uses_native_fold_feedback_and_replay(tmp_path, monkeypatch, mechanism):
+    pytest.importorskip("n4m")
+    import nirs4all
+
+    X, y = _data()
+    pipeline = [KFold(3), {"model": PLSRegression(), "finetune_params": {
+        "engine": "n4m", "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 3, "pruner": "asha", "reduction_factor": 2, "n_startup_trials": 0,
+        "model_params": {"n_components": ["int", 1, 3]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    legacy_score = legacy.cv_best_score
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    assert result.cv_best_score == pytest.approx(legacy_score)
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001
+    for search in fitted._nirs4all_host_hpo_history:
+        assert len(search["trials"]) == 2
+        assert len(search["pruned_trials"]) == 1
+        assert search["pruned_trials"][0]["intermediate_scores"]
+        assert search["pruned_trials"][0]["scores"]["reports"]
+        assert search["selected_trial_index"] in {trial["trial_index"] for trial in search["trials"]}
+    archive = result.export(tmp_path / "n4m_pruned.n4a")
+    np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, fitted.predict(X[:4]).ravel())
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_parallel_trials_legacy_oracle_and_native_window(tmp_path, monkeypatch, mechanism):
+    pytest.importorskip("optuna")
+    import nirs4all
+
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 2, "n_jobs": 2, "model_params": {"n_components": ["int", 1, 3]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+    assert np.isfinite(result.cv_best_score)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert all(len(search["trials"]) == 2 and search["selected_trial_index"] in {0, 1} for search in history)
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_parallel_pruner_uses_native_fold_feedback(tmp_path, monkeypatch, mechanism):
+    optuna = pytest.importorskip("optuna")
+    import nirs4all
+    from nirs4all.optimization.optuna import OptunaManager
+
+    class PruneSecond(optuna.pruners.BasePruner):
+        def prune(self, study, trial):
+            return trial.number == 1
+
+    monkeypatch.setattr(OptunaManager, "_create_pruner", lambda self, kind: PruneSecond())
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    X, y = _data()
+    settings = {"engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+                "n_trials": 3, "n_jobs": 2, "pruner": "median", "eval_mode": "mean",
+                "model_params": {"n_components": ["int", 1, 3]}}
+    legacy = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": settings}],
+        (X, y), engine="legacy", save_charts=False,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+    result = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": settings}],
+        (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path,
+    )
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    for search in history:
+        if mechanism == "in_process":
+            assert [trial["trial_index"] for trial in search["trials"]] == [0, 2]
+            assert [trial["trial_index"] for trial in search["pruned_trials"]] == [1]
+            assert len(search["pruned_trials"][0]["intermediate_scores"]) == 1
+        else:
+            assert len(search["trials"]) + len(search.get("pruned_trials", [])) == 3
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("pruner", ["none", "median"])
+def test_optuna_parallel_storage_and_clean_resume(tmp_path, monkeypatch, mechanism, pruner):
+    optuna = pytest.importorskip("optuna")
+    import nirs4all
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    X, y = _data()
+    storage = f"sqlite:///{tmp_path / 'parallel.sqlite3'}"
+    settings = {"engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+                "n_trials": 2, "n_jobs": 2, "pruner": pruner, "storage": storage,
+                "study_name": "parallel-resume", "model_params": {"n_components": ["int", 1, 3]}}
+    def pipeline(config):
+        return [KFold(2), {"model": PLSRegression(), "finetune_params": config}]
+    legacy = nirs4all.run(pipeline({**settings, "study_name": "legacy-parallel"}), (X, y),
+                           engine="legacy", save_charts=False)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+    first = nirs4all.run(pipeline(settings), (X, y), engine="dag-ml", save_charts=False,
+                         workspace_path=tmp_path / "first")
+    searches = first._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert all(len(search["checkpoint"]["trials"]) == 2 for search in searches)
+    assert all(len(optuna.load_study(study_name=search["optimizer"]["study_name"], storage=storage).trials) == 2
+               for search in searches)
+    first.close()
+    resumed = nirs4all.run(pipeline({**settings, "n_trials": 3, "resume": True}), (X, y),
+                            engine="dag-ml", save_charts=False, workspace_path=tmp_path / "resumed")
+    searches = resumed._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    for search in searches:
+        assert search["status"] == "completed"
+        assert len(search["checkpoint"]["trials"]) == 3
+        study = optuna.load_study(study_name=search["optimizer"]["study_name"], storage=storage)
+        assert len(study.trials) == 3
+        assert all(trial.state.is_finished() for trial in study.trials)
+        assert all(set(trial.intermediate_values) == {0, 1} for trial in study.trials) if pruner == "median" else True
+    resumed.close()
+
+
+def test_optuna_parallel_storage_recovers_crash_between_tell_and_checkpoint(tmp_path, monkeypatch):
+    optuna = pytest.importorskip("optuna")
+    import nirs4all
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    X, y = _data()
+    storage = f"sqlite:///{tmp_path / 'interrupted.sqlite3'}"
+    settings = {"engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+                "n_trials": 3, "n_jobs": 2, "storage": storage, "study_name": "parallel-crash",
+                "model_params": {"n_components": ["int", 1, 3]}}
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": settings}]
+    original = optuna.Study.set_user_attr
+    injected = False
+
+    def fail_after_tell(self, key, value):
+        nonlocal injected
+        if not injected and key == "nirs4all_dagml_host_hpo_checkpoint_v1" and len(value["trials"]) == 1:
+            injected = True
+            raise RuntimeError("injected checkpoint interruption")
+        return original(self, key, value)
+
+    monkeypatch.setattr(optuna.Study, "set_user_attr", fail_after_tell)
+    with pytest.raises(Exception, match="injected checkpoint interruption"):
+        nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False,
+                     workspace_path=tmp_path / "interrupted")
+    assert injected
+    monkeypatch.setattr(optuna.Study, "set_user_attr", original)
+    resumed = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**settings, "resume": True}}],
+        (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path / "resumed",
+    )
+    searches = resumed._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert any(search["checkpoint"]["trials"][1]["state"] == "failed" for search in searches)
+    for search in searches:
+        study = optuna.load_study(study_name=search["optimizer"]["study_name"], storage=storage)
+        assert len(study.trials) == 3
+        assert all(trial.state.is_finished() for trial in study.trials)
+        assert len(search["checkpoint"]["trials"]) == 3
+    resumed.close()
+
+
+def test_n4m_n_jobs_matches_legacy_sequential_contract(tmp_path):
+    pytest.importorskip("n4m")
+    import nirs4all
+
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": "n4m", "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 2, "n_jobs": 2, "model_params": {"n_components": ["int", 1, 3]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    legacy_score = legacy.cv_best_score
+    legacy.close()
+    dag = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+    assert dag.cv_best_score == pytest.approx(legacy_score)
+    dag.close()
+
+
+@pytest.mark.parametrize("engine", ["native", "methods", "libn4m"])
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_legacy_n4m_engine_aliases_route_to_native_host_search(tmp_path, monkeypatch, engine, mechanism):
+    pytest.importorskip("n4m")
+    import nirs4all
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": engine, "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 1, "model_params": {"n_components": [1, 2]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    expected = legacy.cv_best_score
+    legacy.close()
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+    assert result.cv_best_score == pytest.approx(expected)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert all(search["optimizer"]["name"] == "n4m" for search in history)
+    result.close()

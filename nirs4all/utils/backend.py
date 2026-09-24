@@ -59,9 +59,7 @@ _PACKAGE_MAPPING: dict[str, str] = {
     'catboost': 'catboost',
     'optuna': 'optuna',
     'shap': 'shap',
-    # The IKPLS wrapper's default NumPy backend imports this submodule. Some
-    # ikpls releases expose the root package without the NumPy implementation.
-    'ikpls': 'ikpls.numpy',
+    'ikpls': 'ikpls',
 }
 
 # =============================================================================
@@ -106,10 +104,16 @@ def is_available(backend: str) -> bool:
     backend = backend.lower()
 
     if backend not in _availability_cache:
-        package = _PACKAGE_MAPPING.get(backend, backend)
-        _availability_cache[backend] = _check_spec_available(package)
-        if backend == 'ikpls' and not _availability_cache[backend]:
-            _availability_cache[backend] = _check_spec_available('ikpls.numpy_ikpls')
+        if backend == 'ikpls':
+            # IKPLS 6 exposes ``ikpls.numpy``; older releases used
+            # ``ikpls.numpy_ikpls``. The root package alone is insufficient.
+            _availability_cache[backend] = (
+                _check_spec_available('ikpls.numpy')
+                or _check_spec_available('ikpls.numpy_ikpls')
+            )
+        else:
+            package = _PACKAGE_MAPPING.get(backend, backend)
+            _availability_cache[backend] = _check_spec_available(package)
 
     return _availability_cache[backend]
 

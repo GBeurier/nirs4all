@@ -51,6 +51,30 @@ def _detect_rep_fusion(pipeline: list[Any]) -> dict[str, Any] | None:
     return rep_steps[0]
 
 
+def _detect_rep_to_sources_by_source(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any]] | None:
+    """Recognize repetition-to-sources followed by per-source model comparison."""
+    reps = [step for step in pipeline if isinstance(step, dict) and "rep_to_sources" in step]
+    branches = [step for step in pipeline if isinstance(step, dict) and "branch" in step]
+    merges = [step for step in pipeline if isinstance(step, dict) and "merge" in step]
+    if len(reps) != 1 or len(branches) != 1 or len(merges) != 1:
+        return None
+    branch = branches[0]["branch"]
+    if not isinstance(branch, dict) or set(branch) != {"by_source", "steps"} or branch["by_source"] is not True:
+        return None
+    body = branch["steps"]
+    if not isinstance(body, list) or not body or not (isinstance(body[-1], dict) and "model" in body[-1]):
+        return None
+    if merges[0]["merge"] != {"sources": "concat"}:
+        return None
+    if pipeline.index(reps[0]) > pipeline.index(branches[0]) or pipeline.index(branches[0]) > pipeline.index(merges[0]):
+        return None
+    if any(step is not reps[0] and step is not branches[0] and step is not merges[0] and not _is_split_step(step) for step in pipeline):
+        return None
+    if sum(_is_split_step(step) for step in pipeline) != 1:
+        return None
+    return reps[0], body
+
+
 def _source_concat_indices(source_spec: Any, n_sources: int) -> list[int] | None:
     """Resolve a ``{"merge": {"sources": ...}}`` concat spec to source indices, else ``None``.
 
@@ -221,9 +245,11 @@ def _generation_kind(pipeline: list[Any]) -> str:
     (b) NO other generator exists ANYWHERE — no generator keyword on a non-model step, no
         generator-valued model (multi-model ``{"model": {"_or_": ...}}``), no generator-shaped model
         sibling that is not natively lowerable (``_grid_``, dict-form, modifier-bearing), AND
-    (c) NO step carries ``finetune_params`` or ``train_params``.
+    (c) NO step carries ``finetune_params`` or a ``train_params`` shape the
+        native model adapter cannot apply. Framework factory training controls
+        may accompany a native parameter sweep.
 
-    Any other generator (or finetune/train_params) → ``"operator"`` (the correct Python ``expand_spec``
+    Any other generator (or unsupported finetune/train_params) → ``"operator"`` (the correct Python ``expand_spec``
     path). ``"none"`` means no generators at all. When in doubt, this never returns ``"param_model"``.
     """
     from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS, has_nested_generator_keywords
@@ -234,8 +260,15 @@ def _generation_kind(pipeline: list[Any]) -> str:
     for step in pipeline:
         if not isinstance(step, dict):
             continue
-        if _FORCE_PYTHON_STEP_KEYS & set(step):
-            has_other = True  # finetune/train_params are not in the native contract
+        forced = _FORCE_PYTHON_STEP_KEYS & set(step)
+        if forced:
+            model = step.get("model")
+            framework = model.get("framework") if isinstance(model, dict) else getattr(model, "framework", None)
+            # Neural factory training controls are applied by the host adapter
+            # on every native candidate and refit. Keep their model-local grid
+            # with dag-ml so each factory argument becomes a real candidate.
+            if forced != {"train_params"} or framework not in {"pytorch", "tensorflow", "jax"}:
+                has_other = True
         if "model" in step:
             # A generator-valued model (multi-model) is operator-level, not a clean param sweep.
             if has_nested_generator_keywords(step["model"]):
@@ -285,10 +318,10 @@ def _is_flat_single_operator_generator(pipeline: list[Any]) -> bool:
       pick/arrange recombination); a ``{"model": …}`` multi-model choice, a NESTED-generator dict choice, a
       ``None`` no-op, or a list nesting a list/dict element forces the Python path; AND
     * every leaf operator (the single op, or EACH operator of a multi-step choice) is a genuinely ROUTABLE
-      X-transform — the SAME routability / FQN-importability / wavelength gate
+      X-transform — the SAME routability / FQN-importability gate
       :func:`~nirs4all.pipeline.dagml.steps._assert_supported_operators` applies to every other native path
       (:func:`~nirs4all.pipeline.dagml.steps._check_x_operator`). A non-routable / non-reconstructible /
-      wavelength-requiring choice would slip into native operator-SELECT and fail at fit (the native run
+      non-reconstructible choice would slip into native operator-SELECT and fail at fit (the native run
       SKIPS the ``_or_`` step in its own support check), so it forces the Python path; AND
     * the only sibling keys on the ``_or_`` step are inert annotations (``_tags_``/``_metadata_``/``name``) —
       any modifier/constraint (``pick``/``arrange``/``count``/``_mutex_``/``_requires_``/``_exclude_``/
@@ -332,7 +365,7 @@ def _is_flat_single_operator_generator(pipeline: list[Any]) -> bool:
     if not (isinstance(choices, list) and bool(choices) and all((choice is not None and _is_bare_operator_choice(choice)) or _is_multistep_operator_choice(choice) for choice in choices)):
         return False
     # Every LEAF operator must be a genuinely routable X-transform (same gate as the other native paths) — a
-    # non-routable / wavelength-requiring / non-reconstructible choice would otherwise slip into native
+    # non-routable / non-reconstructible choice would otherwise slip into native
     # operator-SELECT (which skips the `_or_` in its own support check) and crash at fit. For a multi-step
     # choice, each of its operators is checked.
     return all(all(_choice_is_native_routable(operator) for operator in _operator_choice_operators(choice)) for choice in choices)
@@ -379,7 +412,7 @@ def _is_constrained_operator_generator(pipeline: list[Any]) -> bool:
       ``{"model": {"_or_": …}}``), and no ``finetune_params`` / ``train_params``; AND
     * every leaf operator choice is a genuinely ROUTABLE bare X-transform (the SAME
       :func:`_choice_is_native_routable` gate the flat-single predicate enforces) — a ``None`` choice, a
-      ``{"model": …}`` choice, a nested generator choice, or a non-routable / wavelength-requiring choice
+      ``{"model": …}`` choice, a nested generator choice, or a non-routable choice
       forces the Python path; AND
     * the pipeline carries exactly one downstream concrete model (the survivor sequence terminates in it).
 
@@ -473,7 +506,7 @@ def _is_constrained_operator_generator(pipeline: list[Any]) -> bool:
         return False
 
     # (D) Every leaf operator choice is a ROUTABLE bare X-transform (no None / model / nested-generator /
-    #     non-routable / wavelength-requiring choice). Walk the `_or_` / `_cartesian_`→`_or_` stage choices.
+    #     non-routable choice). Walk the `_or_` / `_cartesian_`→`_or_` stage choices.
     if not _constrained_choices_native_routable(generator):
         return False
 
@@ -699,7 +732,7 @@ def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
     * every leaf operator choice is a genuinely ROUTABLE bare X-transform (the SAME
       :func:`_constrained_choices_native_routable` gate) — a ``None`` choice, a multi-step list choice (the
       ``generator_or_multistep_branch`` shape), a ``{"model": …}`` choice, a nested-generator choice, or a
-      non-routable / wavelength-requiring choice forces the Python path; AND
+      non-routable choice forces the Python path; AND
     * no DUPLICATE operator option across the whole generator (an equal-content option would make two
       survivors fingerprint-collide, mis-zipping the content-keyed ``{variant_label → config_name}`` map);
       AND
@@ -782,7 +815,7 @@ def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
         return False
 
     # (D) Every leaf operator choice is a ROUTABLE bare X-transform (no None / model / nested-generator /
-    #     multi-step / non-routable / wavelength-requiring choice). Same walk as the constrained path.
+    #     multi-step / non-routable choice). Same walk as the constrained path.
     if not _constrained_choices_native_routable(generator):
         return False
 
@@ -820,16 +853,17 @@ def _branch_body_lists(body: Any) -> list[list[Any]] | None:
 def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any]] | None:
     """Detect the EXACT handled shape, else return ``None`` (fail-loud via the bridge).
 
-    Admits ONLY a pipeline that is exactly: the splitter + ONE by_metadata/by_tag separation branch
-    (a single shared ``steps`` body containing the model) + ONE ``{"merge": "concat"}`` — nothing
+    Admits ONLY a pipeline that is exactly: optional leading ``exclude`` steps, the splitter,
+    and ONE by_metadata/by_tag separation branch
+    (a single shared ``steps`` body containing the model), optionally followed by
+    ONE ``{"merge": "concat"}`` — nothing
     that ``_run_separation_branch`` does not actually honor. Returns ``(branch_step, branch_body)``
     when matched. ANY deviation returns ``None`` so the bridge's raw-branch ``NotImplementedError``
     fires (the coverage-boundary fail-loud guarantee), never a silent-wrong run. Specifically REJECTED:
 
     * a top-level operator/transform/``tag``/``y_processing`` step beside the branch (only the branch
       body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
-    * an ``exclude`` step anywhere (the folds are built over the full pool with no excluded bit, so the
-      exclusion would be silently lost) — exclude+branch is a follow-up slice;
+    * an ``exclude`` step after the splitter or branch (its order would be changed by early resolution);
     * an unhandled branch option (``values`` / ``min_samples`` / a per-branch ``selector`` / any key
       outside ``by_metadata``/``by_tag``/``steps``) — those grouping semantics are not honored;
     * a per-value dict ``steps`` (different sub-pipeline per partition), a missing model in the body,
@@ -837,15 +871,19 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     """
     branch_steps = [step for step in pipeline if _is_separation_branch_step(step)]
     merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
-    if len(branch_steps) != 1 or len(merge_steps) != 1:
+    if len(branch_steps) != 1 or len(merge_steps) > 1:
         return None
-    branch_step, merge_step = branch_steps[0], merge_steps[0]
+    branch_step = branch_steps[0]
+    merge_step = merge_steps[0] if merge_steps else None
 
-    # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps. A top-level
-    # transform / tag / y_processing / exclude / model would be silently ignored (only the branch body
-    # is lowered), so its presence rejects the match → fail-loud.
-    for step in pipeline:
-        if step is branch_step or step is merge_step or _is_split_step(step):
+    # Leading exclusions are resolved before the splitter and carried into the native fold/envelope
+    # views. Any other top-level operator would be silently dropped by branch-body lowering.
+    first_split = next((index for index, step in enumerate(pipeline) if _is_split_step(step)), len(pipeline))
+    branch_index = next(index for index, step in enumerate(pipeline) if step is branch_step)
+    for index, step in enumerate(pipeline):
+        if step is branch_step or (merge_step is not None and step is merge_step) or _is_split_step(step):
+            continue
+        if _is_exclude_step(step) and index < min(first_split, branch_index):
             continue
         return None
 
@@ -1001,6 +1039,47 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[
     return body, aggregate
 
 
+def _detect_by_source_auto_models(pipeline: list[Any], n_sources: int) -> tuple[dict[str, list[Any]], list[Any]] | None:
+    """Recognize per-source model branches followed by legacy's auto source concat."""
+    branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
+    if len(branch_steps) != 1 or n_sources < 2:
+        return None
+    branch_step = branch_steps[0]
+    branch_index = next(index for index, step in enumerate(pipeline) if step is branch_step)
+    if branch_index + 2 != len(pipeline):
+        return None
+    merge_step = pipeline[-1]
+    if not isinstance(merge_step, dict) or "merge" not in merge_step:
+        return None
+    merge_spec = merge_step["merge"]
+    if not (
+        merge_spec is True or merge_spec == "auto" or merge_spec == {"sources": "concat"}
+        or isinstance(merge_spec, dict) and "branch" in merge_spec
+        and not any(key in merge_spec for key in ("features", "predictions", "sources", "concat"))
+    ):
+        return None
+    criterion = branch_step["branch"]
+    if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
+        return None
+    bodies = criterion.get("steps")
+    if not isinstance(bodies, dict) or len(bodies) != n_sources:
+        return None
+    for body in bodies.values():
+        if not isinstance(body, list) or not body:
+            return None
+        if not (isinstance(body[-1], dict) and "model" in body[-1] or hasattr(body[-1], "predict")):
+            return None
+        if any(isinstance(step, dict) and "model" in step for step in body[:-1]):
+            return None
+    prefix = pipeline[:branch_index]
+    if sum(_is_split_step(step) for step in prefix) > 1:
+        return None
+    y_steps = [step for step in prefix if isinstance(step, dict) and "y_processing" in step]
+    if any(not any(step is y_step for y_step in y_steps) and not _is_split_step(step) for step in prefix):
+        return None
+    return bodies, y_steps
+
+
 def _is_source_concat_merge_step(step: Any) -> bool:
     """Recognize feature-source concatenation without admitting row merges."""
     return _is_concat_merge_step(step) or (isinstance(step, dict) and step.get("merge") == {"sources": "concat"})
@@ -1130,6 +1209,68 @@ def _is_duplication_branch_step(step: Any) -> bool:
     return _duplication_branch_bodies(step) is not None
 
 
+def _detect_checkpoint_before_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], dict[str, Any], dict[str, Any]] | None:
+    """Two independent model checkpoints around a feature-only duplication branch."""
+    if len(pipeline) != 4 or not _is_split_step(pipeline[0]):
+        return None
+    first, branch_step, last = pipeline[1:]
+    if not (isinstance(first, dict) and _model_step_is_plain_estimator(first)):
+        return None
+    if not (isinstance(last, dict) and _model_step_is_plain_estimator(last)):
+        return None
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None or len(branches) < 2:
+        return None
+    if any(not body or any(not (hasattr(step, "fit") and hasattr(step, "transform") and not hasattr(step, "predict")) for step in body) for body in branches):
+        return None
+    return branches, first, last
+
+
+def _detect_checkpoint_inside_duplication_feature_merge(pipeline: list[Any]) -> tuple[list[list[Any]], dict[str, Any], dict[str, Any]] | None:
+    """Two branch-local model checkpoints followed by a feature merge and model."""
+    if len(pipeline) != 5 or not _is_split_step(pipeline[0]):
+        return None
+    branch_step, first, merge_step, last = pipeline[1:]
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None or len(branches) < 2 or _simple_duplication_merge_mode(merge_step) != "features":
+        return None
+    if not all(isinstance(step, dict) and _model_step_is_plain_estimator(step) for step in (first, last)):
+        return None
+    if any(not body or any(not (hasattr(step, "fit") and hasattr(step, "transform") and not hasattr(step, "predict")) for step in body) for body in branches):
+        return None
+    return branches, first, last
+
+
+def _detect_branch_only_model_comparison(pipeline: list[Any]) -> tuple[list[Any], list[list[Any]], list[str]] | None:
+    """Recognize independent branch models with no merge, preserving their names."""
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    if len(branch_steps) != 1 or any(isinstance(step, dict) and "merge" in step for step in pipeline):
+        return None
+    branch_step = branch_steps[0]
+    branches = _duplication_branch_bodies(branch_step)
+    assert branches is not None
+    for body in branches:
+        if not body or not (
+            isinstance(body[-1], dict) and "model" in body[-1]
+            or hasattr(body[-1], "fit") and hasattr(body[-1], "predict")
+        ):
+            return None
+        if any(isinstance(step, dict) and "model" in step for step in body[:-1]):
+            return None
+    branch_index = next(index for index, step in enumerate(pipeline) if step is branch_step)
+    prefix = pipeline[:branch_index]
+    if any(isinstance(step, dict) and not ("preprocessing" in step and len(step) == 1) for step in prefix):
+        return None
+    if pipeline[-1] is not branch_step:
+        return None
+    spec = branch_step["branch"]
+    names = (
+        [key for key in spec if isinstance(key, str) and key not in _DUPLICATION_BRANCH_CONFIG_KEYS and not key.startswith("_")]
+        if isinstance(spec, dict) else [f"branch_{index}" for index in range(len(branches))]
+    )
+    return prefix, branches, names
+
+
 # The cross-branch fusion (avg / proba-mean) merge tokens this backend maps to dag-ml's native fusion
 # merge handler. Simple-string ``"mean"``/``"average"`` (a NEW token — legacy MergeConfigParser rejects
 # it, so there is no collision) average the branches' held-out OOF per sample into ONE final prediction;
@@ -1186,6 +1327,16 @@ def _simple_duplication_merge_mode(step: Any) -> str | None:
     if not isinstance(step, dict) or "merge" not in step:
         return None
     spec = step["merge"]
+    if isinstance(spec, dict) and set(spec) == {"features"}:
+        return "features"
+    if spec is True or spec in ("auto", "concat") or (
+        isinstance(spec, dict)
+        and "branch" in spec
+        and not any(key in spec for key in ("features", "predictions", "sources", "concat"))
+    ):
+        # MergeController resolves auto-detect spellings to feature collection
+        # and falls back to feature collection for concat on duplication branches.
+        return "features"
     return spec if spec in ("features", "all") else None
 
 
@@ -1200,6 +1351,21 @@ def _model_step_is_plain_estimator(model_step: dict[str, Any]) -> bool:
     if model is None or not (hasattr(model, "fit") and hasattr(model, "predict")):
         return False
     return not any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model")
+
+
+def _selected_duplication_feature_branches(branches: list[list[Any]], merge_step: dict[str, Any]) -> list[list[Any]] | None:
+    """Apply the legacy feature-merge branch selector without changing order."""
+    feature_spec = merge_step["merge"]
+    if not isinstance(feature_spec, dict) or "features" not in feature_spec:
+        return branches
+    selection = feature_spec["features"]
+    if isinstance(selection, dict):
+        selection = selection.get("branches", "all")
+    if isinstance(selection, list):
+        if not selection or any(type(index) is not int or index < 0 or index >= len(branches) for index in selection):
+            return None
+        return [branches[index] for index in selection]
+    return branches if selection in (True, "all") else None
 
 
 def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], str] | None:
@@ -1274,6 +1440,10 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
         return None
     if merge_mode == "all" and not all(branch_has_model):
         return None
+    if merge_mode == "features":
+        branches = _selected_duplication_feature_branches(branches, merge_step)
+        if branches is None:
+            return None
     return branches, merge_mode
 
 
@@ -1287,15 +1457,16 @@ def _is_simple_predictions_merge_step(step: Any) -> bool:
     return isinstance(step, dict) and step.get("merge") == "predictions"
 
 
-def _is_default_except_level(config: Any) -> bool:
-    """True iff ``config`` is a ``StackingConfig`` equal to the default in EVERY field except ``level``.
+def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_complete_imputation_policy: bool = False, allow_max_level: bool = False, allow_base_only: bool = False, allow_relation_profile: bool = False, allow_no_cv_with_split: bool = False) -> bool:
+    """Check the fields honored by this lowering, optionally including native best-fold test features.
 
-    A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` is the one
-    permitted deviation (AUTO / LEVEL_1 → a single base→meta level, which the dag-ml lowering produces);
-    every other field (``coverage_strategy``, ``test_aggregation``, ``branch_scope``, ``allow_no_cv``,
-    ``min_coverage_ratio``, ``allow_meta_sources``, ``max_level``, ``relation_profile``) is SILENTLY
-    IGNORED by the lowering — notably ``test_aggregation``, which has no effect because this slice cannot
-    score test meta-features at all (best_rmse is NaN). So a non-default value of any of those must reject
+    A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` may
+    select AUTO / LEVEL_1 (the single base→meta level produced by the dag-ml lowering);
+    other fields are rejected unless their semantics are explicitly enabled by the caller.
+    Fold-based test aggregation and selected branch scopes are allowed only when the caller routes
+    the corresponding native feature/source path. Imputation choices are accepted only with
+    native proof that the inner OOF matrix is complete, so no fill value is needed.
+    An unsupported non-default value must reject
     the stacking shape (fail loud) rather than run with the option dropped. Comparison is field-exhaustive
     by construction: clone the config with ``level`` reset to the default and compare to a fresh default,
     so any future ``StackingConfig`` field is covered without enumerating them here.
@@ -1306,11 +1477,33 @@ def _is_default_except_level(config: Any) -> bool:
 
     if not isinstance(config, StackingConfig):
         return False
+    from nirs4all.operators.models.meta import CoverageStrategy, TestAggregation
+
     normalized = dataclasses.replace(config, level=StackingConfig().level)
+    if allow_fold_aggregation and normalized.test_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+        normalized = dataclasses.replace(normalized, test_aggregation=StackingConfig().test_aggregation)
+    if allowed_branch_scope is not None and normalized.branch_scope == allowed_branch_scope:
+        normalized = dataclasses.replace(normalized, branch_scope=StackingConfig().branch_scope)
+    if allow_drop_incomplete and normalized.coverage_strategy == CoverageStrategy.DROP_INCOMPLETE:
+        normalized = dataclasses.replace(normalized, coverage_strategy=StackingConfig().coverage_strategy,
+                                         min_coverage_ratio=StackingConfig().min_coverage_ratio)
+    if allow_complete_imputation_policy and normalized.coverage_strategy in (
+        CoverageStrategy.IMPUTE_MEAN, CoverageStrategy.IMPUTE_ZERO, CoverageStrategy.IMPUTE_FOLD_MEAN,
+    ):
+        normalized = dataclasses.replace(normalized, coverage_strategy=StackingConfig().coverage_strategy,
+                                         min_coverage_ratio=StackingConfig().min_coverage_ratio)
+    if allow_max_level:
+        normalized = dataclasses.replace(normalized, max_level=StackingConfig().max_level)
+    if allow_base_only and not normalized.allow_meta_sources:
+        normalized = dataclasses.replace(normalized, allow_meta_sources=True)
+    if allow_relation_profile and normalized.relation_profile:
+        normalized = dataclasses.replace(normalized, relation_profile=False)
+    if allow_no_cv_with_split and normalized.allow_no_cv:
+        normalized = dataclasses.replace(normalized, allow_no_cv=False)
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any]) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_complete_imputation_policy: bool = False, allow_max_level: bool = False, allow_base_only: bool = False, allow_relation_profile: bool = False, allow_no_cv_with_split: bool = False) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1319,23 +1512,40 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
     sklearn estimator that fits on the meta-feature matrix.
 
     Returns ``None`` (→ fail loud, never run wrong) for any MetaModel option this slice does not honor:
-    a non-default ``source_models`` list, ``use_proba``, a custom ``selector``, a ``finetune_space``, a
-    non-AUTO/non-1 stacking ``level``, OR any OTHER non-default ``stacking_config`` field
-    (``test_aggregation``, ``coverage_strategy``, … — silently ignored by the lowering; see
+    a non-default ``source_models`` list, ``use_proba`` unless explicitly allowed by the caller,
+    a ``selector`` outside the sequential producer-selection lane, a ``finetune_space``, a
+    non-AUTO/non-1 stacking ``level``, OR any OTHER unsupported ``stacking_config`` field
+    (``coverage_strategy``, … — silently ignored by the lowering; see
     :func:`_is_default_except_level`).
     """
     from nirs4all.operators.models.meta import MetaModel, StackingLevel
 
     model = model_step.get("model")
+    sibling_params = {key: value for key, value in model_step.items() if key not in _RESERVED_STEP_KEYS}
+    if sibling_params:
+        from sklearn.base import clone
+
+        if isinstance(model, MetaModel) or not hasattr(model, "set_params"):
+            return None
+        try:
+            model = clone(model).set_params(**sibling_params)
+        except (TypeError, ValueError):
+            return None
     if isinstance(model, MetaModel):
         config = model.stacking_config
         if (
-            model.source_models != "all"
-            or model.use_proba
-            or model.selector is not None
+            (model.source_models != "all" and not allow_source_models)
+            or (model.use_proba and not allow_proba)
+            or (model.selector is not None and not allow_selector)
             or model.finetune_space is not None
             or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
-            or not _is_default_except_level(config)
+            or config.max_level < 1
+            or not _is_default_except_level(config, allow_fold_aggregation=allow_fold_aggregation,
+                                             allowed_branch_scope=allowed_branch_scope, allow_drop_incomplete=allow_drop_incomplete,
+                                             allow_complete_imputation_policy=allow_complete_imputation_policy,
+                                             allow_max_level=allow_max_level, allow_base_only=allow_base_only,
+                                             allow_relation_profile=allow_relation_profile,
+                                             allow_no_cv_with_split=allow_no_cv_with_split)
         ):
             return None
         return model.model
@@ -1343,6 +1553,147 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
     if model is not None and hasattr(model, "fit") and hasattr(model, "predict"):
         return model
     return None
+
+
+def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None] | None:
+    """Sequential base estimators followed by a selected numeric MetaModel."""
+    from nirs4all.operators.models.meta import BranchScope, MetaModel
+
+    if len([step for step in pipeline if _is_split_step(step)]) != 1:
+        return None
+    steps = [step for step in pipeline if not _is_split_step(step)]
+    if len(steps) < 2 or not isinstance(steps[-1], dict):
+        return None
+    wrapper = steps[-1].get("model")
+    if not isinstance(wrapper, MetaModel):
+        return None
+    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_fold_aggregation=True,
+                            allow_selector=True, allowed_branch_scope=BranchScope.SPECIFIED,
+                            allow_drop_incomplete=True, allow_complete_imputation_policy=True, allow_max_level=True,
+                            allow_base_only=True, allow_relation_profile=True, allow_no_cv_with_split=True)
+    if learner is None:
+        return None
+    models: list[Any] = []
+    for base in steps[:-1]:
+        if isinstance(base, dict):
+            if set(base) != {"model"}:
+                return None
+            operator = base["model"]
+        else:
+            operator = base
+        if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
+            return None
+        models.append(operator)
+    from nirs4all.operators.models.selection import DiversitySelector, ExplicitModelSelector, TopKByMetricSelector
+
+    selector = wrapper.selector
+    names = [type(model).__name__ for model in models]
+    if type(selector) is TopKByMetricSelector:
+        if wrapper.use_proba:
+            return None
+        select: dict[str, Any] = (
+            {"diverse_fold_candidates": {"max_per_class": selector.k, "preferred_classes": []}}
+            if selector.per_class else {"fold_candidates_top_k": selector.k}
+        )
+        if selector.ascending is not None:
+            if selector.per_class:
+                select["diverse_fold_candidates"]["ascending"] = selector.ascending
+            else:
+                select["ascending"] = selector.ascending
+        return [[{"model": model}] for model in models], learner, [
+            {"select": select, "metric": selector.metric}
+        ]
+    if type(selector) is DiversitySelector:
+        if wrapper.use_proba:
+            return None
+        return [[{"model": model}] for model in models], learner, [{
+            "select": {"diverse_fold_candidates": {
+                "max_per_class": selector.max_per_class,
+                "preferred_classes": list(selector.preferred_classes),
+            }},
+            "metric": "val_score",
+        }]
+    if selector is None:
+        requested_names = wrapper.source_models
+    elif type(selector) is ExplicitModelSelector:
+        # The selector takes precedence over source_models in the legacy
+        # controller. Preserve its requested column order and strictness.
+        requested_names = selector.model_names
+        if not selector.strict:
+            requested_names = [name for name in requested_names if name in names]
+    else:
+        return None
+    if requested_names == "all":
+        branches = [[{"model": model}] for model in models]
+        if wrapper.use_proba:
+            return branches, learner, [{"branch": f"branch_{index}", "aggregate": "proba_mean"} for index in range(len(models))]
+        return branches, learner, None
+    if not isinstance(requested_names, list) or not requested_names:
+        return None
+    if len(set(requested_names)) != len(requested_names) or any(name not in names for name in requested_names):
+        return None
+    # ExplicitModelSelector preserves requested name order, including every
+    # candidate sharing that name. Branch order fixes the meta-feature order.
+    order = [i for name in requested_names for i, candidate in enumerate(names) if candidate == name]
+    selected_count = len(order)
+    order.extend(i for i in range(len(models)) if i not in order)
+    branches = [[{"model": models[i]}] for i in order]
+    selectors = [
+        {"branch": f"branch_{i}", "aggregate": "proba_mean"} if wrapper.use_proba
+        else {"model": f"branch:{i}.node:0"}
+        for i in range(selected_count)
+    ]
+    return branches, learner, selectors
+
+
+def _detect_named_multi_level_metamodel(
+    pipeline: list[Any],
+) -> tuple[list[list[Any]], Any, list[dict[str, Any]] | None, list[dict[str, Any]]] | None:
+    """Named MetaModels whose sources are preceding base or meta checkpoints."""
+    from nirs4all.operators.models.meta import MetaModel, StackingLevel
+
+    steps = [step for step in pipeline if not _is_split_step(step)]
+    trailing: list[dict[str, Any]] = []
+    for step in reversed(steps):
+        if not isinstance(step, dict) or not isinstance(step.get("model"), MetaModel):
+            break
+        trailing.append(step)
+    trailing.reverse()
+    if len(trailing) < 2:
+        return None
+    base_steps = steps[:-len(trailing)]
+    available_names = {
+        type(step.get("model") if isinstance(step, dict) else step).__name__
+        for step in base_steps
+    }
+    first_step = trailing[0]
+    first_name = first_step.get("name") or first_step["model"].name
+    if isinstance(first_name, str):
+        available_names.add(first_name)
+    for level, current_step in enumerate(trailing[1:], start=2):
+        current = current_step["model"]
+        sources = current.source_models
+        if not isinstance(sources, list) or not sources or any(name not in available_names for name in sources):
+            return None
+        allowed_levels = {StackingLevel.AUTO}
+        if level <= StackingLevel.LEVEL_3.value:
+            allowed_levels.add(StackingLevel(level))
+        if (
+            current.selector is not None or current.finetune_space is not None
+            or current.stacking_config.level not in allowed_levels
+            or current.stacking_config.max_level < level
+            or not _is_default_except_level(current.stacking_config, allow_fold_aggregation=True, allow_max_level=True)
+        ):
+            return None
+        current_name = current_step.get("name") or current.name
+        if not isinstance(current_name, str):
+            return None
+        available_names.add(current_name)
+    first_stage = _detect_sequential_metamodel(pipeline[:-(len(trailing) - 1)])
+    if first_stage is None:
+        return None
+    branches, learner, selectors = first_stage
+    return branches, learner, selectors, trailing[1:]
 
 
 def _branch_local_meta_model_step(model_step: dict[str, Any]) -> dict[str, Any] | None:
@@ -1498,10 +1849,9 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
       dag-ml's CV-only stacking policy and projects the legacy no-refit row surface;
     * a sub-pipeline without a model (the base level needs a model to produce OOF);
     * a MetaModel carrying unhandled options (non-default source_models/use_proba/selector/finetune/config);
-    * a meta-model step carrying a sibling param (``{"model": Ridge(), "alpha": 0.2}``) or a generator
-      (``{"model": Ridge(), "alpha": {"_range_": [...]}}``): the meta-model node is lowered as a bare
-      estimator, so ``_apply_model_params`` / native generation never run for it — the param/sweep would
-      be silently ignored. A tuned/swept meta-model is a later slice.
+    * a meta-model step carrying a generator (``{"model": Ridge(), "alpha": {"_range_": [...]}}``):
+      native meta-model variant selection is not yet implemented. Concrete sibling parameters are
+      applied to a clone of the meta-estimator by :func:`_meta_learner`.
     """
     from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
 
@@ -1512,10 +1862,9 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
         return None
     branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
 
-    # The meta-model step must be a BARE {"model": <estimator>} (plus harmless reserved keys like name):
-    # any extra non-reserved sibling param OR a param-generator on the meta step is silently dropped by the
-    # bare-estimator lowering, so reject it (fail loud) rather than run the meta-model with the option lost.
-    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
+    # Concrete sibling estimator parameters are applied by ``_meta_learner``.
+    # Generator specifications still require a separate variant-selection path.
+    if any(is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
         return None
 
     # The merge must precede the meta-model. Shared transforms may precede
@@ -1551,6 +1900,111 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     return branches, meta_learner
 
 
+def _detect_all_branches_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], Any] | None:
+    """Legacy's duplication branch followed by an all-branches MetaModel."""
+    from nirs4all.operators.models.meta import BranchScope, MetaModel
+
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(model_steps) != 1 or len([step for step in pipeline if _is_split_step(step)]) != 1:
+        return None
+    branch_step, model_step = branch_steps[0], model_steps[0]
+    wrapper = model_step.get("model")
+    if not isinstance(wrapper, MetaModel) or wrapper.stacking_config.branch_scope != BranchScope.ALL_BRANCHES:
+        return None
+    learner = _meta_learner(model_step, allowed_branch_scope=BranchScope.ALL_BRANCHES)
+    if learner is None:
+        return None
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None or any(sum(isinstance(sub, dict) and "model" in sub for sub in branch) != 1 for branch in branches):
+        return None
+    shared_transforms: list[Any] = []
+    before_branch = True
+    for step in pipeline:
+        if step is branch_step:
+            before_branch = False
+        elif step is model_step or _is_split_step(step):
+            continue
+        elif before_branch and hasattr(step, "fit") and hasattr(step, "transform") and not hasattr(step, "predict"):
+            shared_transforms.append(step)
+        else:
+            return None
+    if pipeline.index(branch_step) > pipeline.index(model_step):
+        return None
+    return [[*shared_transforms, *branch] for branch in branches], learner
+
+
+def _detect_proba_mean_stacking_branch(
+    pipeline: list[Any],
+) -> tuple[list[list[Any]], Any, list[dict[str, Any]]] | None:
+    """Recognize per-branch prediction aggregation before a meta-model."""
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    merge_steps = [step for step in pipeline if isinstance(step, dict) and "merge" in step]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1:
+        return None
+    branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
+    if [step for step in pipeline if step is branch_step or step is merge_step or step is model_step] != [branch_step, merge_step, model_step]:
+        return None
+    if any(step is not branch_step and step is not merge_step and step is not model_step and not _is_split_step(step) for step in pipeline):
+        return None
+    spec = merge_step["merge"]
+    if not isinstance(spec, dict) or set(spec) != {"predictions"}:
+        return None
+    configs = spec["predictions"]
+    branches = _duplication_branch_bodies(branch_step)
+    if not isinstance(configs, list) or not configs or branches is None:
+        return None
+    selectors: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for config in configs:
+        if not isinstance(config, dict) or set(config) - {"branch", "aggregate", "select", "proba", "sources", "metric", "weight_metric"}:
+            return None
+        index = config.get("branch")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(branches) or index in seen:
+            return None
+        aggregate = config.get("aggregate", "separate")
+        select = config.get("select", "all")
+        model_count = sum(isinstance(step, dict) and "model" in step for step in branches[index])
+        if aggregate not in {"separate", "mean", "weighted_mean", "proba_mean"}:
+            return None
+        valid_top_k = isinstance(select, dict) and set(select) == {"top_k"} and type(select["top_k"]) is int and 1 <= select["top_k"] <= model_count
+        valid_explicit = isinstance(select, list) and bool(select) and all(isinstance(name, str) and name for name in select)
+        if select not in ("all", "best") and not valid_top_k and not valid_explicit:
+            return None
+        metric = config.get("metric") or "rmse"
+        if not isinstance(metric, str) or not metric.strip():
+            return None
+        if select != "all" and metric not in {"rmse", "mse", "mae", "r2", "accuracy", "f1", "auc", "log_loss"}:
+            return None
+        use_proba = config.get("proba", aggregate == "proba_mean")
+        if not isinstance(use_proba, bool) or (aggregate == "proba_mean" and not use_proba) or config.get("sources", "all") != "all":
+            return None
+        if not any(isinstance(step, dict) and "model" in step for step in branches[index]):
+            return None
+        seen.add(index)
+        selector: dict[str, Any] = {"branch": f"branch_{index}", "select": select}
+        if select != "all":
+            selector["metric"] = metric
+        if aggregate != "separate":
+            selector["aggregate"] = aggregate
+        if aggregate == "weighted_mean":
+            weight_metric = config.get("weight_metric") or config.get("metric")
+            if weight_metric is not None:
+                if not isinstance(weight_metric, str) or not weight_metric.strip():
+                    return None
+                if select != "all" and weight_metric != metric:
+                    return None
+                selector["metric"] = weight_metric
+        if use_proba:
+            selector["metadata"] = {"prediction_output": "proba"}
+        selectors.append(selector)
+    learner = _meta_learner(model_step)
+    if learner is None:
+        return None
+    return branches, learner, selectors
+
+
 def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tuple[list[Any] | dict[str, list[Any]], Any] | None:
     """Detect source-specific base models followed by native OOF stacking.
 
@@ -1574,7 +2028,7 @@ def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tu
         return None
     branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
 
-    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
+    if any(is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
         return None
     order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
     if order != [branch_step, merge_step, model_step]:
