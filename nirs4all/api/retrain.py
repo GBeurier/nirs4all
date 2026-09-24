@@ -428,6 +428,38 @@ def retrain(
             new_model=new_model,
         )
 
+    if decision.lane == "native":
+        from .native_archive_training import NativeMethodsArchiveRunResult
+        from .native_refit_result import NativeMethodsRefitResult
+        from .native_result import NativeMethodsRunResult
+        from .native_training import refit_native_methods
+
+        if mode != "full" or new_model is not None or epochs is not None or options:
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit accepts only the parent result and new dataset",
+                capability="core_archive_v3_retrain_option",
+            )
+        if not save_artifacts:
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit requires save_artifacts=True",
+                capability="core_archive_v3_retrain_option",
+            )
+        if not isinstance(source, (NativeMethodsRunResult, NativeMethodsArchiveRunResult)):
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit requires a native Methods run result parent",
+                capability="core_archive_v3_retrain_source",
+            )
+        if not isinstance(data, dict):
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit requires a dataset mapping with X, y, and sample_ids",
+                capability="core_archive_v3_retrain_data",
+            )
+        _ = verbose
+        result: NativeMethodsRefitResult = refit_native_methods(source, data, name=name)
+        # Preserve the published retrain() signature; the native V3 result is
+        # a separate runtime result type exposed through the same entry point.
+        return cast(RunResult, result)
+
     # PipelineRunner is reachable only through the explicit Python-library
     # transfer plugin or the explicitly selected ADR-24 rollback lane.
     if decision.lane not in ("legacy", "plugin"):

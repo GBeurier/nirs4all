@@ -80,6 +80,12 @@ def init_global_random_state(seed: int | None = None):
     except ImportError:
         pass
 
+    # First-time imports of optional frameworks can consume NumPy/Python RNG
+    # draws. Leave both public generators at the requested seed after setup.
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+
 class PipelineRunner:
     """Main pipeline execution interface.
 

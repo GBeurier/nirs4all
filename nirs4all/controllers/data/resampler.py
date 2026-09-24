@@ -128,7 +128,9 @@ class ResamplerController(OperatorController):
             return None
 
         # Check if it's a list of arrays (per-source targets)
-        if isinstance(target_wl, list) and target_wl and not np.isscalar(target_wl[0]):
+        # Pipeline expansion serializes a shared ndarray grid as a flat list.
+        # Only a list of grids denotes source-specific targets.
+        if isinstance(target_wl, list) and target_wl and isinstance(target_wl[0], (list, tuple, np.ndarray)):
             if len(target_wl) != n_sources:
                 raise ValueError(
                     f"If target_wavelengths is a list, it must have {n_sources} elements "

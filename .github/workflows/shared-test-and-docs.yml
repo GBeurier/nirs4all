@@ -31,12 +31,21 @@ jobs:
   run-tests:
     if: ${{ !inputs.skip-tests }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 180
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
+
+      - name: Checkout pinned dag-ml CLI source
+        uses: actions/checkout@v6
+        with:
+          repository: GBeurier/dag-ml
+          ref: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
+          path: dag-ml-cli-src
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -56,32 +65,32 @@ jobs:
           python -m pip install numpy -r requirements-test-linux.txt
           python -m pip install --index-url https://download.pytorch.org/whl/cpu \
             'torch==2.13.0+cpu'
+          python -m pip uninstall -y triton
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
+
+      - name: Build pinned dag-ml CLI for parity tests
+        run: cargo build -p dag-ml-cli --manifest-path dag-ml-cli-src/Cargo.toml
 
       - name: Gate real library usability
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
 
-      - name: Run full pytest + coverage
+      - name: Run every pytest module under DAG-ML
         shell: bash
-        run: |
-          python -m coverage erase
-          python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py \
-            --cov=nirs4all --cov-append
-          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append
-          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append --cov-report=xml
+        env:
+          N4A_ENGINE: dag-ml
+          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+        run: python scripts/ci/run_full_dagml_pytest.py --report-dir dagml-pytest-report tests/
+
+      - name: Upload DAG-ML pytest report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dagml-pytest-report
+          path: dagml-pytest-report/
+          if-no-files-found: warn
 
       - name: Upload coverage to Codecov
         if: ${{ inputs.upload-coverage }}

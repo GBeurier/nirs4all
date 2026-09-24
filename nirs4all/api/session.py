@@ -190,7 +190,7 @@ class Session:
         name: str = "",
         **runner_kwargs: Any,
     ) -> "Session":
-        """Select an explicitly or environmentally requested native session."""
+        """Select the native session implementation when requested."""
 
         requested = runner_kwargs.get("engine")
         if requested is None and "N4A_ENGINE" not in os.environ:
@@ -205,10 +205,6 @@ class Session:
 
             native_kwargs = {key: value for key, value in runner_kwargs.items() if key != "engine"}
             return cast("Session", NativeMethodsSession(pipeline, name=name, **native_kwargs))
-        if selected != "legacy":
-            from nirs4all.pipeline.engine import require_legacy_engine
-
-            require_legacy_engine("Session", selected)
         return super().__new__(cls)
 
     def __init__(
@@ -227,7 +223,7 @@ class Session:
                 Common options: verbose, save_artifacts, workspace_path,
                 random_state, plots_visible, etc.
         """
-        runner_kwargs.pop("engine", None)
+        self._configured_engine = runner_kwargs.pop("engine", None)
         self._pipeline = pipeline
         self._name = name or "Session"
         self._runner_kwargs = runner_kwargs
@@ -799,6 +795,16 @@ class Session:
             allow_fallback=kwargs.get("allow_fallback", False),
             session_present=False,
         ).require()
+        if decision.lane == "native":
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            raise RtError(
+                "run",
+                "unsupported_capability",
+                "Methods V3 full refit requires its native parent result, not a general Session",
+                mitigation="call nirs4all.retrain(native_result, dataset, engine='native')",
+                unsupported_capability="native_refit_session",
+            )
         if not self.is_trained:
             raise ValueError(
                 "Session must be trained before retraining. "
@@ -821,13 +827,13 @@ class Session:
 
         # Only the explicit rollback lane shares this Session's runner. Native
         # replay remains independent and reaches the real DAG-ML adapter.
-        result = retrain_api(
+        result = cast("RunResult", retrain_api(
             source,
             dataset,
             mode=mode,
             session=self if decision.lane == "legacy" else None,
             **kwargs,
-        )
+        ))
         self._last_result = result
 
         # Record in history
@@ -972,15 +978,15 @@ def load_session(
 
     explicit_selection = engine is not None or "N4A_ENGINE" in os.environ
     if explicit_selection:
-        from nirs4all.pipeline.engine import require_legacy_engine, resolve_engine
+        from nirs4all.pipeline.engine import resolve_engine
 
         selected = resolve_engine(engine)
         if selected == "native":
             if path.suffix.lower() != ".n4a":
                 raise ValueError("engine='native' load_session requires a Core Archive V2/V3 .n4a path")
             return load_native_archive_session(path, methods_library_path=methods_library_path)
-        if selected != "legacy":
-            require_legacy_engine("load_session", selected)
+        if selected == "dual":
+            raise NotImplementedError("load_session does not support engine='dual'")
 
     from nirs4all.pipeline.dagml.core_archive_replay import detect_core_archive_version
 

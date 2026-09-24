@@ -200,6 +200,20 @@ def preflight_advanced_api(
             mitigation=None,
         )
 
+    if selected_engine == "dag-ml":
+        builtin = _BUILTIN_LIBRARY_PLUGINS[verb]
+        return AdvancedApiCapabilityDecision(
+            verb=verb,
+            requested_engine=selected_engine,
+            lane="plugin",
+            executable=True,
+            contract=builtin,
+            plugin=builtin,
+            unsupported_capability=None,
+            reason=None,
+            mitigation=None,
+        )
+
     record = ADVANCED_API_CAPABILITIES_V1[verb]["native"]
     return AdvancedApiCapabilityDecision(
         verb=verb,

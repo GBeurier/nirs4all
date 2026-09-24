@@ -330,7 +330,12 @@ def test_by_source_fusion_n4a_export_never_refits_on_legacy(tmp_path: Path, monk
         },
         {"merge": "mean"},
     ]
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0")
     result = _run_native(tmp_path, pipeline, random_state=42, dataset_key="multi")
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    in_process = _run_native(tmp_path / "in_process", pipeline, random_state=42, dataset_key="multi")
+    assert result.cv_best_score == pytest.approx(in_process.cv_best_score, abs=1e-6)
+    np.testing.assert_allclose(_final_test_pred(result), _final_test_pred(in_process), atol=1e-6)
     assert result._dagml_results_dir is not None  # noqa: SLF001 -- a native dir WAS written
     assert len(result._dagml_refit_artifacts) == 3, "by_source mean fusion captures one REFIT artifact per source"  # noqa: SLF001
 

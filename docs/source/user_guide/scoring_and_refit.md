@@ -248,18 +248,22 @@ result = nirs4all.run(
 
 ### Refit Parameters
 
-For deep learning or custom models, refit-specific training parameters can
-override CV training parameters:
+Refit-specific training parameters can override CV training parameters:
 
 ```python
 pipeline = [
     {"model": MyModel(), "train_params": {"epochs": 50, "lr": 0.01},
-     "refit_params": {"epochs": 100, "warm_start": True}},
+     "refit_params": {"epochs": 100}},
 ]
 ```
 
 `refit_params` merges on top of `train_params`: unspecified keys inherit from
 `train_params`, specified keys override.
+
+`warm_start` is not currently supported for CV-to-refit weight transfer.
+The legacy `run` path accepts it but cold-fits the final model because its
+refit context has no CV artifact provider. The DAG-ML path explicitly refuses
+the request rather than reporting a warm start that did not occur.
 
 ---
 

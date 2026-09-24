@@ -28,17 +28,35 @@ def validate_training_control_declarations(value: Any) -> None:
         metadata = {}
         for key in ("train_params", "refit_params"):
             if key in value:
-                if "model" not in value:
+                if "model" not in value and value.get("framework") != "autogluon":
                     raise ValueError(f"{key} must belong to a model step")
                 metadata[f"nirs4all_{key}"] = encode_training_controls(value[key], name=key)
         model = value.get("model")
         if metadata:
             from sklearn.base import clone
 
+            from .autogluon_estimator import autogluon_step_estimator
+            from .framework_estimator import DagMLFrameworkEstimator, framework_model_params
+            from .torch_estimator import DagMLTorchEstimator, torch_model_params
+
+            autogluon = autogluon_step_estimator(value)
+            if autogluon is not None:
+                model = autogluon
+            else:
+                torch_params = torch_model_params(model)
+                if torch_params is not None:
+                    model = DagMLTorchEstimator(**torch_params)
+                else:
+                    framework_params = framework_model_params(model)
+                    if framework_params is not None:
+                        model = DagMLFrameworkEstimator(**framework_params)
+
             apply_model_training_controls(clone(model), metadata, "FIT_CV")
             apply_model_training_controls(clone(model), metadata, "REFIT")
         for key, child in value.items():
-            if key not in {"params", "train_params", "refit_params", "finetune_params"}:
+            # The residual payload is an operator's constructor configuration.
+            # Its train_params belong to the residual learner, not a pipeline step.
+            if key not in {"params", "train_params", "refit_params", "finetune_params", "residual"}:
                 validate_training_control_declarations(child)
 
 
@@ -69,9 +87,28 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
     from .operator_routing import _coerce_one
 
     controls = effective_training_controls(metadata, phase)
+    explicit_verbose = "verbose" in controls
     verbose = controls.pop("verbose", 0)
     if type(verbose) is not int or verbose < 0:
         raise ValueError("train/refit_params.verbose must be a non-negative integer")
+    from .framework_estimator import DagMLFrameworkEstimator
+
+    if isinstance(model, DagMLFrameworkEstimator) and model.framework == "tensorflow":
+        for nested_name, estimator_name, flat_keys in (
+            ("compile", "compile_params", {"optimizer", "loss", "metrics", "learning_rate", "lr"}),
+            ("fit", "fit_params", {"epochs", "batch_size", "validation_split"}),
+        ):
+            if nested_name not in controls:
+                continue
+            nested = controls.pop(nested_name)
+            if not isinstance(nested, Mapping) or any(not isinstance(key, str) for key in nested):
+                raise TypeError(f"train/refit_params.{nested_name} must be a mapping with string keys")
+            merged = dict(nested)
+            for key in flat_keys & controls.keys():
+                merged[key] = controls.pop(key)
+            if nested_name == "fit" and explicit_verbose:
+                merged["verbose"] = verbose
+            controls[estimator_name] = merged
     refit = metadata.get("nirs4all_refit_params") or {}
     if phase == "REFIT" and (refit.get("warm_start") or "warm_start_fold" in refit):
         raise NotImplementedError("refit warm-start requires captured CV-weight transfer; a fresh estimator is not equivalent")
@@ -81,6 +118,13 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
     reserved = {"reset_gpu", "fit_influence"} & controls.keys()
     if reserved:
         raise NotImplementedError(f"training controls require their specialized controller owner: {sorted(reserved)}")
+    from .autogluon_estimator import DagMLAutoGluonEstimator
+
+    if isinstance(model, DagMLAutoGluonEstimator):
+        model.fit_params = {**(model.fit_params or {}), **controls}
+        return {"schema": "nirs4all.model-training-controls.v1", "phase": phase,
+                "model_params": encode_training_controls(controls, name="effective model parameters"),
+                "pipeline_fold_policy_for_aom": pipeline_fold_policy, "verbose": verbose}
     defaults = model.get_params(deep=True) if controls and callable(getattr(model, "get_params", None)) else {}
     unknown = sorted(controls.keys() - defaults.keys())
     if unknown:

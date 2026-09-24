@@ -862,7 +862,7 @@ def _training_influence_manifest(
     entries: list[dict[str, Any]] = []
     for node in graph.get("nodes", []):
         kind = node.get("kind")
-        if kind not in {"transform", "model"}:
+        if kind not in {"transform", "y_transform", "model"}:
             continue
         if kind == "model":
             controller_id = node.get("metadata", {}).get("controller_id")

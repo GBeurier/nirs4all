@@ -482,14 +482,18 @@ def test_from_io_bare_convention_extends_beyond_default_loader_golden(tmp_path):
     ``target``/``targets``/``labels`` -> targets), letting ``from_io`` load a
     dataset the default loader cannot. Assert both the gating and the loaded shape.
     """
-    nio_spec = pytest.importorskip("nirs4all_io.spec.enums")
+    try:
+        from nirs4all_io.spec.enums import SpecError as IoSpecError
+    except ModuleNotFoundError:
+        # nirs4all-io 0.2 consolidated this public error into ValueError.
+        IoSpecError = ValueError
     wl = [str(1000 + i * 5) for i in range(10)]
     rng = np.random.default_rng(32)
     _write(tmp_path / "spectra.csv", pd.DataFrame(rng.random((12, 10)), columns=wl))
     _write(tmp_path / "target.csv", pd.DataFrame({"y": rng.random(12) * 30}))
 
     # default conventions cannot match these stems -> SpecError (convention-gated)
-    with pytest.raises(nio_spec.SpecError):
+    with pytest.raises(IoSpecError):
         DatasetConfigs.from_io(str(tmp_path)).get_dataset_at(0)
 
     # the bare profile resolves them; the default loader has no equivalent, so

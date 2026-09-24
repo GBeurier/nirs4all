@@ -70,6 +70,7 @@ class SpectralDistributionController(OperatorController):
             return context, StepOutput()
 
         outputs = []
+        plotted_processings = []
 
         # Get spectra data - shape (samples, processings, features)
         spectra_data = dataset.x(context.selector, "3d", False)
@@ -91,6 +92,7 @@ class SpectralDistributionController(OperatorController):
         for sd_idx, x in enumerate(spectra_data):
             processing_ids = dataset.features_processings(sd_idx)
             n_processings = x.shape[1]
+            plotted_processings.append([0] if has_cv_folds else list(range(n_processings)))
 
             # Get headers for x-axis
             spectra_headers = dataset.headers(sd_idx)
@@ -142,7 +144,10 @@ class SpectralDistributionController(OperatorController):
                 figure_refs=runtime_context.step_runner._figure_refs,
             )
 
-        return context, StepOutput(outputs=outputs)
+        return context, StepOutput(outputs=outputs, metadata={
+            "include_augmented": False,
+            "plotted_processings": plotted_processings,
+        })
 
     def _get_x_label(self, dataset: 'SpectroDataset', source_idx: int) -> str:
         """Get appropriate x-axis label based on header unit."""

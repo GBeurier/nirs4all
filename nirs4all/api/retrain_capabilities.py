@@ -5,8 +5,9 @@ The executable native subset is deliberately narrow: a concrete DAG-ML
 through the real ``run(engine="dag-ml")`` adapter. Captured host winners also
 support full retrain and transfer with frozen preprocessing through DAG tasks.
 The explicitly selected historical transfer plugin remains available unchanged.
-Core Archive V2 is prediction-only, Archive
-V3 is not exposed here, and the native HPO controller does not implement
+Core Archive V2 is prediction-only. The native Methods V3 full-refit lane
+accepts an in-memory native V2 result with signed training contracts; it does
+not re-run CV or selection. The native HPO controller does not implement
 continuation of an existing artifact.
 """
 
@@ -31,8 +32,8 @@ RETRAIN_CAPABILITIES_V1: dict[str, dict[str, dict[str, Any]]] = {
             "capability": "dagml_full_retrain",
         },
         "native": {
-            "executable": False,
-            "contract": None,
+            "executable": True,
+            "contract": "nirs4all.methods.portable_refit_package.v3+core_archive.v3",
             "capability": "core_archive_v3_retrain",
         },
         "plugin": {
@@ -235,9 +236,8 @@ def preflight_retrain(
     selected_engine = resolve_engine(engine)
     # ``native`` is the package-wide default profile, while API-004's only
     # qualified full-retrain implementation is the native DAG-ML controller.
-    # Preserve an explicit ``engine="native"`` as the (currently unavailable)
-    # Core Archive V3 request, but route an omitted selector to the qualified
-    # DAG-ML implementation.
+    # An explicit ``engine="native"`` selects the narrow Methods V3 request,
+    # while an omitted selector selects the qualified DAG-ML implementation.
     if engine is None and selected_engine == "native" and "N4A_ENGINE" not in os.environ:
         selected_engine = "dag-ml"
     if selected_engine == "legacy":

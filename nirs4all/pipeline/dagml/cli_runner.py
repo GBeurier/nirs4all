@@ -84,7 +84,10 @@ def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _
         "feature_set_id": "x",
         "source_ids": sources,
         "require_relations": True,
-        "metadata": _source_index_metadata(envelope, sources),
+        "metadata": {
+            **_source_index_metadata(envelope, sources),
+            **({"feature_axes": envelope["_host_feature_axes"]} if "_host_feature_axes" in envelope else {}),
+        },
     }
 
 
@@ -98,6 +101,27 @@ def data_bindings_for_nodes(model_ids: list[str], envelope: dict[str, Any], *, s
     return [_data_binding(model_id, envelope, source_id=source_id) for model_id in model_ids]
 
 
+def data_bindings_for_fitted_x_chain(
+    graph: dict[str, Any], model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Bind each X node when any step requests a native, node-local fit scope."""
+    bindings = data_bindings_for(model_id, envelope, source_id=source_id)
+    transforms = [node for node in graph["nodes"] if node["kind"] == "transform"]
+    if not force and not any(node.get("metadata", {}).get("nirs4all_fit_on_all") is True for node in transforms):
+        return bindings
+    for node in transforms:
+        binding = _data_binding(node["id"], envelope, source_id=source_id)
+        if node.get("metadata", {}).get("nirs4all_fit_on_all") is True:
+            binding["view_policy"] = {
+                "fit_partition": "all_observations",
+                "include_augmented_train": True,
+                "unsafe_flags": ["allow_fit_cv_all_observations_view"],
+            }
+        bindings.append(binding)
+    return bindings
+
+
 def split_invocation_for(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, n_splits: int, shuffle: bool = True) -> dict[str, Any]:
     """A split_invocation with an embedded, materialized FoldSet (params alone are inert)."""
     return {
@@ -108,11 +132,38 @@ def split_invocation_for(identity: IdentityMap, folds: list[tuple[list[int], lis
     }
 
 
+def needs_dynamic_feature_axis(pipeline: list[Any]) -> bool:
+    """A feature selector changes the source axis only after its fit completes."""
+    from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+    return any(
+        isinstance(step, (CARS, MCUVE))
+        or (isinstance(step, dict) and isinstance(step.get("preprocessing"), (CARS, MCUVE)))
+        for step in pipeline
+    )
+
+
 def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: dict[str, Any], folds: list[tuple[list[int], list[int]]], *, dsl_id: str = "nirs4all-pipeline", n_splits: int, source_id: str = _SOURCE_ID) -> dict[str, Any]:
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
-    dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, source_id=source_id)
+    # A selector's chosen feature indices are known only after its fold-local
+    # fit. Keep that transformation as a native node so its output axis can be
+    # handed to a downstream wavelength-aware operator in the same fold.
+    dynamic_axis = needs_dynamic_feature_axis(pipeline)
+    if not dynamic_axis and not any(
+        isinstance(step, dict) and (step.get("metadata") or {}).get("nirs4all_fit_on_all") is True
+        for step in dsl["pipeline"]
+    ):
+        dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, source_id=source_id)
+        return dsl
+
+    # An opt-in global-fit transform is a real native task with its own scoped
+    # view. Bind every X transform in the chain so its predecessor's fitted
+    # handle reaches it through the graph edge instead of refitting at the model.
+    graph = build_dagml_plan(pipeline, plan_id="plan:probe", dsl_id=dsl_id).to_dict()["graph_plan"]["graph"]
+    model_id = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
+    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope, source_id=source_id, force=dynamic_axis)
     return dsl
 
 
@@ -178,6 +229,8 @@ def run_cv_refit_bundle(
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     dataset_pickle: str | None = None,
     random_state: int | None = None,
+    refit: bool = True,
+    refit_top_k: int = 1,
 ) -> dict[str, Any]:
     """Write inputs + shim, run ``dag-ml-cli run-process-dsl-cv-refit-bundle``, return outputs.
 
@@ -215,6 +268,18 @@ def run_cv_refit_bundle(
     # spurious DagMlUnsupported fallback (P0 round-5 must-fix). The error_kind classification is only sound
     # over frames written by THIS subprocess.
     capture.unlink(missing_ok=True)
+    oof_average_path = workdir / "oof_average.json"
+    oof_average_path.unlink(missing_ok=True)
+    node_results_path = workdir / "native_node_results.json"
+    node_results_path.unlink(missing_ok=True)
+    artifact_dir = workdir / "refit_artifacts"
+    artifact_dir.mkdir(exist_ok=True)
+    for stale_artifact in artifact_dir.glob("*.joblib"):
+        stale_artifact.unlink()
+    fitted_x_dir = workdir / "fitted_x"
+    fitted_x_dir.mkdir(exist_ok=True)
+    for stale_chain in fitted_x_dir.glob("*.joblib"):
+        stale_chain.unlink()
     shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
 
     env = {
@@ -222,6 +287,8 @@ def run_cv_refit_bundle(
         "N4A_DAGML_DATASET_PATH": dataset_path,
         "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
         "N4A_DAGML_RESULT_CAPTURE": str(capture),
+        "N4A_DAGML_REFIT_ARTIFACT_DIR": str(artifact_dir),
+        "N4A_DAGML_FITTED_X_DIR": str(fitted_x_dir),
     }
     # The adapter PRIORITIZES N4A_DAGML_DATASET_PICKLE / N4A_DAGML_SAMPLE_META_PATH over the dataset
     # path. The child env inherits os.environ, so a stale value from an earlier run (or the caller's
@@ -254,6 +321,10 @@ def run_cv_refit_bundle(
             "--dsl", str(workdir / "dsl.json"), "--controllers", str(workdir / "controllers.json"),
             "--envelope", str(workdir / "envelope.json"), "--adapter", str(shim), "--persistent",
             "--selection-metric", selection_metric,
+            *([] if refit else ["--no-refit"]),
+            *([] if refit_top_k == 1 else ["--refit-top-k", str(refit_top_k)]),
+            "--oof-average-output", str(oof_average_path),
+            "--node-results-output", str(node_results_path),
             *resource_args,
             "--bundle-id", "bundle:n4a", "--plan-id", "plan:n4a",
             "--output", str(workdir / "bundle.json"), "--prediction-cache-output", str(workdir / "cache.json"),
@@ -261,4 +332,93 @@ def run_cv_refit_bundle(
         capture_output=True, text=True, env=env, check=False,
     )
     results = [json.loads(line) for line in capture.read_text().splitlines() if line.strip()] if capture.exists() else []
+    if proc.returncode == 0:
+        # Adapter capture only sees Python callbacks. The native scheduler also creates
+        # results (e.g. residual_fusion); expose those exact frames for host projection.
+        adapter_nodes = {
+            frame.get("result", frame).get("node_id") for frame in results
+            if isinstance(frame, dict) and isinstance(frame.get("result", frame), dict)
+        }
+        results.extend(frame for frame in json.loads(node_results_path.read_text())
+                       if frame.get("node_id") not in adapter_nodes)
+        results.extend(json.loads(oof_average_path.read_text()))
     return {"returncode": proc.returncode, "stdout": proc.stdout + proc.stderr, "results": results}
+
+
+def run_refit_phase_cli(
+    *, dsl: dict[str, Any], envelope: dict[str, Any], graph: dict[str, Any],
+    training_sample_ids: list[str], dataset_path: str, workdir: Path,
+    dagml_cli: str, venv_python: str, dataset_pickle: str | None = None,
+    sample_metadata: dict[str, dict[str, Any]] | None = None,
+    random_state: int | None = None,
+    package_id: str | None = None,
+) -> dict[str, Any]:
+    """Run one no-splitter REFIT in the native CLI with attested row order."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    for name, payload in (
+        ("dsl", dsl), ("controllers", controller_manifests()),
+        ("envelope", envelope), ("graph", graph),
+        ("training_sample_ids", training_sample_ids),
+    ):
+        (workdir / f"{name}.json").write_text(json.dumps(payload))
+    capture = workdir / "results.jsonl"
+    capture.unlink(missing_ok=True)
+    artifact_dir = workdir / "refit_artifacts"
+    artifact_dir.mkdir(exist_ok=True)
+    for stale_artifact in artifact_dir.glob("*.joblib"):
+        stale_artifact.unlink()
+    fitted_x_dir = workdir / "fitted_x"
+    fitted_x_dir.mkdir(exist_ok=True)
+    for stale_chain in fitted_x_dir.glob("*.joblib"):
+        stale_chain.unlink()
+    shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
+    env = {
+        **os.environ,
+        "N4A_DAGML_DATASET_PATH": dataset_path,
+        "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
+        "N4A_DAGML_RESULT_CAPTURE": str(capture),
+        "N4A_DAGML_REFIT_ARTIFACT_DIR": str(artifact_dir),
+        "N4A_DAGML_FITTED_X_DIR": str(fitted_x_dir),
+    }
+    if dataset_pickle is None:
+        env.pop("N4A_DAGML_DATASET_PICKLE", None)
+    else:
+        env["N4A_DAGML_DATASET_PICKLE"] = dataset_pickle
+    if sample_metadata is None:
+        env.pop("N4A_DAGML_SAMPLE_META_PATH", None)
+    else:
+        (workdir / "sample_meta.json").write_text(json.dumps(sample_metadata))
+        env["N4A_DAGML_SAMPLE_META_PATH"] = str(workdir / "sample_meta.json")
+    if random_state is None:
+        env.pop("N4A_RANDOM_STATE", None)
+    else:
+        env["N4A_RANDOM_STATE"] = str(random_state)
+    from .resources import current_execution_resources
+
+    resources = current_execution_resources()
+    resource_args = ["--cpu-threads", str(resources.cpu_threads)]
+    for device in resources.gpu_devices:
+        resource_args.extend(("--gpu-device", device))
+    proc = subprocess.run(
+        [
+            dagml_cli, "run-process-dsl-refit-phase",
+            "--dsl", str(workdir / "dsl.json"),
+            "--controllers", str(workdir / "controllers.json"),
+            "--envelope", str(workdir / "envelope.json"),
+            "--training-sample-ids", str(workdir / "training_sample_ids.json"),
+            "--adapter", str(shim), "--persistent",
+            "--output", str(workdir / "phase.json"),
+            *(["--package-id", package_id, "--package-output", str(workdir / "initial_full_refit_package.json")]
+              if package_id is not None else []),
+            *resource_args,
+        ],
+        capture_output=True, text=True, env=env, check=False,
+    )
+    results = [json.loads(line) for line in capture.read_text().splitlines() if line.strip()] if capture.exists() else []
+    return {
+        "returncode": proc.returncode,
+        "stdout": proc.stdout + proc.stderr,
+        "results": results,
+        "phase_output": workdir / "phase.json",
+        "artifact_dir": artifact_dir,
+    }

@@ -34,7 +34,7 @@ def project_named_stacking(
     outcome: dict[str, Any], *, branches: list[list[Any]], branch_names: list[str],
     base_model_ids: list[str], meta_node_id: str, meta_learner: Any,
     spectro: Any, identity: Any, metric: str, task_type: str, config_name: str,
-    pipeline: list[Any], random_state: int | None,
+    pipeline: list[Any], random_state: int | None, meta_per_branch: bool = False,
 ) -> NamedStackingResult:
     """Project real producer scores/arrays and bind only that producer's capture."""
     from .envelope import target_names
@@ -58,12 +58,16 @@ def project_named_stacking(
         if len(producers) != 1:
             raise ValueError(f"Named stacking branch {index} must identify exactly one model producer")
         views.append((producers[0], _model_name(branch), index, branch_names[index], [splitter, *branch]))
-    views.append((meta_node_id, type(meta_learner).__name__, None, None, pipeline))
+    meta_label = f"MetaModel_{type(meta_learner).__name__}" if meta_per_branch else type(meta_learner).__name__
+    if meta_per_branch:
+        views.extend((meta_node_id, meta_label, index, name, pipeline) for index, name in enumerate(branch_names))
+    else:
+        views.append((meta_node_id, meta_label, None, None, pipeline))
     for producer, label, branch_id, branch_name, training_pipeline in views:
         own_captures = captures if producer == meta_node_id else [
             artifact for artifact in captures if _producer_node_from_artifact_id(artifact.get("artifact_id")) == producer
         ]
-        if producer != meta_node_id and len(own_captures) != 1:
+        if producer != meta_node_id and captures and len(own_captures) != 1:
             raise ValueError(f"Named stacking producer {producer!r} does not identify one REFIT artifact")
         child = _scores_to_run_result(
             outcome["scores"], spectro.name, label, metric, task_type,

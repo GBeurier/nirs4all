@@ -1,0 +1,601 @@
+{
+  "controller_routes": {
+    "AugmentationChartController": {
+      "keywords": [
+        "augment_chart",
+        "augment_details_chart",
+        "augmentation_chart",
+        "augmentation_details_chart"
+      ],
+      "matches_ast": "f2336950b643d687",
+      "prefixes": []
+    },
+    "AutoGluonModelController": {
+      "keywords": [],
+      "matches_ast": "2e06d8b4c1416192",
+      "prefixes": []
+    },
+    "AutoTransferPreprocessingController": {
+      "keywords": [
+        "auto_transfer_preproc"
+      ],
+      "matches_ast": "0370cbfbce7b64c3",
+      "prefixes": []
+    },
+    "BranchController": {
+      "keywords": [
+        "branch"
+      ],
+      "matches_ast": "3056dc378970ca29",
+      "prefixes": []
+    },
+    "ConcatAugmentationController": {
+      "keywords": [
+        "concat_transform"
+      ],
+      "matches_ast": "b70b24c4e897a705",
+      "prefixes": []
+    },
+    "CrossValidatorController": {
+      "keywords": [
+        "split"
+      ],
+      "matches_ast": "9ac9a7631bdb7e31",
+      "prefixes": []
+    },
+    "DummyController": {
+      "keywords": [],
+      "matches_ast": "5f9196d52930c7d7",
+      "prefixes": []
+    },
+    "ExcludeController": {
+      "keywords": [
+        "exclude"
+      ],
+      "matches_ast": "25510fa3e53a4021",
+      "prefixes": []
+    },
+    "ExclusionChartController": {
+      "keywords": [
+        "chart_exclusion",
+        "exclusion_chart"
+      ],
+      "matches_ast": "2e5d36ddeacb386a",
+      "prefixes": []
+    },
+    "FeatureAugmentationController": {
+      "keywords": [
+        "feature_augmentation"
+      ],
+      "matches_ast": "6016a87e0ece8ad5",
+      "prefixes": []
+    },
+    "FeatureSelectionController": {
+      "keywords": [],
+      "matches_ast": "2c83dca388ddf791",
+      "prefixes": []
+    },
+    "FoldChartController": {
+      "keywords": [
+        "chart_fold",
+        "fold_chart"
+      ],
+      "matches_ast": "d64b0a19a500cb25",
+      "prefixes": [
+        "fold_"
+      ]
+    },
+    "FoldFileLoaderController": {
+      "keywords": [
+        "split"
+      ],
+      "matches_ast": "4d7075cc00b3ad27",
+      "prefixes": []
+    },
+    "JaxModelController": {
+      "keywords": [],
+      "matches_ast": "238657f130dc5658",
+      "prefixes": []
+    },
+    "MergeController": {
+      "keywords": [
+        "merge",
+        "merge_predictions",
+        "merge_sources"
+      ],
+      "matches_ast": "9bd2da8be9d9b323",
+      "prefixes": []
+    },
+    "MetaModelController": {
+      "keywords": [],
+      "matches_ast": "82f713a2b4235928",
+      "prefixes": []
+    },
+    "PyTorchModelController": {
+      "keywords": [],
+      "matches_ast": "d8478a9803d9868a",
+      "prefixes": []
+    },
+    "RepFusionController": {
+      "keywords": [
+        "rep_fusion"
+      ],
+      "matches_ast": "69649151fb78920f",
+      "prefixes": []
+    },
+    "RepToPPController": {
+      "keywords": [
+        "rep_to_pp"
+      ],
+      "matches_ast": "7e9ad50e45d1dbbb",
+      "prefixes": []
+    },
+    "RepToSourcesController": {
+      "keywords": [
+        "rep_to_sources"
+      ],
+      "matches_ast": "9cda178a1a317ba0",
+      "prefixes": []
+    },
+    "ResamplerController": {
+      "keywords": [],
+      "matches_ast": "ba725c66f076fbfa",
+      "prefixes": []
+    },
+    "ResidualModelController": {
+      "keywords": [
+        "residual"
+      ],
+      "matches_ast": "6ee4c048dd6b0171",
+      "prefixes": []
+    },
+    "SampleAugmentationController": {
+      "keywords": [
+        "sample_augmentation"
+      ],
+      "matches_ast": "8bbb8b25c94cc0f1",
+      "prefixes": []
+    },
+    "SklearnModelController": {
+      "keywords": [],
+      "matches_ast": "77773c2ae7a7005a",
+      "prefixes": []
+    },
+    "SpectraChartController": {
+      "keywords": [
+        "2d_chart",
+        "3d_chart",
+        "chart_2d",
+        "chart_3d"
+      ],
+      "matches_ast": "01872f4637305836",
+      "prefixes": []
+    },
+    "SpectralDistributionController": {
+      "keywords": [
+        "spectra_dist",
+        "spectra_envelope",
+        "spectral_distribution"
+      ],
+      "matches_ast": "9c58d697f21febc2",
+      "prefixes": []
+    },
+    "TagController": {
+      "keywords": [
+        "tag"
+      ],
+      "matches_ast": "a9b646993e9e9149",
+      "prefixes": []
+    },
+    "TensorFlowModelController": {
+      "keywords": [],
+      "matches_ast": "f491040a2671d97b",
+      "prefixes": []
+    },
+    "TransformerMixinController": {
+      "keywords": [],
+      "matches_ast": "53060f966034eed2",
+      "prefixes": []
+    },
+    "YChartController": {
+      "keywords": [
+        "chart_y",
+        "y_chart"
+      ],
+      "matches_ast": "777e8343fbcbf680",
+      "prefixes": []
+    },
+    "YTransformerMixinController": {
+      "keywords": [
+        "y_processing"
+      ],
+      "matches_ast": "d9e82725265817c3",
+      "prefixes": []
+    }
+  },
+  "generator_keywords": [
+    "_cartesian_",
+    "_chain_",
+    "_depends_on_",
+    "_exclude_",
+    "_grid_",
+    "_log_range_",
+    "_metadata_",
+    "_mutex_",
+    "_or_",
+    "_range_",
+    "_requires_",
+    "_sample_",
+    "_seed_",
+    "_tags_",
+    "_weights_",
+    "_zip_",
+    "arrange",
+    "count",
+    "pick",
+    "then_arrange",
+    "then_pick"
+  ],
+  "operator_exports": {
+    "nirs4all.operators": [
+      "Baseline",
+      "BatchEffectAugmenter",
+      "CropTransformer",
+      "DETECTOR_MODELS",
+      "DeadBandAugmenter",
+      "Derivate",
+      "DetectorRollOffAugmenter",
+      "Detrend",
+      "EMSCDistortionAugmenter",
+      "EdgeArtifactsAugmenter",
+      "EdgeCurvatureAugmenter",
+      "Gaussian",
+      "Haar",
+      "HeteroscedasticNoiseAugmenter",
+      "IdentityTransformer",
+      "InstrumentalBroadeningAugmenter",
+      "LocalStandardNormalVariate",
+      "MoistureAugmenter",
+      "MultiplicativeScatterCorrection",
+      "Normalize",
+      "ParticleSizeAugmenter",
+      "PathLengthAugmenter",
+      "Random_X_Operation",
+      "ResampleTransformer",
+      "RobustStandardNormalVariate",
+      "Rotate_Translate",
+      "SampleFilter",
+      "SavitzkyGolay",
+      "SimpleScale",
+      "SpectraTransformerMixin",
+      "Spline_Curve_Simplification",
+      "Spline_Smoothing",
+      "Spline_X_Perturbations",
+      "Spline_X_Simplification",
+      "Spline_Y_Perturbations",
+      "StandardNormalVariate",
+      "StrayLightAugmenter",
+      "TemperatureAugmenter",
+      "TruncatedPeakAugmenter",
+      "Wavelet",
+      "YOutlierFilter",
+      "baseline",
+      "derivate",
+      "detrend",
+      "gaussian",
+      "msc",
+      "norml",
+      "savgol",
+      "spl_norml",
+      "wavelet_transform"
+    ],
+    "nirs4all.operators.augmentation": [
+      "BandMasking",
+      "BandPerturbation",
+      "BatchEffectAugmenter",
+      "ChannelDropout",
+      "DETECTOR_MODELS",
+      "DeadBandAugmenter",
+      "DetectorRollOffAugmenter",
+      "EMSCDistortionAugmenter",
+      "EdgeArtifactsAugmenter",
+      "EdgeCurvatureAugmenter",
+      "GaussianAdditiveNoise",
+      "GaussianSmoothingJitter",
+      "HeteroscedasticNoiseAugmenter",
+      "InstrumentalBroadeningAugmenter",
+      "LinearBaselineDrift",
+      "LocalClipping",
+      "LocalMixupAugmenter",
+      "LocalWavelengthWarp",
+      "MixupAugmenter",
+      "MoistureAugmenter",
+      "MultiplicativeNoise",
+      "ParticleSizeAugmenter",
+      "PathLengthAugmenter",
+      "PolynomialBaselineDrift",
+      "Random_X_Operation",
+      "Rotate_Translate",
+      "ScatterSimulationMSC",
+      "SmoothMagnitudeWarp",
+      "SpikeNoise",
+      "Spline_Curve_Simplification",
+      "Spline_Smoothing",
+      "Spline_X_Perturbations",
+      "Spline_X_Simplification",
+      "Spline_Y_Perturbations",
+      "StrayLightAugmenter",
+      "TEMPERATURE_REGION_PARAMS",
+      "TemperatureAugmenter",
+      "TruncatedPeakAugmenter",
+      "UnsharpSpectralMask",
+      "WavelengthShift",
+      "WavelengthStretch"
+    ],
+    "nirs4all.operators.filters": [
+      "CompositeFilter",
+      "FilterResult",
+      "FilteringReport",
+      "FilteringReportGenerator",
+      "HighLeverageFilter",
+      "MetadataFilter",
+      "SampleFilter",
+      "SpectralQualityFilter",
+      "XOutlierFilter",
+      "YOutlierFilter"
+    ],
+    "nirs4all.operators.methods": [
+      "METHODS_AVAILABLE",
+      "MethodsPLS",
+      "MethodsSNV",
+      "methods_binding_status"
+    ],
+    "nirs4all.operators.models": [
+      "AOMKernelizer",
+      "AOMLocalRidge",
+      "AOMMultiBranchMKL",
+      "AOMMultiKernelRidge",
+      "AOMPLSClassifier",
+      "AOMPLSRegressor",
+      "AOMRidgeAutoSelector",
+      "AOMRidgeBlender",
+      "AOMRidgeClassifier",
+      "AOMRidgePLS",
+      "AOMRidgePLSCV",
+      "AOMRidgeRegressor",
+      "AllPreviousModelsSelector",
+      "BaseModelOperator",
+      "BranchScope",
+      "ComposedOperator",
+      "CoverageStrategy",
+      "DetrendProjectionOperator",
+      "DiPLS",
+      "DiversitySelector",
+      "ExplicitModelSelector",
+      "FCKPLS",
+      "FastAOMConfig",
+      "FastAOMPLSRidge",
+      "FiniteDifferenceOperator",
+      "FractionalConvFeaturizer",
+      "HardAOMChainPLSRidge",
+      "IKPLS",
+      "IdentityFeaturizer",
+      "IdentityOperator",
+      "IntervalPLS",
+      "KOPLS",
+      "KPLS",
+      "KernelPLS",
+      "LWPLS",
+      "LinearSpectralOperator",
+      "MBPLS",
+      "MetaModel",
+      "ModelCandidate",
+      "MultimodalClassifier",
+      "MultimodalRegressor",
+      "NLPLS",
+      "NorrisWilliamsOperator",
+      "OKLMPLS",
+      "OPLS",
+      "OPLSDA",
+      "PCR",
+      "PLSDA",
+      "POPPLSClassifier",
+      "POPPLSRegressor",
+      "PolynomialFeaturizer",
+      "RBFFeaturizer",
+      "RecursivePLS",
+      "ResidualModel",
+      "RobustPLS",
+      "SIMPLS",
+      "SavitzkyGolayOperator",
+      "SelectorFactory",
+      "SingleChainPLSRidge",
+      "SoftAOMChainPLSRidge",
+      "SourceModelSelector",
+      "SparseMultiKernelRidge",
+      "SparsePLS",
+      "StackingConfig",
+      "StackingLevel",
+      "TabPFNNIRSRegressor",
+      "TensorPCA",
+      "TestAggregation",
+      "TopKByMetricSelector",
+      "WhittakerOperator",
+      "bank_by_name",
+      "compact_bank",
+      "default_bank",
+      "default_operator_bank",
+      "extended_bank"
+    ],
+    "nirs4all.operators.splitters": [
+      "BinnedStratifiedGroupKFold",
+      "GroupedSplitterWrapper",
+      "KBinsStratifiedSplitter",
+      "KMeansSplitter",
+      "KennardStoneSplitter",
+      "SPXYFold",
+      "SPXYGFold",
+      "SPXYSplitter",
+      "SPlitSplitter",
+      "SystematicCircularSplitter"
+    ],
+    "nirs4all.operators.transforms": [
+      "ASLSBaseline",
+      "AirPLS",
+      "ArPLS",
+      "AreaNormalization",
+      "BEADS",
+      "BandMasking",
+      "BandPerturbation",
+      "Baseline",
+      "BatchEffectAugmenter",
+      "CARS",
+      "ChannelDropout",
+      "CropTransformer",
+      "DeadBandAugmenter",
+      "Derivate",
+      "Detrend",
+      "EMSC",
+      "EPO",
+      "ExtendedMultiplicativeScatterCorrection",
+      "FCKStaticTransformer",
+      "FirstDerivative",
+      "FlattenPreprocessing",
+      "FlexiblePCA",
+      "FlexibleSVD",
+      "FractionToPercent",
+      "FromAbsorbance",
+      "Gaussian",
+      "GaussianAdditiveNoise",
+      "GaussianSmoothingJitter",
+      "Haar",
+      "HeteroscedasticNoiseAugmenter",
+      "IASLS",
+      "IModPoly",
+      "IdentityTransformer",
+      "InstrumentalBroadeningAugmenter",
+      "IntegerKBinsDiscretizer",
+      "KubelkaMunk",
+      "LinearBaselineDrift",
+      "LocalClipping",
+      "LocalMixupAugmenter",
+      "LocalStandardNormalVariate",
+      "LocalWavelengthWarp",
+      "LogTransform",
+      "MCUVE",
+      "MSC",
+      "MixupAugmenter",
+      "ModPoly",
+      "MultiplicativeNoise",
+      "MultiplicativeScatterCorrection",
+      "Normalize",
+      "NorrisWilliams",
+      "OSC",
+      "PYBASELINES_METHODS",
+      "PathLengthAugmenter",
+      "PercentToFraction",
+      "PolynomialBaselineDrift",
+      "PyBaselineCorrection",
+      "RNV",
+      "Random_X_Operation",
+      "RangeDiscretizer",
+      "ReflectanceToAbsorbance",
+      "ResampleTransformer",
+      "Resampler",
+      "RobustStandardNormalVariate",
+      "RollingBall",
+      "Rotate_Translate",
+      "SNIP",
+      "SNV",
+      "SavitzkyGolay",
+      "ScatterSimulationMSC",
+      "SecondDerivative",
+      "SequenceSummary",
+      "SignalTypeConverter",
+      "SimpleScale",
+      "SmoothMagnitudeWarp",
+      "SpikeNoise",
+      "Spline_Curve_Simplification",
+      "Spline_Smoothing",
+      "Spline_X_Perturbations",
+      "Spline_X_Simplification",
+      "Spline_Y_Perturbations",
+      "StandardNormalVariate",
+      "ToAbsorbance",
+      "UnsharpSpectralMask",
+      "WavelengthShift",
+      "WavelengthStretch",
+      "Wavelet",
+      "WaveletDenoise",
+      "WaveletFeatures",
+      "WaveletPCA",
+      "WaveletSVD",
+      "baseline",
+      "decon_set",
+      "derivate",
+      "detrend",
+      "dumb_and_dumber_set",
+      "dumb_set",
+      "dumb_set_2D",
+      "fat_set",
+      "first_derivative",
+      "gaussian",
+      "haar_only",
+      "id_preprocessing",
+      "list_of_2D_sets",
+      "log_transform",
+      "msc",
+      "nicon_set",
+      "norml",
+      "norris_williams",
+      "optimal_set_2D",
+      "preprocessing_list",
+      "pybaseline_correction",
+      "reflectance_to_absorbance",
+      "savgol",
+      "savgol_only",
+      "second_derivative",
+      "senseen_set",
+      "small_set",
+      "special_set",
+      "spl_norml",
+      "transf_set",
+      "wavelet_denoise",
+      "wavelet_transform"
+    ]
+  },
+  "parser": {
+    "reserved_keywords": [
+      "fill_value",
+      "finetune_params",
+      "fit_on_all",
+      "force_layout",
+      "metadata",
+      "na_policy",
+      "name",
+      "params",
+      "refit_params",
+      "steps",
+      "train_params"
+    ],
+    "serialization_operators": [
+      "class",
+      "function",
+      "instance",
+      "module",
+      "object",
+      "pipeline"
+    ],
+    "workflow_keywords": [
+      "auto_transfer_preproc",
+      "branch",
+      "concat_transform",
+      "feature_augmentation",
+      "model",
+      "preprocessing",
+      "sample_augmentation",
+      "y_processing"
+    ]
+  },
+  "schema_version": 1
+}

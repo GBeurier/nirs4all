@@ -1,7 +1,8 @@
 """Independent target labels survive voting, storage and both replay routes.
 
-The existing metrics contract pools target entries into one vector. These
-checks assert pooled balanced accuracy, not multilabel exact match.
+Classification metrics pool target entries into one vector; regression metrics
+average per-target values. These checks assert pooled balanced accuracy, not
+multilabel exact match.
 """
 import numpy as np
 import pytest
@@ -66,7 +67,7 @@ def test_multioutput_classification_preserves_target_axes(tmp_path, estimator_cl
             np.testing.assert_array_equal(replay.y_pred, expected)
 
 
-def test_multioutput_regression_preserves_axes_and_existing_global_rmse(tmp_path):
+def test_multioutput_regression_preserves_axes_and_macro_rmse(tmp_path):
     from sklearn.linear_model import MultiTaskElasticNet
 
     import nirs4all
@@ -85,7 +86,8 @@ def test_multioutput_regression_preserves_axes_and_existing_global_rmse(tmp_path
                 continue
             truth, actual = np.asarray(saved["y_true"]), np.asarray(saved["y_pred"])
             assert truth.shape == actual.shape and actual.ndim == 2 and actual.shape[1] == 2
-            assert row[f'{row["partition"]}_score'] == pytest.approx(np.sqrt(np.mean((truth - actual) ** 2)))
+            per_target_rmse = np.sqrt(np.mean((truth - actual) ** 2, axis=0))
+            assert row[f'{row["partition"]}_score'] == pytest.approx(np.mean(per_target_rmse))
         for chain_id in {row["chain_id"] for row in rows}:
             direct = store.replay_chain(chain_id, X[:8])
             assert direct.shape == (8, 2)

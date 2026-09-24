@@ -163,12 +163,25 @@ def _resolve_exclude(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list
     keep_in_oof = any(bool(step.get("keep_in_oof", False)) for step in exclude_steps)
     cascade_to_augmented = any(bool(step.get("cascade_to_augmented", True)) for step in exclude_steps)
     excluded_origins: set[int] = set()
+    chart_stages: list[tuple[list[int], str, bool]] = []
     for step in exclude_steps:
         # Each step fits on the CURRENT kept train: base origins still kept AND their children that an
         # earlier step's cascade has not already removed (mirrors legacy include_excluded=False).
         cascaded = _cascade(excluded_origins) if cascade_to_augmented else excluded_origins
         current_pool = [sample_int for sample_int in train_ints if sample_int not in cascaded]
-        excluded_origins |= _excluded_from_pool(step, spectro, current_pool)
+        newly_excluded = _excluded_from_pool(step, spectro, current_pool)
+        excluded_origins |= newly_excluded
+        if getattr(spectro, "_dagml_capture_exclusion_charts", False):
+            from nirs4all.controllers.data.exclude import ExcludeController
+
+            controller = ExcludeController()
+            filters, filter_mode, _ = controller._parse_config(step)  # noqa: SLF001 - legacy reason contract
+            names = [controller._get_filter_name(item) for item in filters]  # noqa: SLF001
+            reason = filters[0].exclusion_reason if len(filters) == 1 else f"exclude({filter_mode}:{','.join(names)})"
+            chart_stages.append((sorted(newly_excluded), reason, cascade_to_augmented))
+
+    if getattr(spectro, "_dagml_capture_exclusion_charts", False):
+        spectro._dagml_exclusion_chart_stages = chart_stages
 
     excluded = _cascade(excluded_origins) if cascade_to_augmented else excluded_origins
     remaining = [step for step in pipeline if not _is_exclude_step(step)]

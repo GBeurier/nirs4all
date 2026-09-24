@@ -1485,8 +1485,13 @@ class OptunaManager:
         Continuous parameters need random/TPE sampling.
         """
         model_params = finetune_params.get("model_params", {})
+        sampled_train_params = {
+            f"train_{name}": spec
+            for name, spec in finetune_params.get("train_params", {}).items()
+            if self._is_sampable(spec)
+        }
 
-        for _, param_config in model_params.items():
+        for _, param_config in {**model_params, **sampled_train_params}.items():
             # Check if this is a range specification disguised as a list (from tuple-to-list conversion)
             is_list = isinstance(param_config, list)
             has_len_3 = len(param_config) == 3 if is_list else False
@@ -1518,7 +1523,14 @@ class OptunaManager:
 
         Returns search space suitable for GridSampler.
         """
-        model_params = finetune_params.get("model_params", {})
+        model_params = {
+            **finetune_params.get("model_params", {}),
+            **{
+                f"train_{name}": spec
+                for name, spec in finetune_params.get("train_params", {}).items()
+                if self._is_sampable(spec)
+            },
+        }
 
         search_space = {}
         for param_name, param_config in model_params.items():

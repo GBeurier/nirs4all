@@ -56,6 +56,14 @@ class TestGridSearchSuitability:
         params = {"model_params": {"n_components": ["int", 1, 30]}}
         assert manager._is_grid_search_suitable(params) is False
 
+    def test_sampled_train_param_joins_categorical_grid(self, manager):
+        params = {"model_params": {"n_components": [2, 4]}, "train_params": {"batch_size": [8, 16], "epochs": 1}}
+        assert manager._is_grid_search_suitable(params) is True
+
+    def test_train_param_range_disables_grid(self, manager):
+        params = {"model_params": {"n_components": [2, 4]}, "train_params": {"batch_size": ("int", 8, 16)}}
+        assert manager._is_grid_search_suitable(params) is False
+
 class TestCreateGridSearchSpace:
     """Tests for _create_grid_search_space method."""
 
@@ -82,3 +90,7 @@ class TestCreateGridSearchSpace:
         }}
         space = manager._create_grid_search_space(params)
         assert space == {"method": [1, 2, 3]}
+
+    def test_sampled_train_param_uses_optuna_train_namespace(self, manager):
+        params = {"model_params": {"n_components": [2, 4]}, "train_params": {"batch_size": [8, 16], "epochs": 1}}
+        assert manager._create_grid_search_space(params) == {"n_components": [2, 4], "train_batch_size": [8, 16]}

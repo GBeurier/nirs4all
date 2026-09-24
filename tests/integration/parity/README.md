@@ -58,6 +58,72 @@ python -c "from tests.integration.parity._registry import keyword_coverage; \
   import json; print(json.dumps(keyword_coverage(), indent=2))"
 ```
 
+This is **keyword coverage, not feature completeness**. One case with
+`sample_augmentation` does not cover `augmentation → fitted transform →
+augmentation`, `augmentation → exclude`, or the same workflow through a CLI
+worker. A test that expects DAG-ML to refuse a legacy-supported pipeline proves
+the refusal is clear; it does not establish parity.
+
+For a feature-completeness audit before a release:
+
+1. Inventory the **legacy-successful** pipeline grammar from the parser and
+   controllers, including step options, ordering constraints, data layouts,
+   cross-validation/no-splitter execution, and train/predict/export operations.
+   Do not derive the inventory from DAG-ML's current supported-shape detector.
+2. Track each feature alone, valid **ordered pairs**, and interactions that
+   change scope or state (at least augmentation, fitted preprocessing, exclusion,
+   branches, splitters, and refit). Cross these with single/multi-source data,
+   regression/classification, and both in-process and CLI execution. Record an
+   owner and a runnable fixture for every valid row; invalid combinations need
+   an explicit parser/legacy reason, not a missing test.
+3. For every legacy-successful row, require `engine="dag-ml"` to execute natively
+   without fallback or an expected refusal. Compare the public result contract,
+   final refit/test predictions by sample ID, and exported-model predictions.
+   Compare CV scores only when both engines use the same split and fit scope.
+   Where DAG-ML deliberately removes legacy leakage, pin that semantic difference
+   with a separate fold-level oracle and still require full refit parity.
+4. When a row diverges, compare the **first differing boundary**: parsed steps,
+   selected train/validation IDs, exclusion masks, synthetic origins, per-fold X/y
+   shapes and hashes, fitted transform state, model inputs, OOF predictions,
+   refit predictions, then archive replay. This localizes a bridge bug without
+   treating a final RMSE difference as the diagnosis.
+5. The release gate is zero untriaged rows and zero legacy-successful expected
+   refusals. A documented refusal remains a capability gap; a passing test for
+   it must not count as feature coverage. Run the same cases through both DAG-ML
+   mechanisms and keep the feature ledger in CI, not only in a manual checklist.
+
+`coverage_meter.py` currently counts registered cases and declared keywords; it
+does **not** generate this ordered-composition matrix. Its `expected_refusal`
+bucket must therefore be reviewed separately before claiming feature parity.
+`concat_transform_pca_svd_plsr` now runs natively with fold-local PCA/SVD;
+the registered-case refusal bucket is empty. The broader feature-completeness
+gate remains open while other compositions in `feature_gaps.json` remain.
+Run `python -m tests.integration.parity.coverage_meter --require-zero-refusals`
+to make the registered-case refusal check fail in a release job. This check is
+necessary but insufficient until the ordered-composition inventory above is
+complete.
+Use the repository's `.venv/bin/python` and `.venv/bin/pytest` for local runs;
+the system interpreter can import an older DAG-ML wheel and produce unrelated
+API failures.
+
+`feature_gaps.json` records legacy-successful compositions reproduced by the
+audit, including gaps the case registry has not yet captured, and tracks
+plausible gaps that still need a public legacy reproduction under `unverified`.
+`qualified_families` records tested functional contracts and their exact scope;
+an unbounded set of possible host estimator pairs is not itself a reproducible
+parity failure. A new pair enters `gaps` when a finite legacy-successful public
+pipeline reproducibly fails through DAG-ML.
+Run
+`.venv/bin/python -m tests.integration.parity.coverage_meter
+--require-feature-complete` before a release: it fails while the inventory is
+unfinished, any confirmed gap or unverified probe remains open, or a conformance case still
+refuses DAG-ML. It also fails while a registered pipeline controller lacks public
+coverage in `controller_coverage.json`. Add a failing composition to the ledger immediately, then add
+its dual-engine regression test when fixing it; remove the gap only when that
+test passes through the relevant runtime mechanisms. `inventory_complete` may
+become true only after the legacy parser/controller inventory and ordered
+composition matrix above have been reviewed.
+
 ## Skip vs. xfail policy
 
 Each skipped case carries a `skip_kind` so the runner picks the right

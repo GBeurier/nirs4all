@@ -23,8 +23,7 @@ Layout (one directory per run, default ``./nirs4all_results/<run_id>/``):
 * ``artifacts/`` — the fitted REFIT model binaries (P3 Slice 2c-i). Each captured ``{estimator,
   y_transform}`` is joblib-serialized to ``artifacts/<node>/<variant>.joblib`` and recorded as a manifest
   ``artifacts[]`` ArtifactRef entry. ONLY the leakage-safe REFIT estimators are persisted (FIT_CV/OOF
-  models never are). Present only for the in-process mechanism (the subprocess mechanism fits in a child
-  process this one cannot reach → ``has_model_artifacts:false`` + NO ``artifacts[]`` entries).
+  models never are). Both the in-process mechanism and the subprocess adapter capture refit models.
 * ``manifest.json`` — the run header (run_id, engine, versions, datasets, configs/variants, models,
   metric, task_type) + CAPABILITY FLAGS (``has_model_artifacts`` true when any model artifact was
   captured + persisted; ``has_aggregate_predictions`` false for this slice) + the ScoreSet content hash +
@@ -38,6 +37,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import tempfile
 import unicodedata
 import uuid
 from datetime import UTC, datetime
@@ -64,6 +65,7 @@ _ENV_GATE = "N4A_NATIVE_RESULTS"
 # The artifacts subtree holding the joblib-serialized fitted REFIT models, relative to the run dir.
 _ARTIFACTS_DIR = "artifacts"
 _STACKING_PRODUCER_NODE = "merge:stack"
+_SECOND_STACKING_PRODUCER_NODE = "merge:stack.level2"
 _META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
 _ARTIFACT_REFIT_MARKER = ":nirs4all:refit:"
 
@@ -165,24 +167,30 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
     """Joblib-serialize each captured REFIT model + build its manifest ArtifactRef entry (P3 Slice 2c-i).
 
     Each ``refit_artifacts`` entry is ``{artifact_id, estimator, y_transform, kind, controller_id,
-    backend}`` (captured host-side from the in-process store; the node runner emits ``backend="joblib"``).
+    backend}`` (captured from the in-process store or the subprocess adapter; the node runner emits ``backend="joblib"``).
     We joblib-dump ``{estimator, y_transform}`` to ``artifacts/<uri>`` and return one ArtifactRef per
     artifact whose fields are dag-ml ArtifactRef-IDENTICAL: ``backend`` (the SERIALIZATION backend — the
     node runner's captured ``"joblib"``, NOT the ML framework, per ADR-16 / dag-ml ``ArtifactBackend``),
     ``uri`` (relative to the run dir), ``content_fingerprint`` (sha256 of the written bytes — NOT
     ``content_hash``), ``size_bytes``, ``kind``, plus ``controller_id`` when available and the source
-    ``artifact_id``. An EMPTY input writes nothing and returns ``[]`` (the subprocess mechanism → no
-    loadable artifacts, never a faked payload).
+    ``artifact_id``. An EMPTY input writes nothing and returns ``[]``.
     """
     if not refit_artifacts:
         return []
     (run_dir / _ARTIFACTS_DIR).mkdir(parents=True, exist_ok=True)
     refs: list[dict[str, Any]] = []
+    from .host_artifacts import file_fingerprint, stage_host_artifacts
+
     for index, artifact in enumerate(refit_artifacts):
         uri = _artifact_uri(str(artifact.get("artifact_id") or f"artifact_{index}"), index)
         payload = {"estimator": artifact["estimator"], "y_transform": artifact["y_transform"]}
-        joblib.dump(payload, run_dir / uri)
-        data = (run_dir / uri).read_bytes()
+        if "fold_estimators" in artifact:
+            payload["fold_estimators"] = artifact["fold_estimators"]
+        if "fold_selection" in artifact:
+            payload["fold_selection"] = artifact["fold_selection"]
+        with stage_host_artifacts(payload, run_dir, f"host_artifacts/artifact_{index}") as host_artifacts:
+            joblib.dump(payload, run_dir / uri)
+        fingerprint, size = file_fingerprint(run_dir / uri)
         # ArtifactRef ``backend`` = the SERIALIZATION backend the node runner recorded for these artifacts
         # ("joblib"); fall back to "joblib" only if the capture somehow lacked it (we always joblib-dump).
         backend = artifact.get("backend") or _JOBLIB_BACKEND
@@ -190,11 +198,13 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
             "artifact_id": artifact.get("artifact_id"),
             "backend": backend,
             "uri": uri,
-            "content_fingerprint": _bytes_fingerprint(data),
-            "size_bytes": len(data),
+            "content_fingerprint": fingerprint.removeprefix("sha256:"),
+            "size_bytes": size,
             "kind": artifact.get("kind"),
             "controller_id": artifact.get("controller_id"),
         }
+        if host_artifacts:
+            ref["host_artifacts"] = host_artifacts
         branch_index = _branch_index_from_artifact_id(ref["artifact_id"])
         if branch_index is not None:
             # Neutral branch metadata. Export interprets this as source_index only when the native run
@@ -326,7 +336,16 @@ def _score_set_producer_nodes(score_set: dict[str, Any] | None, *, final_only: b
     return sorted(nodes)
 
 
-def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _stacking_replay_manifest(
+    score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]],
+    selectors: list[dict[str, Any]] | None = None,
+    *, probability_producers: set[str] | None = None,
+    source_orders: dict[str, list[str]] | None = None,
+    source_ports: dict[str, dict[str, str]] | None = None, _allow_multi: bool = True,
+    outer_fold_ids: list[str] | None = None,
+    producer_classes: dict[str, str] | None = None,
+    target_node: str = _STACKING_PRODUCER_NODE,
+) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
     dag-ml's meta-node builds meta-features by sorting base prediction-input keys and concatenating each
@@ -338,13 +357,67 @@ def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: l
     # final meta score (its training input is OOF, not raw-feature inference).
     # The real REFIT artifact/controller identity below attests replayability;
     # do not require a fabricated final score merely to export that estimator.
-    if _STACKING_PRODUCER_NODE not in _score_set_producer_nodes(score_set):
+    scored_producers = _score_set_producer_nodes(score_set)
+    if target_node not in scored_producers:
         return None
+    if _allow_multi and target_node == _STACKING_PRODUCER_NODE and _SECOND_STACKING_PRODUCER_NODE in scored_producers:
+        by_producer: dict[str, list[dict[str, Any]]] = {}
+        for ref in artifact_refs:
+            producer = str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or "")
+            by_producer.setdefault(producer, []).append(ref)
+        stage_nodes = [_STACKING_PRODUCER_NODE]
+        for level in range(2, len(artifact_refs) + 1):
+            node = f"{_STACKING_PRODUCER_NODE}.level{level}"
+            if node not in scored_producers:
+                break
+            stage_nodes.append(node)
+        if len(stage_nodes) < 2 or any(len(by_producer.get(node, [])) != 1 for node in stage_nodes):
+            return None
+        meta_refs = [by_producer[node][0] for node in stage_nodes]
+        if any(ref.get("controller_id") == _META_MODEL_CONTROLLER_ID and all(ref is not meta for meta in meta_refs) for ref in artifact_refs):
+            return None
+        first_refs = [ref for ref in artifact_refs if all(ref is not meta for meta in meta_refs[1:])]
+        first_stage = _stacking_replay_manifest(
+            score_set, first_refs, selectors,
+                probability_producers=probability_producers, source_orders=source_orders, source_ports=source_ports,
+                _allow_multi=False, outer_fold_ids=outer_fold_ids, producer_classes=producer_classes,
+        )
+        if first_stage is None:
+            return None
+        stages = [first_stage]
+        for previous_node, node, ref, _previous_ref in zip(stage_nodes, stage_nodes[1:], meta_refs[1:], meta_refs, strict=False):
+            source_nodes = (source_orders or {}).get(node, [previous_node])
+            if len(set(source_nodes)) != len(source_nodes) or any(len(by_producer.get(source, [])) != 1 for source in source_nodes):
+                return None
+            stages.append({
+                "schema_version": 1,
+                "producer_node": node,
+                "meta_artifact_id": ref.get("artifact_id"),
+                "base_producers": [{
+                    "artifact_id": by_producer[source][0].get("artifact_id"),
+                    "producer_node": source,
+                    "meta_feature_key": f"{source}.{(source_ports or {}).get(node, {}).get(source, 'oof')}",
+                    "column_block": "probability_values" if (source_ports or {}).get(node, {}).get(source) == "proba" or source in (probability_producers or set()) else "prediction_values",
+                    **({"column_projection": "selected_class"} if (source_ports or {}).get(node, {}).get(source) == "proba" else {}),
+                } for source in source_nodes],
+                "meta_feature_construction": {
+                    "kind": "base_prediction_column_stack",
+                    "producer_order": "declared_source_order" if node in (source_orders or {}) else "sorted_prediction_input_base_key",
+                    "prediction_space": "selected_class_probability" if all((source_ports or {}).get(node, {}).get(source) == "proba" or source in (probability_producers or set()) for source in source_nodes) else "original_target",
+                    "column_blocks": "one block per base producer, preserving target column order",
+                },
+            })
+        return {
+            "schema_version": 2,
+            "producer_node": stage_nodes[-1],
+            "stages": stages,
+        }
 
     meta_refs = [
         ref
         for ref in artifact_refs
-        if ref.get("controller_id") == _META_MODEL_CONTROLLER_ID or _producer_node_from_artifact_id(ref.get("artifact_id")) == _STACKING_PRODUCER_NODE
+        if _producer_node_from_artifact_id(ref.get("artifact_id")) == target_node
+        and ref.get("controller_id") == _META_MODEL_CONTROLLER_ID
     ]
     if len(meta_refs) != 1:
         return None
@@ -353,9 +426,9 @@ def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: l
     base_refs = [
         ref
         for ref in artifact_refs
-        if ref is not meta_ref and _producer_node_from_artifact_id(ref.get("artifact_id")) not in {None, _STACKING_PRODUCER_NODE}
+        if ref is not meta_ref and _producer_node_from_artifact_id(ref.get("artifact_id")) is not None
     ]
-    if len(base_refs) < 2:
+    if not base_refs:
         return None
 
     ordered_base_refs = sorted(base_refs, key=lambda ref: str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or ""))
@@ -368,19 +441,85 @@ def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: l
             "artifact_id": ref.get("artifact_id"),
             "producer_node": producer_node,
             # This is the base key order used by node_runner._ordered_oof_specs after suffix stripping.
-            "meta_feature_key": f"{producer_node}.oof",
-            "column_block": "prediction_values",
+            "meta_feature_key": f"{producer_node}.{(source_ports or {}).get(target_node, {}).get(producer_node, 'oof')}",
+            "column_block": "probability_values" if (source_ports or {}).get(target_node, {}).get(producer_node) == "proba" else "prediction_values",
+            **({"column_projection": "selected_class"} if (source_ports or {}).get(target_node, {}).get(producer_node) == "proba" else {}),
         }
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])
         base_producers.append(entry)
 
+    replay_groups: list[dict[str, Any]] = []
+    if selectors:
+        reports = (score_set or {}).get("reports", [])
+        for selector in selectors:
+            branch = selector.get("branch")
+            model = selector.get("model")
+            selected = [
+                index for index, entry in enumerate(base_producers)
+                if (model is None or entry["producer_node"] == model)
+                and (branch is None or entry["producer_node"].startswith(f"branch:{str(branch).removeprefix('branch_')}" + "."))
+            ]
+            if not selected:
+                return None
+            if selector.get("select", "all") != "all":
+                from dag_ml import select_stacking_producers_json  # type: ignore[attr-defined]  # PyO3 export has no Python stub
+
+                selected_nodes = json.loads(select_stacking_producers_json(json.dumps({
+                    "producer_nodes": [base_producers[index]["producer_node"] for index in selected],
+                        "select": selector["select"], "metric": selector.get("metric") or "rmse",
+                        "reports": reports,
+                        "fold_ids": outer_fold_ids or [],
+                        "producer_classes": producer_classes or {},
+                })))
+                selected_by_node = {base_producers[index]["producer_node"]: index for index in selected}
+                selected = [selected_by_node[node] for node in selected_nodes]
+                if not selected:
+                    return None
+            aggregate = selector.get("aggregate")
+            if aggregate is None:
+                replay_groups.extend({"key": base_producers[index]["meta_feature_key"], "members": [index]}
+                                     for index in selected)
+                continue
+            if aggregate not in {"mean", "weighted_mean", "proba_mean"}:
+                return None
+            group: dict[str, Any] = {
+                "key": f"merge:stack.branch.{branch}.oof", "members": selected,
+                "aggregate": aggregate,
+            }
+            if aggregate == "weighted_mean":
+                metric = selector.get("metric") or "rmse"
+                higher_better = metric in {"r2", "accuracy", "balanced_accuracy"}
+                weights = []
+                for index in selected:
+                    producer = base_producers[index]["producer_node"]
+                    score = next((report.get("metrics", {}).get(metric) for report in reports
+                                  if report.get("producer_node") == producer
+                                  and report.get("partition") == "validation"
+                                  and report.get("fold_id") is not None
+                                  and metric in report.get("metrics", {})), None)
+                    if score is None or not np.isfinite(score):
+                        weights.append(0.0)
+                    elif higher_better:
+                        weights.append(max(float(score), 0.0))
+                    elif score >= 0:
+                        weights.append(1.0 / (float(score) + 1e-10))
+                    else:
+                        weights.append(abs(float(score)))
+                group["weights"] = weights if any(weight > 0.0 for weight in weights) else None
+            if aggregate == "proba_mean" or selector.get("metadata", {}).get("prediction_output") == "proba":
+                group["proba"] = True
+            replay_groups.append(group)
+        if target_node not in (source_orders or {}):
+            replay_groups.sort(key=lambda group: group["key"])
+
     return {
         "schema_version": 1,
-        "producer_node": _STACKING_PRODUCER_NODE,
+        "producer_node": target_node,
         "meta_artifact_id": meta_ref.get("artifact_id"),
-        "meta_producer_node": str(meta_ref.get("producer_node") or _producer_node_from_artifact_id(meta_ref.get("artifact_id")) or _STACKING_PRODUCER_NODE),
+        "meta_producer_node": str(meta_ref.get("producer_node") or _producer_node_from_artifact_id(meta_ref.get("artifact_id")) or target_node),
         "base_producers": base_producers,
+        **({"reduction_groups": replay_groups} if selectors else {}),
         "meta_feature_construction": {
             "kind": "base_prediction_column_stack",
             "producer_order": "sorted_prediction_input_base_key",
@@ -395,8 +534,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
 
     ``artifact_refs`` is the list of dag-ml-identical model ArtifactRef entries
     (:func:`_write_model_artifacts`). ``has_model_artifacts`` is TRUE iff any was captured + persisted (the
-    in-process mechanism with at least one REFIT model); FALSE (with an empty ``artifacts`` list) for the
-    subprocess mechanism, which cannot reach the child-process models.
+    in-process or subprocess mechanism with at least one REFIT model); FALSE only when no model was captured.
     """
     from nirs4all import __version__ as nirs4all_version
 
@@ -452,16 +590,60 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
             "predictions": "predictions.parquet",
         },
     }
-    stacking_replay = _stacking_replay_manifest(score_set, artifact_refs)
+    stacking_replay = _stacking_replay_manifest(
+        score_set, artifact_refs, getattr(result, "_dagml_stacking_selectors", None),
+        probability_producers=getattr(result, "_dagml_stacking_probability_producers", None),
+        source_orders=getattr(result, "_dagml_stacking_source_orders", None),
+        source_ports=getattr(result, "_dagml_stacking_source_ports", None),
+        outer_fold_ids=getattr(result, "_dagml_stacking_outer_fold_ids", None),
+        producer_classes=getattr(result, "_dagml_stacking_producer_classes", None),
+        _allow_multi=not getattr(result, "_dagml_stacking_independent_terminal", False),
+        target_node=getattr(result, "_dagml_stacking_replay_producer", _STACKING_PRODUCER_NODE),
+    )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
     if stacking_replay is not None:
         manifest["stacking_replay"] = stacking_replay
-    for key in ("relation_replay_manifest", "relation_materialization_manifest", "source_stacking", "stacking_evaluation"):
+    for key in ("relation_replay_manifest", "relation_materialization_manifest", "source_stacking", "stacking_evaluation", "separation_replay", "residual_replay"):
         recorded = [metadata[key] for metadata in getattr(result, "per_dataset", {}).values() if isinstance(metadata.get(key), dict)]
         if recorded and all(value == recorded[0] for value in recorded):
             manifest[key] = recorded[0]
     return manifest
+
+
+def separation_replay_manifest(graph: dict[str, Any], metadata_key: str, artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Record the selected native artifact for every metadata-fanned model.
+
+    Operator SELECT leaves inactive choice nodes in the compiled union graph but
+    refits only the winning choice of each metadata branch. Match graph nodes
+    from the captured artifacts, never require artifacts from inactive choices.
+    """
+    if not artifacts:
+        return None
+    model_nodes = [node for node in graph.get("nodes", []) if node.get("kind") == "model"]
+    if len(model_nodes) < 2 or len(artifacts) < 2:
+        return None
+    members: list[dict[str, str]] = []
+    seen_values: set[str] = set()
+    for artifact in artifacts:
+        artifact_id = str(artifact.get("artifact_id", ""))
+        matches = [node for node in model_nodes if artifact_id.startswith(f"artifact:{node['id']}:")]
+        if len(matches) != 1:
+            return None
+        node = matches[0]
+        selector = ((node.get("metadata") or {}).get("dsl_branch_selector") or {}).get("metadata") or {}
+        value = selector.get(metadata_key)
+        if value is None:
+            return None
+        value = str(value)
+        if value in seen_values:
+            raise ValueError("metadata separation replay has duplicate selected values")
+        seen_values.add(value)
+        members.append({"value": value, "artifact_id": artifact_id})
+    return {
+        "kind": "by_metadata_concat", "producer_node": "merge:concat",
+        "metadata_key": metadata_key, "members": members,
+    }
 
 
 def write_native_results(
@@ -475,7 +657,7 @@ def write_native_results(
     ``artifacts/`` model tree (the captured fitted REFIT estimators, P3 Slice 2c-i) under
     ``<root>/<run_id>/``. Called ONLY when :func:`native_results_enabled` (OFF by default). NEVER
     touches the legacy workspace store. The fitted models are read from ``result._dagml_refit_artifacts``
-    (captured host-side from the in-process store); an empty list (subprocess mechanism) writes no
+    (captured from the in-process store or the subprocess adapter); an empty list writes no
     ``artifacts/`` payload and records ``has_model_artifacts:false``.
     """
     if score_set is None:
@@ -507,11 +689,21 @@ def write_native_results(
     pl.DataFrame(rows, schema=schema).write_parquet(run_dir / "predictions.parquet")
 
     # artifacts/ — joblib-serialize the captured fitted REFIT models (P3 Slice 2c-i) + their ArtifactRefs.
-    # Empty for the subprocess mechanism (no capturable child-process models) → no payload, flag false.
+    # Only fitted REFIT models produce payloads; empty captures leave the capability flag false.
     artifact_refs = _write_model_artifacts(run_dir, result._dagml_refit_artifacts)  # noqa: SLF001
+
+    initial_package = getattr(result, "_dagml_initial_full_refit_package", None)
+    if initial_package is not None:
+        from dag_ml import InitialFullRefitPackage
+
+        InitialFullRefitPackage(initial_package)
+        (run_dir / "initial_full_refit_package.json").write_text(_canonical_json(initial_package), encoding="utf-8")
 
     # manifest.json — the run header + capability flags + the ScoreSet hash + the model ArtifactRefs.
     manifest = _manifest_header(result, predictions, score_set, run_id, run_dir, artifact_refs)
+    if initial_package is not None:
+        manifest["files"]["initial_full_refit_package"] = "initial_full_refit_package.json"
+        manifest["initial_full_refit_package_fingerprint"] = initial_package["package_fingerprint"]
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
     return run_dir
@@ -588,7 +780,18 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
 
     artifacts = _rehydrate_artifacts(run_dir, manifest.get("artifacts", []))
 
-    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts}
+    initial_package = None
+    initial_path = manifest.get("files", {}).get("initial_full_refit_package")
+    if initial_path is not None:
+        if initial_path != "initial_full_refit_package.json":
+            raise ValueError("native results initial full-refit package path is invalid")
+        initial_package = json.loads((run_dir / initial_path).read_text(encoding="utf-8"))
+        from dag_ml import InitialFullRefitPackage
+
+        InitialFullRefitPackage(initial_package)
+        if initial_package["package_fingerprint"] != manifest.get("initial_full_refit_package_fingerprint"):
+            raise ValueError("native results initial full-refit package fingerprint mismatch")
+    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts, "initial_full_refit_package": initial_package}
 
 
 def _validate_portable_uri(uri: Any) -> str:
@@ -641,6 +844,8 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
     identity/metadata (``artifact_id`` / ``kind`` / ``controller_id`` / ``backend`` / ``uri``).
     """
     rehydrated: list[dict[str, Any]] = []
+    from .host_artifacts import _safe_uri, file_fingerprint, hydrate_host_artifacts, verify_host_artifacts
+
     for ref in artifact_refs:
         uri = _validate_portable_uri(ref.get("uri"))
         backend = ref.get("backend")
@@ -650,18 +855,37 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
                 f"{_JOBLIB_BACKEND!r} artifacts are loadable here — refusing to joblib.load it."
             )
         path = run_dir / uri
-        data = path.read_bytes()
+        sidecar_refs = ref.get("host_artifacts")
+        sidecar_owner = tempfile.TemporaryDirectory(prefix="nirs4all_native_sidecars_") if sidecar_refs else None
         expected = ref.get("content_fingerprint")
-        actual = _bytes_fingerprint(data)
-        if expected != actual:
-            raise ValueError(
-                f"native results model artifact {uri!r} content_fingerprint mismatch in {run_dir}: manifest "
-                f"recorded {expected!r} but the bytes hash to {actual!r} (the artifact was edited or "
-                "corrupted) — refusing to joblib.load it."
-            )
-        from io import BytesIO
-
-        payload = joblib.load(BytesIO(data))  # Deserialize the exact verified bytes, not a second path read.
+        try:
+            if sidecar_owner is not None:
+                for directory_ref in cast(list[dict[str, Any]], sidecar_refs):
+                    for file_ref in directory_ref["files"]:
+                        safe_uri = _safe_uri(file_ref["uri"])
+                        target = Path(sidecar_owner.name) / safe_uri
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with (run_dir / safe_uri).open("rb") as source_stream, target.open("wb") as target_stream:
+                            shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
+            directories = verify_host_artifacts(Path(sidecar_owner.name) if sidecar_owner else run_dir, sidecar_refs)
+            with tempfile.TemporaryDirectory(prefix="nirs4all_native_model_") as snapshot_dir:
+                snapshot = Path(snapshot_dir) / "model.joblib"
+                with path.open("rb") as source_stream, snapshot.open("wb") as target_stream:
+                    shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
+                actual, size = file_fingerprint(snapshot)
+                actual = actual.removeprefix("sha256:")
+                if expected != actual or size != ref.get("size_bytes"):
+                    raise ValueError(
+                        f"native results model artifact {uri!r} content_fingerprint mismatch in {run_dir}: manifest "
+                        f"recorded {expected!r} but the bytes hash to {actual!r} (the artifact was edited or "
+                        "corrupted) — refusing to joblib.load it."
+                    )
+                payload = joblib.load(snapshot)
+            hydrate_host_artifacts(payload, directories, owner=sidecar_owner)
+        except Exception:
+            if sidecar_owner is not None:
+                sidecar_owner.cleanup()
+            raise
         entry = {
             "artifact_id": ref.get("artifact_id"),
             "estimator": payload["estimator"],
@@ -672,6 +896,9 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
             "uri": uri,
             "content_fingerprint": actual,
         }
+        for key in ("fold_estimators", "fold_selection"):
+            if key in payload:
+                entry[key] = payload[key]
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])
         if ref.get("producer_node") is not None:

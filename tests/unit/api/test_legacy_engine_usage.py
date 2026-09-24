@@ -23,6 +23,12 @@ predict_api = importlib.import_module("nirs4all.api.predict")
 native_training = importlib.import_module("nirs4all.api.native_archive_training")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_engine_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy telemetry tests select their own engine independently of suite defaults."""
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+
+
 class _StoppedBeforeExecution(RuntimeError):
     """Sentinel proving a dispatch boundary was reached without real work."""
 

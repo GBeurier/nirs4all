@@ -105,6 +105,7 @@ def test_unknown_execution_profile_is_typed_and_fail_closed() -> None:
 def test_portable_run_and_session_select_native_without_pipeline_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
     run_module = importlib.import_module("nirs4all.api.run")
     native_module = importlib.import_module("nirs4all.api.native_archive_training")
     sentinel = object()
@@ -185,7 +186,8 @@ def test_predict_explicit_legacy_remains_available(monkeypatch: pytest.MonkeyPat
     assert predict_module.predict(model={"model": "legacy"}, data=object(), engine="legacy") is sentinel
 
 
-def test_legacy_session_prediction_requires_explicit_selector_before_runner() -> None:
+def test_legacy_session_prediction_requires_explicit_selector_before_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
     session = Session()
     session._status = "trained"
     session._bundle_path = Path("legacy.n4a")

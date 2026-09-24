@@ -85,6 +85,16 @@ def predict_captured_artifact(
     storage_ids = identity.observation_ids()
     if not storage_ids:
         raise ValueError("prediction input must contain at least one row")
+    metadata_key = getattr(estimator, "metadata_key", None)
+    metadata_by_id = None
+    if isinstance(metadata_key, str):
+        try:
+            metadata_values = spectro.metadata_column(metadata_key, {})
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f"captured predictor requires metadata column {metadata_key!r}") from exc
+        if len(metadata_values) != len(storage_ids):
+            raise ValueError(f"captured predictor requires metadata column {metadata_key!r} for every input row")
+        metadata_by_id = dict(zip(storage_ids, metadata_values, strict=True))
     envelope = build_envelope(spectro, identity)
     envelope.update(cohort_builder(envelope, {
         "role": "inference", "relations": envelope["coordinator_relations"], "target_names": names,
@@ -119,7 +129,11 @@ def predict_captured_artifact(
             x = resolver.resolve_source_block(ids, source_index, include_augmented=False)["values"]
         else:
             x = resolver.resolve_features(ids, include_augmented=False)["values"]
-        prediction = estimator.predict_numeric(x) if isinstance(estimator, _DagmlNativeStackingModel) else estimator.predict(x, **options)
+        metadata_predict = getattr(estimator, "predict_with_metadata", None)
+        if callable(metadata_predict) and metadata_by_id is not None:
+            prediction = metadata_predict(x, {metadata_key: [metadata_by_id[sample_id] for sample_id in ids]})
+        else:
+            prediction = estimator.predict_numeric(x) if isinstance(estimator, _DagmlNativeStackingModel) else estimator.predict(x, **options)
         values = np.asarray(prediction, dtype=float).reshape(len(ids), -1)
         if runtime_target_transform is not None:
             values = np.asarray(runtime_target_transform.inverse_transform(values), dtype=float)

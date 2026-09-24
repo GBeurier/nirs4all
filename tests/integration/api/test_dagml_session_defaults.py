@@ -1,6 +1,7 @@
 """The direct run API respects Session configuration and explicit overrides."""
 
 import numpy as np
+from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
@@ -49,3 +50,19 @@ def test_run_signature_retains_effective_default_representations():
     assert parameters["save_charts"].default is True
     assert parameters["plots_visible"].default is False
     assert parameters["random_state"].default is None
+
+
+def test_explicit_dagml_session_preserves_selection_without_environment(monkeypatch):
+    import nirs4all
+    from nirs4all.api.run_selection import select_run_engine
+
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+    pipeline = [KFold(2), PLSRegression(n_components=1)]
+    dataset = {
+        "X": np.arange(24.0).reshape(6, 4),
+        "y": np.arange(6.0) + 0.25,
+        "sample_ids": list(range(6)),
+    }
+    with nirs4all.Session(pipeline=pipeline, engine="dag-ml", save_artifacts=False) as session:
+        assert select_run_engine(None, pipeline, dataset, session=session) == "dag-ml"
+        assert session.run(dataset).execution_engine == "dag-ml"

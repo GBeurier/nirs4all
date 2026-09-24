@@ -186,19 +186,41 @@ def test_real_native_vote_preserves_all_fold_and_final_arrays_without_extra_fits
     assert native.best_accuracy == legacy.best_accuracy
     assert native.cv_best_score == legacy.cv_best_score
     assert native._dagml_score_set == native_scores[0]
+    native_test_ensembles = {
+        report["fold_id"]: report["metrics"]["balanced_accuracy"]
+        for report in native_scores[0]["reports"]
+        if report["partition"] == "test" and report.get("fold_id") in {"avg", "w_avg"}
+    }
+    assert set(native_test_ensembles) == {"avg", "w_avg"}
     expected = {(str(row["fold_id"]), row["partition"]): row for row in legacy.predictions.iter_entries()}
     observed = {(str(row["fold_id"]), row["partition"]): row for row in native.predictions.iter_entries()}
     expected_native_keys = {
         (fold_id, partition)
         for fold_id, partition in (
             ("0", "val"), ("1", "val"), ("2", "val"), ("avg", "val"),
+            ("0", "test"), ("1", "test"), ("2", "test"), ("avg", "test"), ("w_avg", "test"),
             ("final", "train"), ("final", "test"),
             ("0_agg", "val"), ("1_agg", "val"), ("2_agg", "val"), ("avg_agg", "val"),
+            ("0_agg", "test"), ("1_agg", "test"), ("2_agg", "test"), ("avg_agg", "test"), ("w_avg_agg", "test"),
             ("final_agg", "train"), ("final_agg", "test"),
         )
     }
-    assert set(observed) == expected_native_keys
+    # The native CV training surface now includes fold-train and both train
+    # ensembles. Legacy omits these for this repetition pipeline, but every
+    # legacy row must retain the same classification presentation.
+    native_train_keys = {
+        (fold_id, "train")
+        for fold_id in ("0", "1", "2", "avg", "w_avg", "0_agg", "1_agg", "2_agg", "avg_agg", "w_avg_agg")
+    }
+    native_weighted_oof_keys = {("w_avg", "val"), ("w_avg_agg", "val")}
+    assert set(observed) == expected_native_keys | native_train_keys | native_weighted_oof_keys
+    for fold_id, score in native_test_ensembles.items():
+        assert observed[(fold_id, "test")]["test_score"] == pytest.approx(score)
     for key, row in observed.items():
+        if key not in expected:
+            assert row["n_samples"] > 0
+            assert len(row["y_pred"]) == row["n_samples"]
+            continue
         reference = expected[key]
         assert row["n_samples"] == reference["n_samples"]
         reference_indices = reference.get("sample_indices")

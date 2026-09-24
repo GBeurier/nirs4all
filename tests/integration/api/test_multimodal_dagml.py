@@ -247,7 +247,7 @@ def test_native_grid_applies_eight_variants_and_selection_ignores_final_test_lab
     # Permit its complete fold repetitions without requiring redundant work.
     assert cv_calls[refits[0]] >= 3 and cv_calls[refits[0]] % 3 == 0
 
-    reports = [report for report in first._dagml_score_set["reports"] if report["partition"] == "validation" and report.get("fold_id") != "avg"]
+    reports = [report for report in first._dagml_score_set["reports"] if report["partition"] == "validation" and report.get("fold_id") not in {"avg", "w_avg"}]
     assert len(reports) == 24
     variants = {report["variant_id"] for report in reports}
     assert len(variants) == 8
@@ -271,7 +271,7 @@ def test_native_grid_applies_eight_variants_and_selection_ignores_final_test_lab
     fit_calls.clear()
     second = _run(changed, tmp_path / "perturbed-test-labels", grid=grid)
     assert fit_calls == baseline_calls
-    second_reports = [report for report in second._dagml_score_set["reports"] if report["partition"] == "validation" and report.get("fold_id") != "avg"]
+    second_reports = [report for report in second._dagml_score_set["reports"] if report["partition"] == "validation" and report.get("fold_id") not in {"avg", "w_avg"}]
     assert {(report["variant_id"], report["fold_id"]): report["metrics"]["rmse"] for report in second_reports} == pytest.approx({(report["variant_id"], report["fold_id"]): report["metrics"]["rmse"] for report in reports})
     second_refit = [node["lineage"]["variant_id"] for node in second._dagml_node_results if node.get("lineage", {}).get("phase") == "REFIT"]
     assert second_refit == [selected]

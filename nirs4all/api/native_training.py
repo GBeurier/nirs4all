@@ -12,7 +12,7 @@ import importlib
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 
@@ -39,6 +39,9 @@ from nirs4all.pipeline.dagml.terminal_predict_lowerer import (
 
 from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
+
+if TYPE_CHECKING:
+    from .native_archive_training import NativeMethodsArchiveRunResult
 from .native_retrain_lineage import (
     DIAGNOSTIC_KEY as RETRAIN_LINEAGE_DIAGNOSTIC_KEY,
 )
@@ -506,7 +509,7 @@ def run_native_methods(
 
 
 def refit_native_methods(
-    source: NativeMethodsRunResult,
+    source: NativeMethodsRunResult | NativeMethodsArchiveRunResult,
     dataset: Mapping[str, Any],
     *,
     name: str = "",
@@ -518,8 +521,10 @@ def refit_native_methods(
     SELECT and never calls the legacy runner.
     """
 
-    if not isinstance(source, NativeMethodsRunResult):
-        raise TypeError("native Methods full refit requires a NativeMethodsRunResult source")
+    from .native_archive_training import NativeMethodsArchiveRunResult
+
+    if not isinstance(source, (NativeMethodsRunResult, NativeMethodsArchiveRunResult)):
+        raise TypeError("native Methods full refit requires a native Methods run result source")
     if not isinstance(dataset, Mapping):
         raise TypeError("native Methods full refit requires dataset={'X', 'y', 'sample_ids'}")
     unknown = set(dataset) - {"X", "y", "sample_ids", "groups", "metadata"}
@@ -529,20 +534,28 @@ def refit_native_methods(
     if missing:
         raise ValueError(f"native Methods full refit dataset is missing required keys: {sorted(missing)}")
 
-    estimator = source.native_estimator
-    source_package = getattr(estimator, "predictor_package_", None)
-    source_execution = getattr(estimator, "native_training_execution_", None)
-    pipeline = getattr(estimator, "pipeline", None)
-    if source_package is None or source_execution is None or not isinstance(pipeline, list):
+    if isinstance(source, NativeMethodsRunResult):
+        estimator = source.native_estimator
+        source_package = getattr(estimator, "predictor_package_", None)
+        source_execution = getattr(estimator, "native_training_execution_", None)
+        pipeline = getattr(estimator, "pipeline", None)
+        methods_library_path = getattr(source_execution, "methods_library_path", None)
+        dagml_module = getattr(estimator, "dagml_module", "dag_ml")
+        client = estimator.native_runtime_client()
+    else:
+        source_package = source._native_package_contract
+        pipeline = source._native_pipeline
+        methods_library_path = source._methods_library_path
+        dagml_module = "dag_ml"
+        client = DagMLNativeClient(dagml_module)
+    if source_package is None or not isinstance(pipeline, list):
         raise DagMLNativeCoverageError(
             "native Methods source does not retain the V2 package and signed training contracts required for full refit"
         )
-    methods_library_path = getattr(source_execution, "methods_library_path", None)
     if not isinstance(methods_library_path, str) or not methods_library_path:
         raise DagMLNativeCoverageError(
             "native Methods source does not retain its explicit libn4m path for full refit"
         )
-    dagml_module = getattr(estimator, "dagml_module", "dag_ml")
     if not isinstance(dagml_module, str) or not dagml_module:
         raise DagMLNativeCoverageError("native Methods source has no DAG-ML module identity")
 
@@ -595,7 +608,7 @@ def refit_native_methods(
     if not isinstance(fingerprint, str) or len(fingerprint) != 64:
         raise RuntimeError("native Methods target lowering did not produce a signed request")
     suffix = fingerprint[:16]
-    package = estimator.native_runtime_client().execute_methods_portable_full_refit(
+    package = client.execute_methods_portable_full_refit(
         source_package,
         target_request,
         target_contracts.data_envelopes,

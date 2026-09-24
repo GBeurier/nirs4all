@@ -75,6 +75,7 @@ def write_single_model_bundle(
     pipeline_uid: str = "",
     preprocessing_chain: str = "",
     provenance: dict[str, Any] | None = None,
+    extra_members: dict[str, bytes] | None = None,
     train_steps: list[Any] | None = None,
     compress: bool = True,
 ) -> Path:
@@ -92,11 +93,13 @@ def write_single_model_bundle(
     into a portable bundle WITHOUT re-fitting the pipeline on the legacy engine.
 
     The output conforms to the EXISTING ``.n4a`` format (``bundle_format_version``
-    :data:`BUNDLE_FORMAT_VERSION`), unchanged on the read side: a ``manifest.json`` with
+    :data:`BUNDLE_FORMAT_VERSION`): a ``manifest.json`` with
     ``model_step_index == 1``, a ``pipeline.json`` carrying a single ``model`` step, and one
     ``artifacts/step_1_foldfinal_<label>.joblib`` payload. An unmodified :class:`BundleLoader` reads
     it through the no-trace index path and predicts by loading that single refit artifact and calling
     ``model.predict(X)`` directly — so the bundle reload-predict reproduces ``model.predict`` exactly.
+    Directory-backed host estimators add individually hashed ``host_artifacts/`` files to the
+    manifest and ZIP; older inline joblib archives remain readable.
 
     Args:
         model: A predict-capable object (``predict(X) -> np.ndarray``). Must be joblib-serializable
@@ -110,6 +113,8 @@ def write_single_model_bundle(
         provenance: Optional ADDITIVE manifest fields recording the export origin (e.g. the dag-ml
             run / plan / variant ids and an ``export_path`` marker). Older loaders ignore unknown
             manifest keys (:meth:`BundleMetadata.from_dict`), so this never breaks bundle reads.
+        extra_members: Optional additional named ZIP members supplied by the caller. Names must
+            be plain root-level files distinct from the bundle's standard members.
         train_steps: Optional REPLAYABLE training pipeline steps (the JSON-serialized form produced by
             :func:`~nirs4all.pipeline.config.component_serialization.serialize_component`, one entry per
             original run step). When given they are written as an ADDITIVE ``train_pipeline.json`` member
@@ -122,9 +127,11 @@ def write_single_model_bundle(
     Returns:
         The written bundle path (with the enforced ``.n4a`` suffix).
     """
-    import io
+    import tempfile
 
     import joblib
+
+    from nirs4all.pipeline.dagml.host_artifacts import file_fingerprint, stage_host_artifacts
 
     output_path = Path(output_path)
     if not output_path.suffix.lower().endswith(".n4a"):
@@ -149,29 +156,42 @@ def write_single_model_bundle(
     }
     if provenance:
         manifest.update(provenance)
+    extra_members = extra_members or {}
+    reserved = {"manifest.json", "pipeline.json", "train_pipeline.json"}
+    if any(
+        not name or "/" in name or "\\" in name or name in reserved
+        for name in extra_members
+    ):
+        raise ValueError("extra bundle members must have unique root-level filenames")
 
     pipeline_config = {
         "steps": [{"model": {"class": model_label}}],
         "model_step_index": 1,
     }
 
-    from hashlib import sha256
-
-    buffer = io.BytesIO()
-    joblib.dump(model, buffer)
-    model_bytes = buffer.getvalue()
     artifact_member = f"artifacts/step_1_foldfinal_{safe_label}.joblib"
-    manifest["artifact_integrity"] = {artifact_member: "sha256:" + sha256(model_bytes).hexdigest()}
-
     compression = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
-    with zipfile.ZipFile(output_path, "w", compression=compression) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-        zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
-        if train_steps is not None:
-            zf.writestr("train_pipeline.json", json.dumps({"steps": train_steps}, indent=2))
-        # The ``foldfinal`` token makes BundleLoader resolve this as the single refit model
-        # (``_get_refit_model``) and predict in one forward pass — see the loader's model-step path.
-        zf.writestr(artifact_member, model_bytes)
+    with tempfile.TemporaryDirectory(prefix="nirs4all_bundle_stage_") as stage_name:
+        stage = Path(stage_name)
+        with stage_host_artifacts(model, stage, "host_artifacts") as host_artifacts:
+            artifact_path = stage / artifact_member
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            joblib.dump(model, artifact_path)
+        manifest["artifact_integrity"] = {artifact_member: file_fingerprint(artifact_path)[0]}
+        if host_artifacts:
+            manifest["host_artifacts"] = host_artifacts
+        with zipfile.ZipFile(output_path, "w", compression=compression) as zf:
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+            zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
+            if train_steps is not None:
+                zf.writestr("train_pipeline.json", json.dumps({"steps": train_steps}, indent=2))
+            for name, member in extra_members.items():
+                zf.writestr(name, member)
+            # The foldfinal token routes replay to the captured final model.
+            zf.write(artifact_path, artifact_member)
+            for directory in host_artifacts:
+                for file_ref in directory["files"]:
+                    zf.write(stage / file_ref["uri"], file_ref["uri"])
 
     return output_path
 

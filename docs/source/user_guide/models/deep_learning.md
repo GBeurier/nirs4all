@@ -34,6 +34,7 @@ from nirs4all.operators.models.tensorflow.nicon import nicon
 import nirs4all
 
 result = nirs4all.run(
+    engine="dag-ml",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -95,6 +96,12 @@ pipeline = [
 ]
 ```
 
+With `engine="dag-ml"`, the built-in neural factories and directly supplied
+PyTorch, Keras, or Flax models use the Python framework controllers for training
+and `.n4a` replay. PyTorch convolutional models receive their recorded
+channel-first input layout on replay. Multi-target regression predictions retain
+all output columns; class selection applies only to classification tasks.
+
 ## Model Configuration
 
 ### train_params
@@ -112,6 +119,17 @@ Control the training process:
     }
 }
 ```
+
+For TensorFlow pipelines, `custom_callbacks` and `cyclic_lr` are not currently
+portable training controls. A public legacy run serializes custom callback
+instances as strings, so Keras rejects them before fitting. With current Keras
+3, the legacy cyclic-rate callback runs but cannot assign its learning rate;
+the optimizer keeps its initial rate. DAG-ML rejects both controls explicitly.
+
+JSON callback settings such as `early_stopping`, `reduce_lr_on_plateau`,
+`reduce_lr_on_plateau_params`, and `best_model_memory` work in both the legacy
+and DAG-ML TensorFlow training paths. They apply to each CV fit and the final
+refit.
 
 ### model_params
 

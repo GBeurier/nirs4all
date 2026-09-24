@@ -25,6 +25,7 @@ shap>=0.42.0
 
 # Utilities
 joblib>=1.2.0
+cloudpickle>=3.0.0
 jsonschema>=4.18.0
 referencing>=0.30.0
 pyyaml>=6.0.0
@@ -51,8 +52,8 @@ trendfitter>=0.0.6
 
 # dag-ml execution core — native execution fails closed by default; direct
 # Python callers can select engine="legacy" explicitly during the rollback window.
-dag-ml>=0.3.26,<0.4
-dag-ml-data>=0.2.11,<0.3
+dag-ml>=0.3.27,<0.4
+dag-ml-data>=0.2.12,<0.3
 nirs4all-io>=0.2.0,<0.3
-nirs4all-core>=0.3.29,<0.4
+nirs4all-core>=0.3.31,<0.4
 nirs4all-methods>=1.0.20,<2

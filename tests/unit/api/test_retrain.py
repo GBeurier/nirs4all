@@ -44,7 +44,6 @@ def _never_runner(*args: Any, **kwargs: Any) -> None:
     [
         ({"mode": "transfer", "engine": "native"}, "native_transfer_retrain"),
         ({"mode": "finetune"}, "native_finetune_retrain"),
-        ({"mode": "full", "engine": "native"}, "core_archive_v3_retrain"),
         ({"mode": "full", "plugin": "hpo-controller"}, "retrain_plugin"),
         (
             {"mode": "finetune", "plugin": "nirs4all-python-library"},
@@ -85,6 +84,13 @@ def test_unsupported_retrain_selectors_refuse_before_inputs_or_runner(
     assert caught.value.verb == "run"
     assert caught.value.cause == "unsupported_capability"
     assert caught.value.unsupported_capability == capability
+
+
+def test_native_full_retrain_preflight_exposes_methods_v3() -> None:
+    decision = retrain_preflight("full", engine="native")
+    assert decision.executable
+    assert decision.lane == "native"
+    assert decision.contract == "nirs4all.methods.portable_refit_package.v3+core_archive.v3"
 
 
 def test_native_backend_failure_precedes_bundle_and_data(
@@ -275,7 +281,7 @@ def test_preflight_and_capability_ledger_are_honest_and_detached() -> None:
 
     ledger = retrain_capability_ledger()
     assert ledger["full"]["dag-ml"]["executable"] is True
-    assert ledger["full"]["native"]["executable"] is False
+    assert ledger["full"]["native"]["executable"] is True
     assert ledger["transfer"]["dag-ml"]["executable"] is True
     assert retrain_preflight("transfer").contract == "nirs4all.captured_preprocessing.transfer.v1+dag-ml.run"
     assert ledger["transfer"]["plugin"] == {
@@ -309,13 +315,21 @@ def test_session_refuses_before_constructing_runner_or_reading_training_state(
     assert session._runner is None
 
 
+def test_general_session_refuses_native_v3_refit_before_reading_state() -> None:
+    session = Session()
+    with pytest.raises(RtError) as caught:
+        session.retrain(_MustNotBeTouched(), engine="native")
+    assert caught.value.unsupported_capability == "native_refit_session"
+    assert session._runner is None
+
+
 @pytest.mark.parametrize("mode", ["full", "transfer"])
 def test_explicit_native_environment_is_not_reinterpreted_as_general_transfer(monkeypatch, mode):
     monkeypatch.setenv("N4A_ENGINE", "native")
     monkeypatch.delenv("N4A_RETRAIN_PLUGIN", raising=False)
     decision = retrain_preflight(mode)
     assert decision.lane == "native"
-    assert decision.executable is False
+    assert decision.executable is (mode == "full")
 
 
 def test_transfer_epochs_refuse_before_backend_or_source(monkeypatch):

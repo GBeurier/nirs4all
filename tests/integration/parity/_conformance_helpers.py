@@ -228,10 +228,10 @@ def assert_native_score_evidence(dagml: Any) -> None:
         assert row[f"{partition}_score"] is not None
         base_fold_id = str(row["fold_id"]).removesuffix("_agg")
         if base_fold_id != "final":
-            assert partition == "val" and row["fold_id"] != "w_avg"
-            assert row["train_score"] is None and row["test_score"] is None
-            assert set(row["scores"]) == {"val"}
-            assert source["partition"] == "validation"
+            # CV now exposes each fold's train/validation/test measurements and
+            # the corresponding average and weighted-average presentations.
+            assert partition in {"train", "val", "test"}
+            assert source["partition"] == {"train": "train", "val": "validation", "test": "test"}[partition]
         else:
             assert partition in {"train", "test"}
             assert source["partition"] == ("final" if partition == "train" else "test")

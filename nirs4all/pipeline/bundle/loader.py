@@ -32,6 +32,7 @@ import json
 import logging
 import tempfile
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
@@ -381,6 +382,13 @@ class BundleArtifactProvider(ArtifactProvider):
         filename = self.artifact_index[key]
 
         try:
+            from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, load_general_archive
+
+            if general_archive_manifest(self.bundle_path) is not None:
+                artifact = load_general_archive(self.bundle_path)["artifact"]["estimator"]
+                self._cache[key] = artifact
+                return artifact
+
             import io
 
             import joblib
@@ -457,6 +465,10 @@ class BundleLoader:
         self.fold_weights: dict[int, float] = {}
         self._artifact_index: dict[str, str] = {}
         self.relation_replay_manifest: dict[str, Any] = {}
+        self._named_output_names: tuple[str, ...] = ()
+        self._named_source_ids: tuple[str, ...] = ()
+        self._named_output_widths: tuple[int, ...] = ()
+        self._named_feature_axes: tuple[tuple[str, ...] | None, ...] = ()
         self.artifact_provider: BundleArtifactProvider | None = None
 
         self._load_bundle()
@@ -472,6 +484,43 @@ class BundleLoader:
                     manifest_data = json.load(f)
                     self.metadata = BundleMetadata.from_dict(manifest_data)
                     _validate_bundle_format_version(self.metadata.bundle_format_version)
+                    if manifest_data.get("dagml_native_export_shape") == "independent_by_source_multi":
+                        topology = manifest_data.get("dagml_independent_output_topology")
+                        if (not isinstance(topology, dict)
+                                or topology.get("schema_id") != "dag-ml.host_independent_outputs.v1"
+                                or topology.get("kind") != "independent_by_source"
+                                or topology.get("input_relation") != "aligned_rows"):
+                            raise ValueError("independent-source archive has an invalid output topology")
+                        outputs = topology.get("outputs")
+                        if not isinstance(outputs, list) or len(outputs) < 2 or any(
+                            not isinstance(entry, dict)
+                            or not isinstance(entry.get("source_id"), str) or not entry["source_id"]
+                            or entry.get("output_binding_id") != f"output:source_{index}"
+                            or entry.get("source_index") != index
+                            or type(entry.get("feature_width")) is not int or entry["feature_width"] <= 0
+                            for index, entry in enumerate(outputs)
+                        ):
+                            raise ValueError("independent-source archive has an invalid named-output manifest")
+                        source_ids = tuple(entry["source_id"] for entry in outputs)
+                        if len(set(source_ids)) != len(source_ids):
+                            raise ValueError("independent-source archive has duplicate source IDs")
+                        feature_axes = []
+                        for entry in outputs:
+                            axis = entry.get("feature_axis_cm1")
+                            if axis is not None:
+                                if (not isinstance(axis, list) or len(axis) != entry["feature_width"]
+                                        or not all(isinstance(value, str) for value in axis)):
+                                    raise ValueError("independent-source archive has an invalid spectral axis")
+                                try:
+                                    if not np.all(np.isfinite(np.asarray(axis, dtype=float))):
+                                        raise ValueError("independent-source archive has a non-finite spectral axis")
+                                except (TypeError, ValueError) as exc:
+                                    raise ValueError("independent-source archive has an invalid spectral axis") from exc
+                            feature_axes.append(tuple(axis) if axis is not None else None)
+                        self._named_source_ids = source_ids
+                        self._named_output_names = tuple(entry["output_binding_id"] for entry in outputs)
+                        self._named_output_widths = tuple(entry["feature_width"] for entry in outputs)
+                        self._named_feature_axes = tuple(feature_axes)
             else:
                 raise ValueError("Bundle missing manifest.json")
 
@@ -643,6 +692,16 @@ class BundleLoader:
         """
         if self.artifact_provider is None:
             raise RuntimeError("Bundle not loaded properly: no artifact provider")
+        if self._named_output_names:
+            raise ValueError("archive has multiple named outputs; call predict_output(name, X) or predict_outputs(X)")
+
+        routing = self.get_partitioner_routing()
+        if routing and any(info.get("native_replay") == "by_metadata_concat" for info in routing.values()):
+            required = self.get_required_metadata_columns()
+            raise ValueError(
+                f"metadata column(s) {required!r} required for this by_metadata bundle; "
+                "use predict_with_metadata(X, metadata)"
+            )
 
         X_current = self._prepare_prediction_input(X)
 
@@ -653,6 +712,40 @@ class BundleLoader:
         else:
             # Fallback: infer from artifact index
             return self._predict_from_index(X_current)
+
+    @property
+    def named_outputs(self) -> tuple[str, ...]:
+        """Stable output binding IDs of a multi-output archive, empty for ordinary bundles."""
+        return self._named_output_names
+
+    def _named_output_model(self) -> Any:
+        if not self._named_output_names or self.metadata is None or self.metadata.model_step_index is None:
+            raise ValueError("archive has no named independent outputs")
+        model = self._get_refit_model(self.metadata.model_step_index)
+        if (model is None
+                or tuple(getattr(model, "output_binding_ids", ())) != self._named_output_names
+                or tuple(getattr(model, "source_ids", ())) != self._named_source_ids
+                or tuple(getattr(model, "source_widths", ())) != self._named_output_widths
+                or tuple(getattr(model, "feature_axes_cm1", (None,) * len(self._named_source_ids))) != self._named_feature_axes):
+            raise ValueError("independent-source archive model disagrees with its named-output manifest")
+        return model
+
+    def predict_output(self, name: str, X: Any) -> np.ndarray:
+        """Replay exactly one explicitly named output from a multi-output archive."""
+        model = self._named_output_model()
+        if name not in self._named_output_names:
+            raise ValueError(f"unknown named output {name!r}; available outputs: {list(self._named_output_names)!r}")
+        features = X if isinstance(X, Mapping) else self._prepare_prediction_input(X)
+        return np.asarray(model.predict_output(name, features))
+
+    def predict_outputs(self, X: Any) -> dict[str, np.ndarray]:
+        """Replay all independent outputs as a name-to-prediction mapping."""
+        model = self._named_output_model()
+        features = X if isinstance(X, Mapping) else self._prepare_prediction_input(X)
+        values = model.predict_outputs(features)
+        if tuple(values) != self._named_output_names:
+            raise ValueError("independent-source archive emitted outputs in an unexpected order")
+        return {name: np.asarray(value) for name, value in values.items()}
 
     def _prepare_prediction_input(self, X: Any) -> np.ndarray:
         """Prepare a bundle prediction matrix, replaying relation materialization when possible."""
@@ -1474,6 +1567,22 @@ class BundleLoader:
             raise RuntimeError("Bundle not loaded properly: no artifact provider")
 
         assert self.metadata is not None
+        native_routes = [
+            (int(step_index), info)
+            for step_index, info in self.metadata.partitioner_routing.items()
+            if info.get("native_replay") == "by_metadata_concat"
+        ]
+        if native_routes:
+            if len(native_routes) != 1 or len(native_routes) != len(self.metadata.partitioner_routing):
+                raise ValueError("native metadata bundle has an ambiguous partitioner routing contract")
+            step_index, info = native_routes[0]
+            column = info.get("column")
+            if not isinstance(column, str) or column not in metadata:
+                raise ValueError(f"metadata column {column!r} required for by_metadata bundle prediction")
+            artifacts = self.artifact_provider.get_artifacts_for_step(step_index)
+            if len(artifacts) != 1 or not hasattr(artifacts[0][1], "predict_with_metadata"):
+                raise ValueError("native metadata bundle has no replayable routed model artifact")
+            return np.asarray(artifacts[0][1].predict_with_metadata(X, metadata))
         n_samples = X.shape[0]
         y_pred = np.full(n_samples, np.nan)
 

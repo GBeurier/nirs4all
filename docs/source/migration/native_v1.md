@@ -135,6 +135,13 @@ the historical controller's silent ignoring of them is not reproduced.
 Overrides participate in every inner HPO evaluation as well as the final fit;
 provenance distinguishes proposed parameters from effective parameters when an
 override replaces a searched value. CV preprocessing remains fold-local.
+For `{"model": ..., "na_policy": "replace", "fill_value": v}` and
+`{"preprocessing": ..., "na_policy": "replace", "fill_value": v}`,
+the general DAG-ML profile inserts a stateless transform immediately before
+the declared step. It replaces NaNs in both training and later prediction
+data, and the transform is retained in exported `.n4a` predictors. This
+step-local replacement is equivalent to filling the input at that point in the
+pipeline; other preprocessing modifiers still require separate qualification.
 Simple CV/full-training, export/replay, HPO, and native nested stacking controls
 are qualified. Specialized GPU reset, fit-influence/AOM policies, CV-weight
 warm starts, and the old by-source prediction-stacking route require separate
@@ -180,14 +187,25 @@ uses its real hard predictions, never fabricated one-hot probabilities.
 In subprocess execution the same evidence travels in a host-only capture
 sidecar, separate from the coordinator's native result protocol.
 
+Directory-backed Python models such as AutoGluon use a host-only archive
+extension. Native result artifacts and general ``.n4a`` bundles keep a small
+joblib model reference and store each predictor file under ``host_artifacts/``.
+The manifest records every relative filename, byte length and SHA-256 digest.
+The reader verifies all declared files before deserializing the model and
+rejects missing, extra or changed archive sidecars. Files are copied and hashed
+in bounded chunks; the 512 MiB inline joblib limit does not apply to their
+combined size. Earlier archives with an inline predictor directory still load.
+These files remain trusted Python host artifacts, not portable Core packages.
+
 General `generate()` and its convenience methods select the installed
 `nirs4all.python.synthesis.v1` library adapter when no engine/plugin selector
-is supplied. This reuses the scientific synthesis builder, without a legacy
+is supplied or `engine="dag-ml"` is requested. This reuses the scientific synthesis builder, without a legacy
 ML runner, HTTP backend or retry. `generate.preflight()` exposes that host
 contract; explicit `engine="native"` remains strict and unsupported for
 synthesis. An explicitly requested unknown plugin is not substituted.
 
-General `explain()` similarly selects `nirs4all.python.shap.v1`. It accepts a
+General `explain()` similarly selects `nirs4all.python.shap.v1` for the
+default or explicit `engine="dag-ml"` route. It accepts a
 captured general `.n4a`, a trained DAG result, or a persisted `result.best`
 selection and explains the full REFIT predictor without training it again.
 Preprocessing and inverse target transforms remain inside that predictor.
@@ -249,7 +267,7 @@ are the lower-level authorities. This guide does not redefine them.
 
 | Request | Strict product behavior |
 |---|---|
-| `run`, `predict`, `session`, save/load/export | Native for the qualified V1 matrix; unsupported shapes refuse before significant work. |
+| `run`, `predict`, `session`, save/load/export | Native for the qualified V1 matrix; general DAG-ML sessions and captured host archives support training and replay. Unsupported shapes refuse before significant work. |
 | Full retrain | DAG-ML for concrete archive specs and captured trainable winners (workspace prediction or archive); other modes remain under qualification. |
 | Transfer | DAG-ML for captured trainable host winners; the explicit historical Python-library plugin retains its separate preflight. |
 | Finetune, unavailable explain/generate shapes | Explicit refusal in the strict profile; no implicit legacy execution. |

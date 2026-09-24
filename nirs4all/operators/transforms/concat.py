@@ -82,7 +82,7 @@ class _Chain(BaseEstimator, TransformerMixin):
         return current
 
 
-def _build_operation(operation: Any) -> Any:
+def _build_operation(operation: Any, coordinates: tuple[str, ...] | None = None) -> Any:
     """Instantiate one ``operations`` entry: ``None`` (raw pass-through), a single ``{class, params}``, or a chain list."""
     if operation is None:
         # The feature_augmentation extend/add raw layer: keep the base matrix unchanged beside the
@@ -90,12 +90,45 @@ def _build_operation(operation: Any) -> Any:
         return "passthrough"
     if isinstance(operation, list):
         # Chain [A, B, C] → C(B(A(X))), applied sequentially before concatenation.
-        return _Chain([_build_operation(item) for item in operation])
+        return _Chain([_build_operation(item, coordinates) for item in operation])
     cls = _import_class(operation["class"])
     from nirs4all.pipeline.dagml.operator_parameters import decode_constructor_value
     from nirs4all.pipeline.dagml.operator_routing import _coerce_json_params
 
-    return cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
+    transformer = cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
+    from nirs4all.pipeline.dagml.steps import _needs_wavelength_injection
+
+    if _needs_wavelength_injection(transformer):
+        if coordinates is None:
+            raise ValueError("wavelength-aware feature augmentation requires feature-axis coordinates")
+        from nirs4all.pipeline.dagml.node_runner import _CoordinateTransform
+
+        return _CoordinateTransform(transformer, coordinates)
+    return transformer
+
+
+def _operation_needs_coordinates(operation: Any) -> bool:
+    """Detect strict wavelength requirements inside serialized feature channels."""
+    if operation is None:
+        return False
+    if isinstance(operation, list):
+        return any(_operation_needs_coordinates(item) for item in operation)
+    from nirs4all.pipeline.dagml.operator_parameters import decode_constructor_value
+    from nirs4all.pipeline.dagml.operator_routing import _coerce_json_params
+    from nirs4all.pipeline.dagml.steps import _needs_wavelength_injection
+
+    cls = _import_class(operation["class"])
+    instance = cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
+    return _needs_wavelength_injection(instance)
+
+
+def _has_learned_operation(operation: Any) -> bool:
+    """Detect channels whose fitted state needs stable floating-point replay."""
+    if operation is None:
+        return False
+    if isinstance(operation, list):
+        return any(_has_learned_operation(item) for item in operation)
+    return not getattr(_import_class(operation["class"]), "_stateless", False)
 
 
 class FeatureConcat(BaseEstimator, TransformerMixin):
@@ -112,7 +145,8 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
             (``{"class": "<FQN>", "params": {...}}``), a *chain* (a list of such specs applied
             sequentially), or ``None`` for a pass-through "raw" channel (the un-transformed base
             layer — the feature_augmentation extend/add raw layer). The raw channel emits its columns
-            first, in spec order.
+            first, in spec order. A ``shared_fit_id`` on selector specs fits the first
+            processing lane once and applies its selected columns to later lanes.
     """
 
     _stateless = False
@@ -120,17 +154,78 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
     def __init__(self, operations: list[Any] | None = None):
         self.operations = operations
 
-    def _make_union(self) -> FeatureUnion:
+    @property
+    def _requires_wavelengths(self) -> bool:
+        return any(_operation_needs_coordinates(operation) for operation in self.operations or [])
+
+    def _make_union(self, coordinates: tuple[str, ...] | None = None) -> FeatureUnion:
         if not self.operations:
             raise ValueError("FeatureConcat requires a non-empty `operations` spec")
         return FeatureUnion(
-            [(f"op{index}", _build_operation(operation)) for index, operation in enumerate(self.operations)]
+            [(f"op{index}", _build_operation(operation, coordinates)) for index, operation in enumerate(self.operations)]
         )
 
-    def fit(self, X: Any, y: Any = None) -> FeatureConcat:
-        self.union_ = self._make_union()
-        self.union_.fit(np.asarray(X), y)
+    def fit(self, X: Any, y: Any = None, wavelengths: Any = None) -> FeatureConcat:
+        # Learned float32 projections can differ after joblib reload because BLAS
+        # sees a different array alignment; downstream ill-conditioned models
+        # amplify those few ULPs. Keep the fitted and replayed path in float64.
+        self._promote_input_ = any(_has_learned_operation(op) for op in self.operations or [])
+        values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
+        coordinates = tuple(str(value) for value in wavelengths) if wavelengths is not None else None
+        if any(
+            isinstance(item, dict) and item.get("shared_fit_id")
+            for operation in self.operations or []
+            for item in (operation if isinstance(operation, list) else [operation])
+        ):
+            # sklearn FeatureUnion fits its channels independently. Legacy's
+            # FeatureSelectionController instead fits CARS/MCUVE once on the
+            # first processing and reuses the fitted mask on later channels.
+            shared: dict[str, Any] = {}
+            fitted_channels: list[tuple[str, Any]] = []
+            from nirs4all.pipeline.dagml.node_runner import _axis_after_step, _CoordinateTransform
+
+            for index, operation in enumerate(self.operations or []):
+                if operation is None:
+                    fitted_channels.append((f"op{index}", "passthrough"))
+                    continue
+                specs = operation if isinstance(operation, list) else [operation]
+                current = values
+                current_coordinates = coordinates
+                fitted_steps = []
+                for spec in specs:
+                    shared_id = spec.get("shared_fit_id") if isinstance(spec, dict) else None
+                    if shared_id is not None and shared_id in shared:
+                        fitted = shared[shared_id]
+                        current = fitted.transform(current)
+                    else:
+                        fitted = _build_operation(spec, current_coordinates)
+                        current = fitted.fit_transform(current, y)
+                        if shared_id is not None:
+                            shared[shared_id] = fitted
+                    fitted_steps.append(fitted)
+                    current_coordinates = _axis_after_step(
+                        fitted.transformer if isinstance(fitted, _CoordinateTransform) else fitted,
+                        current_coordinates,
+                        0,
+                    )
+                chain = _Chain([])
+                chain.fitted_ = fitted_steps
+                fitted_channels.append((f"op{index}", chain))
+            self.union_ = FeatureUnion(fitted_channels)
+        else:
+            self.union_ = self._make_union(coordinates)
+            self.union_.fit(values, y)
         return self
 
     def transform(self, X: Any) -> np.ndarray:
-        return np.asarray(self.union_.transform(np.asarray(X)))
+        values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
+        return np.asarray(self.union_.transform(values))
+
+    def channel_widths(self, X: Any) -> tuple[int, ...]:
+        """Report fitted output widths so a following operator can preserve processing lanes."""
+        values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
+        widths = []
+        for _name, transform in self.union_.transformer_list:
+            output = values if transform == "passthrough" else np.asarray(transform.transform(values))
+            widths.append(int(output.shape[1]))
+        return tuple(widths)

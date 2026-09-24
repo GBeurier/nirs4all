@@ -483,11 +483,9 @@ def test_dual_mismatch_removes_the_isolated_legacy_workspace(monkeypatch: pytest
 
     observed: list[Path] = []
     transient = tmp_path / "legacy-dual-workspace"
+    original_temporary_directory = run_module.tempfile.TemporaryDirectory
 
     class _TemporaryWorkspace:
-        def __init__(self, *, prefix: str) -> None:
-            assert prefix == "nirs4all-dual-legacy-"
-
         def __enter__(self) -> str:
             transient.mkdir()
             return str(transient)
@@ -507,7 +505,13 @@ def test_dual_mismatch_removes_the_isolated_legacy_workspace(monkeypatch: pytest
         validation_rows=_native_rows_for_supported_request(),
     )
     monkeypatch.setattr(run_backend, "run_via_dagml", lambda *_args, **_kwargs: native)
-    monkeypatch.setattr(run_module.tempfile, "TemporaryDirectory", _TemporaryWorkspace)
+
+    def _temporary_directory(*args: object, **kwargs: object) -> object:
+        if kwargs.get("prefix") == "nirs4all-dual-legacy-":
+            return _TemporaryWorkspace()
+        return original_temporary_directory(*args, **kwargs)
+
+    monkeypatch.setattr(run_module.tempfile, "TemporaryDirectory", _temporary_directory)
     monkeypatch.setattr(
         run_module,
         "_dual_comparison_report",

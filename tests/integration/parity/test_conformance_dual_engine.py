@@ -38,8 +38,6 @@ from typing import Any, TypedDict
 import numpy as np
 import pytest
 
-from nirs4all.pipeline.dagml.errors import DagMlStatefulConcatTransformMigrationRequired
-
 from . import _conformance_helpers as H
 from ._registry import PipelineCase, all_cases
 
@@ -72,9 +70,9 @@ class _LegacyCvScoreDivergence(TypedDict):
 # removed (the suite goes RED until it is).
 #
 # Measured legacy↔dag-ml best_rmse deltas (regression sample_data) at scope time:
-# (concat_transform_pca_svd_plsr was here too — the dag-ml path now prematerializes top-level
-#  concat_transform at the legacy train+test batch boundary, and the case pins PCA/SVD random_state.
-#  It is a LIVE parity assertion now.)
+# Stateful concat is a native fold-local execution. Legacy materializes PCA/SVD
+# before CV; its validation scores have a different fit scope (see the passing
+# fold-local oracle in test_dagml_cli_runner.py).
 # (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
 #  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
 #  num_predictions 34-legacy vs 32-native, an INTENTIONAL native-vs-legacy refit-policy divergence —
@@ -415,9 +413,7 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # allowlist (the test then demands native parity). W21 pins these as explicit
 # coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
 # no longer fall through to the generic concrete route and crash at native setup.
-EXPECTED_MIGRATION_REFUSAL: dict[str, type[Exception]] = {
-    "concat_transform_pca_svd_plsr": DagMlStatefulConcatTransformMigrationRequired,
-}
+EXPECTED_MIGRATION_REFUSAL: dict[str, type[Exception]] = {}
 EXPECTED_REFUSAL: frozenset[str] = frozenset(EXPECTED_MIGRATION_REFUSAL)
 
 
@@ -603,6 +599,16 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         _assert_stacking_semantic_contract(
             legacy, dagml, case, STACKING_SEMANTIC_DIVERGENCE[case.name]
         )
+        return
+
+    if case.name == "concat_transform_pca_svd_plsr":
+        # The native scheduler fits PCA/SVD separately in every training fold;
+        # legacy globally materializes them before splitting. The dedicated
+        # direct-sklearn test pins native OOF/refit and archive replay.
+        assert native
+        H.assert_native_score_evidence(dagml)
+        assert np.isfinite(dagml.cv_best_score)
+        assert np.isfinite(dagml.best_rmse)
         return
 
     if case.name in NUM_PREDICTIONS_DIVERGENCE:
