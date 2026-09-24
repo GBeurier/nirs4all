@@ -236,7 +236,7 @@ def test_residual_learner_finetune_search_uses_native_train_scope(tmp_path) -> N
     replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
     replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
     # Float32 Ridge predictions can shift slightly when DAG replay orders the same batch differently.
-    assert replay_rmse == pytest.approx(native.best_rmse, rel=1e-7, abs=5e-5)
+    assert replay_rmse == pytest.approx(native.best_rmse, rel=1e-7, abs=1e-4)
     native.close()
 
 

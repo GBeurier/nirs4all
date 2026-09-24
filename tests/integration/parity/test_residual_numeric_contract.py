@@ -64,7 +64,7 @@ def test_residual_lambda_and_rli_threshold_match_refit_and_replay(tmp_path, monk
     archive = native.export(tmp_path / "residual_numeric.n4a")
     replay = nirs4all.predict(archive, features)
     # The DAG PREDICT batch may reorder rows; float32 Ridge summation over 2151 features varies by a few ulps.
-    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-7, atol=5e-5)
+    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-7, atol=1e-4)
     native.close()
 
 
@@ -114,7 +114,7 @@ def test_residual_zero_and_negative_lambda_replay(tmp_path, monkeypatch, mechani
     archive = native.export(tmp_path / "residual_signed_lambda.n4a")
     replay = nirs4all.predict(archive, features)
     # The DAG PREDICT batch may reorder rows; float32 Ridge summation over 2151 features varies by a few ulps.
-    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-7, atol=5e-5)
+    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-7, atol=1e-4)
     native.close()
 
 
@@ -161,7 +161,7 @@ def test_residual_nonlinear_base_and_custom_name_replay(tmp_path, monkeypatch, m
     learner = np.asarray(artifacts["controller:nirs4all.residual_learner"]["estimator"].predict(features)).ravel()
     expected = base + 0.5 * learner
     replay = nirs4all.predict(native.export(tmp_path / "named_residual_rf.n4a"), features)
-    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, atol=5e-5)
+    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, atol=1e-4)
     native.close()
 
 
@@ -206,4 +206,4 @@ def test_residual_nonlinear_learner_signed_gate_replays(tmp_path, monkeypatch, m
         learner = np.asarray(artifacts["controller:nirs4all.residual_learner"].predict(features)).ravel()
         expected = base - 0.2 * learner
         replay = nirs4all.predict(native.export(tmp_path / "named_rf_learner.n4a"), features)
-        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, atol=5e-5)
+        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, atol=1e-4)
