@@ -11,7 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.1.4] — 2026-09-24
+## [1.1.5] — 2026-09-24
+
+### Fixed
+
+- Made the release gate use the pinned DAG-ML CLI for subprocess parity tests
+  and removed orphaned Triton from the CPU-only test environment.
+- Kept numerical parity assertions sensitive to real regression while allowing
+  the measured float32 Ridge reduction-order variation in wide spectra.
+
+### Release note
+
+- Supersedes the 1.1.4 tag, which was not published to PyPI.
+
+---
+
+## [1.1.4] — 2026-09-24 (unpublished tag)
 
 ### Fixed
 
