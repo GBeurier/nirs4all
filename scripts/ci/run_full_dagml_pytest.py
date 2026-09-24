@@ -66,7 +66,8 @@ def _report_failure(suites: list[ET.Element], name: str, message: str) -> None:
 
 
 def _run_module(
-    index: int, file: Path, report_dir: Path, process_timeout: int
+    index: int, file: Path, report_dir: Path, process_timeout: int | None,
+    pytest_timeout: int | None,
 ) -> tuple[list[ET.Element], dict[str, object], str]:
     name = file.as_posix()
     stem = f"{index:04d}-{file.stem}"
@@ -106,12 +107,13 @@ def _run_module(
         "addopts=",
         "-p",
         "scripts.ci.pytest_collection_manifest",
-        "--timeout=300",
         f"--junitxml={junit}",
         "--cov=nirs4all",
         "--cov-report=",
         str(file),
     ]
+    if pytest_timeout is not None:
+        command.insert(-1, f"--timeout={pytest_timeout}")
     try:
         with log.open("w", encoding="utf-8") as output:
             process = subprocess.run(
@@ -189,10 +191,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report-dir", type=Path, default=Path("dagml-pytest-report"))
     parser.add_argument("--coverage-output", type=Path, default=Path("coverage.xml"))
     parser.add_argument("--process-timeout", type=int, default=1800)
+    parser.add_argument("--pytest-timeout", type=int, default=300)
+    parser.add_argument(
+        "--no-timeouts", action="store_true",
+        help="Disable per-module and per-test time limits for an exhaustive run",
+    )
     parser.add_argument("--jobs", type=int, default=4, help="Concurrent isolated pytest processes")
     args = parser.parse_args(argv)
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
+    if args.process_timeout < 1 or args.pytest_timeout < 1:
+        parser.error("--process-timeout and --pytest-timeout must be positive")
+
+    process_timeout = None if args.no_timeouts else args.process_timeout
+    pytest_timeout = None if args.no_timeouts else args.pytest_timeout
 
     try:
         files = _test_files(args.paths)
@@ -215,7 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Running {len(files)} DAG-ML test modules with {args.jobs} processes", flush=True)
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:
         future_to_index = {
-            executor.submit(_run_module, index, file, report_dir, args.process_timeout): index
+            executor.submit(
+                _run_module, index, file, report_dir, process_timeout, pytest_timeout
+            ): index
             for index, file in enumerate(files, 1)
         }
         for future in as_completed(future_to_index):

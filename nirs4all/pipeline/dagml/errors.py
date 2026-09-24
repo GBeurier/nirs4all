@@ -109,17 +109,17 @@ class DagMlExportRefusal(RuntimeError):
         super().__init__(f"engine='dag-ml' {operation} cannot proceed: {reason}. {mitigation}")
 
 def _cli_child_error(stdout: str) -> str:
-    """The child adapter's actual error line(s) from a dag-ml-cli failure, for an informative message.
+    """Preserve CLI stdout/stderr, including nested ``Caused by`` and traceback lines.
 
-    The captured ``stdout``+``stderr`` ends with the process-adapter traceback; the last
-    ``Error:``/``ValueError:``/``…Error:`` line is the real cause (e.g. ``ValueError: data view is
-    missing``). Surfacing it beats the bare ``rc=1`` (the legacy E-QUALITY message names the cause),
-    and lets the reader see WHY the shape failed. Falls back to the trailing slice when no error line
-    is found, so nothing is ever hidden.
+    Selecting only the last ``Error:`` line hid the native cause of an intermittent
+    JAX subprocess failure. Keep both ends of unusually large output so the
+    top-level error and deepest cause remain visible without flooding JUnit.
     """
-    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    causes = [line for line in lines if line.startswith("Error:") or ("Error:" in line and not line.startswith("File "))]
-    return causes[-1] if causes else stdout[-800:]
+    detail = stdout.strip()
+    if len(detail) <= 16000:
+        return detail
+    omitted = len(detail) - 16000
+    return f"{detail[:8000]}\n... {omitted} CLI output characters omitted ...\n{detail[-8000:]}"
 
 
 def _reject_multi_model(steps: list[Any]) -> None:
