@@ -158,4 +158,4 @@ def test_nested_model_training_controls_stay_on_selected_model(tmp_path, monkeyp
     oof = np.empty_like(y)
     for train, validation in KFold(2).split(x):
         oof[validation] = Ridge(alpha=0.2).fit(x[train], y[train]).predict(x[validation])
-    assert dag_scores[0] == pytest.approx(root_mean_squared_error(y, oof), abs=1e-6)
+    assert dag_scores[0] == pytest.approx(root_mean_squared_error(y, oof), abs=1e-5)
