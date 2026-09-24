@@ -12,6 +12,9 @@ on:
 
 jobs:
   exhaustive:
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/shared-test-and-docs.yml
     with:
       skip-tests: false
