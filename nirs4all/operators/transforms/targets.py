@@ -1,9 +1,11 @@
+from numbers import Integral
+
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import KBinsDiscretizer
 
 
-class IntegerKBinsDiscretizer(BaseEstimator, TransformerMixin):
+class IntegerKBinsDiscretizer(TransformerMixin, BaseEstimator):
     """KBinsDiscretizer qui retourne des entiers au lieu de floats"""
 
     _webapp_meta = {
@@ -19,6 +21,7 @@ class IntegerKBinsDiscretizer(BaseEstimator, TransformerMixin):
         self.discretizer = KBinsDiscretizer(n_bins=n_bins, encode=encode, strategy=strategy)
 
     def fit(self, X, y=None):
+        self.discretizer = KBinsDiscretizer(n_bins=self.n_bins, encode=self.encode, strategy=self.strategy)
         self.discretizer.fit(X)
         return self
 
@@ -29,7 +32,7 @@ class IntegerKBinsDiscretizer(BaseEstimator, TransformerMixin):
     def inverse_transform(self, X):
         return self.discretizer.inverse_transform(X)
 
-class RangeDiscretizer(BaseEstimator, TransformerMixin):
+class RangeDiscretizer(TransformerMixin, BaseEstimator):
 
     _webapp_meta = {
         "category": "scaling",
@@ -72,9 +75,34 @@ class RangeDiscretizer(BaseEstimator, TransformerMixin):
         return self
 
     def fit(self, X, y=None):
-        # Ensure _bins_array is properly initialized
-        if not hasattr(self, '_bins_array'):
-            self._bins_array = np.array(self.bins)
+        values = np.asarray(X, dtype=float)
+        if values.size == 0 or not np.isfinite(values).all():
+            raise ValueError("RangeDiscretizer requires non-empty finite targets")
+        if isinstance(self.bins, Integral) and not isinstance(self.bins, bool):
+            if self.bins < 1:
+                raise ValueError("bins must be a positive integer or increasing finite edges")
+            lower, upper = float(values.min()), float(values.max())
+            if lower == upper:
+                self._bins_array = np.array([], dtype=float)
+                self._centers_ = np.array([lower])
+            else:
+                edges = np.linspace(lower, upper, self.bins + 1)
+                self._bins_array = edges[1:-1]
+                self._centers_ = (edges[:-1] + edges[1:]) / 2
+        else:
+            self._bins_array = np.asarray(self.bins, dtype=float)
+            if self._bins_array.ndim != 1 or not np.isfinite(self._bins_array).all() or np.any(np.diff(self._bins_array) <= 0):
+                raise ValueError("bins must be a positive integer or increasing finite edges")
+            if self._bins_array.size == 0:
+                self._centers_ = np.array([values.mean()])
+            else:
+                # Preserve the established representatives for explicit edges.
+                self._centers_ = np.concatenate([
+                    self._bins_array[:1] - 1,
+                    (self._bins_array[:-1] + self._bins_array[1:]) / 2,
+                    self._bins_array[-1:] + 1,
+                ])
+        self.n_bins = len(self._centers_)
         return self
 
     def transform(self, X):
@@ -84,26 +112,18 @@ class RangeDiscretizer(BaseEstimator, TransformerMixin):
 
     def inverse_transform(self, X):
         X = np.asarray(X).flatten()
-
-        # Créer les centres d'intervalles
-        extended_bins = np.concatenate([[-np.inf], self._bins_array, [np.inf]])
-        centers = []
-
-        for i in range(len(extended_bins) - 1):
-            left = extended_bins[i]
-            right = extended_bins[i + 1]
-
-            if left == -np.inf:
-                center = right - 1.0  # Arbitraire pour la première classe
-            elif right == np.inf:
-                center = left + 1.0   # Arbitraire pour la dernière classe
-            else:
-                center = (left + right) / 2
-
-            centers.append(center)
-
-        # Mapper les classes vers leurs centres
-        result = np.array([centers[int(cls)] for cls in X])
+        from sklearn.utils.validation import check_is_fitted
+        # Existing archives store explicit edges without learned centers.
+        if not hasattr(self, "_centers_") and self._bins_array.size:
+            self._centers_ = np.concatenate([
+                self._bins_array[:1] - 1,
+                (self._bins_array[:-1] + self._bins_array[1:]) / 2,
+                self._bins_array[-1:] + 1,
+            ])
+        check_is_fitted(self, "_centers_")
+        if not np.isfinite(X).all() or np.any(np.floor(X) != X) or np.any(X < 0) or np.any(self.n_bins <= X):
+            raise ValueError("RangeDiscretizer inverse_transform requires valid integer class labels; use a classifier after discretizing targets")
+        result = self._centers_[X.astype(int)]
         return result.reshape(-1, 1)
 
     def __sklearn_clone__(self):

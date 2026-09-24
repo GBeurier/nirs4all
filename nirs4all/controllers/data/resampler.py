@@ -108,7 +108,7 @@ class ResamplerController(OperatorController):
         operator: Resampler,
         source_idx: int,
         n_sources: int
-    ) -> np.ndarray:
+    ) -> np.ndarray | None:
         """
         Get target wavelengths for a specific source.
 
@@ -124,6 +124,8 @@ class ResamplerController(OperatorController):
             Target wavelengths for this source
         """
         target_wl = operator.target_wavelengths
+        if target_wl is None:
+            return None
 
         # Check if it's a list of arrays (per-source targets)
         # Pipeline expansion serializes a shared ndarray grid as a flat list.
@@ -272,7 +274,7 @@ class ResamplerController(OperatorController):
             # Determine final wavelengths for headers
             # Use the OUTPUT wavelengths (target_wavelengths from interpolator_params_)
             # NOT the input wavelengths (wavelengths_after_crop_)
-            final_wavelengths = target_wavelengths
+            final_wavelengths = original_wavelengths if target_wavelengths is None else target_wavelengths
             for resampler in source_resamplers:
                 if hasattr(resampler, 'interpolator_params_') and resampler.interpolator_params_ is not None:
                     final_wavelengths = resampler.interpolator_params_['target_wavelengths']

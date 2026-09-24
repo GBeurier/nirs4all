@@ -684,8 +684,8 @@ class TestEdgeCases:
                 # At least one sample should be kept
                 assert len(excluded) < 3
 
-    def test_filter_error_handled_gracefully(self, controller, mock_context, mock_runtime_context):
-        """Filter error should be handled with neutral mask."""
+    def test_filter_error_is_reported(self, controller, mock_context, mock_runtime_context):
+        """A failed filter must not silently keep all samples."""
         dataset = Mock()
         dataset.name = "test_dataset"
 
@@ -716,19 +716,12 @@ class TestEdgeCases:
             # Enable verbose to trigger warning log
             mock_runtime_context.step_runner.verbose = 1
 
-            # Should not raise, should use neutral mask
-            result_context, artifacts = controller.execute(
-                step_info=step_info,
-                dataset=dataset,
-                context=mock_context,
-                runtime_context=mock_runtime_context,
-                mode="train"
-            )
-
-            # Should still complete without error
-            # With neutral mask (all keep), no samples excluded
-            call_args = indexer.mark_excluded.call_args
-            # Called but with empty list
-            if call_args is not None:
-                excluded = call_args[0][0]
-                assert len(excluded) == 0
+            with pytest.raises(ValueError, match="YOutlierFilter could not be applied: insufficient data"):
+                controller.execute(
+                    step_info=step_info,
+                    dataset=dataset,
+                    context=mock_context,
+                    runtime_context=mock_runtime_context,
+                    mode="train",
+                )
+            indexer.mark_excluded.assert_not_called()
