@@ -41,3 +41,11 @@ def test_publication_still_depends_on_tested_tagged_distribution() -> None:
     assert "inputs.publish_release" in jobs["publish-pypi"]["if"]
     assert jobs["publish-pypi"]["environment"] == "pypi"
     assert jobs["publish-pypi"]["permissions"]["id-token"] == "write"
+
+    docker = jobs["publish-docker"]
+    assert set(docker["needs"]) >= {"release-preflight", "build", "publish-pypi"}
+    assert "inputs.publish_release" in docker["if"]
+    assert "needs.release-preflight.outputs.release_tag" in docker["steps"][0]["with"]["ref"]
+    metadata = next(step for step in docker["steps"] if step.get("id") == "meta")
+    assert "needs.release-preflight.outputs.docker_version" in metadata["with"]["tags"]
+    assert "needs.release-preflight.outputs.prerelease == 'false'" in metadata["with"]["tags"]
