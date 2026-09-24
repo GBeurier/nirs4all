@@ -128,3 +128,33 @@ def test_runner_preserves_assertion_failure_without_synthetic_error(tmp_path):
     assert summary["errors"] == 0
     assert summary["results"][0]["reported"] == 2
     assert ET.parse(report / "junit.xml").getroot().attrib["tests"] == "2"
+
+
+def test_runner_no_timeouts_disables_process_and_pytest_deadlines(tmp_path):
+    (tmp_path / "test_slow.py").write_text(
+        "import time\n"
+        "def test_slow():\n"
+        "    time.sleep(1.5)\n"
+    )
+    repo = Path(__file__).resolve().parents[3]
+    common = [
+        sys.executable,
+        "scripts/ci/run_full_dagml_pytest.py",
+        str(tmp_path / "test_slow.py"),
+        "--process-timeout", "1",
+        "--pytest-timeout", "1",
+    ]
+    bounded = subprocess.run(
+        [*common, "--report-dir", str(tmp_path / "bounded")],
+        cwd=repo, capture_output=True, text=True, check=False,
+    )
+    assert bounded.returncode == 1
+
+    unbounded = subprocess.run(
+        [*common, "--no-timeouts", "--report-dir", str(tmp_path / "unbounded")],
+        cwd=repo, capture_output=True, text=True, check=False,
+    )
+    summary = json.loads((tmp_path / "unbounded" / "summary.json").read_text())
+    assert unbounded.returncode == 0, unbounded.stdout + unbounded.stderr
+    assert summary["collected"] == summary["tests"] == 1
+    assert summary["failures"] == summary["errors"] == 0
