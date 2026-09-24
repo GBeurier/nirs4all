@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.4] — 2026-09-24
+
+### Fixed
+
+- Restored legacy pipeline behavior under DAG-ML for augmentation, model
+  checkpoints, stacking, residual models, ordered merges, multi-output scores,
+  retraining and archive replay, while retaining fold-safe OOF validation.
+- Preserved the public `retrain()` signature and current IKPLS, IO, AutoGluon
+  and AOM interoperability.
+
+### Changed
+
+- Raised the native dependency floors to DAG-ML 0.3.27, DAG-ML Data 0.2.12
+  and nirs4all-core 0.3.31. The complete DAG-ML backend suite and separate
+  CUDA, TabPFN and native opt-in gates qualify this release.
+- Documented the unsafe legacy MetaModel deep-CV target leakage as an explicit
+  exception: DAG-ML refuses that case instead of reproducing its score.
+
+---
+
 ## [1.1.3] — 2026-09-22
 
 ### Fixed
