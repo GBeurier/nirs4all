@@ -44,7 +44,7 @@ def test_runner_reports_crash_and_keeps_running(tmp_path):
     assert summary["files"] == 4
     assert summary["collected"] == 3
     assert [item["exit_code"] for item in summary["results"]] == [0, 139, 5, 0]
-    assert summary["results"][1]["errors"] >= 2  # no stale JUnit or manifest reused
+    assert summary["results"][1]["errors"] == 1  # no stale JUnit or manifest reused
     assert summary["results"][2]["errors"] == 0
     assert summary["results"][3]["reported"] == 1
     assert summary["errors"] >= 1
@@ -95,3 +95,36 @@ def test_runner_executes_modules_concurrently_with_ordered_report(tmp_path):
         "test_b.py",
     ]
     assert (tmp_path / "coverage.xml").exists()
+
+
+def test_runner_preserves_assertion_failure_without_synthetic_error(tmp_path):
+    (tmp_path / "test_assertion.py").write_text(
+        "def test_passes(): assert True\n"
+        "def test_fails(): assert False\n"
+    )
+    repo = Path(__file__).resolve().parents[3]
+    report = tmp_path / "report"
+    process = subprocess.run(
+        [
+            sys.executable,
+            "scripts/ci/run_full_dagml_pytest.py",
+            str(tmp_path / "test_assertion.py"),
+            "--report-dir",
+            str(report),
+            "--coverage-output",
+            str(tmp_path / "coverage.xml"),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    summary = json.loads((report / "summary.json").read_text())
+    assert process.returncode == 1
+    assert "[1/1] FAIL" in process.stdout
+    assert summary["collected"] == summary["tests"] == 2
+    assert summary["failures"] == 1
+    assert summary["errors"] == 0
+    assert summary["results"][0]["reported"] == 2
+    assert ET.parse(report / "junit.xml").getroot().attrib["tests"] == "2"
