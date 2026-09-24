@@ -34,6 +34,11 @@ def test_manual_publish_is_opt_in_and_requires_preflight() -> None:
 
 def test_publication_still_depends_on_tested_tagged_distribution() -> None:
     jobs = _workflow()["jobs"]
+    codecov = next(step for step in jobs["run-tests"]["steps"] if step.get("uses") == "codecov/codecov-action@v7")
+    assert codecov["if"] == "github.event_name == 'workflow_dispatch' && !inputs.publish_release"
+    assert codecov["continue-on-error"] == "true"
+    assert codecov["with"]["fail_ci_if_error"] == "false"
+
     assert set(jobs["build"]["needs"]) >= {
         "release-preflight", "run-tests", "build-docs", "verify-examples",
     }
