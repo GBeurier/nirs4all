@@ -88,6 +88,26 @@
       "note": "DAG PREDICT batch order changes float32 Ridge summation over 2151 features by a few ulps; 1e-4 reuses an existing positive band while residual arithmetic, gate, and score are checked independently."
     },
     {
+      "band_id": "native_augmentation_checkpoint_float32_replay",
+      "numeric_path": "dagml_native_self",
+      "metric_class": "prediction",
+      "abs_tol": 0.001,
+      "rel_tol": 0.0,
+      "measured_ceiling": 0.00011826,
+      "enforced_at": "tests/integration/parity/test_augmentation_composition.py",
+      "note": "Post-publication Ubuntu CI measured a 1.1826e-4 archive-versus-native Ridge prediction difference after augmentation. This float32 replay band applies to all three checkpoint layouts; model count, fit cohort, cross-engine scores and predictions remain separately checked."
+    },
+    {
+      "band_id": "nested_cv_score_reduction",
+      "numeric_path": "dagml_native_self",
+      "metric_class": "score",
+      "abs_tol": 0.00001,
+      "rel_tol": 0.0,
+      "measured_ceiling": 0.000001096,
+      "enforced_at": "tests/integration/parity/test_dagml_nested_subpipeline.py",
+      "note": "Post-publication Ubuntu CI measured a 1.096e-6 difference between native CV score and the direct sklearn OOF score; grouping, selected model, refit parameters and archive replay have separate assertions."
+    },
+    {
       "band_id": "interleaved_augmentation_y_transform_score",
       "numeric_path": "cross_impl_pipeline",
       "metric_class": "score",
