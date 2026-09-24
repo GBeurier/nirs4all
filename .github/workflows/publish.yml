@@ -4,12 +4,80 @@ name: Build & Publish
 on:
   release:
     types: [ published ]     # clicking "Publish Release" triggers real PyPI
-  # Manual runs are deliberately dry-runs: tests, docs, and distributions only.
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing immutable release tag to republish after a failed gate'
+        required: false
+        type: string
+      publish_release:
+        description: 'Publish the existing tag after all gates pass (main only)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
+  release-preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.target.outputs.release_tag }}
+      tag_sha: ${{ steps.target.outputs.tag_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+
+      - name: Verify manual publication target
+        id: target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'release' ]]; then
+            echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$PUBLISH_RELEASE" != 'true' ]]; then
+            echo 'Manual dry-run: publication disabled.'
+            exit 0
+          fi
+          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo '::error::Manual publication must run from main.'
+            exit 1
+          fi
+          if [[ ! "$INPUT_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo '::error::release_tag must be an existing SemVer release tag.'
+            exit 1
+          fi
+          release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$INPUT_TAG")
+          if ! jq -e --arg tag "$INPUT_TAG" \
+            '.tag_name == $tag and .draft == false and .published_at != null' \
+            <<< "$release_json" >/dev/null; then
+            echo '::error::The matching GitHub Release must already be published.'
+            exit 1
+          fi
+          package_version="${INPUT_TAG//-rc./rc}"
+          pypi_status=$(curl --retry 2 --retry-delay 2 -sS -o /dev/null \
+            -w '%{http_code}' "https://pypi.org/pypi/nirs4all/$package_version/json")
+          if [[ "$pypi_status" != '404' ]]; then
+            echo "::error::PyPI returned HTTP $pypi_status for nirs4all==$package_version; publication requires absence."
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/tags/$INPUT_TAG:refs/tags/$INPUT_TAG"
+          tag_sha=$(git rev-parse "$INPUT_TAG^{commit}")
+          echo "release_tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=$tag_sha" >> "$GITHUB_OUTPUT"
+          echo "Verified published Release $INPUT_TAG at $tag_sha; PyPI version is absent."
+
   # Run the fast source gate; exhaustive DAG-ML coverage runs weekly/on demand.
   run-tests:
+    needs: release-preflight
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -107,6 +175,7 @@ jobs:
 
   # Build and verify documentation
   build-docs:
+    needs: release-preflight
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -144,6 +213,7 @@ jobs:
   # Release publication is blocked unless every dynamically discovered example
   # passes strict output checks (tracebacks, NaNs, and empty results).
   verify-examples:
+    needs: release-preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -174,12 +244,14 @@ jobs:
 
   # Build distribution packages (after tests, docs, and examples pass)
   build:
-    needs: [run-tests, build-docs, verify-examples]
+    needs: [release-preflight, run-tests, build-docs, verify-examples]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag) || github.ref }}
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -190,19 +262,27 @@ jobs:
           cache: 'pip'
 
       - name: Verify version consistency
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.publish_release
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
+          EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
         run: |
+          set -euo pipefail
           # Version is single-sourced from nirs4all/__init__.py (pyproject declares it
           # dynamically via attr:), so read __version__ directly rather than pyproject.
           PKG_VERSION=$(grep -E '^__version__' nirs4all/__init__.py | cut -d'"' -f2)
-          TAG_VERSION="${{ github.event.release.tag_name }}"
+          TAG_VERSION="$RELEASE_TAG"
           TAG_VERSION="${TAG_VERSION#v}"
           # Product RC tags use SemVer spelling (1.0.0-rc.1), while Python
           # package metadata uses the equivalent PEP 440 spelling (1.0.0rc1).
           TAG_VERSION="${TAG_VERSION//-rc./rc}"
           if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
             echo "::error::Version mismatch: nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION"
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_TAG_SHA" && "$(git rev-parse HEAD)" != "$EXPECTED_TAG_SHA" ]]; then
+            echo '::error::Release tag changed after preflight.'
             exit 1
           fi
           echo "Version verified: $PKG_VERSION"
@@ -220,7 +300,7 @@ jobs:
   # Publish to PyPI (only after build succeeds, which requires tests + docs)
   publish-pypi:
     needs: build
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.publish_release
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -238,8 +318,8 @@ jobs:
   # Verify the exact public artifact in a clean environment. This gate catches
   # packaging, dependency-resolution, and publication mistakes.
   post-publish-smoke:
-    needs: publish-pypi
-    if: github.event_name == 'release'
+    needs: [release-preflight, publish-pypi]
+    if: github.event_name == 'release' || inputs.publish_release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-python@v7
@@ -249,7 +329,7 @@ jobs:
       - name: Install the exact PyPI release
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
         run: |
           set -euo pipefail
           package_version="${RELEASE_TAG#v}"
@@ -270,7 +350,7 @@ jobs:
       - name: Verify installed metadata, native ABI, and DAG-ML execution
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -344,9 +424,9 @@ jobs:
 
   # Notify about conda-forge feedstock update (after PyPI publish)
   notify-conda-forge:
-    needs: publish-pypi
+    needs: [release-preflight, publish-pypi]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.publish_release
     steps:
       - uses: actions/checkout@v6
 
@@ -356,8 +436,10 @@ jobs:
 
       - name: Fetch SHA256 and generate conda-forge update instructions
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="$RELEASE_TAG"
           VERSION="${VERSION#v}"
 
           # Wait for PyPI to index the new version (up to 5 minutes)
