@@ -11,12 +11,21 @@ jobs:
   # Run full test suite before publishing
   run-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
+
+      - name: Checkout pinned dag-ml CLI source
+        uses: actions/checkout@v6
+        with:
+          repository: GBeurier/dag-ml
+          ref: d351c33caf7264a9ed5faf7ad6223c5b492b9fb1
+          path: dag-ml-cli-src
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -37,9 +46,17 @@ jobs:
           python -m pip install numpy -r requirements-test-linux.txt
           python -m pip install --index-url https://download.pytorch.org/whl/cpu \
             'torch==2.13.0+cpu'
+          # The previous dependency resolution can leave an orphaned Triton
+          # package behind. Torch probes it at optimizer creation even with a
+          # CPU wheel; its import segfaulted repeatedly in the release runner.
+          python -m pip uninstall -y triton
+          python -c "import importlib.util; assert importlib.util.find_spec('triton') is None"
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
+
+      - name: Build pinned dag-ml CLI for subprocess parity tests
+        run: cargo build -p dag-ml-cli --manifest-path dag-ml-cli-src/Cargo.toml
 
       - name: Gate real library usability
         timeout-minutes: 5
@@ -47,6 +64,8 @@ jobs:
 
       - name: Run full pytest + coverage
         shell: bash
+        env:
+          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
         run: |
           python -m coverage erase
           python -m pytest -v --timeout=300 -n 0 \
