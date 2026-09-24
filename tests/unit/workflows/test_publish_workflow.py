@@ -117,6 +117,7 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
     exhaustive = _load_named_workflow("shared-test-and-docs.yml")["jobs"]["run-tests"]
     exhaustive_serialized = yaml.safe_dump(exhaustive)
     assert "run_full_dagml_pytest.py" in exhaustive_serialized
+    assert "timeout-minutes" not in exhaustive
     assert "--ignore=" not in exhaustive_serialized
     assert exhaustive["permissions"] == {"contents": "read", "id-token": "write"}
     assert "use_oidc: 'true'" in exhaustive_serialized
@@ -124,6 +125,7 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
 
     trigger = _load_named_workflow("full-dagml-tests.yml")
     assert set(trigger["on"]) == {"schedule", "workflow_dispatch"}
+    assert trigger["jobs"]["exhaustive"]["permissions"] == {"contents": "read", "id-token": "write"}
     assert trigger["jobs"]["exhaustive"]["uses"] == "./.github/workflows/shared-test-and-docs.yml"
 
     for workflow_name in ("pre-publish.yml", "publish.yml", "examples.yml"):
