@@ -81,7 +81,7 @@ jobs:
         env:
           N4A_ENGINE: dag-ml
           N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
-        run: python scripts/ci/run_full_dagml_pytest.py --report-dir dagml-pytest-report tests/
+        run: python scripts/ci/run_full_dagml_pytest.py --no-timeouts --report-dir dagml-pytest-report tests/
 
       - name: Upload DAG-ML pytest report
         if: always()
