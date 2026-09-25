@@ -233,8 +233,8 @@ class PortableN4MTrainedPipeline:
         """Train a native n4m recipe in Python and produce the portable envelope.
 
         Methods owns every transform and PLS fit. For MSC/EMSC, the portable
-        mean reference is recorded from the exact training matrix passed to
-        the native ``fit`` call; this mirrors the native reference definition.
+        reference is exported from the fitted native operator through its
+        binding, with no host-side refit or reconstruction.
         """
 
         from pls4all import Config, Context, Model, Solver
@@ -331,7 +331,9 @@ class PortableN4MTrainedPipeline:
                 operator = parser.parse(node).operator
                 operator.fit(X)
                 if name in _STATEFUL:
-                    reference = np.mean(X, axis=0, dtype=np.float64)
+                    if not hasattr(operator, "reference_"):
+                        raise RuntimeError("n4m binding lacks portable fitted reference export")
+                    reference = np.asarray(operator.reference_, dtype=np.float64)
                     states.append({"kind": name.removeprefix("n4m.").upper(),
                                    "reference": reference.tolist()})
                 else:
@@ -367,7 +369,9 @@ class PortableN4MTrainedPipeline:
             else:
                 operator = parser.parse(node).operator
                 if node["class"] in _STATEFUL:
-                    operator.fit(self._reference(state["reference"], values.shape[1]).reshape(1, -1))
+                    if not hasattr(operator, "restore_reference"):
+                        raise RuntimeError("n4m binding lacks portable fitted reference restore")
+                    operator.restore_reference(self._reference(state["reference"], values.shape[1]))
                 else:
                     operator.fit(values)
                 values = np.asarray(operator.transform(values), dtype=np.float64)
