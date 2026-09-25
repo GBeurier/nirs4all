@@ -115,6 +115,12 @@ with PortableN4MTrainedPipeline.fit_recipe(recipe, X_train, y_train) as fitted:
 Both bindings use Methods for preprocessing and PLS prediction. Cross-language
 tests compare held-out predictions in both directions for plain, stateless,
 MSC/EMSC, embedded SNV/Savitzky-Golay and feature-merge branch profiles.
+With the current Methods source binding, MSC/EMSC references are exported and
+restored by the native ABI. The published `nirs4all-methods` 1.0.21 wheel
+does not yet expose those accessors: this API reconstructs only the documented
+training-column mean as portable metadata and restores it through a one-row
+native fit. Both paths pass the same held-out numerical tests; neither fits
+state on validation rows.
 `retrain` performs a fresh Methods fit; it does not reuse the imported model or
 training references. This envelope is **not** a DAG-ML Archive V2/V3 package:
 it has no DAG selection, OOF, sample-identity or refit provenance, and it does
