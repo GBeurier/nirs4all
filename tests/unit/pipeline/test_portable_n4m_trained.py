@@ -70,3 +70,45 @@ def test_native_trained_pipeline_refuses_mismatched_width(
             fitted.predict(X[17:, :-1])
         with pytest.raises(ValueError, match="aligned training"):
             fitted.retrain(X[:17], y[:16])
+
+
+@pytest.mark.methods
+@pytest.mark.parametrize("preprocessing", [[], [{"class": "n4m.SNV"}], [{"class": "n4m.MSC"}]])
+def test_sparse_plsda_trained_envelope_roundtrip(
+    preprocessing: list[dict[str, object]],
+) -> None:
+    from sklearn.datasets import load_iris
+
+    iris = load_iris()
+    rows = np.asarray([*range(12), *range(50, 62), *range(100, 112)])
+    held = np.asarray([*range(12, 15), *range(62, 65), *range(112, 115)])
+    X = np.asarray(iris.data, dtype=np.float64)
+    labels = np.asarray(iris.target_names[iris.target], dtype=str)
+    recipe = {"pipeline": [
+        *preprocessing,
+        {"model": {"class": "n4m.SparsePLSDA", "params": {
+            "n_components": 2, "sparsity_lambda": 0.05,
+        }}},
+    ]}
+    with PortableN4MTrainedPipeline.fit_recipe(recipe, X[rows], labels[rows]) as fitted:
+        assert fitted.task == "classification"
+        assert fitted.classes == iris.target_names.tolist()
+        expected = fitted.predict(X[held])
+        scores = fitted.predict_scores(X[held])
+        assert scores.shape == (len(held), 3)
+        proba = fitted.predict_proba(X[held])
+        np.testing.assert_allclose(proba.sum(axis=1), 1, rtol=0, atol=1e-12)
+        with PortableN4MTrainedPipeline.from_json(fitted.to_json()) as loaded:
+            np.testing.assert_array_equal(loaded.predict(X[held]), expected)
+            np.testing.assert_allclose(loaded.predict_scores(X[held]), scores, rtol=0, atol=1e-12)
+            np.testing.assert_array_equal(loaded.retrain(X[rows], labels[rows]).predict(X[held]), expected)
+            with pytest.raises(ValueError, match="classes differ"):
+                loaded.retrain(X[rows], np.where(labels[rows] == "setosa", "unknown", labels[rows]))
+        document = json.loads(fitted.to_json())
+        manifest = json.loads(document["manifest_json"])
+        manifest["classes"] = manifest["classes"][:-1]
+        document["manifest_json"] = json.dumps(manifest, separators=(",", ":"))
+        import hashlib
+        document["manifest_sha256"] = hashlib.sha256(document["manifest_json"].encode()).hexdigest()
+        with pytest.raises(ValueError, match="descriptor"):
+            PortableN4MTrainedPipeline(document)

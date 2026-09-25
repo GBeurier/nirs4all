@@ -24,7 +24,7 @@ _STATEFUL = {"n4m.MSC", "n4m.EMSC"}
 
 
 class PortableN4MTrainedPipeline:
-    """An imported native PLS predictor and its shared retraining recipe.
+    """An imported native PLS or sparse PLS-DA predictor and retraining recipe.
 
     Use :meth:`close` or a context manager to release the N4MM handle. The
     original JSON recipe remains available for training a fresh model through
@@ -38,18 +38,31 @@ class PortableN4MTrainedPipeline:
 
         expected = {"schema", "manifest_json", "manifest_sha256", "model"}
         if (not isinstance(document, dict) or set(document) != expected
-                or document["schema"] != "nirs4all.n4m.trained_pipeline.v1"):
+                or document["schema"] not in {
+                    "nirs4all.n4m.trained_pipeline.v1",
+                    "nirs4all.n4m.trained_pipeline.v2",
+                }):
             raise ValueError("unsupported trained n4m pipeline envelope")
+        classification = document["schema"].endswith(".v2")
         manifest_json = document["manifest_json"]
         manifest_hash = document["manifest_sha256"]
         if (not isinstance(manifest_json, str) or not isinstance(manifest_hash, str)
                 or hashlib.sha256(manifest_json.encode("utf-8")).hexdigest() != manifest_hash):
             raise ValueError("trained pipeline manifest hash mismatch")
         manifest = json.loads(manifest_json)
-        if (not isinstance(manifest, dict)
-                or set(manifest) != {"recipe", "input_n_features", "feature_names",
-                                     "preprocessing_owner", "step_states"}):
+        manifest_fields = {"recipe", "input_n_features", "feature_names",
+                           "preprocessing_owner", "step_states"}
+        if classification:
+            manifest_fields |= {"task", "classes"}
+        if not isinstance(manifest, dict) or set(manifest) != manifest_fields:
             raise ValueError("invalid trained pipeline manifest")
+        classes: list[str] | None = None
+        if classification:
+            classes = manifest["classes"]
+            if (manifest["task"] != "classification" or not isinstance(classes, list)
+                    or len(classes) < 2 or any(not isinstance(value, str) or not value for value in classes)
+                    or len(set(classes)) != len(classes)):
+                raise ValueError("invalid ordered classification classes")
         width = manifest["input_n_features"]
         if type(width) is not int or width < 2:
             raise ValueError("invalid input feature width")
@@ -67,16 +80,12 @@ class PortableN4MTrainedPipeline:
         if not nodes or set(nodes[-1]) != {"model"}:
             raise ValueError("trained n4m pipeline needs one final model")
         model_node = nodes[-1]["model"]
-        if (not isinstance(model_node, dict) or model_node.get("class") != "n4m.PLS"
-                or set(model_node) != {"class", "params"}
-                or not isinstance(model_node["params"], dict)
-                or set(model_node["params"]) != {"n_components"}
-                or type(model_node["params"]["n_components"]) is not int
-                or model_node["params"]["n_components"] < 1):
-            raise ValueError("trained n4m pipeline supports fixed n4m.PLS only")
+        self._validate_model_node(model_node, classification)
         owner = manifest["preprocessing_owner"]
         if owner not in {"external", "embedded_methods"}:
             raise ValueError("unsupported preprocessing owner")
+        if classification and owner != "external":
+            raise ValueError("sparse PLS-DA requires external preprocessing")
         states = manifest["step_states"]
         if not isinstance(states, list):
             raise ValueError("invalid fitted preprocessing state")
@@ -100,12 +109,19 @@ class PortableN4MTrainedPipeline:
         if not payload or hashlib.sha256(payload).hexdigest() != model["sha256"]:
             raise ValueError("N4MM payload hash mismatch")
         info = inspect_n4mm(payload)
-        if (info.format_version != (2 if owner == "embedded_methods" else 1)
-                or info.algorithm != 0 or info.solver != 1 or info.deflation != 0
-                or info.n_targets != 1 or info.n_components != model_node["params"]["n_components"]
-                or info.n_features != output_width
-                or info.capabilities & (9 if owner == "embedded_methods" else 1)
-                   != (9 if owner == "embedded_methods" else 1)):
+        if classification:
+            assert classes is not None
+            if (info.format_version != 1 or info.algorithm != 11 or info.solver != 0
+                    or info.deflation != 0 or info.n_targets != len(classes)
+                    or info.n_components != 0 or info.n_features != output_width
+                    or info.capabilities & 5 != 5):
+                raise ValueError("N4MM sparse PLS-DA descriptor does not match recipe")
+        elif (info.format_version != (2 if owner == "embedded_methods" else 1)
+              or info.algorithm != 0 or info.solver != 1 or info.deflation != 0
+              or info.n_targets != 1 or info.n_components != model_node["params"]["n_components"]
+              or info.n_features != output_width
+              or info.capabilities & (9 if owner == "embedded_methods" else 1)
+                 != (9 if owner == "embedded_methods" else 1)):
             raise ValueError("N4MM descriptor does not match recipe")
         if owner == "embedded_methods":
             self._validate_embedded_info(info.pipeline, nodes[:2], width)
@@ -121,11 +137,30 @@ class PortableN4MTrainedPipeline:
         self.feature_names = names
         self.input_n_features = width
         self.preprocessing_owner = owner
+        self.task = "classification" if classification else "regression"
+        self.classes = classes
         self._nodes = nodes[:-1]
         self._states = states
         self._context = context
         self._model = native_model
         self._document = json.loads(json.dumps(document, allow_nan=False))
+
+    @staticmethod
+    def _validate_model_node(model_node: Any, classification: bool) -> None:
+        expected_class = "n4m.SparsePLSDA" if classification else "n4m.PLS"
+        expected_params = {"n_components", "sparsity_lambda"} if classification else {"n_components"}
+        if (not isinstance(model_node, dict) or model_node.get("class") != expected_class
+                or set(model_node) != {"class", "params"}
+                or not isinstance(model_node["params"], dict)
+                or set(model_node["params"]) != expected_params
+                or type(model_node["params"]["n_components"]) is not int
+                or model_node["params"]["n_components"] < 1):
+            raise ValueError(f"trained n4m pipeline needs fixed {expected_class}")
+        if classification:
+            sparsity = model_node["params"]["sparsity_lambda"]
+            if (type(sparsity) not in (int, float) or not np.isfinite(sparsity)
+                    or sparsity < 0):
+                raise ValueError("invalid sparse PLS-DA regularization")
 
     @staticmethod
     def _validate_embedded_recipe(nodes: list[dict[str, Any]]) -> None:
@@ -239,6 +274,7 @@ class PortableN4MTrainedPipeline:
         """
 
         from pls4all import Config, Context, Model, Solver
+        from pls4all.migration import export_linear_predictor_n4mm
 
         from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
@@ -247,35 +283,50 @@ class PortableN4MTrainedPipeline:
         if not isinstance(nodes, list) or not nodes or not isinstance(nodes[-1], dict):
             raise ValueError("portable native recipe needs a final model")
         model_node = nodes[-1].get("model")
-        if (not isinstance(model_node, dict) or model_node.get("class") != "n4m.PLS"
-                or set(model_node) != {"class", "params"}
-                or not isinstance(model_node["params"], dict)
-                or set(model_node["params"]) != {"n_components"}
-                or type(model_node["params"]["n_components"]) is not int
-                or model_node["params"]["n_components"] < 1):
-            raise ValueError("portable training supports fixed n4m.PLS only")
+        classification = isinstance(model_node, dict) and model_node.get("class") == "n4m.SparsePLSDA"
+        cls._validate_model_node(model_node, classification)
+        assert isinstance(model_node, dict)
         columns = getattr(X, "columns", None)
         names = list(columns) if columns is not None else None
         values = np.asarray(X, dtype=np.float64)
-        targets = np.asarray(y, dtype=np.float64)
+        targets = np.asarray(y) if classification else np.asarray(y, dtype=np.float64)
         if (values.ndim != 2 or values.shape[1] < 2 or targets.ndim != 1
                 or values.shape[0] != targets.shape[0]
-                or not np.isfinite(values).all() or not np.isfinite(targets).all()):
+                or not np.isfinite(values).all()
+                or (not classification and not np.isfinite(targets).all())):
             raise ValueError("fit requires finite aligned training rows")
+        if classification and (not all(isinstance(label, str) and label for label in targets.tolist())
+                               or len(set(targets.tolist())) < 2):
+            raise ValueError("sparse PLS-DA needs at least two non-empty string classes")
         if names is not None and (len(names) != values.shape[1]
                                   or any(not isinstance(name, str) or not name for name in names)
                                   or len(set(names)) != len(names)):
             raise ValueError("invalid ordered feature names")
         states, transformed = cls._fit_portable_steps(nodes[:-1], values)
-        with Context() as context, Config() as config:
-            config.solver = Solver.SIMPLS
-            config.n_components = model_node["params"]["n_components"]
-            config.center_x = True
-            config.scale_x = True
-            config.center_y = True
-            config.scale_y = True
-            with Model.fit(context, config, transformed, targets) as model:
-                payload = model.to_bytes()
+        classes: list[str] | None = None
+        if classification:
+            from nirs4all.pipeline.steps.parser import StepParser
+
+            fitted = StepParser().parse(nodes[-1]).operator
+            classes = sorted(set(targets.tolist()))
+            class_codes = {label: index for index, label in enumerate(classes)}
+            codes = np.asarray([class_codes[label] for label in targets.tolist()], dtype=np.int64)
+            fitted.fit(transformed, codes)
+            coefficients = np.asarray(fitted.coef_, dtype=np.float64).T
+            intercept = np.asarray(fitted.y_mean_, dtype=np.float64) - np.asarray(fitted.x_mean_, dtype=np.float64) @ coefficients
+            payload = export_linear_predictor_n4mm(
+                coefficients.tolist(), intercept.tolist(), source_training_samples=values.shape[0],
+            )
+        else:
+            with Context() as context, Config() as config:
+                config.solver = Solver.SIMPLS
+                config.n_components = model_node["params"]["n_components"]
+                config.center_x = True
+                config.scale_x = True
+                config.center_y = True
+                config.scale_y = True
+                with Model.fit(context, config, transformed, targets) as model:
+                    payload = model.to_bytes()
         manifest = {
             "recipe": recipe,
             "input_n_features": values.shape[1],
@@ -283,10 +334,13 @@ class PortableN4MTrainedPipeline:
             "preprocessing_owner": "external",
             "step_states": states,
         }
+        if classification:
+            manifest["task"] = "classification"
+            manifest["classes"] = classes
         manifest_json = json.dumps(manifest, ensure_ascii=False, allow_nan=False,
                                    separators=(",", ":"))
         document = {
-            "schema": "nirs4all.n4m.trained_pipeline.v1",
+            "schema": "nirs4all.n4m.trained_pipeline.v2" if classification else "nirs4all.n4m.trained_pipeline.v1",
             "manifest_json": manifest_json,
             "manifest_sha256": hashlib.sha256(manifest_json.encode("utf-8")).hexdigest(),
             "model": {
@@ -386,8 +440,14 @@ class PortableN4MTrainedPipeline:
             state_index += 1
         return values
 
-    def predict(self, X: Any) -> np.ndarray:
-        """Predict from raw spectra with native Methods transforms and N4MM."""
+    def predict_scores(self, X: Any) -> np.ndarray:
+        """Return raw native Methods scores for a classification pipeline."""
+
+        if self.task != "classification":
+            raise ValueError("decision scores require sparse PLS-DA classification")
+        return self._predict_native(X)
+
+    def _predict_native(self, X: Any) -> np.ndarray:
 
         if self._model is None:
             raise RuntimeError("trained pipeline is closed")
@@ -402,7 +462,29 @@ class PortableN4MTrainedPipeline:
         if self.preprocessing_owner == "external":
             values = self._transform_steps(values, self._nodes, self._states)
         result = np.asarray(self._model.predict(self._context, values), dtype=np.float64)
-        return result.reshape(values.shape[0])
+        if (result.shape != (values.shape[0], len(self.classes) if self.classes is not None else 1)
+                or not np.isfinite(result).all()):
+            raise ValueError("native predictor returned invalid output shape or values")
+        return result
+
+    def predict(self, X: Any) -> np.ndarray:
+        """Predict regression values or ordered classification labels."""
+
+        result = self._predict_native(X)
+        if self.task == "classification":
+            assert self.classes is not None
+            labels: np.ndarray = np.asarray(self.classes, dtype=str)[np.argmax(result, axis=1)]
+            return labels
+        return result.reshape(result.shape[0])
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        """Return uncalibrated softmax probabilities for sparse PLS-DA."""
+
+        scores = self.predict_scores(X)
+        shifted = scores - scores.max(axis=1, keepdims=True)
+        exp_scores = np.exp(shifted)
+        probabilities: np.ndarray = exp_scores / exp_scores.sum(axis=1, keepdims=True)
+        return probabilities
 
     def retrain(self, X: Any, y: Any) -> RefittedN4MPipeline:
         """Fit the shared n4m recipe afresh on new Python training rows.
@@ -417,20 +499,31 @@ class PortableN4MTrainedPipeline:
             if columns is None or list(columns) != self.feature_names:
                 raise ValueError("feature names or order differ from recipe")
         values = np.asarray(X, dtype=np.float64)
-        targets = np.asarray(y, dtype=np.float64)
+        targets = np.asarray(y) if self.task == "classification" else np.asarray(y, dtype=np.float64)
         if (values.ndim != 2 or values.shape[1] != self.input_n_features
                 or targets.ndim != 1 or targets.shape[0] != values.shape[0]
-                or not np.isfinite(values).all() or not np.isfinite(targets).all()):
+                or not np.isfinite(values).all()
+                or (self.task == "regression" and not np.isfinite(targets).all())):
             raise ValueError("retrain requires finite aligned training rows")
+        if self.task == "classification":
+            assert self.classes is not None
+            if (not all(isinstance(label, str) and label for label in targets.tolist())
+                    or set(targets.tolist()) != set(self.classes)):
+                raise ValueError("retrain classes differ from the portable recipe")
         trained_steps, transformed = RefittedN4MPipeline._fit_steps(
             self._nodes, values,
         )
         from nirs4all.pipeline.steps.parser import StepParser
 
         model = StepParser().parse(self.recipe["pipeline"][-1]).operator
+        if self.task == "classification":
+            assert self.classes is not None
+            class_codes = {label: index for index, label in enumerate(self.classes)}
+            targets = np.asarray([class_codes[label] for label in targets.tolist()], dtype=np.int64)
         model.fit(transformed, targets)
         return RefittedN4MPipeline(
             trained_steps, model, self.input_n_features, self.feature_names,
+            self.task, self.classes,
         )
 
     def close(self) -> None:
@@ -455,11 +548,14 @@ class RefittedN4MPipeline:
 
     def __init__(
         self, steps: list[Any], model: Any, width: int, feature_names: list[str] | None,
+        task: str = "regression", classes: list[str] | None = None,
     ) -> None:
         self._steps = steps
         self._model = model
         self.input_n_features = width
         self.feature_names = feature_names
+        self.task = task
+        self.classes = classes
 
     @classmethod
     def _fit_steps(cls, nodes: list[dict[str, Any]], X: np.ndarray) -> tuple[list[Any], np.ndarray]:
@@ -504,6 +600,9 @@ class RefittedN4MPipeline:
                 or not np.isfinite(values).all()):
             raise ValueError("input must be a finite samples-by-features matrix")
         transformed = self._transform_steps(self._steps, values)
+        if self.task == "classification":
+            predictions = np.asarray(self._model.predict(transformed), dtype=np.int64).reshape(values.shape[0])
+            return np.asarray(self.classes, dtype=str)[predictions]
         return np.asarray(self._model.predict(transformed), dtype=np.float64).reshape(values.shape[0])
 
 
