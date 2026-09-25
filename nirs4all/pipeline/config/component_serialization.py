@@ -7,9 +7,23 @@ from enum import Enum
 from functools import partial
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
-# Simple alias dictionary for common transformations
+# Shared n4m recipe identifiers. The Methods Python package intentionally keeps
+# classes in role subpackages rather than exporting them at the top level.
+# Resolve only these explicit portable names; arbitrary dotted paths retain
+# the existing import/strict-import behavior.
 build_aliases: dict[str, str] = {
-    # Add common aliases here if needed
+    "n4m.KennardStone": "n4m.model_selection.splitters.KennardStone",
+    "n4m.SNV": "n4m.transform.scatter.SNV",
+    "n4m.SavitzkyGolay": "n4m.transform.smoothing.SavitzkyGolay",
+    "n4m.LSNV": "n4m.transform.scatter.LSNV",
+    "n4m.RNV": "n4m.transform.scatter.RNV",
+    "n4m.AreaNormalization": "n4m.transform.scatter.AreaNormalization",
+    "n4m.Detrend": "n4m.transform.baseline.Detrend",
+    "n4m.MSC": "n4m.transform.scatter.MSC",
+    "n4m.EMSC": "n4m.transform.scatter.EMSC",
+    "n4m.PLS": "pls4all.sklearn.PLSRegression",
+    "n4m.PLSRegression": "pls4all.sklearn.PLSRegression",
+    "n4m.SparsePLSDA": "pls4all.sklearn.SparsePLSDAClassifier",
 }
 
 def _is_meta_estimator(obj) -> bool:
@@ -237,6 +251,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
         return blob
 
     if isinstance(blob, str):
+        portable_name = blob
         if blob in build_aliases:
             blob = build_aliases[blob]
         try:
@@ -260,6 +275,8 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
 
             # Try to instantiate without parameters
             try:
+                if portable_name in ("n4m.PLS", "n4m.PLSRegression"):
+                    return cls_or_func(scale_y=True)
                 return cls_or_func()
             except TypeError as e:
                 # If instantiation fails due to missing required parameters,
@@ -324,7 +341,10 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                 print(f"Invalid {key} value in blob: {blob[key]}")
                 return blob
 
-            mod_name, _, cls_or_func_name = blob[key].rpartition(".")
+            portable_name = blob[key]
+            assert isinstance(portable_name, str)
+            resolved_name = build_aliases.get(portable_name, portable_name)
+            mod_name, _, cls_or_func_name = resolved_name.rpartition(".")
 
             # Safety check for empty module name
             if not mod_name:
@@ -355,6 +375,12 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                     # resolved_type = _resolve_type(cls_or_func, k)
                     # print(k, v, resolved_type)
                     params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
+
+            # R's qualified n4m.PLS recipe uses the native SIMPLS defaults,
+            # including y scaling. The Python sklearn-style wrapper defaults
+            # scale_y to False, so preserve the shared recipe semantics here.
+            if portable_name in ("n4m.PLS", "n4m.PLSRegression"):
+                params.setdefault("scale_y", True)
 
             try:
                 # Special handling for model factory functions with @framework decorator
