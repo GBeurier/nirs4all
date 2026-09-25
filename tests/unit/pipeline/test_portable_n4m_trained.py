@@ -77,6 +77,8 @@ def test_native_trained_pipeline_refuses_mismatched_width(
 def test_sparse_plsda_trained_envelope_roundtrip(
     preprocessing: list[dict[str, object]],
 ) -> None:
+    pytest.importorskip("pls4all")
+    pytest.importorskip("n4m")
     from sklearn.datasets import load_iris
 
     iris = load_iris()
