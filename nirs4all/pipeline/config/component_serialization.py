@@ -24,6 +24,23 @@ build_aliases: dict[str, str] = {
     "n4m.PLS": "pls4all.sklearn.PLSRegression",
     "n4m.PLSRegression": "pls4all.sklearn.PLSRegression",
     "n4m.SparsePLSDA": "pls4all.sklearn.SparsePLSDAClassifier",
+    "n4m.Ridge": "pls4all.sklearn.Ridge",
+    "n4m.RidgePLS": "n4m.estimators.regression.regularized.RidgePLS",
+    "n4m.RobustPLS": "n4m.estimators.regression.robust.RobustPLS",
+    "n4m.CPPLS": "pls4all.sklearn.CPPLSRegression",
+    "n4m.SparseSIMPLS": "pls4all.sklearn.SparseSimplsRegression",
+    "n4m.ECR": "pls4all.sklearn.ECRegression",
+    "n4m.ContinuumRegression": "n4m.estimators.regression.latent.ContinuumRegression",
+    "n4m.MIRPLS": "pls4all.sklearn.MIRPLSRegression",
+}
+
+# Shared recipe defaults follow R's n4m dispatch, not host-specific estimator
+# defaults. In particular R disables X scaling and uses 20 robust IRLS steps.
+portable_model_defaults: dict[str, dict[str, Any]] = {
+    "n4m.PLS": {"scale_y": True},
+    "n4m.PLSRegression": {"scale_y": True},
+    "n4m.RidgePLS": {"ridge_lambda": 1.0, "scale_x": False},
+    "n4m.RobustPLS": {"max_irls_iter": 20, "scale_x": False},
 }
 
 def _is_meta_estimator(obj) -> bool:
@@ -275,9 +292,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
 
             # Try to instantiate without parameters
             try:
-                if portable_name in ("n4m.PLS", "n4m.PLSRegression"):
-                    return cls_or_func(scale_y=True)
-                return cls_or_func()
+                return cls_or_func(**portable_model_defaults.get(portable_name, {}))
             except TypeError as e:
                 # If instantiation fails due to missing required parameters,
                 # check if there are required parameters without defaults
@@ -376,11 +391,8 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                     # print(k, v, resolved_type)
                     params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
 
-            # R's qualified n4m.PLS recipe uses the native SIMPLS defaults,
-            # including y scaling. The Python sklearn-style wrapper defaults
-            # scale_y to False, so preserve the shared recipe semantics here.
-            if portable_name in ("n4m.PLS", "n4m.PLSRegression"):
-                params.setdefault("scale_y", True)
+            for default_name, default_value in portable_model_defaults.get(portable_name, {}).items():
+                params.setdefault(default_name, default_value)
 
             try:
                 # Special handling for model factory functions with @framework decorator
