@@ -96,9 +96,10 @@ presentation state.
 
 ### R/Python trained n4m recipe envelope
 
-For an n4m-only PLS recipe, the R package `nirs4all` and the full Python
-package can exchange a bounded JSON envelope containing the recipe, fitted
-MSC/EMSC training references and hash-checked native N4MM model bytes:
+For a supported n4m-only PLS regression or sparse PLS-DA classification
+recipe, the R package `nirs4all` and the full Python package can exchange a
+bounded JSON envelope containing the recipe, fitted MSC/EMSC training
+references and hash-checked native N4MM model bytes:
 
 ```python
 from nirs4all.pipeline.portable_n4m_trained import PortableN4MTrainedPipeline
@@ -112,9 +113,18 @@ with PortableN4MTrainedPipeline.fit_recipe(recipe, X_train, y_train) as fitted:
     fitted.to_json("trained-in-python.json")  # importable by nirs4all R
 ```
 
-Both bindings use Methods for preprocessing and PLS prediction. Cross-language
+Both bindings use Methods for preprocessing and native model prediction. Cross-language
 tests compare held-out predictions in both directions for plain, stateless,
 MSC/EMSC, embedded SNV/Savitzky-Golay and feature-merge branch profiles.
+The version-2 sparse PLS-DA envelope carries ordered text class labels and
+native N4MM affine class scores. `predict()` returns labels, while
+`predict_scores()` returns the raw score matrix and `predict_proba()` applies
+an **uncalibrated** softmax. Plain, SNV and MSC classifier profiles are tested
+R↔Python, including fresh retraining. An affine N4MM descriptor verifies
+dimensions and prediction semantics, but cannot independently attest the
+training algorithm, hyperparameters or class-name mapping declared by the
+manifest. Its SHA-256 checks are not digital signatures; load artifacts only
+from a trusted source.
 With the current Methods source binding, MSC/EMSC references are exported and
 restored by the native ABI. The published `nirs4all-methods` 1.0.21 wheel
 does not yet expose those accessors: this API reconstructs only the documented
