@@ -94,6 +94,39 @@ fine-tuning, host-sidecars and implicit sample identities fail before native
 data execution. Archive V3 supports PREDICT only and carries no conformal
 presentation state.
 
+### R/Python trained n4m recipe envelope
+
+For an n4m-only PLS recipe, the R package `nirs4all` and the full Python
+package can exchange a bounded JSON envelope containing the recipe, fitted
+MSC/EMSC training references and hash-checked native N4MM model bytes:
+
+```python
+from nirs4all.pipeline.portable_n4m_trained import PortableN4MTrainedPipeline
+
+with PortableN4MTrainedPipeline.from_json("trained-in-r.json") as fitted:
+    predictions = fitted.predict(X_validation)
+    fresh = fitted.retrain(X_new_train, y_new_train)
+    fresh_predictions = fresh.predict(X_validation)
+
+with PortableN4MTrainedPipeline.fit_recipe(recipe, X_train, y_train) as fitted:
+    fitted.to_json("trained-in-python.json")  # importable by nirs4all R
+```
+
+Both bindings use Methods for preprocessing and PLS prediction. Cross-language
+tests compare held-out predictions in both directions for plain, stateless,
+MSC/EMSC, embedded SNV/Savitzky-Golay and feature-merge branch profiles.
+With the current Methods source binding, MSC/EMSC references are exported and
+restored by the native ABI. The published `nirs4all-methods` 1.0.21 wheel
+does not yet expose those accessors: this API reconstructs only the documented
+training-column mean as portable metadata and restores it through a one-row
+native fit. Both paths pass the same held-out numerical tests; neither fits
+state on validation rows.
+`retrain` performs a fresh Methods fit; it does not reuse the imported model or
+training references. This envelope is **not** a DAG-ML Archive V2/V3 package:
+it has no DAG selection, OOF, sample-identity or refit provenance, and it does
+not cover non-n4m controllers or arbitrary n4m methods. Those require a later
+native artifact contract rather than silently placing host state in this wire.
+
 ### nirs4all.run()
 
 Execute a training pipeline on a dataset.
