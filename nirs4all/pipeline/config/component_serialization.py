@@ -39,6 +39,7 @@ build_aliases: dict[str, str] = {
     "n4m.BoostingPLS": "pls4all.sklearn.BoostingPLSRegression",
     "n4m.RandomSubspacePLS": "pls4all.sklearn.RandomSubspacePLSRegression",
     "n4m.NPLS": "pls4all.sklearn.NPLSRegression",
+    "n4m.MBPLS": "pls4all.sklearn.MBPLSRegression",
 }
 
 # Shared recipe defaults follow R's n4m dispatch, not host-specific estimator
@@ -48,6 +49,7 @@ portable_model_defaults: dict[str, dict[str, Any]] = {
     "n4m.PLSRegression": {"scale_y": True},
     "n4m.RidgePLS": {"ridge_lambda": 1.0, "scale_x": False},
     "n4m.RobustPLS": {"max_irls_iter": 20, "scale_x": False},
+    "n4m.MBPLS": {"scale_x": False, "scale_y": False},
 }
 
 def _is_meta_estimator(obj) -> bool:
@@ -414,6 +416,12 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                     mode = params.get(mode_name)
                     if type(mode) is not int or not 1 <= mode <= 2**31 - 1:
                         raise ValueError(f"portable n4m {mode_name} must be a positive integer")
+            if portable_name == "n4m.MBPLS":
+                blocks = params.get("block_sizes")
+                if (not isinstance(blocks, (list, tuple)) or len(blocks) < 2
+                        or any(type(size) is not int or not 1 <= size <= 2**31 - 1
+                               for size in blocks)):
+                    raise ValueError("portable n4m block_sizes must contain at least two positive integers")
 
             try:
                 # Special handling for model factory functions with @framework decorator

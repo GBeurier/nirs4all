@@ -37,6 +37,7 @@ _AFFINE_MODEL_PARAMS: dict[str, frozenset[str]] = {
     "n4m.BoostingPLS": frozenset({"n_estimators", "learning_rate"}),
     "n4m.RandomSubspacePLS": frozenset({"n_estimators", "features_per_subspace", "seed"}),
     "n4m.NPLS": frozenset({"mode_j", "mode_k"}),
+    "n4m.MBPLS": frozenset({"block_sizes"}),
 }
 
 
@@ -118,10 +119,13 @@ class PortableN4MTrainedPipeline:
         self._validate_model_node(model_node, classification, affine_envelope)
         if affine_envelope:
             assertion = manifest["fit_recipe_assertion"]
+            expected_assertion = {
+                "kind": "affine_recipe", "recipe_class": model_node["class"],
+            }
+            if model_node["class"] == "n4m.MBPLS":
+                expected_assertion["block_sizes"] = model_node["params"]["block_sizes"]
             if (not isinstance(assertion, dict)
-                    or set(assertion) != {"kind", "recipe_class"}
-                    or assertion["kind"] != "affine_recipe"
-                    or assertion["recipe_class"] != model_node["class"]):
+                    or assertion != expected_assertion):
                 raise ValueError("affine fit recipe assertion differs from recipe")
         owner = manifest["preprocessing_owner"]
         if owner not in {"external", "embedded_methods"}:
@@ -158,6 +162,9 @@ class PortableN4MTrainedPipeline:
             params = model_node["params"]
             if params["mode_j"] * params["mode_k"] != output_width:
                 raise ValueError("NPLS tensor modes differ from fitted preprocessing width")
+        if affine_envelope and model_node["class"] == "n4m.MBPLS":
+            if sum(model_node["params"]["block_sizes"]) != output_width:
+                raise ValueError("MBPLS block sizes differ from fitted preprocessing width")
         model = document["model"]
         if (not isinstance(model, dict) or set(model) != {"kind", "encoding", "sha256", "payload"}
                 or model["kind"] != "n4m_model" or model["encoding"] != "base64-n4mm"
@@ -238,8 +245,15 @@ class PortableN4MTrainedPipeline:
                 or not 1 <= params["mode_k"] <= 2**31 - 1
             ):
                 raise ValueError("NPLS tensor modes must be positive bounded integers")
+            if name == "n4m.MBPLS" and (
+                not isinstance(params.get("block_sizes"), list)
+                or len(params["block_sizes"]) < 2
+                or any(type(size) is not int or not 1 <= size <= 2**31 - 1
+                       for size in params["block_sizes"])
+            ):
+                raise ValueError("MBPLS block sizes must be positive bounded integers")
             for key, value in params.items():
-                if key == "n_components":
+                if key in {"n_components", "block_sizes"}:
                     continue
                 if type(value) not in (int, float) or not np.isfinite(value):
                     raise ValueError("affine recipe parameters must be finite numbers")
@@ -536,6 +550,8 @@ class PortableN4MTrainedPipeline:
             manifest["fit_recipe_assertion"] = {
                 "kind": "affine_recipe", "recipe_class": model_node["class"],
             }
+            if model_node["class"] == "n4m.MBPLS":
+                manifest["fit_recipe_assertion"]["block_sizes"] = model_node["params"]["block_sizes"]
         manifest_json = json.dumps(manifest, ensure_ascii=False, allow_nan=False,
                                    separators=(",", ":"))
         document = {

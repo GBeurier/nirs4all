@@ -37,6 +37,7 @@ _AFFINE_CASES = [
     ("n4m.RandomSubspacePLS", {"n_components": 2, "n_estimators": 7,
                                "features_per_subspace": 5, "seed": 13}),
     ("n4m.NPLS", {"n_components": 2, "mode_j": 3, "mode_k": 4}),
+    ("n4m.MBPLS", {"n_components": 2, "block_sizes": [4, 4, 4]}),
 ]
 
 
@@ -50,7 +51,10 @@ def test_affine_v5_predict_roundtrip_and_refit(name: str, params: dict) -> None:
         document = json.loads(fitted.to_json())
         assert document["schema"] == "nirs4all.n4m.trained_pipeline.v5"
         manifest = json.loads(document["manifest_json"])
-        assert manifest["fit_recipe_assertion"] == {"kind": "affine_recipe", "recipe_class": name}
+        expected_assertion = {"kind": "affine_recipe", "recipe_class": name}
+        if name == "n4m.MBPLS":
+            expected_assertion["block_sizes"] = params["block_sizes"]
+        assert manifest["fit_recipe_assertion"] == expected_assertion
         with PortableN4MTrainedPipeline.from_json(fitted.to_json()) as restored:
             np.testing.assert_allclose(restored.predict(X[28:]), expected, rtol=0, atol=1e-12)
             np.testing.assert_allclose(restored.retrain(X[:28], y[:28]).predict(X[28:]),
@@ -133,6 +137,7 @@ def test_affine_v5_rejects_tampered_recipe_state_and_descriptor() -> None:
     ("n4m.RandomSubspacePLS", {"n_components": 2, "n_estimators": 3.5}),
     ("n4m.Ridge", {"n_components": 2}),
     ("n4m.NPLS", {"n_components": 2, "mode_j": 3, "mode_k": 5}),
+    ("n4m.MBPLS", {"n_components": 2, "block_sizes": [4, 4, 5]}),
 ])
 def test_affine_v5_rejects_invalid_shared_recipe(name: str, params: dict) -> None:
     X, y = _inputs()
@@ -154,3 +159,21 @@ def test_npls_v5_rejects_changed_tensor_modes_and_multitarget_fit() -> None:
         PortableN4MTrainedPipeline(_rehashed_manifest(document, manifest))
     with pytest.raises(ValueError, match="aligned training"):
         PortableN4MTrainedPipeline.fit_recipe(recipe, X[:28], np.column_stack((y[:28], y[:28])))
+
+
+@pytest.mark.methods
+def test_mbpls_v5_rejects_changed_block_width() -> None:
+    X, y = _inputs()
+    recipe = {"pipeline": [{"model": {"class": "n4m.MBPLS", "params": {
+        "n_components": 2, "block_sizes": [4, 4, 4]}}}]}
+    with PortableN4MTrainedPipeline.fit_recipe(recipe, X[:28], y[:28]) as fitted:
+        document = json.loads(fitted.to_json())
+    manifest = json.loads(document["manifest_json"])
+    manifest["recipe"]["pipeline"][-1]["model"]["params"]["block_sizes"][-1] = 5
+    manifest["fit_recipe_assertion"]["block_sizes"][-1] = 5
+    with pytest.raises(ValueError, match="block sizes"):
+        PortableN4MTrainedPipeline(_rehashed_manifest(document, manifest))
+    manifest = json.loads(document["manifest_json"])
+    manifest["fit_recipe_assertion"]["block_sizes"] = [6, 2, 4]
+    with pytest.raises(ValueError, match="assertion"):
+        PortableN4MTrainedPipeline(_rehashed_manifest(document, manifest))

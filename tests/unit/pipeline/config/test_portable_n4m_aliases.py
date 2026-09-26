@@ -68,6 +68,10 @@ def test_affine_recipe_defaults_match_r_dispatch() -> None:
     assert ridge_pls.scale_x is False
     assert robust.max_irls_iter == 20
     assert robust.scale_x is False
+    multiblock = StepParser().parse({"model": {"class": "n4m.MBPLS", "params": {
+        "n_components": 2, "block_sizes": [4, 4, 4]}}}).operator
+    assert multiblock.scale_x is False
+    assert multiblock.scale_y is False
 
 
 @pytest.mark.parametrize(
@@ -174,6 +178,28 @@ def test_npls_recipe_matches_r_native_heldout(tmp_path, extension: str,
                 [1.242673188360166, 1.939312398512768, 0.5941411153991755])
     np.testing.assert_allclose(operator.fit(X, target).predict(X_test),
                                expected, rtol=0, atol=1e-10)
+
+
+@pytest.mark.parametrize("extension", ["json", "yaml"])
+def test_mbpls_recipe_matches_r_native_heldout(tmp_path, extension: str) -> None:
+    samples = np.arange(1, 22, dtype=np.float64)[:, None]
+    bands = np.arange(1, 13, dtype=np.float64)[None, :]
+    X = np.sin(samples * bands / 9) + np.cos(samples + bands / 7) + samples * bands / 100
+    y = 1.3 + 0.7 * X[:, 1] - 0.4 * X[:, 5]
+    X_test = X[[1, 7, 16], :] + 0.031
+    recipe = {"pipeline": [{"model": {"class": "n4m.MBPLS", "params": {
+        "n_components": 2, "block_sizes": [4, 4, 4]}}}]}
+    path = tmp_path / f"mbpls.{extension}"
+    if extension == "json":
+        path.write_text(json.dumps(recipe), encoding="utf-8")
+    else:
+        path.write_text("pipeline:\n  - model:\n      class: n4m.MBPLS\n"
+                        "      params:\n        n_components: 2\n"
+                        "        block_sizes: [4, 4, 4]\n", encoding="utf-8")
+    operator = StepParser().parse(PipelineConfigs(str(path)).steps[0][0]).operator
+    np.testing.assert_allclose(operator.fit(X, y).predict(X_test),
+                               [1.3614391588922699, 2.033212108151359,
+                                0.7661914180346159], rtol=0, atol=1e-10)
 
 
 @pytest.mark.parametrize("params", [
