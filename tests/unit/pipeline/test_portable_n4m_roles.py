@@ -1,4 +1,4 @@
-"""Version 7 trained envelopes: n4m role recipes with their N4ME states."""
+"""Version 8 trained envelopes: n4m role recipes with their N4ME states."""
 
 from __future__ import annotations
 
@@ -82,12 +82,12 @@ def test_rejects_tampered_or_foreign_envelopes(data):
 
 
 def test_r_trained_envelope_predicts_identically_in_python():
-    """Fixture from nirs4all-r tests/helpers/trained_roles_v7_fixture.R."""
+    """Fixture from nirs4all-r tests/helpers/trained_roles_v8_fixture.R."""
     from pathlib import Path
 
     fixtures = Path(__file__).resolve().parents[2] / "fixtures"
-    oracle = json.loads((fixtures / "portable_roles_v7_r_oracle.json").read_text(encoding="utf-8"))
-    replayed = PortableN4MRolePipeline.from_json(fixtures / "portable_roles_v7_r_envelope.json")
+    oracle = json.loads((fixtures / "portable_roles_v8_r_oracle.json").read_text(encoding="utf-8"))
+    replayed = PortableN4MRolePipeline.from_json(fixtures / "portable_roles_v8_r_envelope.json")
     np.testing.assert_allclose(replayed.predict(oracle["x_test"]), oracle["predict"], rtol=1e-12, atol=1e-12)
     refit = replayed.retrain(np.asarray(oracle["x_train"]), np.asarray(oracle["y_train"]))
     np.testing.assert_allclose(refit.predict(oracle["x_test"]), oracle["predict"], rtol=1e-9, atol=1e-9)
