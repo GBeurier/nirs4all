@@ -29,7 +29,7 @@ class TransformerMixinController(OperatorController):
     priority = 10
 
     @staticmethod
-    def _needs_wavelengths(operator: Any) -> bool:
+    def _needs_wavelengths(operator: Any) -> bool | str:
         """Check if the operator needs wavelengths passed.
 
         Args:
@@ -140,8 +140,9 @@ class TransformerMixinController(OperatorController):
     def _extract_wavelengths(
         dataset: 'SpectroDataset',
         source_index: int,
-        operator_name: str
-    ) -> np.ndarray:
+        operator_name: str,
+        required: bool = True,
+    ) -> np.ndarray | None:
         """Extract wavelengths from dataset for a given source.
 
         Attempts to get wavelengths using dataset.wavelengths_nm(). If that fails,
@@ -151,12 +152,15 @@ class TransformerMixinController(OperatorController):
             dataset: The SpectroDataset to extract wavelengths from.
             source_index: The source index for multi-source datasets.
             operator_name: Name of the operator (for error messages).
+            required: False for operators whose wavelengths are optional
+                (``_requires_wavelengths == "optional"``): they get None
+                when the dataset has none.
 
         Returns:
-            Wavelength array in nm.
+            Wavelength array in nm, or None when optional and unavailable.
 
         Raises:
-            ValueError: If wavelengths cannot be extracted from the dataset.
+            ValueError: If required wavelengths cannot be extracted from the dataset.
         """
         try:
             wavelengths = dataset.wavelengths_nm(source_index)
@@ -172,6 +176,8 @@ class TransformerMixinController(OperatorController):
         except (ValueError, AttributeError):
             pass
 
+        if not required:
+            return None
         raise ValueError(
             f"Operator {operator_name} requires wavelengths but dataset has no "
             f"wavelength information for source {source_index}. Ensure the dataset "
@@ -438,7 +444,9 @@ class TransformerMixinController(OperatorController):
             # Extract wavelengths for this source if needed
             wavelengths = None
             if needs_wavelengths:
-                wavelengths = self._extract_wavelengths(dataset, sd_idx, operator_name)
+                wavelengths = self._extract_wavelengths(
+                    dataset, sd_idx, operator_name, required=needs_wavelengths is True
+                )
 
             # Get processing names for this source
             processing_ids = dataset.features_processings(sd_idx)
@@ -671,7 +679,7 @@ class TransformerMixinController(OperatorController):
         n_processings: int,
         fit_data: Any,
         y_fit: Any,
-        needs_wavelengths: bool,
+        needs_wavelengths: bool | str,
         requires_y: bool,
         wavelengths_cache: dict,
         fitted_transformers_cache: dict,
@@ -695,7 +703,7 @@ class TransformerMixinController(OperatorController):
             n_processings: Number of processings per source.
             fit_data: List of per-source 3D fit arrays.
             y_fit: Optional target values for supervised fitting.
-            needs_wavelengths: Whether the operator needs wavelengths.
+            needs_wavelengths: True, "optional" or False (``_requires_wavelengths``).
             requires_y: Whether the operator needs targets to fit.
             wavelengths_cache: Per-source wavelength cache (mutated).
             fitted_transformers_cache: Per-(source, processing) transformer cache (mutated).
@@ -707,7 +715,7 @@ class TransformerMixinController(OperatorController):
             if needs_wavelengths:
                 if source_idx not in wavelengths_cache:
                     wavelengths_cache[source_idx] = self._extract_wavelengths(
-                        dataset, source_idx, operator_name
+                        dataset, source_idx, operator_name, required=needs_wavelengths is True
                     )
                 wavelengths = wavelengths_cache[source_idx]
 
@@ -746,7 +754,7 @@ class TransformerMixinController(OperatorController):
         n_sources: int,
         n_processings: int,
         all_origin_data: list,
-        needs_wavelengths: bool,
+        needs_wavelengths: bool | str,
         wavelengths_cache: dict,
         fitted_transformers_cache: dict,
     ) -> list:
@@ -767,7 +775,7 @@ class TransformerMixinController(OperatorController):
             n_sources: Number of data sources.
             n_processings: Number of processings per source.
             all_origin_data: Per-source 3D origin arrays.
-            needs_wavelengths: Whether the operator needs wavelengths.
+            needs_wavelengths: True, "optional" or False (``_requires_wavelengths``).
             wavelengths_cache: Per-source wavelength cache (mutated).
             fitted_transformers_cache: Per-(source, processing) transformer cache.
 
@@ -785,7 +793,7 @@ class TransformerMixinController(OperatorController):
             if needs_wavelengths:
                 if source_idx not in wavelengths_cache:
                     wavelengths_cache[source_idx] = self._extract_wavelengths(
-                        dataset, source_idx, operator_name
+                        dataset, source_idx, operator_name, required=needs_wavelengths is True
                     )
                 wavelengths = wavelengths_cache[source_idx]
 
@@ -1076,7 +1084,7 @@ class TransformerMixinController(OperatorController):
                 if needs_wavelengths:
                     if source_idx not in wavelengths_cache:
                         wavelengths_cache[source_idx] = self._extract_wavelengths(
-                            dataset, source_idx, operator_name
+                            dataset, source_idx, operator_name, required=needs_wavelengths is True
                         )
                     wavelengths = wavelengths_cache[source_idx]
 

@@ -15,6 +15,7 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter
 from nirs4all.operators.filters.metadata import MetadataFilter
+from nirs4all.operators.filters.native import as_sample_filter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 logger = get_logger(__name__)
@@ -222,13 +223,33 @@ class TagController(OperatorController):
         Raises:
             TypeError: If filter is not a SampleFilter instance
         """
-        taggers = []
+        taggers: list[tuple[str, SampleFilter]] = []
 
-        # If config is already a SampleFilter instance, use it directly
-        if isinstance(config, SampleFilter):
-            tag_name = self._get_tag_name(config)
-            taggers.append((tag_name, config))
-            return taggers
+        def resolve(filter_def: Any) -> SampleFilter:
+            live = as_sample_filter(filter_def)
+            filter_obj = live if live is not None else as_sample_filter(deserialize_component(filter_def))
+            if filter_obj is None:
+                raise TypeError(
+                    f"Tag filter must be a SampleFilter instance, "
+                    f"got {type(filter_def).__name__}"
+                )
+            return filter_obj
+
+        is_component = isinstance(config, dict) and any(key in config for key in ("class", "function", "instance"))
+        if isinstance(config, dict) and not is_component:
+            # Named dict format: {"tag_name": Filter()}
+            taggers.extend((tag_name, resolve(filter_def)) for tag_name, filter_def in config.items())
+        elif isinstance(config, list):
+            # List format: [Filter1(), Filter2()]
+            for filter_def in config:
+                filter_obj = resolve(filter_def)
+                taggers.append((self._get_tag_name(filter_obj), filter_obj))
+        else:
+            # Single filter: a live instance or a serialized component
+            filter_obj = resolve(config)
+            taggers.append((self._get_tag_name(filter_obj), filter_obj))
+
+        return taggers
 
         # Check if config is a serialized component dict (has "class", "function", or "instance" key)
         if isinstance(config, dict) and any(key in config for key in ("class", "function", "instance")):

@@ -3209,13 +3209,14 @@ def _separation_preproc_steps_for_branch(steps: Any, branch_name: str) -> list[A
 
 def _branch_filter_from_spec(filter_spec: Any) -> Any:
     """Deserialize a ``by_filter`` criterion into a SampleFilter instance."""
-    from nirs4all.operators.filters.base import SampleFilter
+    from nirs4all.operators.filters.native import as_sample_filter
     from nirs4all.pipeline.config.component_serialization import deserialize_component
 
-    filter_obj = deserialize_component(filter_spec) if isinstance(filter_spec, dict) else filter_spec
-    if not isinstance(filter_obj, SampleFilter):
+    spec_obj = deserialize_component(filter_spec) if isinstance(filter_spec, dict) else filter_spec
+    filter_obj = as_sample_filter(spec_obj)
+    if filter_obj is None:
         raise DagMlUnsupported(
-            f"by_filter preprocessing concat expects a SampleFilter, got {type(filter_obj).__name__}"
+            f"by_filter preprocessing concat expects a SampleFilter, got {type(spec_obj).__name__}"
         )
     return _clone_operator_instance(filter_obj)
 

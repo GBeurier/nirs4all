@@ -9,6 +9,7 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.core.logging import get_logger
 from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
+from nirs4all.operators.augmentation.native import as_augmenter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 logger = get_logger(__name__)
@@ -153,9 +154,9 @@ class SampleAugmentationController(OperatorController):
         transformers = []
         for t in transformers_raw:
             if isinstance(t, dict) and "transformer" in t:
-                transformers.append(deserialize_component(t["transformer"]))
+                transformers.append(as_augmenter(deserialize_component(t["transformer"])))
             else:
-                transformers.append(deserialize_component(t))
+                transformers.append(as_augmenter(deserialize_component(t)))
 
         # Step-level random_state controls both selection and, for unseeded stochastic
         # augmenters, the generated synthetic spectra. Keep explicit operator seeds.
