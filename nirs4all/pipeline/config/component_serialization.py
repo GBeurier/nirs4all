@@ -45,6 +45,27 @@ build_aliases: dict[str, str] = {
 }
 build_aliases.update({name: spec.class_path for name, spec in PORTABLE_METHOD_SPECS.items()})
 
+# Generic n4m role token: any n4m.roles estimator or procedure serializes as
+# "n4m:<catalog method id>", resolved in every binding through the native
+# manifest (Python ``method_class``, R ``n4m_constructor``, JS ``methodClass``).
+N4M_ROLE_PREFIX = "n4m:"
+
+
+def _n4m_role_method_id(obj: Any) -> str | None:
+    """Catalog method id of an ``n4m.roles`` instance, else None."""
+    # A role instance implies n4m.roles is loaded; nothing to import otherwise.
+    roles = sys.modules.get("n4m.roles")
+    if roles is not None and isinstance(obj, roles.NativeMethod):
+        return str(obj._method_id)
+    return None
+
+
+def _n4m_role_class(token: str) -> Any:
+    from n4m.roles import method_class
+
+    return method_class(token[len(N4M_ROLE_PREFIX):])
+
+
 # Shared recipe defaults follow R's n4m dispatch, not host-specific estimator
 # defaults. In particular R disables X scaling and uses 20 robust IRLS steps.
 portable_model_defaults: dict[str, dict[str, Any]] = {
@@ -247,6 +268,11 @@ def serialize_component(obj: Any) -> Any:
 
     params = _changed_kwargs(obj)
 
+    method_id = _n4m_role_method_id(obj)
+    if method_id is not None:
+        token = N4M_ROLE_PREFIX + method_id
+        return {"class": token, "params": serialize_component(params)} if params else token
+
     if inspect.isfunction(obj) or inspect.isbuiltin(obj):
         func_serialized = {
             "function": f"{obj.__module__}.{obj.__name__}"
@@ -281,6 +307,8 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
         return blob
 
     if isinstance(blob, str):
+        if blob.startswith(N4M_ROLE_PREFIX):
+            return _n4m_role_class(blob)()
         portable_name = blob
         if blob in build_aliases:
             blob = build_aliases[blob]
@@ -374,6 +402,8 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
 
             portable_name = blob[key]
             assert isinstance(portable_name, str)
+            if key == "class" and portable_name.startswith(N4M_ROLE_PREFIX):
+                return _n4m_role_class(portable_name)(**deserialize_component(blob.get("params", {})))
             resolved_name = build_aliases.get(portable_name, portable_name)
             mod_name, _, cls_or_func_name = resolved_name.rpartition(".")
 

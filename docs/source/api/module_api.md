@@ -94,6 +94,39 @@ fine-tuning, host-sidecars and implicit sample identities fail before native
 data execution. Archive V3 supports PREDICT only and carries no conformal
 presentation state.
 
+### Generic n4m role recipes and trained envelopes (version 7)
+
+Every `n4m.roles` estimator or procedure serializes as the language-neutral
+token `"n4m:<catalog method id>"` (with `params` when they differ from the
+native defaults), for example `{"class": "n4m:models.pls.cppls", "params":
+{"n_components": 3}}`. Pipeline JSON/YAML files may use these tokens as steps
+or inside `exclude`, `tag`, `model` and `sample_augmentation`; the R, JS/WASM
+and Rust n4m bindings resolve the same token from the native manifest.
+
+`PortableN4MRolePipeline` fits such a recipe (sample filters, transformers and
+selectors, then one regressor or classifier) and exports every fitted step as
+its native N4ME state. Any n4m binding rebuilds the estimators from those
+bytes and predicts identically:
+
+```python
+from nirs4all.pipeline.portable_n4m_roles import PortableN4MRolePipeline
+
+recipe = {"pipeline": [
+    {"class": "n4m:filters.y_outlier", "params": {"threshold": 2.0}},
+    "n4m:preprocessing.scatter.snv",
+    {"class": "n4m:models.pls.cppls", "params": {"n_components": 3}},
+]}
+fitted = PortableN4MRolePipeline.fit_recipe(recipe, X_train, y_train)
+fitted.to_json("trained-v7.json")
+replayed = PortableN4MRolePipeline.from_json("trained-v7.json")
+predictions = replayed.predict(X_validation)
+```
+
+The envelope (`nirs4all.n4m.trained_pipeline.v7`) holds the recipe, the input
+width and, per fitted step, `method_id`, the base64 N4ME bytes and their
+SHA-256 (plus `class_names` for classifiers trained on label names). Filters
+act on training rows only and carry no state.
+
 ### R/Python trained n4m recipe envelope
 
 For qualified n4m-only recipes, the R package `nirs4all` and the full Python
