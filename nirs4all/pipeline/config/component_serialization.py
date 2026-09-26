@@ -21,9 +21,35 @@ build_aliases: dict[str, str] = {
     "n4m.Detrend": "n4m.transform.baseline.Detrend",
     "n4m.MSC": "n4m.transform.scatter.MSC",
     "n4m.EMSC": "n4m.transform.scatter.EMSC",
+    "n4m.SPA": "n4m.feature_selection.wrapper.SPA",
+    "n4m.Selector": "n4m.feature_selection.Selector",
     "n4m.PLS": "pls4all.sklearn.PLSRegression",
     "n4m.PLSRegression": "pls4all.sklearn.PLSRegression",
     "n4m.SparsePLSDA": "pls4all.sklearn.SparsePLSDAClassifier",
+    "n4m.Ridge": "pls4all.sklearn.Ridge",
+    "n4m.RidgePLS": "n4m.estimators.regression.regularized.RidgePLS",
+    "n4m.RobustPLS": "n4m.estimators.regression.robust.RobustPLS",
+    "n4m.CPPLS": "pls4all.sklearn.CPPLSRegression",
+    "n4m.SparseSIMPLS": "pls4all.sklearn.SparseSimplsRegression",
+    "n4m.ECR": "pls4all.sklearn.ECRegression",
+    "n4m.ContinuumRegression": "n4m.estimators.regression.latent.ContinuumRegression",
+    "n4m.MIRPLS": "pls4all.sklearn.MIRPLSRegression",
+    "n4m.FusedSparsePLS": "pls4all.sklearn.FusedSparsePLSRegression",
+    "n4m.BaggingPLS": "pls4all.sklearn.BaggingPLSRegression",
+    "n4m.BoostingPLS": "pls4all.sklearn.BoostingPLSRegression",
+    "n4m.RandomSubspacePLS": "pls4all.sklearn.RandomSubspacePLSRegression",
+    "n4m.NPLS": "pls4all.sklearn.NPLSRegression",
+    "n4m.MBPLS": "pls4all.sklearn.MBPLSRegression",
+}
+
+# Shared recipe defaults follow R's n4m dispatch, not host-specific estimator
+# defaults. In particular R disables X scaling and uses 20 robust IRLS steps.
+portable_model_defaults: dict[str, dict[str, Any]] = {
+    "n4m.PLS": {"scale_y": True},
+    "n4m.PLSRegression": {"scale_y": True},
+    "n4m.RidgePLS": {"ridge_lambda": 1.0, "scale_x": False},
+    "n4m.RobustPLS": {"max_irls_iter": 20, "scale_x": False},
+    "n4m.MBPLS": {"scale_x": False, "scale_y": False},
 }
 
 def _is_meta_estimator(obj) -> bool:
@@ -275,9 +301,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
 
             # Try to instantiate without parameters
             try:
-                if portable_name in ("n4m.PLS", "n4m.PLSRegression"):
-                    return cls_or_func(scale_y=True)
-                return cls_or_func()
+                return cls_or_func(**portable_model_defaults.get(portable_name, {}))
             except TypeError as e:
                 # If instantiation fails due to missing required parameters,
                 # check if there are required parameters without defaults
@@ -376,11 +400,28 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                     # print(k, v, resolved_type)
                     params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
 
-            # R's qualified n4m.PLS recipe uses the native SIMPLS defaults,
-            # including y scaling. The Python sklearn-style wrapper defaults
-            # scale_y to False, so preserve the shared recipe semantics here.
-            if portable_name in ("n4m.PLS", "n4m.PLSRegression"):
-                params.setdefault("scale_y", True)
+            for default_name, default_value in portable_model_defaults.get(portable_name, {}).items():
+                params.setdefault(default_name, default_value)
+
+            if portable_name in {"n4m.BaggingPLS", "n4m.RandomSubspacePLS"} and "seed" in params:
+                seed = params["seed"]
+                if type(seed) is not int or not 0 <= seed <= 2**31 - 1:
+                    raise ValueError("portable n4m seed must be an integer in [0, 2^31-1]")
+            if portable_name == "n4m.BoostingPLS" and "learning_rate" in params:
+                learning_rate = params["learning_rate"]
+                if type(learning_rate) not in (int, float) or not 0 < learning_rate <= 1:
+                    raise ValueError("portable boosting learning_rate must be in (0, 1]")
+            if portable_name == "n4m.NPLS":
+                for mode_name in ("mode_j", "mode_k"):
+                    mode = params.get(mode_name)
+                    if type(mode) is not int or not 1 <= mode <= 2**31 - 1:
+                        raise ValueError(f"portable n4m {mode_name} must be a positive integer")
+            if portable_name == "n4m.MBPLS":
+                blocks = params.get("block_sizes")
+                if (not isinstance(blocks, (list, tuple)) or len(blocks) < 2
+                        or any(type(size) is not int or not 1 <= size <= 2**31 - 1
+                               for size in blocks)):
+                    raise ValueError("portable n4m block_sizes must contain at least two positive integers")
 
             try:
                 # Special handling for model factory functions with @framework decorator
@@ -411,7 +452,11 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                         "params": params
                     }
 
-            except TypeError:
+            except TypeError as exc:
+                if portable_name in build_aliases:
+                    raise ValueError(
+                        f"Invalid parameters for portable component '{portable_name}': {exc}"
+                    ) from exc
                 print(f"Failed to instantiate {cls_or_func} with params {params}")
                 sig = inspect.signature(cls_or_func)
                 allowed = {n for n in sig.parameters if n != "self"}
