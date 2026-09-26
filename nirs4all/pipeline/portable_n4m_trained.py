@@ -1,7 +1,7 @@
 """Read and replay a cross-language trained n4m pipeline without host pickles.
 
-The envelope carries a shared JSON recipe, MSC/EMSC training references, and
-one native N4MM model. Numerical transforms and prediction remain in Methods.
+The envelope carries a shared JSON recipe, fitted native preprocessing state,
+and one native N4MM model. Numerical transforms and prediction remain in Methods.
 This is a bounded native pipeline format, not a general DAG-ML archive.
 """
 
@@ -21,6 +21,7 @@ _STATELESS = {
     "n4m.AreaNormalization", "n4m.Detrend",
 }
 _STATEFUL = {"n4m.MSC", "n4m.EMSC"}
+_SELECTOR = "n4m.SPA"
 
 
 class PortableN4MTrainedPipeline:
@@ -28,7 +29,9 @@ class PortableN4MTrainedPipeline:
 
     Use :meth:`close` or a context manager to release the N4MM handle. The
     original JSON recipe remains available for training a fresh model through
-    the normal Python ``PipelineConfigs``/``StepParser`` path.
+    the normal Python ``PipelineConfigs``/``StepParser`` path. Version 3 adds
+    supervised SPA state to regression PLS recipes; its wire indices are zero
+    based and ranked, while prediction projects columns in spectral order.
     """
 
     def __init__(self, document: dict[str, Any]) -> None:
@@ -41,9 +44,11 @@ class PortableN4MTrainedPipeline:
                 or document["schema"] not in {
                     "nirs4all.n4m.trained_pipeline.v1",
                     "nirs4all.n4m.trained_pipeline.v2",
+                    "nirs4all.n4m.trained_pipeline.v3",
                 }):
             raise ValueError("unsupported trained n4m pipeline envelope")
         classification = document["schema"].endswith(".v2")
+        selector_envelope = document["schema"].endswith(".v3")
         manifest_json = document["manifest_json"]
         manifest_hash = document["manifest_sha256"]
         if (not isinstance(manifest_json, str) or not isinstance(manifest_hash, str)
@@ -74,10 +79,13 @@ class PortableN4MTrainedPipeline:
         recipe = manifest["recipe"]
         if not isinstance(recipe, dict) or not isinstance(recipe.get("pipeline"), list):
             raise ValueError("invalid n4m recipe")
+        nodes = recipe["pipeline"]
+        if not nodes or not isinstance(nodes[-1], dict):
+            raise ValueError("trained n4m pipeline needs one final model")
+        has_selector = self._has_selector(nodes[:-1])
         # Apply the same config resolver used by ordinary Python nirs4all.
         PipelineConfigs(recipe)
-        nodes = recipe["pipeline"]
-        if not nodes or set(nodes[-1]) != {"model"}:
+        if set(nodes[-1]) != {"model"}:
             raise ValueError("trained n4m pipeline needs one final model")
         model_node = nodes[-1]["model"]
         self._validate_model_node(model_node, classification)
@@ -86,6 +94,10 @@ class PortableN4MTrainedPipeline:
             raise ValueError("unsupported preprocessing owner")
         if classification and owner != "external":
             raise ValueError("sparse PLS-DA requires external preprocessing")
+        if selector_envelope and owner != "external":
+            raise ValueError("trained SPA requires external preprocessing")
+        if selector_envelope != has_selector:
+            raise ValueError("trained selector state requires v3 envelope")
         states = manifest["step_states"]
         if not isinstance(states, list):
             raise ValueError("invalid fitted preprocessing state")
@@ -95,7 +107,7 @@ class PortableN4MTrainedPipeline:
             self._validate_embedded_recipe(nodes[:2])
             output_width = width
         else:
-            output_width = self._validate_steps(nodes[:-1], states, width)
+            output_width = self._validate_steps(nodes[:-1], states, width, allow_selector=selector_envelope)
         model = document["model"]
         if (not isinstance(model, dict) or set(model) != {"kind", "encoding", "sha256", "payload"}
                 or model["kind"] != "n4m_model" or model["encoding"] != "base64-n4mm"
@@ -191,7 +203,40 @@ class PortableN4MTrainedPipeline:
             raise ValueError("embedded N4MM preprocessing does not match recipe")
 
     @classmethod
-    def _validate_steps(cls, nodes: list[dict[str, Any]], states: list[Any], width: int) -> int:
+    def _has_selector(cls, nodes: list[dict[str, Any]]) -> bool:
+        for node in nodes:
+            if not isinstance(node, dict):
+                raise ValueError("invalid preprocessing node")
+            if node.get("class") == _SELECTOR:
+                return True
+            if "branch" in node:
+                branches = node["branch"]
+                if not isinstance(branches, dict):
+                    raise ValueError("invalid feature branch")
+                if any(cls._has_selector(branch) for branch in branches.values()):
+                    return True
+        return False
+
+    @staticmethod
+    def _validate_selector_state(node: dict[str, Any], state: Any, width: int) -> list[int]:
+        params = node.get("params")
+        if (set(node) != {"class", "params"} or not isinstance(params, dict)
+                or set(params) != {"top_k", "n_components"}
+                or type(params["top_k"]) is not int or not 1 <= params["top_k"] <= width
+                or type(params["n_components"]) is not int or params["n_components"] < 1
+                or not isinstance(state, dict) or set(state) != {"kind", "selected_indices"}
+                or state["kind"] != "selector"):
+            raise ValueError("invalid fitted SPA state or recipe")
+        selected = state["selected_indices"]
+        if (not isinstance(selected, list) or len(selected) != params["top_k"]
+                or any(type(index) is not int or index < 0 or index >= width for index in selected)
+                or len(set(selected)) != len(selected)):
+            raise ValueError("invalid fitted SPA selected_indices")
+        return selected
+
+    @classmethod
+    def _validate_steps(cls, nodes: list[dict[str, Any]], states: list[Any], width: int,
+                        *, allow_selector: bool = False) -> int:
         # Branch/merge occupies two recipe nodes but one fitted state.
         if len(nodes) != len(states) and not any("branch" in node for node in nodes):
             raise ValueError("fitted preprocessing state count differs from recipe")
@@ -212,7 +257,8 @@ class PortableN4MTrainedPipeline:
                         or state["kind"] != "branch" or not isinstance(state["branches"], dict)
                         or list(state["branches"]) != list(branches)):
                     raise ValueError("fitted branch state differs from recipe")
-                width = sum(cls._validate_steps(branch, state["branches"][name], width)
+                width = sum(cls._validate_steps(branch, state["branches"][name], width,
+                                                allow_selector=allow_selector)
                             for name, branch in branches.items())
                 index += 2
             elif "merge" in node:
@@ -227,6 +273,8 @@ class PortableN4MTrainedPipeline:
                             or state["kind"] != name.removeprefix("n4m.").upper()):
                         raise ValueError("missing fitted native reference")
                     cls._reference(state["reference"], width)
+                elif name == _SELECTOR and allow_selector:
+                    width = len(cls._validate_selector_state(node, state, width))
                 elif name in _STATELESS:
                     if state is not None:
                         raise ValueError("stateless preprocessing has fitted state")
@@ -267,7 +315,7 @@ class PortableN4MTrainedPipeline:
     def fit_recipe(cls, recipe: dict[str, Any], X: Any, y: Any) -> PortableN4MTrainedPipeline:
         """Train a native n4m recipe in Python and produce the portable envelope.
 
-        Methods owns every transform and PLS fit. For MSC/EMSC, the portable
+        Methods owns every transform, SPA selection and PLS fit. For MSC/EMSC, the portable
         reference comes from the native getter when available. The published
         1.0.21 binding lacks that getter, so only its documented column-mean
         reference is reconstructed from the same training rows as a fallback.
@@ -285,6 +333,8 @@ class PortableN4MTrainedPipeline:
         model_node = nodes[-1].get("model")
         classification = isinstance(model_node, dict) and model_node.get("class") == "n4m.SparsePLSDA"
         cls._validate_model_node(model_node, classification)
+        if classification and cls._has_selector(nodes[:-1]):
+            raise ValueError("trained SPA classification is not in the v3 envelope")
         assert isinstance(model_node, dict)
         columns = getattr(X, "columns", None)
         names = list(columns) if columns is not None else None
@@ -302,7 +352,7 @@ class PortableN4MTrainedPipeline:
                                   or any(not isinstance(name, str) or not name for name in names)
                                   or len(set(names)) != len(names)):
             raise ValueError("invalid ordered feature names")
-        states, transformed = cls._fit_portable_steps(nodes[:-1], values)
+        states, transformed = cls._fit_portable_steps(nodes[:-1], values, targets)
         classes: list[str] | None = None
         if classification:
             from nirs4all.pipeline.steps.parser import StepParser
@@ -340,7 +390,9 @@ class PortableN4MTrainedPipeline:
         manifest_json = json.dumps(manifest, ensure_ascii=False, allow_nan=False,
                                    separators=(",", ":"))
         document = {
-            "schema": "nirs4all.n4m.trained_pipeline.v2" if classification else "nirs4all.n4m.trained_pipeline.v1",
+            "schema": ("nirs4all.n4m.trained_pipeline.v2" if classification else
+                       "nirs4all.n4m.trained_pipeline.v3" if cls._has_selector(nodes[:-1]) else
+                       "nirs4all.n4m.trained_pipeline.v1"),
             "manifest_json": manifest_json,
             "manifest_sha256": hashlib.sha256(manifest_json.encode("utf-8")).hexdigest(),
             "model": {
@@ -353,7 +405,7 @@ class PortableN4MTrainedPipeline:
 
     @classmethod
     def _fit_portable_steps(
-        cls, nodes: list[dict[str, Any]], X: np.ndarray,
+        cls, nodes: list[dict[str, Any]], X: np.ndarray, y: np.ndarray,
     ) -> tuple[list[Any], np.ndarray]:
         from nirs4all.pipeline.steps.parser import StepParser
 
@@ -370,7 +422,7 @@ class PortableN4MTrainedPipeline:
                         or not isinstance(node["branch"], dict)
                         or len(node["branch"]) < 2):
                     raise ValueError("unsupported feature branch")
-                outputs = [cls._fit_portable_steps(branch, X)
+                outputs = [cls._fit_portable_steps(branch, X, y)
                            for branch in node["branch"].values()]
                 states.append({"kind": "branch", "branches": {
                     name: output[0] for name, output in zip(node["branch"], outputs, strict=True)
@@ -381,10 +433,17 @@ class PortableN4MTrainedPipeline:
                 if set(node) not in ({"class"}, {"class", "params"}):
                     raise ValueError("unsupported preprocessing node")
                 name = node["class"]
-                if name not in _STATELESS | _STATEFUL:
+                if name not in _STATELESS | _STATEFUL | {_SELECTOR}:
                     raise ValueError(f"unsupported native preprocessing: {name}")
                 operator = parser.parse(node).operator
-                operator.fit(X)
+                if name == _SELECTOR:
+                    operator.fit(X, y)
+                    selected = np.asarray(operator.selected_indices_).tolist()
+                    state = {"kind": "selector", "selected_indices": selected}
+                    cls._validate_selector_state(node, state, X.shape[1])
+                    states.append(state)
+                else:
+                    operator.fit(X)
                 if name in _STATEFUL:
                     reference = np.asarray(
                         operator.reference_ if hasattr(operator, "reference_")
@@ -393,7 +452,7 @@ class PortableN4MTrainedPipeline:
                     )
                     states.append({"kind": name.removeprefix("n4m.").upper(),
                                    "reference": reference.tolist()})
-                else:
+                elif name != _SELECTOR:
                     states.append(None)
                 X = np.asarray(operator.transform(X), dtype=np.float64)
                 index += 1
@@ -424,6 +483,12 @@ class PortableN4MTrainedPipeline:
                 ], axis=1)
                 index += 2
             else:
+                if node["class"] == _SELECTOR:
+                    selected = self._validate_selector_state(node, state, values.shape[1])
+                    values = values[:, sorted(selected)]
+                    index += 1
+                    state_index += 1
+                    continue
                 operator = parser.parse(node).operator
                 if node["class"] in _STATEFUL:
                     reference = self._reference(state["reference"], values.shape[1])
@@ -511,7 +576,7 @@ class PortableN4MTrainedPipeline:
                     or set(targets.tolist()) != set(self.classes)):
                 raise ValueError("retrain classes differ from the portable recipe")
         trained_steps, transformed = RefittedN4MPipeline._fit_steps(
-            self._nodes, values,
+            self._nodes, values, targets,
         )
         from nirs4all.pipeline.steps.parser import StepParser
 
@@ -558,7 +623,8 @@ class RefittedN4MPipeline:
         self.classes = classes
 
     @classmethod
-    def _fit_steps(cls, nodes: list[dict[str, Any]], X: np.ndarray) -> tuple[list[Any], np.ndarray]:
+    def _fit_steps(cls, nodes: list[dict[str, Any]], X: np.ndarray,
+                   y: np.ndarray) -> tuple[list[Any], np.ndarray]:
         from nirs4all.pipeline.steps.parser import StepParser
 
         parser = StepParser()
@@ -567,13 +633,16 @@ class RefittedN4MPipeline:
         while index < len(nodes):
             node = nodes[index]
             if "branch" in node:
-                branch_fits = [cls._fit_steps(branch, X) for branch in node["branch"].values()]
+                branch_fits = [cls._fit_steps(branch, X, y) for branch in node["branch"].values()]
                 fitted.append([entry[0] for entry in branch_fits])
                 X = np.concatenate([entry[1] for entry in branch_fits], axis=1)
                 index += 2
             else:
                 operator = parser.parse(node).operator
-                operator.fit(X)
+                if node["class"] == _SELECTOR:
+                    operator.fit(X, y)
+                else:
+                    operator.fit(X)
                 X = np.asarray(operator.transform(X), dtype=np.float64)
                 fitted.append(operator)
                 index += 1
