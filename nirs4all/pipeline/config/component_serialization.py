@@ -7,6 +7,8 @@ from enum import Enum
 from functools import partial
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
+from .portable_method_specs import PORTABLE_METHOD_SPECS
+
 # Shared n4m recipe identifiers. The Methods Python package intentionally keeps
 # classes in role subpackages rather than exporting them at the top level.
 # Resolve only these explicit portable names; arbitrary dotted paths retain
@@ -41,6 +43,7 @@ build_aliases: dict[str, str] = {
     "n4m.NPLS": "pls4all.sklearn.NPLSRegression",
     "n4m.MBPLS": "pls4all.sklearn.MBPLSRegression",
 }
+build_aliases.update({name: spec.class_path for name, spec in PORTABLE_METHOD_SPECS.items()})
 
 # Shared recipe defaults follow R's n4m dispatch, not host-specific estimator
 # defaults. In particular R disables X scaling and uses 20 robust IRLS steps.
@@ -51,6 +54,7 @@ portable_model_defaults: dict[str, dict[str, Any]] = {
     "n4m.RobustPLS": {"max_irls_iter": 20, "scale_x": False},
     "n4m.MBPLS": {"scale_x": False, "scale_y": False},
 }
+portable_model_defaults.update({name: spec.defaults for name, spec in PORTABLE_METHOD_SPECS.items()})
 
 def _is_meta_estimator(obj) -> bool:
     """Check if object is a stacking/voting meta-estimator.
@@ -300,6 +304,9 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                 return cls_or_func
 
             # Try to instantiate without parameters
+            spec = PORTABLE_METHOD_SPECS.get(portable_name)
+            if spec is not None and spec.required:
+                raise ValueError(f"portable {portable_name} requires explicit {', '.join(sorted(spec.required))}")
             try:
                 return cls_or_func(**portable_model_defaults.get(portable_name, {}))
             except TypeError as e:
@@ -403,6 +410,14 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
             for default_name, default_value in portable_model_defaults.get(portable_name, {}).items():
                 params.setdefault(default_name, default_value)
 
+            spec = PORTABLE_METHOD_SPECS.get(portable_name)
+            if spec is not None:
+                missing = spec.required - params.keys()
+                if missing:
+                    raise ValueError(f"portable {portable_name} requires explicit {', '.join(sorted(missing))}")
+                if spec.validate is not None:
+                    spec.validate(params)
+
             if portable_name in {"n4m.BaggingPLS", "n4m.RandomSubspacePLS"} and "seed" in params:
                 seed = params["seed"]
                 if type(seed) is not int or not 0 <= seed <= 2**31 - 1:
@@ -422,7 +437,6 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                         or any(type(size) is not int or not 1 <= size <= 2**31 - 1
                                for size in blocks)):
                     raise ValueError("portable n4m block_sizes must contain at least two positive integers")
-
             try:
                 # Special handling for model factory functions with @framework decorator
                 # These need dataset-dependent parameters (like input_shape) so we return
