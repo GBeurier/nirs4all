@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] — 2026-09-27
+
+### Added
+
+- Generic n4m roles (`n4m.roles`, Methods ABI 2.13) run in nirs4all
+  pipelines: transformers, selectors, regressors, classifiers and splitters as
+  they are; sample filters in `exclude` / `tag` / `branch` by filter, and
+  augmenters in `sample_augmentation` (one seed per call, dataset wavelengths
+  as axis when the method uses one). Default and legacy engines.
+- Role tokens `"n4m:<catalog method id>"` / `{"class": "n4m:<id>", "params":
+  {...}}` in JSON/YAML pipelines, shared with R and Core/WASM (portability L1).
+- `nirs4all.pipeline.portable_n4m_roles.PortableN4MRolePipeline`: trained
+  envelope `nirs4all.n4m.trained_pipeline.v8` carrying each fitted step as its
+  native N4ME state; Python, R and JS/WASM predict identically from it and
+  retrain the same recipe (portability L2).
+- Train-only native n4m augmentation replayed in the v7 trained envelope.
+
+### Changed
+
+- Requires `nirs4all-methods>=1.1.0` (ABI 2.13). Portable bagging /
+  random-subspace PLS recipes draw with the portable Methods RNG, so their
+  fits change once.
+
+---
+
 ## [1.1.5] — 2026-09-24
 
 ### Fixed
