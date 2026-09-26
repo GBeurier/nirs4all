@@ -156,8 +156,9 @@ def test_affine_recipe_held_out_matches_r_n4m(alias: str, expected: list[float])
 
 @pytest.mark.parametrize("extension", ["json", "yaml"])
 @pytest.mark.parametrize(("alias", "params", "expected"), [
+    # Reconfirmed independently with R n4m 1.0.21.9004 (Methods d058890d).
     ("n4m.FusedSparsePLS", {"l1_lambda": 0.05, "fusion_lambda": 0.05},
-     [1.341067723610322, 2.011218914142026, 0.6903830575230807]),
+     [1.3373539467794611, 1.9377148952044152, 0.7544322586932715]),
     ("n4m.BaggingPLS", {"n_estimators": 7, "seed": 13},
      [1.340366231116839, 2.072160066869946, 0.8905637569136029]),
     ("n4m.BoostingPLS", {"n_estimators": 7, "learning_rate": 0.3},
