@@ -374,7 +374,7 @@ jobs:
           expected = os.environ["RELEASE_TAG"].removeprefix("v").replace("-rc.", "rc")
           assert version("nirs4all") == expected
           assert nirs4all.__version__ == expected
-          assert n4m.abi_version()[:2] == (2, 6)
+          assert n4m.abi_version()[:2] == (2, 13)
 
           rng = np.random.default_rng(42)
           X = rng.normal(size=(30, 8))
