@@ -162,9 +162,9 @@ class PortableN4MTrainedPipeline:
             params = model_node["params"]
             if params["mode_j"] * params["mode_k"] != output_width:
                 raise ValueError("NPLS tensor modes differ from fitted preprocessing width")
-        if affine_envelope and model_node["class"] == "n4m.MBPLS":
-            if sum(model_node["params"]["block_sizes"]) != output_width:
-                raise ValueError("MBPLS block sizes differ from fitted preprocessing width")
+        if (affine_envelope and model_node["class"] == "n4m.MBPLS"
+                and sum(model_node["params"]["block_sizes"]) != output_width):
+            raise ValueError("MBPLS block sizes differ from fitted preprocessing width")
         model = document["model"]
         if (not isinstance(model, dict) or set(model) != {"kind", "encoding", "sha256", "payload"}
                 or model["kind"] != "n4m_model" or model["encoding"] != "base64-n4mm"
