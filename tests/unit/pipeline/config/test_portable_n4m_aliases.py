@@ -74,6 +74,62 @@ def test_affine_recipe_defaults_match_r_dispatch() -> None:
     assert multiblock.scale_y is False
 
 
+def test_group_sparse_alias_resolves_with_explicit_groups() -> None:
+    operator = StepParser().parse({"model": {"class": "n4m.GroupSparsePLS", "params": {
+        "n_components": 2, "group_assignment": [0, 0, 1, 1]}}}).operator
+    assert type(operator).__name__ == "GroupSparsePLS"
+    np.testing.assert_array_equal(operator.group_assignment, [0, 0, 1, 1])
+    assert operator.group_lambda == 0.05
+
+
+def test_group_sparse_string_alias_requires_groups() -> None:
+    with pytest.raises(ValueError, match="group_assignment"):
+        deserialize_component("n4m.GroupSparsePLS")
+
+
+@pytest.mark.parametrize("extension", ["json", "yaml"])
+@pytest.mark.parametrize(("groups", "expected"), [
+    ([0] * 4 + [1] * 4 + [2] * 4,
+     [1.2560303930849952, 1.8411427818857744, 0.8454051444648407]),
+    ([0, 1, 2] * 4,
+     [1.3302312403142085, 1.9038372601712736, 0.8103946779875588]),
+])
+def test_group_sparse_recipe_matches_r_native_heldout(
+        tmp_path, extension: str, groups: list[int], expected: list[float]) -> None:
+    samples = np.arange(1, 22, dtype=np.float64)[:, None]
+    bands = np.arange(1, 13, dtype=np.float64)[None, :]
+    X = np.sin(samples * bands / 9) + np.cos(samples + bands / 7) + samples * bands / 100
+    y = 1.3 + 0.7 * X[:, 1] - 0.4 * X[:, 5]
+    X_test = X[[1, 7, 16], :] + 0.031
+    recipe = {"pipeline": [{"model": {"class": "n4m.GroupSparsePLS", "params": {
+        "n_components": 2, "group_assignment": groups, "group_lambda": 0.05}}}]}
+    path = tmp_path / f"group_sparse.{extension}"
+    if extension == "json":
+        path.write_text(json.dumps(recipe), encoding="utf-8")
+    else:
+        path.write_text("pipeline:\n  - model:\n      class: n4m.GroupSparsePLS\n"
+                        "      params:\n        n_components: 2\n"
+                        f"        group_assignment: {groups}\n"
+                        "        group_lambda: 0.05\n", encoding="utf-8")
+    operator = StepParser().parse(PipelineConfigs(str(path)).steps[0][0]).operator
+    np.testing.assert_array_equal(operator.group_assignment, groups)
+    np.testing.assert_allclose(operator.fit(X, y).predict(X_test),
+                               expected, rtol=0, atol=1e-10)
+
+
+def test_group_sparse_recipe_rejects_feature_width_mismatch() -> None:
+    operator = StepParser().parse({"model": {"class": "n4m.GroupSparsePLS", "params": {
+        "n_components": 2, "group_assignment": [0, 0, 1], "group_lambda": 0.05}}}).operator
+    with pytest.raises(ValueError, match="group_assignment|feature"):
+        operator.fit(np.ones((6, 4)), np.arange(6, dtype=float))
+
+
+def test_group_sparse_recipe_rejects_unknown_parameter() -> None:
+    with pytest.raises(ValueError, match="Invalid parameters"):
+        StepParser().parse({"model": {"class": "n4m.GroupSparsePLS", "params": {
+            "group_assignment": [0, 1], "unknown_native_parameter": 1}}})
+
+
 @pytest.mark.parametrize(
     ("alias", "expected"),
     [
@@ -100,8 +156,9 @@ def test_affine_recipe_held_out_matches_r_n4m(alias: str, expected: list[float])
 
 @pytest.mark.parametrize("extension", ["json", "yaml"])
 @pytest.mark.parametrize(("alias", "params", "expected"), [
+    # Reconfirmed independently with R n4m 1.0.21.9004 (Methods d058890d).
     ("n4m.FusedSparsePLS", {"l1_lambda": 0.05, "fusion_lambda": 0.05},
-     [1.341067723610322, 2.011218914142026, 0.6903830575230807]),
+     [1.3373539467794611, 1.9377148952044152, 0.7544322586932715]),
     ("n4m.BaggingPLS", {"n_estimators": 7, "seed": 13},
      [1.340366231116839, 2.072160066869946, 0.8905637569136029]),
     ("n4m.BoostingPLS", {"n_estimators": 7, "learning_rate": 0.3},
@@ -138,6 +195,35 @@ def test_extra_affine_recipe_rejects_unknown_parameter() -> None:
     with pytest.raises((TypeError, ValueError)):
         StepParser().parse({"model": {"class": "n4m.BaggingPLS",
                                        "params": {"unknown_native_parameter": 1}}})
+
+
+@pytest.mark.parametrize("bad", [
+    {},
+    {"group_assignment": []},
+    {"group_assignment": [0]},
+    {"group_assignment": [0, -1]},
+    {"group_assignment": [0, 2**31]},
+    {"group_assignment": [0, 1.0]},
+    {"group_assignment": [0, True]},
+    {"group_assignment": "0,1"},
+])
+def test_group_sparse_recipe_rejects_invalid_groups(bad: dict) -> None:
+    with pytest.raises(ValueError, match="group_assignment"):
+        StepParser().parse({"model": {"class": "n4m.GroupSparsePLS", "params": bad}})
+
+
+@pytest.mark.parametrize("bad", [-0.01, float("nan"), float("inf"), 10**1000, True, "0.05"])
+def test_group_sparse_recipe_rejects_invalid_lambda(bad: object) -> None:
+    with pytest.raises(ValueError, match="group_lambda"):
+        StepParser().parse({"model": {"class": "n4m.GroupSparsePLS", "params": {
+            "group_assignment": [0, 1], "group_lambda": bad}}})
+
+
+@pytest.mark.parametrize("bad", [0, -1, 2**31, 2.0, True])
+def test_group_sparse_recipe_rejects_invalid_components(bad: object) -> None:
+    with pytest.raises(ValueError, match="n_components"):
+        StepParser().parse({"model": {"class": "n4m.GroupSparsePLS", "params": {
+            "n_components": bad, "group_assignment": [0, 1]}}})
 
 
 @pytest.mark.parametrize("alias,params", [

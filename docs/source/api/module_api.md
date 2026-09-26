@@ -96,10 +96,11 @@ presentation state.
 
 ### R/Python trained n4m recipe envelope
 
-For a supported n4m-only PLS regression or sparse PLS-DA classification
-recipe, the R package `nirs4all` and the full Python package can exchange a
-bounded JSON envelope containing the recipe, fitted MSC/EMSC training
-references and hash-checked native N4MM model bytes:
+For qualified n4m-only recipes, the R package `nirs4all` and the full Python
+package can exchange a bounded JSON envelope containing the recipe and
+hash-checked fitted native state. Earlier envelopes cover PLS regression,
+sparse PLS-DA, native selectors and qualified affine regressions. Version 6
+adds an explicit fitted N4MP preprocessing payload alongside N4MM model bytes:
 
 ```python
 from nirs4all.pipeline.portable_n4m_trained import PortableN4MTrainedPipeline
@@ -111,7 +112,23 @@ with PortableN4MTrainedPipeline.from_json("trained-in-r.json") as fitted:
 
 with PortableN4MTrainedPipeline.fit_recipe(recipe, X_train, y_train) as fitted:
     fitted.to_json("trained-in-python.json")  # importable by nirs4all R
+
+# Opt in to version 6 for a qualified linear native preprocessing chain.
+with PortableN4MTrainedPipeline.fit_recipe(
+    recipe, X_train, y_train, preprocessing="native_n4mp"
+) as fitted:
+    fitted.to_json("trained-v6-in-python.json")
 ```
+
+Version 6 accepts only the qualified default SNV/MSC, bounded polynomial
+detrend and supported Savitzky–Golay settings before PLS or a qualified affine
+regressor. It verifies the native operator plan, input width, ordered feature
+names, payload hashes and model descriptor at import; prediction executes the
+fitted C++ state without learning from validation rows. R-produced version 6
+artifacts predict and retrain in Python; Python-produced RidgePLS and
+GroupSparsePLS artifacts predict in R. EMSC, branches, selectors and other
+unqualified preprocessing are rejected in version 6 because their semantics
+have not been established as equivalent to the generic native pipeline.
 
 Both bindings use Methods for preprocessing and native model prediction. Cross-language
 tests compare held-out predictions in both directions for plain, stateless,
