@@ -13,7 +13,7 @@ on:
 env:
   N4A_DAG_ML_REF: 12a09e60943413ab9db84ce9d5afcfcf838b5bf5
   N4A_DAG_ML_DATA_REF: 6a71216176556a582ba9b684cda37403014e41c2
-  N4A_METHODS_REF: a9034834aa3cc10e97527e18987acc2a2e53b597
+  N4A_METHODS_REF: 15e8978927378f09e793d09f980cca6e18a246b5
 
 jobs:
   lint:
@@ -132,6 +132,7 @@ jobs:
           OPENBLAS_NUM_THREADS: '1'
           MKL_NUM_THREADS: '1'
         run: |
+          python -c 'import n4m; from n4m.compose.preprocessing import NativePreprocessingPipeline; from n4m.estimators.regression.sparse import GroupSparsePLS; assert n4m.abi_version() == (2, 10, 0); assert "nirs4all-methods-src" in n4m.__file__; print(n4m.__file__, n4m.abi_version())'
           mkdir -p fast-dagml-pytest-report
           python -m pytest -q --timeout=300 -n 2 --dist worksteal \
             -m 'not slow and not gpu and not stress' \
