@@ -1,5 +1,7 @@
 """The shared n4m recipe names resolve to Methods-backed Python operators."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -37,6 +39,10 @@ except (ImportError, OSError, RuntimeError) as error:
         ("n4m.ECR", "ECRegression"),
         ("n4m.ContinuumRegression", "NativeContinuumRegressionRegressor"),
         ("n4m.MIRPLS", "MIRPLSRegression"),
+        ("n4m.FusedSparsePLS", "FusedSparsePLSRegression"),
+        ("n4m.BaggingPLS", "BaggingPLSRegression"),
+        ("n4m.BoostingPLS", "BoostingPLSRegression"),
+        ("n4m.RandomSubspacePLS", "RandomSubspacePLSRegression"),
     ],
 )
 def test_portable_alias_resolves_with_methods(alias: str, expected: str) -> None:
@@ -86,6 +92,48 @@ def test_affine_recipe_held_out_matches_r_n4m(alias: str, expected: list[float])
     params = {} if alias == "n4m.Ridge" else {"n_components": 2}
     operator = StepParser().parse({"model": {"class": alias, "params": params}}).operator
     np.testing.assert_allclose(operator.fit(X, y).predict(X_test), expected, rtol=0, atol=1e-10)
+
+
+@pytest.mark.parametrize("extension", ["json", "yaml"])
+@pytest.mark.parametrize(("alias", "params", "expected"), [
+    ("n4m.FusedSparsePLS", {"l1_lambda": 0.05, "fusion_lambda": 0.05},
+     [1.341067723610322, 2.011218914142026, 0.6903830575230807]),
+    ("n4m.BaggingPLS", {"n_estimators": 7, "seed": 13},
+     [1.340366231116839, 2.072160066869946, 0.8905637569136029]),
+    ("n4m.BoostingPLS", {"n_estimators": 7, "learning_rate": 0.3},
+     [1.190830194241934, 2.206788158315018, 0.9303362422665358]),
+    ("n4m.RandomSubspacePLS", {"n_estimators": 7,
+                               "features_per_subspace": 5, "seed": 13},
+     [1.39393404029896, 1.847198984652901, 0.8903822546307825]),
+])
+def test_extra_affine_recipe_matches_r_native_heldout(
+        tmp_path, extension: str, alias: str,
+        params: dict, expected: list[float]) -> None:
+    samples = np.arange(1, 22, dtype=np.float64)[:, None]
+    bands = np.arange(1, 13, dtype=np.float64)[None, :]
+    X = np.sin(samples * bands / 9) + np.cos(samples + bands / 7) + samples * bands / 100
+    y = 1.3 + 0.7 * X[:, 1] - 0.4 * X[:, 5]
+    X_test = X[[1, 7, 16], :] + 0.031
+    recipe = {"pipeline": [{"model": {"class": alias,
+                                      "params": {"n_components": 2, **params}}}]}
+    path = tmp_path / f"extra_affine.{extension}"
+    if extension == "json":
+        path.write_text(json.dumps(recipe), encoding="utf-8")
+    else:
+        lines = ["pipeline:", "  - model:", f"      class: {alias}", "      params:",
+                 "        n_components: 2"]
+        lines.extend(f"        {key}: {value}" for key, value in params.items())
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    config = PipelineConfigs(str(path))
+    operator = StepParser().parse(config.steps[0][0]).operator
+    np.testing.assert_allclose(operator.fit(X, y).predict(X_test),
+                               expected, rtol=0, atol=1e-10)
+
+
+def test_extra_affine_recipe_rejects_unknown_parameter() -> None:
+    with pytest.raises((TypeError, ValueError)):
+        StepParser().parse({"model": {"class": "n4m.BaggingPLS",
+                                       "params": {"unknown_native_parameter": 1}}})
 
 
 def test_portable_json_envelope_reaches_executable_steps() -> None:

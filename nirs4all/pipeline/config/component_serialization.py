@@ -34,6 +34,10 @@ build_aliases: dict[str, str] = {
     "n4m.ECR": "pls4all.sklearn.ECRegression",
     "n4m.ContinuumRegression": "n4m.estimators.regression.latent.ContinuumRegression",
     "n4m.MIRPLS": "pls4all.sklearn.MIRPLSRegression",
+    "n4m.FusedSparsePLS": "pls4all.sklearn.FusedSparsePLSRegression",
+    "n4m.BaggingPLS": "pls4all.sklearn.BaggingPLSRegression",
+    "n4m.BoostingPLS": "pls4all.sklearn.BoostingPLSRegression",
+    "n4m.RandomSubspacePLS": "pls4all.sklearn.RandomSubspacePLSRegression",
 }
 
 # Shared recipe defaults follow R's n4m dispatch, not host-specific estimator
@@ -425,7 +429,11 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                         "params": params
                     }
 
-            except TypeError:
+            except TypeError as exc:
+                if portable_name in build_aliases:
+                    raise ValueError(
+                        f"Invalid parameters for portable component '{portable_name}': {exc}"
+                    ) from exc
                 print(f"Failed to instantiate {cls_or_func} with params {params}")
                 sig = inspect.signature(cls_or_func)
                 allowed = {n for n in sig.parameters if n != "self"}
