@@ -1,0 +1,17 @@
+{
+  "schema": "nirs4all.n4m.trained_pipeline.v7",
+  "manifest_json": "{\"recipe\":{\"name\":\"pipeline\",\"pipeline\":[{\"train_augmentation\":{\"class\":\"n4m.NativeXAugmentation\",\"params\":{\"kind\":\"gaussian_noise\",\"values\":[0.029999999999999999],\"seed\":42}}},{\"train_augmentation\":{\"class\":\"n4m.NativeXAugmentation\",\"params\":{\"kind\":\"multiplicative_noise\",\"values\":[0.02],\"seed\":7}}},{\"class\":\"n4m.SNV\"},{\"class\":\"n4m.MSC\"},{\"class\":\"n4m.SavitzkyGolay\",\"params\":{\"window_length\":7,\"polyorder\":2,\"deriv\":1,\"delta\":1,\"mode\":\"interp\",\"cval\":0}},{\"model\":{\"class\":\"n4m.RidgePLS\",\"params\":{\"n_components\":2}}}]},\"input_n_features\":17,\"feature_names\":[\"wl1\",\"wl2\",\"wl3\",\"wl4\",\"wl5\",\"wl6\",\"wl7\",\"wl8\",\"wl9\",\"wl10\",\"wl11\",\"wl12\",\"wl13\",\"wl14\",\"wl15\",\"wl16\",\"wl17\"],\"preprocessing_owner\":\"native_n4mp\",\"step_states\":[],\"fit_recipe_assertion\":{\"kind\":\"affine_recipe\",\"recipe_class\":\"n4m.RidgePLS\"}}",
+  "manifest_sha256": "f5e6335fac6d9b0c0c927723c711e660b9f9858bf95a8ffd99c0b6313f9193fd",
+  "preprocessing": {
+    "kind": "n4m_preprocessing",
+    "encoding": "base64-n4mp",
+    "sha256": "1f9bd53442adeb7a5403db6924f0e67d73f52498eaf4d0b18f1ce64f673b5ee0",
+    "payload": "TjRNUAEAAAACAAAACwAAAAAAAAARAAAAAAAAAAMAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAUAAAAAAAAAEQAAAId6W1/tANG/qfAEMc4H5b/FNKJKfeLgv5R3OmUDhtq/l6nt9WB62b8RKy479v/Kvz18S03ELMy/JCX07Gtxyb9jldM8TTKwv5uzU5Lsl70/nZ/9be7VsT8Imsc33AvGP5wlev+IM9M/UwJrkowN2D8dzzHC6d3hP/qe34pCROM/FMbeGV5l6D8AAAAAAAAAAAkAAAAEAAAAAAAAAAAAHEAAAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAABAAAAAAAAAAAABxAAAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAFsm8fvTcCOL"
+  },
+  "model": {
+    "kind": "n4m_model",
+    "encoding": "base64-n4mm",
+    "sha256": "7f5e1cb289c6fba794a795ba0276a8c35cf5508330b4c33e75fb5106305ade21",
+    "payload": "TjRNTQEAAAACAAAACwAAAAAAAAALAAAAAAAAAAAAAAAYAAAAAAAAABEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAje21oPfGsD4BAAAAEQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEQAAAAAAAAAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AQAAAAAAAABqGZI1LeTxPwEAAAAAAAAAAAAAAAAA8D8RAAAAAAAAAN6mfPVdCrM/ahVuWR9zrj8t3eLHgtGmP8tJr2zMX54/0MOZJp7Mkz9B/CHxxDWnv3YkbbUbEba/0T/Edcymn7805sH7pJCGP05ybKUV7KC/VvPPDYiwZD+gAAjyGr+/P/V3yJD8acU/W1OdfTYUcT8SNGv9kdSXv3neHs0Y96m/fBHETfQBtL8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoKoBs+0AKjA=="
+  }
+}
