@@ -1,4 +1,4 @@
-"""Cross-language trained pipelines of n4m role steps (envelope version 7).
+"""Cross-language trained pipelines of n4m role steps (envelope version 8).
 
 The envelope carries a portable recipe whose steps are generic n4m role
 tokens (``"n4m:<catalog method id>"``, see
@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-SCHEMA = "nirs4all.n4m.trained_pipeline.v7"
+SCHEMA = "nirs4all.n4m.trained_pipeline.v8"
 
 
 def _step(token: Any) -> Any:
@@ -78,7 +78,7 @@ class PortableN4MRolePipeline:
 
     @classmethod
     def from_json(cls, source: str | Path) -> PortableN4MRolePipeline:
-        """Read a version 7 envelope (JSON text or path) and rebuild its estimators."""
+        """Read a version 8 envelope (JSON text or path) and rebuild its estimators."""
         from n4m.roles import NativeEstimator, NativeSampleFilter
 
         text = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
@@ -105,7 +105,7 @@ class PortableN4MRolePipeline:
         return cls(recipe, estimators, int(document["n_features"]))
 
     def to_json(self, file: str | Path | None = None) -> str:
-        """The version 7 envelope; also written to ``file`` when given."""
+        """The version 8 envelope; also written to ``file`` when given."""
         states = []
         for estimator in self.estimators:
             payload = estimator.to_n4me(allow_training_rows=True)

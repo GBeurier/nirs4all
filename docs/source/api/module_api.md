@@ -94,7 +94,7 @@ fine-tuning, host-sidecars and implicit sample identities fail before native
 data execution. Archive V3 supports PREDICT only and carries no conformal
 presentation state.
 
-### Generic n4m role recipes and trained envelopes (version 7)
+### Generic n4m role recipes and trained envelopes (version 8)
 
 Every `n4m.roles` estimator or procedure serializes as the language-neutral
 token `"n4m:<catalog method id>"` (with `params` when they differ from the
@@ -117,12 +117,12 @@ recipe = {"pipeline": [
     {"class": "n4m:models.pls.cppls", "params": {"n_components": 3}},
 ]}
 fitted = PortableN4MRolePipeline.fit_recipe(recipe, X_train, y_train)
-fitted.to_json("trained-v7.json")
-replayed = PortableN4MRolePipeline.from_json("trained-v7.json")
+fitted.to_json("trained-v8.json")
+replayed = PortableN4MRolePipeline.from_json("trained-v8.json")
 predictions = replayed.predict(X_validation)
 ```
 
-The envelope (`nirs4all.n4m.trained_pipeline.v7`) holds the recipe, the input
+The envelope (`nirs4all.n4m.trained_pipeline.v8`) holds the recipe, the input
 width and, per fitted step, `method_id`, the base64 N4ME bytes and their
 SHA-256 (plus `class_names` for classifiers trained on label names). Filters
 act on training rows only and carry no state.
