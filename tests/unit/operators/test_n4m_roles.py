@@ -1,0 +1,94 @@
+"""n4m generic roles (``n4m.roles``) inside nirs4all pipelines.
+
+Transformers, selectors, regressors and splitters are scikit-learn objects and
+run as they are; sample filters and augmenters reach the exclude / tag /
+branch and ``sample_augmentation`` steps through small adapters. Every role
+runs on the default and the legacy engine.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+
+import nirs4all
+from nirs4all.operators.augmentation.native import NativeRoleAugmenter, as_augmenter
+from nirs4all.operators.filters.native import NativeRoleFilter, as_sample_filter
+
+roles = pytest.importorskip("n4m.roles")
+
+pytestmark = pytest.mark.methods
+
+
+@pytest.fixture(scope="module")
+def data():
+    rng = np.random.default_rng(0)
+    scores = rng.normal(size=(80, 2))
+    loadings = rng.normal(size=(2, 50))
+    X = scores @ loadings + 1.0 + 0.05 * rng.normal(size=(80, 50))
+    y = scores[:, 0] - 0.3 * scores[:, 1]
+    return X, y
+
+
+def run(pipeline, data, engine):
+    return nirs4all.run(
+        pipeline=pipeline,
+        dataset=data,
+        verbose=0,
+        save_artifacts=False,
+        save_charts=False,
+        engine=engine,
+    )
+
+
+@pytest.mark.parametrize("engine", [None, "legacy"])
+def test_native_regressor_matches_sklearn(data, engine):
+    native = run([KFold(3), {"model": roles.PLSRegression(n_components=3)}], data, engine)
+    reference = run([KFold(3), {"model": PLSRegression(n_components=3)}], data, engine)
+    np.testing.assert_allclose(native.cv_best_score, reference.cv_best_score, rtol=1e-6)
+
+
+@pytest.mark.parametrize("engine", [None, "legacy"])
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [roles.SNV(), KFold(3)],
+        [roles.VarianceFilter(top_k=20), KFold(3)],
+        [{"exclude": roles.YOutlierFilter(threshold=1.5)}, KFold(3)],
+        [{"tag": roles.HighLeverageFilter()}, KFold(3)],
+        [roles.SPXYFold(n_splits=3)],
+        [{"sample_augmentation": {"transformers": [roles.GaussianNoise(sigma=0.01)], "count": 2}}, KFold(3)],
+        # Optional axis: the dataset has no wavelength headers.
+        [{"sample_augmentation": {"transformers": [roles.WavelengthShift()], "count": 1}}, KFold(3)],
+    ],
+    ids=["transformer", "selector", "exclude", "tag", "splitter", "augmenter", "augmenter-axis"],
+)
+def test_roles_run_in_pipelines(data, engine, steps):
+    result = run([*steps, {"model": roles.CPPLS(n_components=3)}], data, engine)
+    assert np.isfinite(result.cv_best_score)
+
+
+def test_sample_filter_adapter(data):
+    X, y = data
+    role = roles.YOutlierFilter(threshold=0.5)
+    adapted = as_sample_filter(role)
+    assert isinstance(adapted, NativeRoleFilter)
+    assert adapted.exclusion_reason == "YOutlierFilter"
+    mask = adapted.fit(X, y).get_mask(X, y)
+    np.testing.assert_array_equal(mask, roles.YOutlierFilter(threshold=0.5).fit(X, y).get_mask(X, y))
+    assert not mask.all()
+    assert as_sample_filter(object()) is None
+
+
+def test_augmenter_adapter_draws_a_new_seed_per_call(data):
+    X, _ = data
+    adapted = as_augmenter(roles.GaussianNoise(sigma=0.1, seed=3))
+    assert isinstance(adapted, NativeRoleAugmenter)
+    adapted.fit(X)
+    first, second = adapted.transform(X), adapted.transform(X)
+    np.testing.assert_array_equal(first, roles.GaussianNoise(sigma=0.1, seed=3).augment(X))
+    np.testing.assert_array_equal(second, roles.GaussianNoise(sigma=0.1, seed=4).augment(X))
+    assert as_augmenter(PLSRegression()) is not None
+    assert not isinstance(as_augmenter(PLSRegression()), NativeRoleAugmenter)
