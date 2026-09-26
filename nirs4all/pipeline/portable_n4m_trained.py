@@ -22,6 +22,7 @@ _STATELESS = {
 }
 _STATEFUL = {"n4m.MSC", "n4m.EMSC"}
 _SELECTOR = "n4m.SPA"
+_GENERIC_SELECTOR = "n4m.Selector"
 
 
 class PortableN4MTrainedPipeline:
@@ -32,6 +33,7 @@ class PortableN4MTrainedPipeline:
     the normal Python ``PipelineConfigs``/``StepParser`` path. Version 3 adds
     supervised SPA state to regression PLS recipes; its wire indices are zero
     based and ranked, while prediction projects columns in spectral order.
+    Version 4 applies the same state contract to generic native selectors.
     """
 
     def __init__(self, document: dict[str, Any]) -> None:
@@ -45,10 +47,12 @@ class PortableN4MTrainedPipeline:
                     "nirs4all.n4m.trained_pipeline.v1",
                     "nirs4all.n4m.trained_pipeline.v2",
                     "nirs4all.n4m.trained_pipeline.v3",
+                    "nirs4all.n4m.trained_pipeline.v4",
                 }):
             raise ValueError("unsupported trained n4m pipeline envelope")
         classification = document["schema"].endswith(".v2")
         selector_envelope = document["schema"].endswith(".v3")
+        generic_envelope = document["schema"].endswith(".v4")
         manifest_json = document["manifest_json"]
         manifest_hash = document["manifest_sha256"]
         if (not isinstance(manifest_json, str) or not isinstance(manifest_hash, str)
@@ -82,7 +86,8 @@ class PortableN4MTrainedPipeline:
         nodes = recipe["pipeline"]
         if not nodes or not isinstance(nodes[-1], dict):
             raise ValueError("trained n4m pipeline needs one final model")
-        has_selector = self._has_selector(nodes[:-1])
+        has_selector = self._has_selector(nodes[:-1], _SELECTOR)
+        has_generic_selector = self._has_selector(nodes[:-1], _GENERIC_SELECTOR)
         # Apply the same config resolver used by ordinary Python nirs4all.
         PipelineConfigs(recipe)
         if set(nodes[-1]) != {"model"}:
@@ -96,8 +101,14 @@ class PortableN4MTrainedPipeline:
             raise ValueError("sparse PLS-DA requires external preprocessing")
         if selector_envelope and owner != "external":
             raise ValueError("trained SPA requires external preprocessing")
+        if generic_envelope and owner != "external":
+            raise ValueError("trained generic selector requires external preprocessing")
         if selector_envelope != has_selector:
             raise ValueError("trained selector state requires v3 envelope")
+        if generic_envelope != has_generic_selector:
+            raise ValueError("trained generic selector state requires v4 envelope")
+        if has_generic_selector and (has_selector or classification):
+            raise ValueError("v4 generic selector cannot mix SPA or classification")
         states = manifest["step_states"]
         if not isinstance(states, list):
             raise ValueError("invalid fitted preprocessing state")
@@ -107,7 +118,11 @@ class PortableN4MTrainedPipeline:
             self._validate_embedded_recipe(nodes[:2])
             output_width = width
         else:
-            output_width = self._validate_steps(nodes[:-1], states, width, allow_selector=selector_envelope)
+            output_width = self._validate_steps(
+                nodes[:-1], states, width,
+                allow_selector=selector_envelope,
+                allow_generic_selector=generic_envelope,
+            )
         model = document["model"]
         if (not isinstance(model, dict) or set(model) != {"kind", "encoding", "sha256", "payload"}
                 or model["kind"] != "n4m_model" or model["encoding"] != "base64-n4mm"
@@ -203,17 +218,17 @@ class PortableN4MTrainedPipeline:
             raise ValueError("embedded N4MM preprocessing does not match recipe")
 
     @classmethod
-    def _has_selector(cls, nodes: list[dict[str, Any]]) -> bool:
+    def _has_selector(cls, nodes: list[dict[str, Any]], selector: str = _SELECTOR) -> bool:
         for node in nodes:
             if not isinstance(node, dict):
                 raise ValueError("invalid preprocessing node")
-            if node.get("class") == _SELECTOR:
+            if node.get("class") == selector:
                 return True
             if "branch" in node:
                 branches = node["branch"]
                 if not isinstance(branches, dict):
                     raise ValueError("invalid feature branch")
-                if any(cls._has_selector(branch) for branch in branches.values()):
+                if any(cls._has_selector(branch, selector) for branch in branches.values()):
                     return True
         return False
 
@@ -234,9 +249,31 @@ class PortableN4MTrainedPipeline:
             raise ValueError("invalid fitted SPA selected_indices")
         return selected
 
+    @staticmethod
+    def _validate_generic_selector_state(node: dict[str, Any], state: Any, width: int) -> list[int]:
+        from n4m.feature_selection import Selector
+
+        params = node.get("params")
+        if (set(node) != {"class", "params"} or not isinstance(params, dict)
+                or set(params) != {"method", "n_components", "method_params"}
+                or not isinstance(params["method_params"], dict)
+                or not isinstance(state, dict) or set(state) != {"kind", "selected_indices"}
+                or state["kind"] != "selector"):
+            raise ValueError("invalid fitted generic selector state or recipe")
+        # The same native argument contract validates omitted defaults, required
+        # seeds, method vocabulary and widths, without fitting on prediction rows.
+        Selector(**params)._arguments(width)
+        selected = state["selected_indices"]
+        if (not isinstance(selected, list) or not 1 <= len(selected) <= width
+                or any(type(index) is not int or index < 0 or index >= width for index in selected)
+                or len(set(selected)) != len(selected)):
+            raise ValueError("invalid fitted generic selected_indices")
+        return selected
+
     @classmethod
     def _validate_steps(cls, nodes: list[dict[str, Any]], states: list[Any], width: int,
-                        *, allow_selector: bool = False) -> int:
+                        *, allow_selector: bool = False,
+                        allow_generic_selector: bool = False) -> int:
         # Branch/merge occupies two recipe nodes but one fitted state.
         if len(nodes) != len(states) and not any("branch" in node for node in nodes):
             raise ValueError("fitted preprocessing state count differs from recipe")
@@ -258,7 +295,8 @@ class PortableN4MTrainedPipeline:
                         or list(state["branches"]) != list(branches)):
                     raise ValueError("fitted branch state differs from recipe")
                 width = sum(cls._validate_steps(branch, state["branches"][name], width,
-                                                allow_selector=allow_selector)
+                                                allow_selector=allow_selector,
+                                                allow_generic_selector=allow_generic_selector)
                             for name, branch in branches.items())
                 index += 2
             elif "merge" in node:
@@ -275,6 +313,8 @@ class PortableN4MTrainedPipeline:
                     cls._reference(state["reference"], width)
                 elif name == _SELECTOR and allow_selector:
                     width = len(cls._validate_selector_state(node, state, width))
+                elif name == _GENERIC_SELECTOR and allow_generic_selector:
+                    width = len(cls._validate_generic_selector_state(node, state, width))
                 elif name in _STATELESS:
                     if state is not None:
                         raise ValueError("stateless preprocessing has fitted state")
@@ -333,8 +373,12 @@ class PortableN4MTrainedPipeline:
         model_node = nodes[-1].get("model")
         classification = isinstance(model_node, dict) and model_node.get("class") == "n4m.SparsePLSDA"
         cls._validate_model_node(model_node, classification)
-        if classification and cls._has_selector(nodes[:-1]):
-            raise ValueError("trained SPA classification is not in the v3 envelope")
+        if classification and (cls._has_selector(nodes[:-1], _SELECTOR)
+                               or cls._has_selector(nodes[:-1], _GENERIC_SELECTOR)):
+            raise ValueError("trained selector classification is not in the portable envelope")
+        if (cls._has_selector(nodes[:-1], _SELECTOR)
+                and cls._has_selector(nodes[:-1], _GENERIC_SELECTOR)):
+            raise ValueError("cannot mix SPA and generic selector in one trained envelope")
         assert isinstance(model_node, dict)
         columns = getattr(X, "columns", None)
         names = list(columns) if columns is not None else None
@@ -391,7 +435,8 @@ class PortableN4MTrainedPipeline:
                                    separators=(",", ":"))
         document = {
             "schema": ("nirs4all.n4m.trained_pipeline.v2" if classification else
-                       "nirs4all.n4m.trained_pipeline.v3" if cls._has_selector(nodes[:-1]) else
+                       "nirs4all.n4m.trained_pipeline.v4" if cls._has_selector(nodes[:-1], _GENERIC_SELECTOR) else
+                       "nirs4all.n4m.trained_pipeline.v3" if cls._has_selector(nodes[:-1], _SELECTOR) else
                        "nirs4all.n4m.trained_pipeline.v1"),
             "manifest_json": manifest_json,
             "manifest_sha256": hashlib.sha256(manifest_json.encode("utf-8")).hexdigest(),
@@ -433,14 +478,17 @@ class PortableN4MTrainedPipeline:
                 if set(node) not in ({"class"}, {"class", "params"}):
                     raise ValueError("unsupported preprocessing node")
                 name = node["class"]
-                if name not in _STATELESS | _STATEFUL | {_SELECTOR}:
+                if name not in _STATELESS | _STATEFUL | {_SELECTOR, _GENERIC_SELECTOR}:
                     raise ValueError(f"unsupported native preprocessing: {name}")
                 operator = parser.parse(node).operator
-                if name == _SELECTOR:
+                if name in {_SELECTOR, _GENERIC_SELECTOR}:
                     operator.fit(X, y)
                     selected = np.asarray(operator.selected_indices_).tolist()
                     state = {"kind": "selector", "selected_indices": selected}
-                    cls._validate_selector_state(node, state, X.shape[1])
+                    if name == _SELECTOR:
+                        cls._validate_selector_state(node, state, X.shape[1])
+                    else:
+                        cls._validate_generic_selector_state(node, state, X.shape[1])
                     states.append(state)
                 else:
                     operator.fit(X)
@@ -452,7 +500,7 @@ class PortableN4MTrainedPipeline:
                     )
                     states.append({"kind": name.removeprefix("n4m.").upper(),
                                    "reference": reference.tolist()})
-                elif name != _SELECTOR:
+                elif name not in {_SELECTOR, _GENERIC_SELECTOR}:
                     states.append(None)
                 X = np.asarray(operator.transform(X), dtype=np.float64)
                 index += 1
@@ -483,8 +531,10 @@ class PortableN4MTrainedPipeline:
                 ], axis=1)
                 index += 2
             else:
-                if node["class"] == _SELECTOR:
-                    selected = self._validate_selector_state(node, state, values.shape[1])
+                if node["class"] in {_SELECTOR, _GENERIC_SELECTOR}:
+                    selected = (self._validate_selector_state(node, state, values.shape[1])
+                                if node["class"] == _SELECTOR else
+                                self._validate_generic_selector_state(node, state, values.shape[1]))
                     values = values[:, sorted(selected)]
                     index += 1
                     state_index += 1
@@ -639,7 +689,7 @@ class RefittedN4MPipeline:
                 index += 2
             else:
                 operator = parser.parse(node).operator
-                if node["class"] == _SELECTOR:
+                if node["class"] in {_SELECTOR, _GENERIC_SELECTOR}:
                     operator.fit(X, y)
                 else:
                     operator.fit(X)
