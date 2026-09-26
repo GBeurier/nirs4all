@@ -136,6 +136,16 @@ def test_extra_affine_recipe_rejects_unknown_parameter() -> None:
                                        "params": {"unknown_native_parameter": 1}}})
 
 
+@pytest.mark.parametrize("alias,params", [
+    ("n4m.BaggingPLS", {"seed": 2**31}),
+    ("n4m.RandomSubspacePLS", {"seed": 2**31}),
+    ("n4m.BoostingPLS", {"learning_rate": 1.2}),
+])
+def test_extra_affine_recipe_rejects_out_of_shared_range(alias: str, params: dict) -> None:
+    with pytest.raises(ValueError, match="seed|learning_rate"):
+        StepParser().parse({"model": {"class": alias, "params": params}})
+
+
 def test_portable_json_envelope_reaches_executable_steps() -> None:
     config = PipelineConfigs(
         {"pipeline": [

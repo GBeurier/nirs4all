@@ -23,6 +23,20 @@ _STATELESS = {
 _STATEFUL = {"n4m.MSC", "n4m.EMSC"}
 _SELECTOR = "n4m.SPA"
 _GENERIC_SELECTOR = "n4m.Selector"
+_AFFINE_MODEL_PARAMS: dict[str, frozenset[str]] = {
+    "n4m.Ridge": frozenset({"alpha"}),
+    "n4m.RidgePLS": frozenset({"ridge_lambda"}),
+    "n4m.RobustPLS": frozenset({"huber_k", "max_irls_iter"}),
+    "n4m.CPPLS": frozenset({"gamma"}),
+    "n4m.SparseSIMPLS": frozenset({"sparsity_lambda"}),
+    "n4m.ECR": frozenset({"alpha"}),
+    "n4m.ContinuumRegression": frozenset({"tau"}),
+    "n4m.MIRPLS": frozenset(),
+    "n4m.FusedSparsePLS": frozenset({"l1_lambda", "fusion_lambda"}),
+    "n4m.BaggingPLS": frozenset({"n_estimators", "seed"}),
+    "n4m.BoostingPLS": frozenset({"n_estimators", "learning_rate"}),
+    "n4m.RandomSubspacePLS": frozenset({"n_estimators", "features_per_subspace", "seed"}),
+}
 
 
 class PortableN4MTrainedPipeline:
@@ -34,6 +48,9 @@ class PortableN4MTrainedPipeline:
     supervised SPA state to regression PLS recipes; its wire indices are zero
     based and ranked, while prediction projects columns in spectral order.
     Version 4 applies the same state contract to generic native selectors.
+    Version 5 carries a predict-only affine N4MM and a declarative n4m
+    regression recipe for fresh fitting; the payload does not attest which
+    algorithm originally fitted its coefficients.
     """
 
     def __init__(self, document: dict[str, Any]) -> None:
@@ -48,11 +65,13 @@ class PortableN4MTrainedPipeline:
                     "nirs4all.n4m.trained_pipeline.v2",
                     "nirs4all.n4m.trained_pipeline.v3",
                     "nirs4all.n4m.trained_pipeline.v4",
+                    "nirs4all.n4m.trained_pipeline.v5",
                 }):
             raise ValueError("unsupported trained n4m pipeline envelope")
         classification = document["schema"].endswith(".v2")
         selector_envelope = document["schema"].endswith(".v3")
         generic_envelope = document["schema"].endswith(".v4")
+        affine_envelope = document["schema"].endswith(".v5")
         manifest_json = document["manifest_json"]
         manifest_hash = document["manifest_sha256"]
         if (not isinstance(manifest_json, str) or not isinstance(manifest_hash, str)
@@ -63,6 +82,8 @@ class PortableN4MTrainedPipeline:
                            "preprocessing_owner", "step_states"}
         if classification:
             manifest_fields |= {"task", "classes"}
+        if affine_envelope:
+            manifest_fields.add("fit_recipe_assertion")
         if not isinstance(manifest, dict) or set(manifest) != manifest_fields:
             raise ValueError("invalid trained pipeline manifest")
         classes: list[str] | None = None
@@ -93,7 +114,14 @@ class PortableN4MTrainedPipeline:
         if set(nodes[-1]) != {"model"}:
             raise ValueError("trained n4m pipeline needs one final model")
         model_node = nodes[-1]["model"]
-        self._validate_model_node(model_node, classification)
+        self._validate_model_node(model_node, classification, affine_envelope)
+        if affine_envelope:
+            assertion = manifest["fit_recipe_assertion"]
+            if (not isinstance(assertion, dict)
+                    or set(assertion) != {"kind", "recipe_class"}
+                    or assertion["kind"] != "affine_recipe"
+                    or assertion["recipe_class"] != model_node["class"]):
+                raise ValueError("affine fit recipe assertion differs from recipe")
         owner = manifest["preprocessing_owner"]
         if owner not in {"external", "embedded_methods"}:
             raise ValueError("unsupported preprocessing owner")
@@ -103,9 +131,11 @@ class PortableN4MTrainedPipeline:
             raise ValueError("trained SPA requires external preprocessing")
         if generic_envelope and owner != "external":
             raise ValueError("trained generic selector requires external preprocessing")
-        if selector_envelope != has_selector:
+        if affine_envelope and owner != "external":
+            raise ValueError("trained affine predictor requires external preprocessing")
+        if not affine_envelope and selector_envelope != has_selector:
             raise ValueError("trained selector state requires v3 envelope")
-        if generic_envelope != has_generic_selector:
+        if not affine_envelope and generic_envelope != has_generic_selector:
             raise ValueError("trained generic selector state requires v4 envelope")
         if has_generic_selector and (has_selector or classification):
             raise ValueError("v4 generic selector cannot mix SPA or classification")
@@ -120,8 +150,8 @@ class PortableN4MTrainedPipeline:
         else:
             output_width = self._validate_steps(
                 nodes[:-1], states, width,
-                allow_selector=selector_envelope,
-                allow_generic_selector=generic_envelope,
+                allow_selector=selector_envelope or affine_envelope,
+                allow_generic_selector=generic_envelope or affine_envelope,
             )
         model = document["model"]
         if (not isinstance(model, dict) or set(model) != {"kind", "encoding", "sha256", "payload"}
@@ -136,7 +166,13 @@ class PortableN4MTrainedPipeline:
         if not payload or hashlib.sha256(payload).hexdigest() != model["sha256"]:
             raise ValueError("N4MM payload hash mismatch")
         info = inspect_n4mm(payload)
-        if classification:
+        if affine_envelope:
+            if (info.format_version != 1 or info.algorithm != 11 or info.solver != 0
+                    or info.deflation != 0 or info.n_targets != 1
+                    or info.n_components != 0 or info.n_features != output_width
+                    or info.training_samples < 1 or info.capabilities != 5):
+                raise ValueError("N4MM affine descriptor does not match recipe")
+        elif classification:
             assert classes is not None
             if (info.format_version != 1 or info.algorithm != 11 or info.solver != 0
                     or info.deflation != 0 or info.n_targets != len(classes)
@@ -173,7 +209,38 @@ class PortableN4MTrainedPipeline:
         self._document = json.loads(json.dumps(document, allow_nan=False))
 
     @staticmethod
-    def _validate_model_node(model_node: Any, classification: bool) -> None:
+    def _validate_model_node(model_node: Any, classification: bool,
+                             affine: bool = False) -> None:
+        if affine:
+            if (not isinstance(model_node, dict)
+                    or set(model_node) not in ({"class"}, {"class", "params"})
+                    or model_node.get("class") not in _AFFINE_MODEL_PARAMS):
+                raise ValueError("trained affine pipeline needs a qualified n4m model")
+            name = model_node["class"]
+            params = model_node.get("params", {})
+            allowed = _AFFINE_MODEL_PARAMS[name]
+            if (not isinstance(params, dict)
+                    or not set(params) <= allowed | {"n_components"}
+                    or (name == "n4m.Ridge" and "n_components" in params)
+                    or (name != "n4m.Ridge" and (
+                        type(params.get("n_components")) is not int
+                        or not 1 <= params["n_components"] <= 2**31 - 1))):
+                raise ValueError("invalid trained affine recipe parameters")
+            for key, value in params.items():
+                if key == "n_components":
+                    continue
+                if type(value) not in (int, float) or not np.isfinite(value):
+                    raise ValueError("affine recipe parameters must be finite numbers")
+                if key in {"max_irls_iter", "n_estimators", "features_per_subspace", "seed"}:
+                    minimum = 0 if key == "seed" else 1
+                    if type(value) is not int or not minimum <= value <= 2**31 - 1:
+                        raise ValueError(f"{key} must be a bounded integer")
+                elif key == "learning_rate" and not 0 < value <= 1:
+                    raise ValueError("learning_rate must be in (0, 1]")
+                elif key in {"alpha", "ridge_lambda", "sparsity_lambda",
+                             "l1_lambda", "fusion_lambda"} and value < 0:
+                    raise ValueError(f"{key} must be non-negative")
+            return
         expected_class = "n4m.SparsePLSDA" if classification else "n4m.PLS"
         expected_params = {"n_components", "sparsity_lambda"} if classification else {"n_components"}
         if (not isinstance(model_node, dict) or model_node.get("class") != expected_class
@@ -372,7 +439,8 @@ class PortableN4MTrainedPipeline:
             raise ValueError("portable native recipe needs a final model")
         model_node = nodes[-1].get("model")
         classification = isinstance(model_node, dict) and model_node.get("class") == "n4m.SparsePLSDA"
-        cls._validate_model_node(model_node, classification)
+        affine = isinstance(model_node, dict) and model_node.get("class") in _AFFINE_MODEL_PARAMS
+        cls._validate_model_node(model_node, classification, affine)
         if classification and (cls._has_selector(nodes[:-1], _SELECTOR)
                                or cls._has_selector(nodes[:-1], _GENERIC_SELECTOR)):
             raise ValueError("trained selector classification is not in the portable envelope")
@@ -411,6 +479,27 @@ class PortableN4MTrainedPipeline:
             payload = export_linear_predictor_n4mm(
                 coefficients.tolist(), intercept.tolist(), source_training_samples=values.shape[0],
             )
+        elif affine:
+            from nirs4all.pipeline.steps.parser import StepParser
+
+            fitted = StepParser().parse(nodes[-1]).operator.fit(transformed, targets)
+            coefficients = np.asarray(fitted.coef_, dtype=np.float64).reshape(-1, 1)
+            intercept = np.asarray(fitted.intercept_, dtype=np.float64).reshape(-1)
+            if (coefficients.shape != (transformed.shape[1], 1)
+                    or intercept.shape != (1,)
+                    or not np.isfinite(coefficients).all()
+                    or not np.isfinite(intercept).all()):
+                raise ValueError("native affine fit returned invalid coefficients")
+            probe = np.concatenate((transformed[: min(3, len(transformed))],
+                                    transformed[: min(3, len(transformed))] + 0.031))
+            direct = np.asarray(fitted.predict(probe), dtype=np.float64).reshape(-1)
+            affine_pred = (probe @ coefficients).reshape(-1) + intercept[0]
+            if (direct.shape != affine_pred.shape or not np.isfinite(direct).all()
+                    or not np.allclose(direct, affine_pred, rtol=1e-10, atol=1e-10)):
+                raise ValueError("native affine fit differs from its coefficients")
+            payload = export_linear_predictor_n4mm(
+                coefficients.tolist(), intercept.tolist(), source_training_samples=values.shape[0],
+            )
         else:
             with Context() as context, Config() as config:
                 config.solver = Solver.SIMPLS
@@ -431,10 +520,15 @@ class PortableN4MTrainedPipeline:
         if classification:
             manifest["task"] = "classification"
             manifest["classes"] = classes
+        if affine:
+            manifest["fit_recipe_assertion"] = {
+                "kind": "affine_recipe", "recipe_class": model_node["class"],
+            }
         manifest_json = json.dumps(manifest, ensure_ascii=False, allow_nan=False,
                                    separators=(",", ":"))
         document = {
             "schema": ("nirs4all.n4m.trained_pipeline.v2" if classification else
+                       "nirs4all.n4m.trained_pipeline.v5" if affine else
                        "nirs4all.n4m.trained_pipeline.v4" if cls._has_selector(nodes[:-1], _GENERIC_SELECTOR) else
                        "nirs4all.n4m.trained_pipeline.v3" if cls._has_selector(nodes[:-1], _SELECTOR) else
                        "nirs4all.n4m.trained_pipeline.v1"),

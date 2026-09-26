@@ -400,6 +400,15 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
             for default_name, default_value in portable_model_defaults.get(portable_name, {}).items():
                 params.setdefault(default_name, default_value)
 
+            if portable_name in {"n4m.BaggingPLS", "n4m.RandomSubspacePLS"} and "seed" in params:
+                seed = params["seed"]
+                if type(seed) is not int or not 0 <= seed <= 2**31 - 1:
+                    raise ValueError("portable n4m seed must be an integer in [0, 2^31-1]")
+            if portable_name == "n4m.BoostingPLS" and "learning_rate" in params:
+                learning_rate = params["learning_rate"]
+                if type(learning_rate) not in (int, float) or not 0 < learning_rate <= 1:
+                    raise ValueError("portable boosting learning_rate must be in (0, 1]")
+
             try:
                 # Special handling for model factory functions with @framework decorator
                 # These need dataset-dependent parameters (like input_shape) so we return
