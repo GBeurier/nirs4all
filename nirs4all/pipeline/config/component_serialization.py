@@ -22,6 +22,7 @@ build_aliases: dict[str, str] = {
     "n4m.MSC": "n4m.transform.scatter.MSC",
     "n4m.EMSC": "n4m.transform.scatter.EMSC",
     "n4m.SPA": "n4m.feature_selection.wrapper.SPA",
+    "n4m.Selector": "n4m.feature_selection.Selector",
     "n4m.PLS": "pls4all.sklearn.PLSRegression",
     "n4m.PLSRegression": "pls4all.sklearn.PLSRegression",
     "n4m.SparsePLSDA": "pls4all.sklearn.SparsePLSDAClassifier",
