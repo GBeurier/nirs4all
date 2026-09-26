@@ -146,6 +146,48 @@ def test_extra_affine_recipe_rejects_out_of_shared_range(alias: str, params: dic
         StepParser().parse({"model": {"class": alias, "params": params}})
 
 
+@pytest.mark.parametrize("extension", ["json", "yaml"])
+@pytest.mark.parametrize("multi_target", [False, True])
+def test_npls_recipe_matches_r_native_heldout(tmp_path, extension: str,
+                                              multi_target: bool) -> None:
+    samples = np.arange(1, 22, dtype=np.float64)[:, None]
+    bands = np.arange(1, 13, dtype=np.float64)[None, :]
+    X = np.sin(samples * bands / 9) + np.cos(samples + bands / 7) + samples * bands / 100
+    y = 1.3 + 0.7 * X[:, 1] - 0.4 * X[:, 5]
+    y2 = 0.3 - 0.2 * X[:, 3] + 0.5 * X[:, 9]
+    target = np.column_stack((y, y2)) if multi_target else y
+    X_test = X[[1, 7, 16], :] + 0.031
+    recipe = {"pipeline": [{"model": {"class": "n4m.NPLS", "params": {
+        "n_components": 2, "mode_j": 3, "mode_k": 4}}}]}
+    path = tmp_path / f"npls.{extension}"
+    if extension == "json":
+        path.write_text(json.dumps(recipe), encoding="utf-8")
+    else:
+        path.write_text("pipeline:\n  - model:\n      class: n4m.NPLS\n"
+                        "      params:\n        n_components: 2\n        mode_j: 3\n"
+                        "        mode_k: 4\n", encoding="utf-8")
+    config = PipelineConfigs(str(path))
+    operator = StepParser().parse(config.steps[0][0]).operator
+    expected = ([[1.227494353285351, 0.28947162598321],
+                 [2.01114317927755, 0.2706367639092839],
+                 [0.5127342674702883, 1.178039833756177]] if multi_target else
+                [1.242673188360166, 1.939312398512768, 0.5941411153991755])
+    np.testing.assert_allclose(operator.fit(X, target).predict(X_test),
+                               expected, rtol=0, atol=1e-10)
+
+
+@pytest.mark.parametrize("params", [
+    {"n_components": 2, "mode_j": 3},
+    {"n_components": 2, "mode_j": 3, "mode_k": 0},
+    {"n_components": 2, "mode_j": 3.0, "mode_k": 4},
+    {"n_components": 2, "mode_j": True, "mode_k": 4},
+    {"n_components": 2, "mode_j": 3, "mode_k": 2**31},
+])
+def test_npls_recipe_requires_bounded_integer_modes(params: dict) -> None:
+    with pytest.raises(ValueError, match="mode_j|mode_k"):
+        StepParser().parse({"model": {"class": "n4m.NPLS", "params": params}})
+
+
 def test_portable_json_envelope_reaches_executable_steps() -> None:
     config = PipelineConfigs(
         {"pipeline": [

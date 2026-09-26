@@ -38,6 +38,7 @@ build_aliases: dict[str, str] = {
     "n4m.BaggingPLS": "pls4all.sklearn.BaggingPLSRegression",
     "n4m.BoostingPLS": "pls4all.sklearn.BoostingPLSRegression",
     "n4m.RandomSubspacePLS": "pls4all.sklearn.RandomSubspacePLSRegression",
+    "n4m.NPLS": "pls4all.sklearn.NPLSRegression",
 }
 
 # Shared recipe defaults follow R's n4m dispatch, not host-specific estimator
@@ -408,6 +409,11 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                 learning_rate = params["learning_rate"]
                 if type(learning_rate) not in (int, float) or not 0 < learning_rate <= 1:
                     raise ValueError("portable boosting learning_rate must be in (0, 1]")
+            if portable_name == "n4m.NPLS":
+                for mode_name in ("mode_j", "mode_k"):
+                    mode = params.get(mode_name)
+                    if type(mode) is not int or not 1 <= mode <= 2**31 - 1:
+                        raise ValueError(f"portable n4m {mode_name} must be a positive integer")
 
             try:
                 # Special handling for model factory functions with @framework decorator

@@ -36,6 +36,7 @@ _AFFINE_CASES = [
     ("n4m.BoostingPLS", {"n_components": 2, "n_estimators": 7, "learning_rate": 0.3}),
     ("n4m.RandomSubspacePLS", {"n_components": 2, "n_estimators": 7,
                                "features_per_subspace": 5, "seed": 13}),
+    ("n4m.NPLS", {"n_components": 2, "mode_j": 3, "mode_k": 4}),
 ]
 
 
@@ -131,9 +132,25 @@ def test_affine_v5_rejects_tampered_recipe_state_and_descriptor() -> None:
     ("n4m.BoostingPLS", {"n_components": 2, "learning_rate": 1.2}),
     ("n4m.RandomSubspacePLS", {"n_components": 2, "n_estimators": 3.5}),
     ("n4m.Ridge", {"n_components": 2}),
+    ("n4m.NPLS", {"n_components": 2, "mode_j": 3, "mode_k": 5}),
 ])
 def test_affine_v5_rejects_invalid_shared_recipe(name: str, params: dict) -> None:
     X, y = _inputs()
     with pytest.raises((ValueError, TypeError)):
         PortableN4MTrainedPipeline.fit_recipe(
             {"pipeline": [{"model": {"class": name, "params": params}}]}, X[:28], y[:28])
+
+
+@pytest.mark.methods
+def test_npls_v5_rejects_changed_tensor_modes_and_multitarget_fit() -> None:
+    X, y = _inputs()
+    recipe = {"pipeline": [{"model": {"class": "n4m.NPLS", "params": {
+        "n_components": 2, "mode_j": 3, "mode_k": 4}}}]}
+    with PortableN4MTrainedPipeline.fit_recipe(recipe, X[:28], y[:28]) as fitted:
+        document = json.loads(fitted.to_json())
+    manifest = json.loads(document["manifest_json"])
+    manifest["recipe"]["pipeline"][-1]["model"]["params"]["mode_k"] = 5
+    with pytest.raises(ValueError, match="tensor modes"):
+        PortableN4MTrainedPipeline(_rehashed_manifest(document, manifest))
+    with pytest.raises(ValueError, match="aligned training"):
+        PortableN4MTrainedPipeline.fit_recipe(recipe, X[:28], np.column_stack((y[:28], y[:28])))

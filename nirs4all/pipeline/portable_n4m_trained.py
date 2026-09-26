@@ -36,6 +36,7 @@ _AFFINE_MODEL_PARAMS: dict[str, frozenset[str]] = {
     "n4m.BaggingPLS": frozenset({"n_estimators", "seed"}),
     "n4m.BoostingPLS": frozenset({"n_estimators", "learning_rate"}),
     "n4m.RandomSubspacePLS": frozenset({"n_estimators", "features_per_subspace", "seed"}),
+    "n4m.NPLS": frozenset({"mode_j", "mode_k"}),
 }
 
 
@@ -153,6 +154,10 @@ class PortableN4MTrainedPipeline:
                 allow_selector=selector_envelope or affine_envelope,
                 allow_generic_selector=generic_envelope or affine_envelope,
             )
+        if affine_envelope and model_node["class"] == "n4m.NPLS":
+            params = model_node["params"]
+            if params["mode_j"] * params["mode_k"] != output_width:
+                raise ValueError("NPLS tensor modes differ from fitted preprocessing width")
         model = document["model"]
         if (not isinstance(model, dict) or set(model) != {"kind", "encoding", "sha256", "payload"}
                 or model["kind"] != "n4m_model" or model["encoding"] != "base64-n4mm"
@@ -226,6 +231,13 @@ class PortableN4MTrainedPipeline:
                         type(params.get("n_components")) is not int
                         or not 1 <= params["n_components"] <= 2**31 - 1))):
                 raise ValueError("invalid trained affine recipe parameters")
+            if name == "n4m.NPLS" and (
+                type(params.get("mode_j")) is not int
+                or type(params.get("mode_k")) is not int
+                or not 1 <= params["mode_j"] <= 2**31 - 1
+                or not 1 <= params["mode_k"] <= 2**31 - 1
+            ):
+                raise ValueError("NPLS tensor modes must be positive bounded integers")
             for key, value in params.items():
                 if key == "n_components":
                     continue
