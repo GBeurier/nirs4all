@@ -23,6 +23,7 @@ _STATELESS = {
 _STATEFUL = {"n4m.MSC", "n4m.EMSC"}
 _SELECTOR = "n4m.SPA"
 _GENERIC_SELECTOR = "n4m.Selector"
+_N4MP_SCHEMA = "nirs4all.n4m.trained_pipeline.v6"
 _AFFINE_MODEL_PARAMS: dict[str, frozenset[str]] = {
     "n4m.Ridge": frozenset({"alpha"}),
     "n4m.RidgePLS": frozenset({"ridge_lambda"}),
@@ -38,6 +39,7 @@ _AFFINE_MODEL_PARAMS: dict[str, frozenset[str]] = {
     "n4m.RandomSubspacePLS": frozenset({"n_estimators", "features_per_subspace", "seed"}),
     "n4m.NPLS": frozenset({"mode_j", "mode_k"}),
     "n4m.MBPLS": frozenset({"block_sizes"}),
+    "n4m.GroupSparsePLS": frozenset({"group_assignment", "group_lambda"}),
 }
 
 
@@ -52,7 +54,8 @@ class PortableN4MTrainedPipeline:
     Version 4 applies the same state contract to generic native selectors.
     Version 5 carries a predict-only affine N4MM and a declarative n4m
     regression recipe for fresh fitting; the payload does not attest which
-    algorithm originally fitted its coefficients.
+    algorithm originally fitted its coefficients. Version 6 instead carries
+    an ordered fitted N4MP preprocessing artifact beside the N4MM predictor.
     """
 
     def __init__(self, document: dict[str, Any]) -> None:
@@ -60,7 +63,10 @@ class PortableN4MTrainedPipeline:
 
         from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
+        native_envelope = isinstance(document, dict) and document.get("schema") == _N4MP_SCHEMA
         expected = {"schema", "manifest_json", "manifest_sha256", "model"}
+        if native_envelope:
+            expected.add("preprocessing")
         if (not isinstance(document, dict) or set(document) != expected
                 or document["schema"] not in {
                     "nirs4all.n4m.trained_pipeline.v1",
@@ -68,6 +74,7 @@ class PortableN4MTrainedPipeline:
                     "nirs4all.n4m.trained_pipeline.v3",
                     "nirs4all.n4m.trained_pipeline.v4",
                     "nirs4all.n4m.trained_pipeline.v5",
+                    _N4MP_SCHEMA,
                 }):
             raise ValueError("unsupported trained n4m pipeline envelope")
         classification = document["schema"].endswith(".v2")
@@ -84,7 +91,7 @@ class PortableN4MTrainedPipeline:
                            "preprocessing_owner", "step_states"}
         if classification:
             manifest_fields |= {"task", "classes"}
-        if affine_envelope:
+        if affine_envelope or (native_envelope and "fit_recipe_assertion" in manifest):
             manifest_fields.add("fit_recipe_assertion")
         if not isinstance(manifest, dict) or set(manifest) != manifest_fields:
             raise ValueError("invalid trained pipeline manifest")
@@ -111,6 +118,8 @@ class PortableN4MTrainedPipeline:
             raise ValueError("trained n4m pipeline needs one final model")
         has_selector = self._has_selector(nodes[:-1], _SELECTOR)
         has_generic_selector = self._has_selector(nodes[:-1], _GENERIC_SELECTOR)
+        if native_envelope:
+            affine_envelope = "fit_recipe_assertion" in manifest
         # Apply the same config resolver used by ordinary Python nirs4all.
         PipelineConfigs(recipe)
         if set(nodes[-1]) != {"model"}:
@@ -128,15 +137,17 @@ class PortableN4MTrainedPipeline:
                     or assertion != expected_assertion):
                 raise ValueError("affine fit recipe assertion differs from recipe")
         owner = manifest["preprocessing_owner"]
-        if owner not in {"external", "embedded_methods"}:
+        if owner not in {"external", "embedded_methods", "native_n4mp"}:
             raise ValueError("unsupported preprocessing owner")
+        if native_envelope != (owner == "native_n4mp"):
+            raise ValueError("trained schema differs from preprocessing owner")
         if classification and owner != "external":
             raise ValueError("sparse PLS-DA requires external preprocessing")
         if selector_envelope and owner != "external":
             raise ValueError("trained SPA requires external preprocessing")
         if generic_envelope and owner != "external":
             raise ValueError("trained generic selector requires external preprocessing")
-        if affine_envelope and owner != "external":
+        if affine_envelope and owner not in {"external", "native_n4mp"}:
             raise ValueError("trained affine predictor requires external preprocessing")
         if not affine_envelope and selector_envelope != has_selector:
             raise ValueError("trained selector state requires v3 envelope")
@@ -147,7 +158,12 @@ class PortableN4MTrainedPipeline:
         states = manifest["step_states"]
         if not isinstance(states, list):
             raise ValueError("invalid fitted preprocessing state")
-        if owner == "embedded_methods":
+        native_operators = self._native_n4mp_operators(nodes[:-1]) if native_envelope else None
+        if native_envelope:
+            if classification or has_selector or has_generic_selector or states:
+                raise ValueError("native N4MP requires regression and no external step states")
+            output_width = width
+        elif owner == "embedded_methods":
             if len(nodes) != 3 or len(states) != 2 or any(state is not None for state in states):
                 raise ValueError("invalid embedded preprocessing state")
             self._validate_embedded_recipe(nodes[:2])
@@ -165,6 +181,9 @@ class PortableN4MTrainedPipeline:
         if (affine_envelope and model_node["class"] == "n4m.MBPLS"
                 and sum(model_node["params"]["block_sizes"]) != output_width):
             raise ValueError("MBPLS block sizes differ from fitted preprocessing width")
+        if (affine_envelope and model_node["class"] == "n4m.GroupSparsePLS"
+                and len(model_node["params"]["group_assignment"]) != output_width):
+            raise ValueError("GroupSparsePLS group assignment differs from fitted preprocessing width")
         model = document["model"]
         if (not isinstance(model, dict) or set(model) != {"kind", "encoding", "sha256", "payload"}
                 or model["kind"] != "n4m_model" or model["encoding"] != "base64-n4mm"
@@ -202,11 +221,35 @@ class PortableN4MTrainedPipeline:
             self._validate_embedded_info(info.pipeline, nodes[:2], width)
         elif info.pipeline is not None:
             raise ValueError("external preprocessing cannot use embedded N4MM state")
+        native_preprocessing = None
+        if native_envelope:
+            from n4m.compose.preprocessing import NativePreprocessingPipeline
+
+            pre = document["preprocessing"]
+            if (not isinstance(pre, dict) or set(pre) != {"kind", "encoding", "sha256", "payload"}
+                    or pre["kind"] != "n4m_preprocessing" or pre["encoding"] != "base64-n4mp"
+                    or not isinstance(pre["sha256"], str) or len(pre["sha256"]) != 64
+                    or not isinstance(pre["payload"], str)):
+                raise ValueError("invalid N4MP preprocessing metadata")
+            try:
+                pre_bytes = base64.b64decode(pre["payload"], validate=True)
+            except binascii.Error as error:
+                raise ValueError("invalid N4MP base64 payload") from error
+            if not pre_bytes or hashlib.sha256(pre_bytes).hexdigest() != pre["sha256"]:
+                raise ValueError("N4MP payload hash mismatch")
+            native_preprocessing = NativePreprocessingPipeline.from_bytes(
+                pre_bytes, expected_operators=native_operators,
+            )
+            if native_preprocessing.n_features_in_ != width:
+                native_preprocessing.close()
+                raise ValueError("N4MP input width differs from recipe")
         context = Context()
         try:
             native_model = Model.from_bytes(context, payload)
         except BaseException:
             context.close()
+            if native_preprocessing is not None:
+                native_preprocessing.close()
             raise
         self.recipe = recipe
         self.feature_names = names
@@ -218,6 +261,7 @@ class PortableN4MTrainedPipeline:
         self._states = states
         self._context = context
         self._model = native_model
+        self._native_preprocessing = native_preprocessing
         self._document = json.loads(json.dumps(document, allow_nan=False))
 
     @staticmethod
@@ -252,8 +296,16 @@ class PortableN4MTrainedPipeline:
                        for size in params["block_sizes"])
             ):
                 raise ValueError("MBPLS block sizes must be positive bounded integers")
+            if name == "n4m.GroupSparsePLS" and (
+                not isinstance(params.get("group_assignment"), list)
+                or len(params["group_assignment"]) < 2
+                or any(type(group) is not int or not 0 <= group <= 2**31 - 1
+                       for group in params["group_assignment"])
+                or "group_lambda" not in params
+            ):
+                raise ValueError("GroupSparsePLS requires explicit nonnegative per-feature group IDs and lambda")
             for key, value in params.items():
-                if key in {"n_components", "block_sizes"}:
+                if key in {"n_components", "block_sizes", "group_assignment"}:
                     continue
                 if type(value) not in (int, float) or not np.isfinite(value):
                     raise ValueError("affine recipe parameters must be finite numbers")
@@ -264,7 +316,7 @@ class PortableN4MTrainedPipeline:
                 elif key == "learning_rate" and not 0 < value <= 1:
                     raise ValueError("learning_rate must be in (0, 1]")
                 elif key in {"alpha", "ridge_lambda", "sparsity_lambda",
-                             "l1_lambda", "fusion_lambda"} and value < 0:
+                             "l1_lambda", "fusion_lambda", "group_lambda"} and value < 0:
                     raise ValueError(f"{key} must be non-negative")
             return
         expected_class = "n4m.SparsePLSDA" if classification else "n4m.PLS"
@@ -309,6 +361,48 @@ class PortableN4MTrainedPipeline:
                 or info.savgol_mode != 4 or info.snv_axis != 1
                 or info.snv_ddof != 0 or not info.snv_with_mean or not info.snv_with_std):
             raise ValueError("embedded N4MM preprocessing does not match recipe")
+
+    @staticmethod
+    def _native_n4mp_operators(nodes: list[dict[str, Any]]) -> list[tuple[str, tuple[float, ...]]]:
+        """Lower only recipe steps with qualified native N4MP semantics."""
+
+        if not nodes:
+            raise ValueError("native N4MP requires a nonempty linear chain")
+        operators: list[tuple[str, tuple[float, ...]]] = []
+        for node in nodes:
+            if not isinstance(node, dict) or set(node) not in ({"class"}, {"class", "params"}):
+                raise ValueError("native N4MP rejects branches, selectors and modifiers")
+            name = node["class"]
+            params = node.get("params", {})
+            if not isinstance(params, dict):
+                raise ValueError("native N4MP step parameters must be a mapping")
+            if name == "n4m.SNV" and not params:
+                operators.append(("snv", ()))
+            elif name == "n4m.MSC" and not params:
+                operators.append(("msc", ()))
+            elif name == "n4m.Detrend" and set(params) == {"polyorder"}:
+                degree = params["polyorder"]
+                if type(degree) is not int or not 0 <= degree <= 5:
+                    raise ValueError("native N4MP detrend degree must be in [0, 5]")
+                operators.append(("detrend_poly", (degree,)))
+            elif name == "n4m.SavitzkyGolay" and set(params) == {
+                "window_length", "polyorder", "deriv", "delta", "mode", "cval",
+            }:
+                window, poly, deriv = (params[key] for key in ("window_length", "polyorder", "deriv"))
+                if (any(type(value) is not int for value in (window, poly, deriv))
+                        or not 3 <= window <= 501 or window % 2 != 1
+                        or not 0 <= poly < window or not 0 <= deriv <= min(poly, 2)
+                        or type(params["delta"]) not in (int, float) or params["delta"] != 1
+                        or params["mode"] != "interp" or type(params["cval"]) not in (int, float)
+                        or params["cval"] != 0):
+                    raise ValueError("unsupported native N4MP SavGol semantics")
+                if deriv == 0:
+                    operators.append(("savgol_smooth", (window, poly)))
+                else:
+                    operators.append(("savgol_derivative", (window, poly, deriv, 1)))
+            else:
+                raise ValueError(f"native N4MP does not preserve {name!r} semantics")
+        return operators
 
     @classmethod
     def _has_selector(cls, nodes: list[dict[str, Any]], selector: str = _SELECTOR) -> bool:
@@ -445,7 +539,10 @@ class PortableN4MTrainedPipeline:
         return cls(value)
 
     @classmethod
-    def fit_recipe(cls, recipe: dict[str, Any], X: Any, y: Any) -> PortableN4MTrainedPipeline:
+    def fit_recipe(
+        cls, recipe: dict[str, Any], X: Any, y: Any, *,
+        preprocessing: str = "legacy",
+    ) -> PortableN4MTrainedPipeline:
         """Train a native n4m recipe in Python and produce the portable envelope.
 
         Methods owns every transform, SPA selection and PLS fit. For MSC/EMSC, the portable
@@ -453,6 +550,11 @@ class PortableN4MTrainedPipeline:
         1.0.21 binding lacks that getter, so only its documented column-mean
         reference is reconstructed from the same training rows as a fallback.
         """
+
+        if preprocessing == "native_n4mp":
+            return cls._fit_native_n4mp_recipe(recipe, X, y)
+        if preprocessing != "legacy":
+            raise ValueError("unknown portable preprocessing profile")
 
         from pls4all import Config, Context, Model, Solver
         from pls4all.migration import export_linear_predictor_n4mm
@@ -566,6 +668,100 @@ class PortableN4MTrainedPipeline:
                 "kind": "n4m_model", "encoding": "base64-n4mm",
                 "sha256": hashlib.sha256(payload).hexdigest(),
                 "payload": base64.b64encode(payload).decode("ascii"),
+            },
+        }
+        return cls(document)
+
+    @classmethod
+    def _fit_native_n4mp_recipe(
+        cls, recipe: dict[str, Any], X: Any, y: Any,
+    ) -> PortableN4MTrainedPipeline:
+        """Fit the bounded v6 chain and model entirely through native Methods."""
+
+        from n4m.compose.preprocessing import NativePreprocessingPipeline
+        from pls4all import Config, Context, Model, Solver
+        from pls4all.migration import export_linear_predictor_n4mm
+
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+        from nirs4all.pipeline.steps.parser import StepParser
+
+        PipelineConfigs(recipe)
+        nodes = recipe.get("pipeline")
+        if not isinstance(nodes, list) or len(nodes) < 2 or not isinstance(nodes[-1], dict):
+            raise ValueError("native N4MP recipe needs preprocessing and final model")
+        if set(nodes[-1]) != {"model"}:
+            raise ValueError("native N4MP recipe needs one final model")
+        model_node = nodes[-1]["model"]
+        affine = isinstance(model_node, dict) and model_node.get("class") in _AFFINE_MODEL_PARAMS
+        cls._validate_model_node(model_node, False, affine)
+        operators = cls._native_n4mp_operators(nodes[:-1])
+        names = getattr(X, "columns", None)
+        feature_names = list(names) if names is not None else None
+        values = np.asarray(X, dtype=np.float64)
+        targets = np.asarray(y, dtype=np.float64)
+        if (values.ndim != 2 or values.shape[0] < 1 or values.shape[1] < 2
+                or targets.ndim != 1 or len(targets) != values.shape[0]
+                or not np.isfinite(values).all() or not np.isfinite(targets).all()):
+            raise ValueError("native N4MP fit requires finite aligned training rows")
+        if feature_names is not None and (len(feature_names) != values.shape[1]
+                                          or any(not isinstance(name, str) or not name for name in feature_names)
+                                          or len(set(feature_names)) != len(feature_names)):
+            raise ValueError("invalid ordered feature names")
+        with NativePreprocessingPipeline(operators).fit(values) as preprocessing_fit:
+            transformed = preprocessing_fit.transform(values)
+            pre_bytes = preprocessing_fit.to_bytes()
+            if affine:
+                estimator = StepParser().parse(nodes[-1]).operator.fit(transformed, targets)
+                if hasattr(estimator, "export_n4mm"):
+                    model_bytes = estimator.export_n4mm()
+                else:
+                    coefficients = np.asarray(estimator.coef_, dtype=np.float64).reshape(-1, 1)
+                    intercept = np.asarray(estimator.intercept_, dtype=np.float64).reshape(-1)
+                    if (coefficients.shape != (transformed.shape[1], 1)
+                            or intercept.shape != (1,)
+                            or not np.isfinite(coefficients).all()
+                            or not np.isfinite(intercept).all()):
+                        raise ValueError("native affine fit returned invalid coefficients")
+                    model_bytes = export_linear_predictor_n4mm(
+                        coefficients.tolist(), intercept.tolist(),
+                        source_training_samples=values.shape[0],
+                    )
+            else:
+                with Context() as context, Config() as config:
+                    config.solver = Solver.SIMPLS
+                    config.n_components = model_node["params"]["n_components"]
+                    config.center_x = True
+                    config.scale_x = True
+                    config.center_y = True
+                    config.scale_y = True
+                    with Model.fit(context, config, transformed, targets) as model:
+                        model_bytes = model.to_bytes()
+        manifest: dict[str, Any] = {
+            "recipe": recipe,
+            "input_n_features": values.shape[1],
+            "feature_names": feature_names,
+            "preprocessing_owner": "native_n4mp",
+            "step_states": [],
+        }
+        if affine:
+            assertion: dict[str, Any] = {"kind": "affine_recipe", "recipe_class": model_node["class"]}
+            if model_node["class"] == "n4m.MBPLS":
+                assertion["block_sizes"] = model_node["params"]["block_sizes"]
+            manifest["fit_recipe_assertion"] = assertion
+        manifest_json = json.dumps(manifest, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        document = {
+            "schema": _N4MP_SCHEMA,
+            "manifest_json": manifest_json,
+            "manifest_sha256": hashlib.sha256(manifest_json.encode("utf-8")).hexdigest(),
+            "preprocessing": {
+                "kind": "n4m_preprocessing", "encoding": "base64-n4mp",
+                "sha256": hashlib.sha256(pre_bytes).hexdigest(),
+                "payload": base64.b64encode(pre_bytes).decode("ascii"),
+            },
+            "model": {
+                "kind": "n4m_model", "encoding": "base64-n4mm",
+                "sha256": hashlib.sha256(model_bytes).hexdigest(),
+                "payload": base64.b64encode(model_bytes).decode("ascii"),
             },
         }
         return cls(document)
@@ -698,6 +894,9 @@ class PortableN4MTrainedPipeline:
             raise ValueError("input must be a finite samples-by-features matrix")
         if self.preprocessing_owner == "external":
             values = self._transform_steps(values, self._nodes, self._states)
+        elif self.preprocessing_owner == "native_n4mp":
+            assert self._native_preprocessing is not None
+            values = self._native_preprocessing.transform(values)
         result = np.asarray(self._model.predict(self._context, values), dtype=np.float64)
         if (result.shape != (values.shape[0], len(self.classes) if self.classes is not None else 1)
                 or not np.isfinite(result).all()):
@@ -723,7 +922,7 @@ class PortableN4MTrainedPipeline:
         probabilities: np.ndarray = exp_scores / exp_scores.sum(axis=1, keepdims=True)
         return probabilities
 
-    def retrain(self, X: Any, y: Any) -> RefittedN4MPipeline:
+    def retrain(self, X: Any, y: Any) -> RefittedN4MPipeline | PortableN4MTrainedPipeline:
         """Fit the shared n4m recipe afresh on new Python training rows.
 
         This does not reuse the imported model or MSC/EMSC references. The
@@ -747,6 +946,8 @@ class PortableN4MTrainedPipeline:
             if (not all(isinstance(label, str) and label for label in targets.tolist())
                     or set(targets.tolist()) != set(self.classes)):
                 raise ValueError("retrain classes differ from the portable recipe")
+        if self.preprocessing_owner == "native_n4mp":
+            return type(self).fit_recipe(self.recipe, X, y, preprocessing="native_n4mp")
         trained_steps, transformed = RefittedN4MPipeline._fit_steps(
             self._nodes, values, targets,
         )
@@ -772,6 +973,9 @@ class PortableN4MTrainedPipeline:
                 model.close()
             finally:
                 self._context.close()
+        if self._native_preprocessing is not None:
+            self._native_preprocessing.close()
+            self._native_preprocessing = None
 
     def __enter__(self) -> PortableN4MTrainedPipeline:
         return self
