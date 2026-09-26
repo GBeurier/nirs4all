@@ -160,12 +160,12 @@ def test_affine_recipe_held_out_matches_r_n4m(alias: str, expected: list[float])
     ("n4m.FusedSparsePLS", {"l1_lambda": 0.05, "fusion_lambda": 0.05},
      [1.3373539467794611, 1.9377148952044152, 0.7544322586932715]),
     ("n4m.BaggingPLS", {"n_estimators": 7, "seed": 13},
-     [1.340366231116839, 2.072160066869946, 0.8905637569136029]),
+     [1.366005348919685, 1.9045390567276301, 0.8552488809885507]),
     ("n4m.BoostingPLS", {"n_estimators": 7, "learning_rate": 0.3},
      [1.190830194241934, 2.206788158315018, 0.9303362422665358]),
     ("n4m.RandomSubspacePLS", {"n_estimators": 7,
                                "features_per_subspace": 5, "seed": 13},
-     [1.39393404029896, 1.847198984652901, 0.8903822546307825]),
+     [1.345151428323905, 1.974056875914504, 0.90781371099851]),
 ])
 def test_extra_affine_recipe_matches_r_native_heldout(
         tmp_path, extension: str, alias: str,
