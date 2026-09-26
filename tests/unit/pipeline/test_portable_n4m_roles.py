@@ -79,3 +79,15 @@ def test_rejects_tampered_or_foreign_envelopes(data):
         PortableN4MRolePipeline.fit_recipe({"pipeline": ["sklearn.cross_decomposition.PLSRegression"]}, X, y)
     with pytest.raises(ValueError, match="ends with one regressor"):
         PortableN4MRolePipeline.fit_recipe({"pipeline": ["n4m:preprocessing.scatter.snv"]}, X, y)
+
+
+def test_r_trained_envelope_predicts_identically_in_python():
+    """Fixture from nirs4all-r tests/helpers/trained_roles_v7_fixture.R."""
+    from pathlib import Path
+
+    fixtures = Path(__file__).resolve().parents[2] / "fixtures"
+    oracle = json.loads((fixtures / "portable_roles_v7_r_oracle.json").read_text(encoding="utf-8"))
+    replayed = PortableN4MRolePipeline.from_json(fixtures / "portable_roles_v7_r_envelope.json")
+    np.testing.assert_allclose(replayed.predict(oracle["x_test"]), oracle["predict"], rtol=1e-12, atol=1e-12)
+    refit = replayed.retrain(np.asarray(oracle["x_train"]), np.asarray(oracle["y_train"]))
+    np.testing.assert_allclose(refit.predict(oracle["x_test"]), oracle["predict"], rtol=1e-9, atol=1e-9)
