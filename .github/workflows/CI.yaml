@@ -13,6 +13,7 @@ on:
 env:
   N4A_DAG_ML_REF: 12a09e60943413ab9db84ce9d5afcfcf838b5bf5
   N4A_DAG_ML_DATA_REF: 6a71216176556a582ba9b684cda37403014e41c2
+  N4A_METHODS_REF: a9034834aa3cc10e97527e18987acc2a2e53b597
 
 jobs:
   lint:
@@ -69,6 +70,13 @@ jobs:
           ref: 12a09e60943413ab9db84ce9d5afcfcf838b5bf5
           path: dag-ml-cli-src
 
+      - name: Checkout qualified n4m source
+        uses: actions/checkout@v6
+        with:
+          repository: GBeurier/nirs4all-methods
+          ref: ${{ env.N4A_METHODS_REF }}
+          path: nirs4all-methods-src
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Free disk space
@@ -102,6 +110,12 @@ jobs:
       - name: Build pinned dag-ml CLI for parity tests
         run: cargo build -p dag-ml-cli --manifest-path dag-ml-cli-src/Cargo.toml
 
+      - name: Build qualified n4m native library for parity tests
+        run: |
+          cmake --preset dev-release
+          cmake --build --preset dev-release --target n4m_c --parallel 2
+        working-directory: nirs4all-methods-src
+
       - name: Gate real library usability
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
@@ -111,6 +125,8 @@ jobs:
         env:
           N4A_ENGINE: dag-ml
           N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+          N4M_LIB_PATH: ${{ github.workspace }}/nirs4all-methods-src/build/dev-release/cpp/src/libn4m.so
+          PYTHONPATH: ${{ github.workspace }}/nirs4all-methods-src/bindings/python/src
           CUDA_VISIBLE_DEVICES: ''
           OMP_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'

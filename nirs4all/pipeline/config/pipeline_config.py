@@ -221,6 +221,11 @@ class PipelineConfigs:
 
             # Recurse on values
             for k, v in result.items():
+                # Selector method_params is native algorithm data. The generic
+                # `method` + `method_params` component rewrite would otherwise
+                # turn its method name into a spurious class specification.
+                if k == "params" and result.get("class") == "n4m.Selector":
+                    continue
                 result[k] = PipelineConfigs._preprocess_steps(v)
             return result
         else:
