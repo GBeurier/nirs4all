@@ -61,7 +61,7 @@ def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> Non
     assert "--index-url https://pypi.org/simple/" in install_script
     assert '"nirs4all==${package_version}"' in install_script
     assert 'version("nirs4all") == expected' in verify_script
-    assert "n4m.abi_version()[:2] == (2, 6)" in verify_script
+    assert "n4m.abi_version()[:2] == (2, 13)" in verify_script
     assert 'engine="dag-ml"' in verify_script
     assert "np.isfinite(result.cv_best_score)" in verify_script
     assert "python -m pip check" in verify_script
