@@ -24,6 +24,7 @@ _STATEFUL = {"n4m.MSC", "n4m.EMSC"}
 _SELECTOR = "n4m.SPA"
 _GENERIC_SELECTOR = "n4m.Selector"
 _N4MP_SCHEMA = "nirs4all.n4m.trained_pipeline.v6"
+_AUGMENTED_N4MP_SCHEMA = "nirs4all.n4m.trained_pipeline.v7"
 _AFFINE_MODEL_PARAMS: dict[str, frozenset[str]] = {
     "n4m.Ridge": frozenset({"alpha"}),
     "n4m.RidgePLS": frozenset({"ridge_lambda"}),
@@ -56,6 +57,8 @@ class PortableN4MTrainedPipeline:
     regression recipe for fresh fitting; the payload does not attest which
     algorithm originally fitted its coefficients. Version 6 instead carries
     an ordered fitted N4MP preprocessing artifact beside the N4MM predictor.
+    Version 7 adds an ordered, train-only native X augmentation prefix to the
+    recipe; prediction still replays only N4MP and N4MM.
     """
 
     def __init__(self, document: dict[str, Any]) -> None:
@@ -63,7 +66,10 @@ class PortableN4MTrainedPipeline:
 
         from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
-        native_envelope = isinstance(document, dict) and document.get("schema") == _N4MP_SCHEMA
+        native_envelope = isinstance(document, dict) and document.get("schema") in {
+            _N4MP_SCHEMA, _AUGMENTED_N4MP_SCHEMA,
+        }
+        augmented_envelope = isinstance(document, dict) and document.get("schema") == _AUGMENTED_N4MP_SCHEMA
         expected = {"schema", "manifest_json", "manifest_sha256", "model"}
         if native_envelope:
             expected.add("preprocessing")
@@ -75,6 +81,7 @@ class PortableN4MTrainedPipeline:
                     "nirs4all.n4m.trained_pipeline.v4",
                     "nirs4all.n4m.trained_pipeline.v5",
                     _N4MP_SCHEMA,
+                    _AUGMENTED_N4MP_SCHEMA,
                 }):
             raise ValueError("unsupported trained n4m pipeline envelope")
         classification = document["schema"].endswith(".v2")
@@ -158,7 +165,13 @@ class PortableN4MTrainedPipeline:
         states = manifest["step_states"]
         if not isinstance(states, list):
             raise ValueError("invalid fitted preprocessing state")
-        native_operators = self._native_n4mp_operators(nodes[:-1]) if native_envelope else None
+        augmentation_nodes: list[dict[str, Any]] = []
+        native_nodes = nodes[:-1]
+        if augmented_envelope:
+            augmentation_nodes, native_nodes = self._split_train_augmentations(native_nodes)
+            if not augmentation_nodes:
+                raise ValueError("v7 requires a native train augmentation prefix")
+        native_operators = self._native_n4mp_operators(native_nodes) if native_envelope else None
         if native_envelope:
             if classification or has_selector or has_generic_selector or states:
                 raise ValueError("native N4MP requires regression and no external step states")
@@ -262,7 +275,67 @@ class PortableN4MTrainedPipeline:
         self._context = context
         self._model = native_model
         self._native_preprocessing = native_preprocessing
+        self._train_augmentations = augmentation_nodes
         self._document = json.loads(json.dumps(document, allow_nan=False))
+
+    @staticmethod
+    def _split_train_augmentations(
+        nodes: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Validate a closed train-only X augmentation prefix.
+
+        The native n4m binding owns the kind/arity table. A non-prefix node is
+        rejected so prediction cannot silently ignore an augmentation placed
+        after fitted preprocessing.
+        """
+
+        try:
+            from n4m.augmentation import native_augmentation_specs
+        except ImportError as error:
+            raise ValueError("native train augmentation requires n4m ABI 2.11 or newer") from error
+
+        kinds = native_augmentation_specs()
+        prefix: list[dict[str, Any]] = []
+        index = 0
+        while index < len(nodes) and isinstance(nodes[index], dict) and "train_augmentation" in nodes[index]:
+            node = nodes[index]
+            if set(node) != {"train_augmentation"}:
+                raise ValueError("invalid train augmentation node")
+            body = node["train_augmentation"]
+            if not isinstance(body, dict) or set(body) != {"class", "params"} or body["class"] != "n4m.NativeXAugmentation":
+                raise ValueError("unsupported native train augmentation")
+            params = body["params"]
+            if not isinstance(params, dict) or set(params) != {"kind", "values", "seed"}:
+                raise ValueError("invalid native train augmentation parameters")
+            kind, values, seed = params["kind"], params["values"], params["seed"]
+            if (not isinstance(kind, str) or kind not in kinds
+                    or not isinstance(values, list) or len(values) != kinds[kind]
+                    or any(type(value) not in (int, float) or not np.isfinite(value) for value in values)
+                    or type(seed) is not int or not 0 <= seed <= 2**53 - 1):
+                raise ValueError("invalid native train augmentation kind, values or seed")
+            prefix.append(node)
+            index += 1
+        remainder = nodes[index:]
+        if any(isinstance(node, dict) and "train_augmentation" in node for node in remainder):
+            raise ValueError("native train augmentation must be a prefix")
+        return prefix, remainder
+
+    @staticmethod
+    def _apply_train_augmentations(
+        nodes: list[dict[str, Any]], values: np.ndarray,
+    ) -> np.ndarray:
+        if not nodes:
+            return values
+        try:
+            from n4m.augmentation import run_native
+        except ImportError as error:
+            raise ValueError("native train augmentation requires n4m ABI 2.11 or newer") from error
+
+        for node in nodes:
+            params = node["train_augmentation"]["params"]
+            values = np.asarray(run_native(params["kind"], values,
+                                           params["values"], params["seed"]), dtype=np.float64)
+        return values
 
     @staticmethod
     def _validate_model_node(model_node: Any, classification: bool,
@@ -694,7 +767,11 @@ class PortableN4MTrainedPipeline:
         model_node = nodes[-1]["model"]
         affine = isinstance(model_node, dict) and model_node.get("class") in _AFFINE_MODEL_PARAMS
         cls._validate_model_node(model_node, False, affine)
-        operators = cls._native_n4mp_operators(nodes[:-1])
+        if isinstance(nodes[0], dict) and "train_augmentation" in nodes[0]:
+            augmentation_nodes, native_nodes = cls._split_train_augmentations(nodes[:-1])
+        else:
+            augmentation_nodes, native_nodes = [], nodes[:-1]
+        operators = cls._native_n4mp_operators(native_nodes)
         names = getattr(X, "columns", None)
         feature_names = list(names) if names is not None else None
         values = np.asarray(X, dtype=np.float64)
@@ -707,8 +784,9 @@ class PortableN4MTrainedPipeline:
                                           or any(not isinstance(name, str) or not name for name in feature_names)
                                           or len(set(feature_names)) != len(feature_names)):
             raise ValueError("invalid ordered feature names")
-        with NativePreprocessingPipeline(operators).fit(values) as preprocessing_fit:
-            transformed = preprocessing_fit.transform(values)
+        train_values = cls._apply_train_augmentations(augmentation_nodes, values)
+        with NativePreprocessingPipeline(operators).fit(train_values) as preprocessing_fit:
+            transformed = preprocessing_fit.transform(train_values)
             pre_bytes = preprocessing_fit.to_bytes()
             if affine:
                 estimator = StepParser().parse(nodes[-1]).operator.fit(transformed, targets)
@@ -750,7 +828,7 @@ class PortableN4MTrainedPipeline:
             manifest["fit_recipe_assertion"] = assertion
         manifest_json = json.dumps(manifest, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         document = {
-            "schema": _N4MP_SCHEMA,
+            "schema": _AUGMENTED_N4MP_SCHEMA if augmentation_nodes else _N4MP_SCHEMA,
             "manifest_json": manifest_json,
             "manifest_sha256": hashlib.sha256(manifest_json.encode("utf-8")).hexdigest(),
             "preprocessing": {
