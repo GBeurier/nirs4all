@@ -92,3 +92,36 @@ def test_augmenter_adapter_draws_a_new_seed_per_call(data):
     np.testing.assert_array_equal(second, roles.GaussianNoise(sigma=0.1, seed=4).augment(X))
     assert as_augmenter(PLSRegression()) is not None
     assert not isinstance(as_augmenter(PLSRegression()), NativeRoleAugmenter)
+
+
+def test_role_token_round_trips_through_serialization():
+    from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
+
+    assert serialize_component(roles.SNV()) == "n4m:preprocessing.scatter.snv"
+    token = serialize_component(roles.CPPLS(n_components=3))
+    assert token == {"class": "n4m:models.pls.cppls", "params": {"n_components": 3}}
+    assert deserialize_component(token).get_params() == roles.CPPLS(n_components=3).get_params()
+    assert isinstance(deserialize_component("n4m:preprocessing.scatter.snv"), roles.SNV)
+
+
+@pytest.mark.parametrize("engine", [None, "legacy"])
+def test_json_recipe_of_role_tokens_runs(data, engine, tmp_path):
+    import json
+
+    recipe = {
+        "pipeline": [
+            "n4m:preprocessing.scatter.snv",
+            {"exclude": {"class": "n4m:filters.y_outlier", "params": {"threshold": 2.0}}},
+            {"class": "sklearn.model_selection.KFold", "params": {"n_splits": 3}},
+            {"model": {"class": "n4m:models.pls.cppls", "params": {"n_components": 3}}},
+        ]
+    }
+    path = tmp_path / "recipe.json"
+    path.write_text(json.dumps(recipe), encoding="utf-8")
+    direct = [
+        roles.SNV(),
+        {"exclude": roles.YOutlierFilter(threshold=2.0)},
+        KFold(3),
+        {"model": roles.CPPLS(n_components=3)},
+    ]
+    np.testing.assert_allclose(run(str(path), data, engine).cv_best_score, run(direct, data, engine).cv_best_score, rtol=1e-12)
