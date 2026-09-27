@@ -11,7 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.0] — 2026-09-27
+## [1.2.1] — 2026-09-27
+
+### Fixed
+
+- Declared `pls4all>=1.1.0,<2` as a dependency: the portable trained n4m
+  envelopes import it, and the 1.2.0 release gate failed without it.
+
+### Release note
+
+- Supersedes the 1.2.0 tag, which was not published to PyPI.
+
+---
+
+## [1.2.0] — 2026-09-27 (unpublished tag)
 
 ### Added
 
