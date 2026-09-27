@@ -96,7 +96,7 @@ dependencies = [
 
     # DAG-ML owns execution for both general host and portable Methods profiles.
     # These runtimes are base dependencies; neither profile retries on legacy.
-    "dag-ml>=0.3.27,<0.4",
+    "dag-ml>=0.3.29,<0.4",
     "dag-ml-data>=0.2.12,<0.3",
     # Dataset inspection and Studio Playground loading call the native IO
     # bridge directly, so the published base wheel must close that runtime.

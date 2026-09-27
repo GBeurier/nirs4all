@@ -52,7 +52,7 @@ trendfitter>=0.0.6
 
 # dag-ml execution core — native execution fails closed by default; direct
 # Python callers can select engine="legacy" explicitly during the rollback window.
-dag-ml>=0.3.27,<0.4
+dag-ml>=0.3.29,<0.4
 dag-ml-data>=0.2.12,<0.3
 nirs4all-io>=0.2.0,<0.3
 nirs4all-core>=0.3.37,<0.4
