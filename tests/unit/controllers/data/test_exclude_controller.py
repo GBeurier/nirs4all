@@ -18,6 +18,7 @@ import pytest
 
 from nirs4all.controllers.data.exclude import ExcludeController
 from nirs4all.operators.filters.base import SampleFilter
+from nirs4all.operators.filters.high_leverage import HighLeverageFilter
 from nirs4all.operators.filters.x_outlier import XOutlierFilter
 from nirs4all.operators.filters.y_outlier import YOutlierFilter
 from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
@@ -231,6 +232,35 @@ class TestExcludeControllerExecution:
         mock_dataset.set_tag.assert_called_once()
         # Should persist artifact
         assert len(artifacts) == 1
+
+    def test_exclude_passes_multi_target_y_unflattened(
+        self, controller, mock_dataset, mock_context, mock_runtime_context
+    ):
+        """Several targets reach the filter as (n, q): flattening would give n * q values."""
+        mock_dataset.y.return_value = np.arange(10.0).reshape(5, 2)
+        seen = []
+
+        def fit(self, X, y=None):
+            seen.append(np.shape(y))
+            return self
+
+        step_info = ParsedStep(
+            operator=None,
+            keyword="exclude",
+            step_type=StepType.WORKFLOW,
+            original_step={"exclude": HighLeverageFilter()},
+            metadata={}
+        )
+        with patch.object(HighLeverageFilter, "fit", fit), patch.object(HighLeverageFilter, "get_mask", return_value=np.ones(5, dtype=bool)):
+            controller.execute(
+                step_info=step_info,
+                dataset=mock_dataset,
+                context=mock_context,
+                runtime_context=mock_runtime_context,
+                mode="train"
+            )
+
+        assert seen == [(5, 2)]
 
     def test_exclude_multiple_filters_mode_any(
         self, controller, mock_dataset, mock_context, mock_runtime_context

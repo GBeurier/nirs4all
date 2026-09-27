@@ -27,7 +27,8 @@ from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
 from .detect import _generation_kind, _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
 from .envelope import build_envelope, build_fold_set
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
-from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_grain, _split_base_samples, _split_group_grain, _split_pool
+from .exclude import FoldLocalExclusion
+from .folds import FoldLocalFolds, _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_grain, _split_base_samples, _split_group_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .methods_lane import HOST_CALLBACK_LANE, lane_record, merge_lane_records, record_execution_lane, run_cv_refit_lane
@@ -773,6 +774,8 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
 
     identity = mint_identity(spectro)
     folds = _build_group_folds(splitter, spectro, pool)
+    if isinstance(excluded, FoldLocalExclusion):
+        folds = excluded.apply(spectro, folds)
     group_by_sample = _split_group_grain(splitter, spectro, pool) or _repetition_grain(spectro, pool)
     envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded, group_by_sample=group_by_sample)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
@@ -2271,6 +2274,8 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     pool = cv_pool if cv_pool is not None else (_split_base_samples(spectro) if augmentation_by_sample is not None else spectro.index_column("sample", {"partition": "train"}))
     excluded = excluded_sample_ints or set()
     folds = folds_override if folds_override is not None else (_build_group_folds(splitter, spectro, pool) if _is_repetition_dataset(spectro) else _build_folds(splitter, spectro, pool, excluded))
+    if isinstance(excluded, FoldLocalExclusion) and not isinstance(folds, FoldLocalFolds):
+        folds = excluded.apply(spectro, folds)
 
     # Per-sample criterion values: the first map seeds the envelope relations (native fan-out reads
     # partition values from it); the second is the adapter's sample_id→metadata map for branch_view.

@@ -24,6 +24,7 @@ from sklearn.model_selection import KFold
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
 from nirs4all.pipeline.dagml.envelope import build_envelope
+from nirs4all.pipeline.dagml.folds import FoldLocalFolds
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
 from nirs4all.pipeline.dagml.rt import RtError
@@ -1201,6 +1202,15 @@ def _excluded_train_ints(dataset, train: list[int], threshold: float) -> set[int
     return {int(s) for s, keep in zip(train, filt.get_mask(x_train, y_train), strict=True) if not keep}
 
 
+def _excluded_fold_train_ints(dataset, fold_train: list[int], threshold: float) -> set[int]:
+    """A YOutlierFilter fitted on one fold's train rows alone: the rows it excludes from that train."""
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+
+    x_train, y_train = _xy_for_sample_order(dataset, fold_train)
+    filt = YOutlierFilter(method="iqr", threshold=threshold).fit(x_train, y_train)
+    return {int(s) for s, keep in zip(fold_train, filt.get_mask(x_train, y_train), strict=True) if not keep}
+
+
 def _xy_for_sample_order(dataset, sample_ints: list[int]) -> tuple[np.ndarray, np.ndarray]:
     """Real X/y for ``sample_ints`` in request order, avoiding storage-order coupling."""
     sample_ints = [int(s) for s in sample_ints]
@@ -1392,11 +1402,11 @@ def test_public_run_engine_dagml_exclude_x_outlier_direct_sklearn_parity() -> No
 def test_public_run_engine_dagml_exclude_keep_in_oof(tmp_path) -> None:
     """exclude (OPT-IN mode, keep_in_oof=True) keeps excluded in the OOF: leakage-pure CV.
 
-    Opt-in mode keeps excluded samples in each fold's VALIDATION (predicted in OOF by a model that
-    never trained on them) while dropping them from each fold's TRAIN. Asserts (a) the excluded
-    samples DO appear in the validation/OOF predictions and the OOF covers the FULL train universe;
-    (b) ``cv_best_score`` differs from the default mode (which removes them from CV); (c) it equals
-    the leakage-pure baseline (excluded dropped from fold-train, kept in fold-val).
+    Opt-in mode keeps every sample in its fold's VALIDATION (predicted in OOF) and refits the filter
+    on each fold's TRAIN alone, dropping what it flags from that train. Asserts (a) the full-train
+    excluded samples DO appear in the validation/OOF predictions and the OOF covers the FULL train
+    universe; (b) ``cv_best_score`` differs from the default mode (which removes them from CV); (c) it
+    equals the leakage-pure baseline (filter fitted per fold train, validation untouched).
     """
     from sklearn.metrics import mean_squared_error
     from sklearn.pipeline import make_pipeline
@@ -1431,7 +1441,7 @@ def test_public_run_engine_dagml_exclude_keep_in_oof(tmp_path) -> None:
 
     # (a) the excluded samples ARE predicted in the OOF and the OOF covers the full train universe.
     raw_folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
-    pure_folds = [([s for s in tr if s not in excluded], va) for tr, va in raw_folds]
+    pure_folds = FoldLocalFolds(([s for s in tr if s not in _excluded_fold_train_ints(dataset, tr, threshold)], va) for tr, va in raw_folds)
     import dag_ml
 
     envelope = build_envelope(dataset, identity, sample_ints=list(train), excluded_sample_ints=excluded)
@@ -1444,7 +1454,7 @@ def test_public_run_engine_dagml_exclude_keep_in_oof(tmp_path) -> None:
     assert excluded <= oof_ids, "excluded samples must be predicted in the OOF (keep_in_oof=True)"
     assert oof_ids == {int(s) for s in train}, "opt-in OOF must cover the full train universe"
 
-    # (c) cv_best_score == leakage-pure baseline (excluded dropped from fold-train, kept in fold-val).
+    # (c) cv_best_score == leakage-pure baseline (filter fitted per fold train, fold-val untouched).
     oof_pred: dict[int, float] = {}
     oof_true: dict[int, float] = {}
     for train_ints, val_ints in pure_folds:
@@ -1457,6 +1467,27 @@ def test_public_run_engine_dagml_exclude_keep_in_oof(tmp_path) -> None:
     keys = sorted(oof_pred)
     leakage_pure_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
     assert abs(optin.cv_best_score - leakage_pure_oof) < 1e-3, (optin.cv_best_score, leakage_pure_oof)
+
+
+def test_public_run_engine_dagml_exclude_keep_in_oof_ignores_validation_targets() -> None:
+    """keep_in_oof=True refits the filter per fold: shifting fold 0's validation Y leaves its predictions unchanged."""
+    import nirs4all
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+
+    rng = np.random.default_rng(4)
+    X = rng.normal(size=(60, 8))
+    y = X[:, 0] + 0.2 * rng.normal(size=60)
+    shifted = y.copy()
+    shifted[:20] += 100.0  # KFold(3) without shuffle: rows 0-19 are fold 0's validation
+
+    fold0 = []
+    for target in (y, shifted):
+        pipeline = [{"exclude": YOutlierFilter(threshold=0.5), "keep_in_oof": True}, KFold(3), {"model": PLSRegression(n_components=2)}]
+        result = nirs4all.run(pipeline, (X, target), engine="dag-ml", verbose=0, save_artifacts=False, save_charts=False)
+        rows = [row for row in result.predictions.filter_predictions(load_arrays=True) if row.get("partition") in ("val", "validation") and str(row.get("fold_id")) == "0"]
+        fold0.append(np.asarray(rows[0]["y_pred"], dtype=float))
+
+    np.testing.assert_array_equal(fold0[0], fold0[1])
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

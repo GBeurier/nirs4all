@@ -323,6 +323,15 @@ def _build_group_folds(splitter: Any, spectro: Any, pool: list[int]) -> list[tup
     ]
 
 
+class FoldLocalFolds(list[tuple[list[int], list[int]]]):
+    """Folds whose train lists already carry a fold-local exclusion.
+
+    :func:`~nirs4all.pipeline.dagml.envelope.build_fold_set` declares them
+    ``train_exclusion: "fold_local"`` so DAG-ML trains each fold on its host train list instead of
+    also removing the envelope's (full-train) excluded samples.
+    """
+
+
 def _build_folds(splitter: Any, spectro: Any, pool: list[int], excluded: set[int]) -> list[tuple[list[int], list[int]]]:
     """Split ``pool`` over the REAL X/y and drop ``excluded`` from each fold's TRAIN, keeping it in VALIDATION.
 
@@ -334,11 +343,16 @@ def _build_folds(splitter: Any, spectro: Any, pool: list[int], excluded: set[int
 
     In legacy mode ``excluded`` is empty (excluded samples are already absent from ``pool``), so this
     is a plain split. In the opt-in (``keep_in_oof=True``) mode ``pool`` is the full train and
-    ``excluded`` is non-empty: excluded samples stay in each fold's validation (predicted in OOF) but
-    are removed from its train pool — the leakage-pure semantic, materialized in the host FoldSet (the
-    adapter owns the split; dag-ml has no runtime splitter, so the FoldSet's ``train_sample_ids`` are
-    authoritative for what the node trains on). The envelope still marks them ``excluded`` for lineage.
+    ``excluded`` is a :class:`~nirs4all.pipeline.dagml.exclude.FoldLocalExclusion`: the plain split
+    is computed first, then each fold's train drops what the exclude steps flag when fitted on that
+    train alone, so validation targets never shape a fold's training rows. Validation keeps every
+    sample (predicted in the OOF). The adapter owns the split — dag-ml has no runtime splitter — and
+    the returned :class:`FoldLocalFolds` make the fold set declare its train lists authoritative.
     """
+    from .exclude import FoldLocalExclusion
+
+    if isinstance(excluded, FoldLocalExclusion):
+        return excluded.apply(spectro, _build_folds(splitter, spectro, pool, set()))
     if isinstance(splitter, FrozenDagMlSplitStep):
         folds = splitter.materialized_folds(pool, excluded)
     elif isinstance(splitter, FoldFileDagMlSplitStep):

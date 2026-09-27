@@ -277,8 +277,8 @@ class TestYOutlierFilterEdgeCases:
         with pytest.raises(ValueError, match="no valid"):
             filter_obj.fit(X, y)
 
-    def test_multidimensional_y_is_flattened(self):
-        """Test that 2D y arrays are flattened."""
+    def test_single_column_y_is_accepted(self):
+        """A (n, 1) target column is one target."""
         y = np.array([[1], [2], [3], [4], [100]])  # 2D with outlier
         X = np.random.rand(5, 5)
 
@@ -288,6 +288,14 @@ class TestYOutlierFilterEdgeCases:
 
         assert len(mask) == 5
         assert mask[-1] == False  # Outlier excluded  # noqa: E712
+
+    def test_several_targets_are_refused(self):
+        """Several target columns have no single threshold; flattening would misalign the mask."""
+        y = np.column_stack((np.arange(5.0), np.arange(5.0) * 2))
+        X = np.random.rand(5, 5)
+
+        with pytest.raises(ValueError, match="single target column"):
+            YOutlierFilter().fit(X, y)
 
 class TestYOutlierFilterHelperMethods:
     """Tests for helper methods."""

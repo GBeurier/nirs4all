@@ -12,6 +12,13 @@ import numpy as np
 from .base import SampleFilter
 
 
+def _single_target(y: np.ndarray) -> np.ndarray:
+    """``y`` as one target column; several targets have no single outlier threshold."""
+    values = np.asarray(y)
+    if values.ndim > 2 or (values.ndim == 2 and values.shape[1] != 1):
+        raise ValueError(f"YOutlierFilter needs a single target column, got y of shape {values.shape}")
+    return values.reshape(-1)
+
 class YOutlierFilter(SampleFilter):
     """
     Filter samples with outlier target values.
@@ -160,8 +167,7 @@ class YOutlierFilter(SampleFilter):
         if y is None:
             raise ValueError("YOutlierFilter requires y values for fitting")
 
-        # Flatten y if multi-dimensional
-        y_flat = np.asarray(y).flatten()
+        y_flat = _single_target(y)
 
         # Handle empty input
         if len(y_flat) == 0:
@@ -272,8 +278,7 @@ class YOutlierFilter(SampleFilter):
         if self.lower_bound_ is None or self.upper_bound_ is None:
             raise ValueError("Filter has not been fitted. Call fit() first.")
 
-        # Flatten y if multi-dimensional
-        y_flat = np.asarray(y).flatten()
+        y_flat = _single_target(y)
 
         # Handle NaN values: mark as outliers (exclude them)
         is_nan = np.isnan(y_flat)
@@ -306,7 +311,7 @@ class YOutlierFilter(SampleFilter):
         base_stats = super().get_filter_stats(X, y)
 
         # Add method-specific stats
-        y_flat = np.asarray(y).flatten() if y is not None else np.array([])
+        y_flat = _single_target(y) if y is not None else np.array([])
         y_valid = y_flat[~np.isnan(y_flat)] if len(y_flat) > 0 else np.array([])
 
         base_stats.update({
