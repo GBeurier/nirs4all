@@ -230,7 +230,7 @@ for example in "${selectedExamples[@]}"; do
 
     args=()
     case "$example" in
-      */U07_multimodal.py|*/U08_multimodal_targets.py|*/U09_multimodal_missing_sources.py|*/U10_multimodal_late_tuning.py|*/U11_multimodal_data_provider.py|*/U12_multimodal_ragged_series.py)
+      */U07_multimodal.py|*/U08_multimodal_targets.py|*/U09_multimodal_missing_sources.py|*/U10_multimodal_late_tuning.py|*/U11_multimodal_data_provider.py|*/U12_multimodal_ragged_series.py|*/U13_multimodal_late_missing_sources.py)
         # These demonstrations emit JSON and archives, with durable search state.
         # A fresh directory keeps repeated runner invocations independent.
         artifact_dir=$(mktemp -d "${TMPDIR:-/tmp}/nirs4all-multimodal.XXXXXX")

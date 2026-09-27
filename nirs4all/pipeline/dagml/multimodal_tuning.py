@@ -88,8 +88,11 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     if progress is not None and not callable(progress):
         raise TypeError("tuning.progress_callback must be callable")
     recipe = prepare_late_tuning(pipeline, dataset, spec.space) if model is None else None
-    if recipe is not None and (not cohort.target_mask.all() or any(not mask.all() for mask in cohort.source_presence().values())):
-        raise ValueError("late-fusion tuning requires complete targets and complete sources")
+    if recipe is not None:
+        if not cohort.target_mask.all():
+            raise ValueError("late-fusion tuning requires complete targets")
+        if recipe.layout.get("missing_source_policy", "error") == "error" and any(not mask.all() for mask in cohort.source_presence().values()):
+            raise ValueError("late-fusion tuning requires complete sources unless missing_source_policy='zero_with_indicator' is explicit")
     pool = list(range(dataset.num_samples))
     identity = mint_identity(dataset)
     folds = _build_folds(splitter, dataset, pool, set())

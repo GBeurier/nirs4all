@@ -38,13 +38,18 @@ def prepare_late_tuning(pipeline: list[Any], dataset: Any, paths: Any) -> LateFu
     detected = _detect_by_source_stacking_branch(pipeline, dataset.n_sources)
     if detected is None:
         raise ValueError("multimodal tuning requires one multimodal model or by_source branches followed by merge='predictions' and a meta-model")
-    if not dataset.cohort.target_mask.all() or any(not mask.all() for mask in dataset.cohort.source_presence().values()):
-        raise ValueError("late-fusion tuning requires complete targets and complete sources")
+    if not dataset.cohort.target_mask.all():
+        raise ValueError("late-fusion tuning requires complete targets")
     body, meta = detected
     _lowered, branches, layout = lower_source_stacking(
         pipeline, body, source_widths=dataset.num_features, source_names=list(dataset.source_names),
         source_descriptors=dataset.cohort.schema_descriptors(),
     )
+    missing_policy = layout.get("missing_source_policy", "error")
+    if missing_policy == "zero_with_indicator" and dataset.is_classification:
+        raise ValueError("late-fusion missing_source_policy='zero_with_indicator' currently requires regression")
+    if missing_policy == "error" and any(not mask.all() for mask in dataset.cohort.source_presence().values()):
+        raise ValueError("late-fusion tuning requires complete sources unless missing_source_policy='zero_with_indicator' is explicit")
     # Store independently addressable source bodies even for a shared public list.
     branch_step = next(step for step in pipeline if isinstance(step, dict) and "branch" in step)
     branch_step["branch"]["steps"] = dict(zip(dataset.source_names, branches, strict=True))

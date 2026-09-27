@@ -2016,6 +2016,7 @@ def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tu
     ``steps`` may also map each source name to its own transform/model body.
     Each body ends in exactly one base model. The native nested scheduler owns
     all OOF production and the prediction merge; source names only bind inputs.
+    Only this stacking form accepts an explicit ``missing_source_policy``.
     """
     from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
 
@@ -2039,7 +2040,10 @@ def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tu
         return None
 
     criterion = branch_step["branch"]
-    if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
+    if set(criterion) - (_HANDLED_BY_SOURCE_KEYS | {"missing_source_policy"}):
+        return None
+    policy = criterion.get("missing_source_policy", "error")
+    if not isinstance(policy, str) or policy not in {"error", "zero_with_indicator"}:
         return None
     body = criterion.get("steps")
     if not isinstance(body, (list, dict)) or not body:

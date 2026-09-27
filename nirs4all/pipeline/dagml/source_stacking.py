@@ -19,6 +19,18 @@ from .host_finetune import attach_host_finetune_splitter
 from .steps import _is_split_step
 
 
+def source_stacking_missing_policy(pipeline: list[Any]) -> str:
+    """Read the explicit source-presence policy without changing the recipe."""
+    criteria = [step["branch"] for step in pipeline
+                if isinstance(step, dict) and isinstance(step.get("branch"), dict) and step["branch"].get("by_source") in (True, "auto")]
+    if len(criteria) != 1:
+        raise ValueError("source stacking requires exactly one by_source branch")
+    policy = criteria[0].get("missing_source_policy", "error")
+    if not isinstance(policy, str) or policy not in {"error", "zero_with_indicator"}:
+        raise ValueError("source stacking missing_source_policy must be 'error' or 'zero_with_indicator'")
+    return policy
+
+
 def lower_source_stacking(
     pipeline: list[Any], branch_body: list[Any] | dict[str, list[Any]], *, source_widths: list[int], source_names: list[str],
     source_descriptors: list[dict[str, Any]] | None = None,
@@ -34,6 +46,9 @@ def lower_source_stacking(
                     if isinstance(step, dict) and isinstance(step.get("branch"), dict) and step["branch"].get("by_source") in (True, "auto")]
     if len(source_steps) != 1:
         raise ValueError("source stacking requires exactly one by_source branch")
+    missing_policy = source_stacking_missing_policy(pipeline)
+    if missing_policy != "error" and source_descriptors is None:
+        raise ValueError("source stacking missing_source_policy requires a MultimodalDataset with typed source descriptors")
     splitters = [step for step in pipeline if _is_split_step(step)]
     if len(splitters) != 1:
         raise ValueError("source stacking requires one explicit outer splitter")
@@ -66,6 +81,10 @@ def lower_source_stacking(
     layout: dict[str, Any] = {"schema": "nirs4all.source-stacking-layout.v1", "sources": sources, "total_columns": start}
     if source_descriptors is not None:
         layout = {"schema": "nirs4all.source-stacking-layout.v2", "kind": "typed_source_blocks", "sources": sources}
+    if missing_policy != "error":
+        # The policy is part of graph/checkpoint identity even on complete cohorts.
+        layout["schema"] = "nirs4all.source-stacking-layout.v3"
+        layout["missing_source_policy"] = missing_policy
     layout["fingerprint"] = hashlib.sha256(json.dumps(layout, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     lowered = copy.deepcopy(pipeline)
     # Labels include the physical index even when two inputs share a name.

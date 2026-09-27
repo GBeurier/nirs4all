@@ -282,6 +282,7 @@ class MaterializationResolver:
         include_augmented: bool = True,
         include_excluded: bool = False,
         fold_label: str | None = None,
+        allow_missing: bool = False,
     ) -> dict[str, Any]:
         """Return ``{feature_set_id, observation_ids, values}`` for ONE source's block (S4 by_source).
 
@@ -301,7 +302,7 @@ class MaterializationResolver:
             if not 0 <= source_index < dataset.n_sources:
                 raise ValueError(f"by_source block index {source_index} out of range for {dataset.n_sources} source(s)")
             name = dataset.source_names[source_index]
-            if not np.asarray(dataset.cohort.sources[name].presence_mask)[sample_ints].all():
+            if not allow_missing and not np.asarray(dataset.cohort.sources[name].presence_mask)[sample_ints].all():
                 raise ValueError("by_source and late fusion require complete modalities; use a multimodal model with an explicit missing_source_policy")
             return {
                 "feature_set_id": "features",
@@ -313,13 +314,29 @@ class MaterializationResolver:
         if not 0 <= source_index < len(blocks):
             raise ValueError(f"by_source block index {source_index} out of range for {len(blocks)} source(s)")
         masks = resolved.get("source_masks")
-        if masks is not None and not list(masks.values())[source_index].all():
+        if masks is not None and not list(masks.values())[source_index].all() and not allow_missing:
             raise ValueError("by_source and late fusion require complete modalities; use a multimodal model with an explicit missing_source_policy")
         return {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
             "values": blocks[source_index],
         }
+
+    def resolve_source_presence(
+        self, observation_ids: list[str], source_index: int, *,
+        include_augmented: bool = False, fold_label: str | None = None,
+    ) -> np.ndarray:
+        """Resolve a source's availability using the same fold view as its features."""
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        self._guard_origin_boundary(observation_ids, include_augmented)
+        dataset, sample_ints = self._feature_rows(observation_ids, fold_label)
+        if not isinstance(dataset, MultimodalSpectroDataset):
+            raise ValueError("source-presence stacking requires a raw MultimodalDataset")
+        if not 0 <= source_index < dataset.n_sources:
+            raise ValueError("source presence index is outside the declared source layout")
+        name = dataset.source_names[source_index]
+        return np.asarray(dataset.cohort.sources[name].presence_mask)[sample_ints]
 
     def _feature_rows(self, observation_ids: list[str], fold_label: str | None) -> tuple[SpectroDataset, list[int]]:
         """Select a fold's fitted spectra while keeping global wire identities stable."""
