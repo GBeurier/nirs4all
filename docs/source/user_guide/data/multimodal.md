@@ -400,9 +400,10 @@ and does not require the training workspace.
 
 These are Python host archives containing trusted joblib objects, not portable
 Core/ONNX/WASM model archives. Replay requires the declared package versions and
-Python major/minor version. Inputs have fixed trailing dimensions, with optional
-source and target masks as described above. Ragged inputs and cross-language
-replay are not qualified. Classification encodings and inferred task types depend
+Python major/minor version. Dense inputs have fixed trailing dimensions, and
+temporal sources may use the typed ragged-series contract with variable-length
+observations. Both forms support the source and target masks described above.
+Cross-language ragged replay is not qualified. Classification encodings and inferred task types depend
 only on training targets; a held-out class absent from that vocabulary is refused.
 
 See the [installation qualification](../../../multimodal_installation_qualification.md)

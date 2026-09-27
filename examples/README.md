@@ -74,6 +74,7 @@ The User Path provides a complete introduction to nirs4all, from your first pipe
 | U09_multimodal_missing_sources.py | Incomplete modalities and targets, explicit presence indicators, durable tuning and prediction without images | ★★★☆☆ |
 | U10_multimodal_late_tuning.py | Tune source encoders, base models and the OOF meta-model with durable native resume and complete ensemble replay | ★★★☆☆ |
 | U11_multimodal_data_provider.py | Execute complete/partial synthetic providers, resume finite batches and replay without regenerating training data | ★★★☆☆ |
+| U12_multimodal_ragged_series.py | Train and replay a synthetic multimodal cohort with variable-length temporal series | ★★★☆☆ |
 
 ### 03_preprocessing/ - Preprocessing
 

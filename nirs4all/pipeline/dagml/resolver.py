@@ -26,7 +26,7 @@ its origin's y, so ``resolve_targets`` is keyed by the origin's ``sample_id`` (a
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -43,7 +43,7 @@ def _cohort_source_values(cohort: Any, sample_ints: list[int], source_names: tup
     returns all sources in canonical order, so project them after reading.
     """
     try:
-        return cohort.source_values(sample_ints, source_names=list(source_names))
+        return cast(list[Any], cohort.source_values(sample_ints, source_names=list(source_names)))
     except TypeError as exc:
         if "unexpected keyword argument 'source_names'" not in str(exc):
             raise
