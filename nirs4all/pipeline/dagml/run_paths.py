@@ -30,6 +30,7 @@ from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_grain, _split_base_samples, _split_group_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
+from .methods_lane import HOST_CALLBACK_LANE, lane_record, merge_lane_records, record_execution_lane, run_cv_refit_lane
 from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
 from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _is_split_step, _model_name, _split_pipeline, _supported_body_steps
 
@@ -258,11 +259,17 @@ def _run_native_generation(
     envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
-    import dag_ml
+    def run_callback() -> dict[str, Any]:
+        import dag_ml
 
-    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
-    outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit, refit_top_k=refit_top_k
+        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+        return run_cv_refit_bundle(
+            dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit, refit_top_k=refit_top_k
+        )
+
+    outcome = run_cv_refit_lane(
+        steps=steps, dsl=dsl, envelope=envelope, spectro=spectro, identity=identity, excluded=excluded,
+        selection_metric=metric, refit=refit, refit_top_k=refit_top_k, run_callback=run_callback,
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
@@ -306,6 +313,7 @@ def _run_native_generation(
     )
     if refit_top_k > 1:
         result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
+    record_execution_lane(result, outcome["execution_lane"])
     return result
 
 
@@ -462,11 +470,12 @@ def _run_concrete_scores(
     random_state: int | None = None,
     refit: bool = True,
     metric: str = "rmse",
-) -> tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]:
-    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, results, identity, refit_artifacts)``.
+) -> tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]], dict[str, Any]]:
+    """Run one concrete (generator-free) pipeline; return ``(scores, model_name, results, identity, refit_artifacts, lane)``.
 
-    Return native scores, model label, per-node results, sample identities and
-    captured fitted estimators. The projection preserves all native measurements,
+    Return native scores, model label, per-node results, sample identities,
+    captured fitted estimators and the execution-lane record (see
+    :mod:`.methods_lane`). The projection preserves all native measurements,
     independent of historical legacy serialization/refit behavior. ``cv_pool``
     is the CV sample universe; ``excluded`` is marked in the envelope only when
     ``keep_in_oof=True``.
@@ -484,16 +493,22 @@ def _run_concrete_scores(
     envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
-    import dag_ml
+    def run_callback() -> dict[str, Any]:
+        import dag_ml
 
-    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
-    outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
+        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+        return run_cv_refit_bundle(
+            dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
+        )
+
+    outcome = run_cv_refit_lane(
+        steps=steps, dsl=dsl, envelope=envelope, spectro=spectro, identity=identity, excluded=excluded,
+        selection_metric=metric, refit=refit, refit_top_k=1, run_callback=run_callback,
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return outcome["scores"], _model_name(steps), outcome["results"], identity, outcome["refit_artifacts"]
+    return outcome["scores"], _model_name(steps), outcome["results"], identity, outcome["refit_artifacts"], outcome["execution_lane"]
 
 
 def _run_concrete(
@@ -518,10 +533,12 @@ def _run_concrete(
     ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
-    scores, model_name, results, identity, refit_artifacts = _run_concrete_scores(
+    scores, model_name, results, identity, refit_artifacts, lane = _run_concrete_scores(
         pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state, refit=refit, metric=metric
     )
-    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
+    result = _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
+    record_execution_lane(result, lane)
+    return result
 
 
 
@@ -1826,7 +1843,7 @@ def _run_interleaved_augmentation_checkpoints(
     model_indices = [index for index, step in enumerate(pipeline) if isinstance(step, dict) and "model" in step]
     if len(model_indices) < 2:
         raise DagMlUnsupported("interleaved augmentation checkpoints require at least two models")
-    campaigns: list[tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]] = []
+    campaigns: list[tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]], dict[str, Any]]] = []
     chart_source: RunResult | None = None
     for candidate_index, model_index in enumerate(model_indices):
         # Legacy's ordinary model steps are independent checkpoints. Preserve
@@ -1862,7 +1879,7 @@ def _run_interleaved_augmentation_checkpoints(
             )
             campaigns.append((
                 capture["scores"], capture["model_name"], capture["results"],
-                capture["identity"], capture["refit_artifacts"],
+                capture["identity"], capture["refit_artifacts"], lane_record(HOST_CALLBACK_LANE),
             ))
             chart_source = candidate_result
         else:
@@ -1885,11 +1902,12 @@ def _run_interleaved_augmentation_checkpoints(
         [(scores, model_name) for scores, model_name, *_rest in campaigns],
         spectro.name, metric, task_type, task_type != "regression",
         [config_name] * len(campaigns),
-        results_by_index=[results for _scores, _name, results, _identity, _artifacts in campaigns],
-        identities_by_index=[identity for _scores, _name, _results, identity, _artifacts in campaigns],
-        refit_artifacts_by_index=[artifacts for _scores, _name, _results, _identity, artifacts in campaigns],
+        results_by_index=[results for _scores, _name, results, _identity, _artifacts, _lane in campaigns],
+        identities_by_index=[identity for _scores, _name, _results, identity, _artifacts, _lane in campaigns],
+        refit_artifacts_by_index=[artifacts for _scores, _name, _results, _identity, artifacts, _lane in campaigns],
         selected_index=int(decision["selected_candidate_id"]), emit_all_refits=True,
     )
+    record_execution_lane(result, merge_lane_records([lane for *_rest, lane in campaigns]))
     if chart_source is not None:
         result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots  # type: ignore[attr-defined]
         result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots  # type: ignore[attr-defined]

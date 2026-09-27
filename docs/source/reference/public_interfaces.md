@@ -249,6 +249,34 @@ winner, OOF identities/predictions, validation scores, and split evidence with
 a temporary `engine="legacy"` oracle under the packaged compatibility ledger.
 It never enables `allow_fallback` and does not expose the legacy workspace.
 
+### Native Methods lane of the general profile
+
+Under the general DAG profile, a campaign whose steps are all generic n4m role
+estimators (`n4m.roles` instances or `n4m:<method_id>` tokens) runs on DAG-ML's
+callback-free Methods lane: every node fits, transforms and predicts inside
+libn4m through DAG-ML's native estimator controllers, while the fold set,
+envelope views, variant selection and scoring are those of the host-callback
+lane. A campaign takes this lane when:
+
+- `N4A_DAGML_NATIVE_METHODS` is not `0`/`false`/`off`, the in-process DAG-ML
+  mechanism is selected and the installed `dag-ml` exposes the lane;
+- the dataset is one single-source 2D block without augmented rows, repetition
+  grouping, held-out test partition, or samples excluded inside the OOF
+  universe (`exclude` steps resolved before the split are supported);
+- the steps are n4m transformers or selectors followed by one
+  `{"model": <n4m regressor or classifier>}` (optionally named), the model role
+  matching the task (a classifier has one integral class column), after any
+  splitter;
+- no method requires a fit input a DAG node cannot supply or retains training
+  rows in its fitted state, and every parameter and model `_range_`/
+  `_log_range_` sweep produces exact native values.
+
+Any other campaign keeps the host-callback lane. `result.execution_lane`
+reports `"native_methods"`, `"host_callback"` or `"mixed"`, and a callback
+campaign records its reason in `per_dataset[...]["execution_lane_reason"]`.
+Both lanes produce the same scores, predictions, selected variant and captured
+joblib model, so exported archives are unchanged.
+
 Every explicit `engine="legacy"` or `engine="dual"` request emits a
 `LegacyEngineUsageWarning`. Its message is stable compact JSON with
 `schema_version`, `code`, `engine`, and `operation` fields. Support counting is

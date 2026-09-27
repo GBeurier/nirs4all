@@ -153,6 +153,7 @@ def publish_workspace_result(
                     )
                 summary = {
                     "execution_engine": result.execution_engine,
+                    "execution_lane": result.execution_lane,
                     "num_predictions": result.num_predictions,
                     "native_score_set_available": result._dagml_score_set is not None,  # noqa: SLF001
                     "native_results_dir": str(result._dagml_results_dir) if result._dagml_results_dir else None,  # noqa: SLF001
