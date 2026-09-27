@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `engine="dag-ml"` (and the default engine when it selects the general DAG
+  profile) runs pipelines of n4m role steps on DAG-ML's callback-free Methods
+  lane: n4m transformers/selectors followed by one n4m regressor or classifier
+  model, with any host-resolved splitter or `exclude`, including model
+  `_range_`/`_log_range_` parameter sweeps and `refit` top-k. Every node fits
+  and predicts inside libn4m through DAG-ML's native estimator controllers;
+  scores, OOF/refit predictions, the selected variant and the exported model
+  are identical to the host-callback lane. The rule is documented in
+  `nirs4all.pipeline.dagml.methods_lane.native_methods_refusal`; every other
+  shape keeps the host-callback lane. `N4A_DAGML_NATIVE_METHODS=0` forces the
+  callback lane.
+- `RunResult.execution_lane` (`"native_methods"`, `"host_callback"` or
+  `"mixed"`), with `per_dataset[...]["execution_lane"]`, the refusal reason in
+  `per_dataset[...]["execution_lane_reason"]`, and `execution_lane` in the
+  workspace run summary.
+
 ### Changed
 
 - `nirs4all.pipeline.portable_n4m_roles.PortableN4MRolePipeline` is now
@@ -22,8 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (F10). The envelope gains the additive `feature_names` and per-state
   `contains_training_rows`; older envelopes still load. The `estimators`
   attribute is replaced by `pipeline` (the native `n4m.roles.RolePipeline`).
-- Requires `nirs4all-core>=0.3.37`, `nirs4all-methods>=1.2.0` and
-  `pls4all>=1.2.0` (Methods ABI 2.14).
+- Requires `nirs4all-core>=0.3.37`, `dag-ml>=0.3.29`, `nirs4all-methods>=1.2.0`
+  and `pls4all>=1.2.0` (Methods ABI 2.14).
 
 ### Fixed
 

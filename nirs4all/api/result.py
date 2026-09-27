@@ -1659,6 +1659,21 @@ class RunResult:
         return next(iter(engines)) if len(engines) == 1 else "mixed" if engines else None
 
     @property
+    def execution_lane(self) -> str | None:
+        """How a ``dag-ml`` run executed its operators, from execution provenance.
+
+        ``"native_methods"`` when every node ran inside the native Methods
+        estimator controllers with no Python callback, ``"host_callback"``
+        when the host executed the operators, ``"mixed"`` when a result
+        combines both, and ``None`` for results without lane provenance
+        (other engines and historical results). A host-callback run also
+        records why its campaign was not lowered in
+        ``per_dataset[name]["execution_lane_reason"]``.
+        """
+        lanes = {info["execution_lane"] for info in self.per_dataset.values() if isinstance(info, dict) and isinstance(info.get("execution_lane"), str)}
+        return next(iter(lanes)) if len(lanes) == 1 else "mixed" if lanes else None
+
+    @property
     def best(self) -> dict[str, Any]:
         """Get the best prediction entry, preferring refit (final) models.
 
