@@ -9,7 +9,7 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.core.logging import get_logger
 from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
-from nirs4all.operators.augmentation.native import as_augmenter
+from nirs4all.operators.augmentation.native import NativeRoleAugmenter, as_augmenter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 logger = get_logger(__name__)
@@ -158,13 +158,15 @@ class SampleAugmentationController(OperatorController):
             else:
                 transformers.append(as_augmenter(deserialize_component(t)))
 
-        # Step-level random_state controls both selection and, for unseeded stochastic
-        # augmenters, the generated synthetic spectra. Keep explicit operator seeds.
+        # Seed priority: an explicit operator seed (an n4m role's ``seed`` included, see
+        # as_augmenter) wins; the step-level random_state, which also drives selection, derives
+        # base + transformer index for unseeded stochastic augmenters only.
         if config.get("random_state") is not None:
             base_seed = int(config["random_state"])
             for trans_idx, transformer in enumerate(transformers):
                 if hasattr(transformer, "random_state") and getattr(transformer, "random_state", None) is None:
                     self._set_operator_random_state(transformer, base_seed + trans_idx)
+        self._record_seeds(transformers, runtime_context)
 
         # Parse variation_scope per transformer (parallel to transformers list)
         variation_scopes = [
@@ -772,6 +774,22 @@ class SampleAugmentationController(OperatorController):
         if isinstance(transformer_spec, dict):
             return str(transformer_spec.get("variation_scope", step_scope))
         return step_scope
+
+    @staticmethod
+    def _record_seeds(transformers: list, runtime_context: 'RuntimeContext') -> None:
+        """Record the effective base seed of every augmenter in the execution trace.
+
+        Per-sample clones draw with base + sample position and native roles with base +
+        call index; None means the operator's own unseeded default.
+        """
+        recorder = runtime_context.trace_recorder
+        if recorder is None:
+            return
+        recorder.add_step_metadata("augmentation_seeds", [
+            {"operator": type(t.role).__name__, "seed": t.base_seed} if isinstance(t, NativeRoleAugmenter)
+            else {"operator": type(t).__name__, "seed": getattr(t, "random_state", None)}
+            for t in transformers
+        ])
 
     @staticmethod
     def _set_operator_random_state(operator: Any, seed: int) -> None:

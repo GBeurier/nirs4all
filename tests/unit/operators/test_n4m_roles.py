@@ -94,6 +94,65 @@ def test_augmenter_adapter_draws_a_new_seed_per_call(data):
     assert not isinstance(as_augmenter(PLSRegression()), NativeRoleAugmenter)
 
 
+def test_augmenter_seed_priority(data):
+    X, _ = data
+    # An explicit role seed becomes the adapter's base seed, directly or already wrapped.
+    assert as_augmenter(roles.GaussianNoise(seed=7)).random_state == 7
+    assert as_augmenter(NativeRoleAugmenter(roles.GaussianNoise(seed=7))).random_state == 7
+    assert NativeRoleAugmenter(roles.GaussianNoise(seed=7)).base_seed == 7
+    assert NativeRoleAugmenter(roles.GaussianNoise(seed=7), random_state=11).base_seed == 11
+    # An unseeded role stays unseeded for the step to derive one; alone it runs the native default 0.
+    unseeded = as_augmenter(roles.GaussianNoise(sigma=0.1))
+    assert unseeded.random_state is None
+    assert unseeded.base_seed == 0
+    unseeded.fit(X)
+    first, second = unseeded.transform(X), unseeded.transform(X)
+    assert unseeded.seeds_ == [0, 1]
+    np.testing.assert_array_equal(first, roles.GaussianNoise(sigma=0.1).augment(X))
+    np.testing.assert_array_equal(second, roles.GaussianNoise(sigma=0.1, seed=1).augment(X))
+
+
+@pytest.mark.parametrize("engine", [None, "legacy"])
+@pytest.mark.parametrize(("step_seed", "expected"), [(123, [7, 124, 125]), (None, [7, 0, 0])], ids=["step-seed", "no-step-seed"])
+def test_sample_augmentation_keeps_explicit_role_seeds(data, engine, step_seed, expected, monkeypatch):
+    """F09: an explicit role seed wins; the step random_state derives seeds for unseeded roles only."""
+    from nirs4all.controllers.data.sample_augmentation import SampleAugmentationController
+    from nirs4all.pipeline.trace.recorder import TraceRecorder
+
+    resolved: list[list[int | None]] = []
+    recorded: list[list[dict]] = []
+    record_seeds = SampleAugmentationController._record_seeds
+    add_step_metadata = TraceRecorder.add_step_metadata
+
+    def spy_resolved(transformers, runtime_context):
+        resolved.append([transformer.base_seed for transformer in transformers])
+        record_seeds(transformers, runtime_context)
+
+    def spy_recorded(self, key, value):
+        if key == "augmentation_seeds":
+            recorded.append(value)
+        add_step_metadata(self, key, value)
+
+    monkeypatch.setattr(SampleAugmentationController, "_record_seeds", staticmethod(spy_resolved))
+    monkeypatch.setattr(TraceRecorder, "add_step_metadata", spy_recorded)
+    config = {
+        "transformers": [roles.GaussianNoise(sigma=0.01, seed=7), roles.GaussianNoise(sigma=0.01), roles.MultiplicativeNoise(sigma_gain=0.01)],
+        "count": 2,
+        "selection": "all",  # deterministic transformer assignment: only the seeds vary
+    }
+    if step_seed is not None:
+        config["random_state"] = step_seed
+    pipeline = [{"sample_augmentation": config}, KFold(3), {"model": roles.CPPLS(n_components=3)}]
+
+    scores = [run(pipeline, data, engine).cv_best_score for _ in range(2)]
+    assert scores[0] == scores[1]  # repeated runs reproduce the same augmented rows
+    assert resolved
+    assert all(seeds == expected for seeds in resolved)
+    if engine == "legacy":  # the executor traces training steps; the seeds are part of it
+        assert recorded
+        assert all(entry == [{"operator": type(role).__name__, "seed": seed} for role, seed in zip(config["transformers"], expected, strict=True)] for entry in recorded)
+
+
 def test_role_token_round_trips_through_serialization():
     from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
 
