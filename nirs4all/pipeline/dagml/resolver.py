@@ -36,6 +36,22 @@ if TYPE_CHECKING:
     from .identity import IdentityMap
 
 
+def _cohort_source_values(cohort: Any, sample_ints: list[int], source_names: tuple[str, ...]) -> list[Any]:
+    """Select source blocks while accepting the published IO 0.2.0 API.
+
+    Newer IO versions can avoid reading unselected sources. The 0.2.0 API
+    returns all sources in canonical order, so project them after reading.
+    """
+    try:
+        return cohort.source_values(sample_ints, source_names=list(source_names))
+    except TypeError as exc:
+        if "unexpected keyword argument 'source_names'" not in str(exc):
+            raise
+    all_blocks = cohort.source_values(sample_ints)
+    by_name = dict(zip(cohort.sources, all_blocks, strict=True))
+    return [by_name[name] for name in source_names]
+
+
 class MaterializationResolver:
     """Resolve dag-ml view identity refs to real ``SpectroDataset`` X/y, in request order.
 
@@ -230,7 +246,7 @@ class MaterializationResolver:
             if source_names is not None and (len(source_names) != len(set(source_names)) or set(source_names) != set(available_names)):
                 raise ValueError(f"multimodal source names mismatch: required {source_names}, received {available_names}")
             order = source_names if source_names is not None else available_names
-            blocks = dataset.cohort.source_values(sample_ints, source_names=list(order))
+            blocks = _cohort_source_values(dataset.cohort, sample_ints, tuple(order))
         else:
             per_source = dataset.x_rows(sample_ints, layout="2d", concat_source=False)
             # x_rows(concat_source=False) returns a list of per-source 2D arrays for a multi-source
@@ -290,7 +306,7 @@ class MaterializationResolver:
             return {
                 "feature_set_id": "features",
                 "observation_ids": list(observation_ids),
-                "values": dataset.cohort.source_values(sample_ints, source_names=[name])[0],
+                "values": _cohort_source_values(dataset.cohort, sample_ints, (name,))[0],
             }
         resolved = self.resolve_feature_blocks(observation_ids, include_augmented=include_augmented, include_excluded=include_excluded, fold_label=fold_label)
         blocks = resolved["blocks"]

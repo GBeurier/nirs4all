@@ -82,6 +82,21 @@ def _run(cohort: MultimodalDataset, workspace: Path, *, model: MultimodalRegress
     )
 
 
+def test_published_io_source_values_signature_remains_supported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The IO 0.2.0 method lacks ``source_names`` but remains a valid floor."""
+    source_values = MultimodalDataset.source_values
+
+    def published_signature(self: MultimodalDataset, row_indices: Any = None) -> Any:
+        return source_values(self, row_indices)
+
+    monkeypatch.setattr(MultimodalDataset, "source_values", published_signature)
+    result = _run(_cohort(), tmp_path / "published-io")
+    try:
+        assert np.isfinite(result.best_rmse)
+    finally:
+        result.close()
+
+
 @pytest.mark.parametrize("unequal_groups", [False, True])
 def test_public_run_fits_raw_encoders_only_on_each_native_fold(unequal_groups: bool, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     cohort = _cohort(unequal_groups=unequal_groups)
