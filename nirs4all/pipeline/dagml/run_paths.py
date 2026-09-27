@@ -4702,6 +4702,8 @@ def _assemble_stacking_dsl(
     selection_metric: str = "rmse",
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     """Declare the same nested OOF graph for concrete runs and whole-stack HPO."""
+    if source_layout is not None and source_layout.get("missing_source_policy", "error") != "error" and task_type == "classification":
+        raise DagMlUnsupported("late-fusion missing_source_policy='zero_with_indicator' currently requires regression")
     meta_metadata = _stacking_model_metadata(pipeline)
     from nirs4all.operators.models.meta import CoverageStrategy, MetaModel, TestAggregation
 
@@ -4851,6 +4853,7 @@ def _assemble_stacking_dsl(
                 if step["kind"] == "model":
                     step["metadata"] = {**step.get("metadata", {}), "nirs4all_source_stacking": {
                         "layout_fingerprint": source_layout["fingerprint"], "source": source_layout["sources"][index],
+                        **({"missing_source_policy": source_layout["missing_source_policy"]} if "missing_source_policy" in source_layout else {}),
                     }}
                     if source_layout.get("kind") == "typed_source_blocks":
                         step["metadata"]["source_index"] = index

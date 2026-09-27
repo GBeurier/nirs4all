@@ -1269,6 +1269,12 @@ def run_model_node(
     dual_probability_output = "proba" in (graph_node.get("metadata") or {}).get("auxiliary_prediction_ports", [])
     residual_mode = node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID
     source_index = _source_index(graph_node)
+    source_policy = ((graph_node.get("metadata") or {}).get("nirs4all_source_stacking") or {}).get("missing_source_policy", "error")
+    if source_policy not in {"error", "zero_with_indicator"}:
+        raise ValueError("unsupported source-stacking missing_source_policy")
+    missing_source = source_policy == "zero_with_indicator"
+    if missing_source and source_index is None:
+        raise ValueError("source-presence policy requires one declared raw source per base model")
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
     # the early-fusion concat. ``multi_block`` is true ONLY when BOTH the model is a multi-block consumer
     # AND the dataset actually has >1 source — a single-source MB-PLS stays the early-fusion concat path
@@ -1300,6 +1306,8 @@ def run_model_node(
         )
 
         training_metadata = graph_node.get("metadata") or {}
+        if missing_source and training_metadata.get("nirs4all_finetune_params"):
+            raise ValueError("missing-source late fusion requires whole-stack tuning instead of branch-local finetune_params")
         has_training_controls = any(key in training_metadata for key in ("nirs4all_train_params", "nirs4all_refit_params"))
         if has_training_controls:
             # Reject invalid controls before an HPO trial or upstream fit. The
@@ -1363,6 +1371,8 @@ def run_model_node(
 
         multimodal = isinstance(model, (MultimodalRegressor, MultimodalClassifier))
         multi_block = not source_concat and _is_multi_block_model(model) and (resolver.is_multi_source() or multimodal)
+        if missing_source and (source_concat or multi_block or joined_chain is not None):
+            raise ValueError("source-presence late fusion requires single-source base models with encoders inside each branch")
         source_templates = (
             [[_FrozenTransform(fitted_chain.for_source(index))] for index in range(len(fitted_chain.source_steps))]
             if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None else None
@@ -1414,6 +1424,11 @@ def run_model_node(
         fit_view = _view_by_partition(task, "fold_train" if phase == "FIT_CV" else "full_train")
         include_augmented_fit = bool((fit_view or {}).get("include_augmented"))
         fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label) if include_augmented_fit else train_ids
+        if missing_source:
+            presence = resolver.resolve_source_presence(fit_ids, cast(int, source_index), include_augmented=include_augmented_fit, fold_label=fold_label)
+            fit_ids = [sample for sample, present in zip(fit_ids, presence, strict=True) if present]
+            if not fit_ids:
+                raise ValueError(f"source {source_index} has no observed rows in the native training view")
         # MULTI-BLOCK (S5): materialize the per-source blocks as a LIST (concat_source=False); the
         # wrapper applies the X-chain per block and fits ``model.fit([X1,X2,…], y)``. BY_SOURCE (S4):
         # materialize ONLY the bound source's block (one 2D matrix — late fusion by source). Otherwise the
@@ -1480,6 +1495,9 @@ def run_model_node(
         from .multimodal_contracts import bind_input_contract
 
         bind_input_contract(estimator, resolver._dataset, source_index)
+        if missing_source:
+            estimator.multimodal_missing_source_policy = source_policy
+            estimator.multimodal_prediction_width = int(y_train.shape[1]) if y_train.ndim == 2 else 1
         if training_controls is not None:
             estimator._nirs4all_training_controls = training_controls
             report_model_training_controls(training_controls, model, len(fit_ids))
@@ -1507,7 +1525,7 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x = resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label)["values"]
+            x = resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label, allow_missing=missing_source)["values"]
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
         if joined_chain is not None:
@@ -1518,6 +1536,20 @@ def run_model_node(
 
     def _predict(ids: list[str], include_augmented: bool, *, full_probabilities: bool = False) -> list[list[float]]:
         features, options = _features(ids, include_augmented)
+        if missing_source:
+            from .source_missing import predict_present_rows
+
+            if proba_output or full_probabilities:
+                raise ValueError("source-presence late fusion currently requires regression")
+            presence = resolver.resolve_source_presence(ids, cast(int, source_index), include_augmented=include_augmented, fold_label=fold_label)
+
+            def predict_original(block: Any) -> np.ndarray:
+                with _gpu_device_scope(task, estimator):
+                    pred = np.asarray(estimator.predict(block, **options), dtype=float).reshape(len(block), -1)
+                return np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(block), -1) if y_transform is not None else pred
+
+            scaled = predict_present_rows(predict_original, features, presence, estimator.multimodal_prediction_width)
+            return [[float(value) for value in row] for row in scaled]
         with _gpu_device_scope(task, estimator):
             if proba_output or full_probabilities:
                 if y_transform is not None or not hasattr(estimator, "predict_proba"):
@@ -1683,7 +1715,10 @@ def run_model_node(
 
 
 def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str,
-                         *, project_probability_columns: bool = False) -> tuple[list[str], np.ndarray]:
+                         *, project_probability_columns: bool = False,
+                         resolver: MaterializationResolver | None = None,
+                         node_lookup: Callable[[str], dict[str, Any]] | None = None,
+                         fold_label: str | None = None) -> tuple[list[str], np.ndarray]:
     """Build ``(sample_ids, X_meta)`` from base prediction-input specs, concatenated per producer.
 
     One column block per base producer in the order ``specs`` is given (the caller passes them in the
@@ -1703,7 +1738,38 @@ def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str,
             if row is None:
                 raise ValueError(f"meta-model node {node_id!r}: base producer {spec.get('producer_node')!r} is missing prediction for sample {sample_id!r}")
             rows_by_sample[sample_id].extend(row)
-    return sample_ids, np.asarray([rows_by_sample[sample_id] for sample_id in sample_ids], dtype=float)
+    matrix = np.asarray([rows_by_sample[sample_id] for sample_id in sample_ids], dtype=float)
+    if node_lookup is None:
+        return sample_ids, matrix
+    layout = (node_lookup(node_id).get("metadata") or {}).get("nirs4all_source_stacking") or {}
+    policy = layout.get("missing_source_policy", "error")
+    if policy == "error":
+        return sample_ids, matrix
+    if policy != "zero_with_indicator" or resolver is None or project_probability_columns:
+        raise ValueError("unsupported source-stacking availability layout")
+    from .source_missing import append_source_presence
+
+    columns: list[np.ndarray] = []
+    seen: list[str] = []
+    offset = 0
+    for spec in specs:
+        metadata = node_lookup(spec["producer_node"]).get("metadata") or {}
+        binding = metadata.get("nirs4all_source_stacking") or {}
+        source = binding.get("source") or {}
+        index = metadata.get("source_index")
+        if (binding.get("layout_fingerprint") != layout.get("fingerprint")
+                or binding.get("missing_source_policy") != policy
+                or type(index) is not int or source not in layout.get("sources", [])
+                or source.get("source_index") != index or source.get("source_name") != metadata.get("source_name")):
+            raise ValueError("base prediction source binding disagrees with the meta availability layout")
+        seen.append(source["source_name"])
+        width = np.asarray(spec["values"]).reshape(len(spec["sample_ids"]), -1).shape[1]
+        presence = resolver.resolve_source_presence(sample_ids, index, fold_label=fold_label)
+        columns.append(append_source_presence(matrix[:, offset:offset + width], presence))
+        offset += width
+    if len(set(seen)) != len(seen) or set(seen) != {source["source_name"] for source in layout["sources"]}:
+        raise ValueError("meta availability features require each declared source exactly once")
+    return sample_ids, np.column_stack(columns)
 
 
 def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None,
@@ -1815,7 +1881,11 @@ def run_meta_model_node(
         return _ordered_oof_specs(prediction_inputs, suffix=suffix, source_order=source_order, source_ports=source_ports)
 
     def feature_matrix(specs: list[dict[str, Any]]) -> tuple[list[str], np.ndarray]:
-        return _meta_feature_matrix(specs, node_id, project_probability_columns=project_probability_columns)
+        return _meta_feature_matrix(
+            specs, node_id, project_probability_columns=project_probability_columns,
+            resolver=resolver, node_lookup=node_lookup,
+            fold_label=task.get("fold_id") if phase == "FIT_CV" else "refit",
+        )
 
     def prediction_blocks(estimator: Any, features: np.ndarray, sample_ids: list[str],
                           partition: str, fold_id: str | None, target_names: list[str]) -> list[dict[str, Any]]:
@@ -1870,6 +1940,12 @@ def run_meta_model_node(
         if any(key in metadata for key in ("nirs4all_train_params", "nirs4all_refit_params")) else None
     )
     fit_estimator.fit(x_meta, y_meta)
+    source_layout = metadata.get("nirs4all_source_stacking") or {}
+    if source_layout.get("missing_source_policy") == "zero_with_indicator":
+        fit_estimator.multimodal_missing_source_policy = "zero_with_indicator"
+        fit_estimator.multimodal_source_names = tuple(
+            (node_lookup(spec["producer_node"]).get("metadata") or {})["source_name"] for spec in oof_specs
+        )
     if training_controls is not None:
         fit_estimator._nirs4all_training_controls = training_controls
         report_model_training_controls(training_controls, fit_estimator, len(sample_ids))

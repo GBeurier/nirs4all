@@ -869,12 +869,35 @@ class _DagmlNativeStackingModel:
             raise ValueError("native stacking probability projections must match base members")
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
             raise ValueError("native raw stacking requires one distinct named source per base model")
+        from nirs4all.pipeline.dagml.multimodal_contracts import stacking_source_presence_contract
 
-    def _meta_features(self, X: Any) -> np.ndarray:
+        stacking_source_presence_contract(self)
+
+    def _meta_features(self, X: Any, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+        from nirs4all.pipeline.dagml.multimodal_contracts import stacking_source_presence_contract
+        from nirs4all.pipeline.dagml.source_missing import append_source_presence, predict_present_rows
+
+        presence_contract = stacking_source_presence_contract(self)
         base_blocks: list[np.ndarray] = []
         expected_rows: int | None = None
         if self.source_names is not None and (not isinstance(X, list | tuple) or len(X) != len(self.source_names)):
             raise ValueError("native raw stacking requires its ordered raw source blocks")
+        if source_masks is not None:
+            if presence_contract is None:
+                raise ValueError("native stacking requires zero_with_indicator to accept source masks")
+            if not isinstance(source_masks, Mapping) or set(source_masks) != set(self.source_names or ()):
+                raise ValueError("native stacking source masks must exactly match its named sources")
+        if presence_contract is not None:
+            if len({len(block) for block in X}) != 1:
+                raise ValueError("native stacking raw source blocks have incompatible row counts")
+            for index, name in enumerate(presence_contract["source_names"]):
+                mask = np.ones(len(X[index]), dtype=bool) if source_masks is None else source_masks[name]
+                values = predict_present_rows(
+                    self.base_members[index].predict_numeric, X[index], mask,
+                    presence_contract["prediction_widths"][index],
+                )
+                base_blocks.append(append_source_presence(values, mask))
+            return np.column_stack(base_blocks)
         for index, member in enumerate(self.base_members):
             source = X[index] if self.source_names is not None else X
             if self.probability_sources[index]:
@@ -938,13 +961,13 @@ class _DagmlNativeStackingModel:
             selected_blocks.append(reduced)
         return np.column_stack(selected_blocks)
 
-    def predict(self, X: Any) -> np.ndarray:
+    def predict(self, X: Any, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Predict public labels or regression values from captured source models."""
-        return np.asarray(self.meta_member.predict(self._meta_features(X)))
+        return np.asarray(self.meta_member.predict(self._meta_features(X, source_masks=source_masks)))
 
-    def predict_numeric(self, X: Any) -> np.ndarray:
+    def predict_numeric(self, X: Any, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Keep final class labels encoded until native replay has validated them."""
-        return np.asarray(self.meta_member.predict_numeric(self._meta_features(X)), dtype=float)
+        return np.asarray(self.meta_member.predict_numeric(self._meta_features(X, source_masks=source_masks)), dtype=float)
 
     def predict_proba_numeric(self, X: Any) -> np.ndarray:
         """Replay the upstream meta-classifier's probability columns."""

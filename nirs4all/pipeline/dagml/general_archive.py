@@ -67,6 +67,9 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
             model, manifest, member, fingerprint, expected, initial_package = _load_verified_archive(archive)
     if not callable(getattr(model, "predict", None)):
         raise ValueError("general archive model is not predict-capable")
+    from .multimodal_contracts import validate_stacking_archive_contract
+
+    validate_stacking_archive_contract(manifest, model)
     return {
         "artifact": {"artifact_id": member, "estimator": model, "y_transform": None, "content_fingerprint": fingerprint},
         "manifest": manifest, "archive_fingerprint": archive_fingerprint,

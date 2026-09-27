@@ -122,7 +122,7 @@ def predict_captured_artifact(
             )
             x = resolved["blocks"]
             if "source_masks" in resolved:
-                if not isinstance(estimator, _MultiBlockEstimator):
+                if not isinstance(estimator, (_MultiBlockEstimator, _DagmlNativeStackingModel)):
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
@@ -133,7 +133,7 @@ def predict_captured_artifact(
         if callable(metadata_predict) and metadata_by_id is not None:
             prediction = metadata_predict(x, {metadata_key: [metadata_by_id[sample_id] for sample_id in ids]})
         else:
-            prediction = estimator.predict_numeric(x) if isinstance(estimator, _DagmlNativeStackingModel) else estimator.predict(x, **options)
+            prediction = estimator.predict_numeric(x, **options) if isinstance(estimator, _DagmlNativeStackingModel) else estimator.predict(x, **options)
         values = np.asarray(prediction, dtype=float).reshape(len(ids), -1)
         if runtime_target_transform is not None:
             values = np.asarray(runtime_target_transform.inverse_transform(values), dtype=float)
