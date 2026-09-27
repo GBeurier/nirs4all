@@ -12,8 +12,44 @@ from typing import Any
 
 import numpy as np
 
+from nirs4all.operators.filters.base import filter_targets
+
 from .detect import _is_exclude_step
 from .steps import _taggers_from_step
+
+
+class FoldLocalExclusion(set[int]):
+    """The ``keep_in_oof=True`` exclusion: members are the full-train (refit) exclusion.
+
+    Each CV fold refits the exclude steps on its own train rows (:meth:`apply`), so validation
+    targets never decide which rows a fold trains on; the members mark the envelope for lineage
+    and the refit, and the fold set declares ``train_exclusion: "fold_local"`` so DAG-ML trains
+    each fold on its host train list. Truthy even when empty: a fold may exclude rows that the
+    full-train fit keeps.
+    """
+
+    steps: tuple[Any, ...]
+    cascade_to_augmented: bool
+    children_by_origin: dict[int, list[int]]
+
+    def __init__(self, members: set[int], steps: list[Any], cascade_to_augmented: bool, children_by_origin: dict[int, list[int]]) -> None:
+        super().__init__(members)
+        self.steps = tuple(steps)
+        self.cascade_to_augmented = cascade_to_augmented
+        self.children_by_origin = children_by_origin
+
+    def __bool__(self) -> bool:
+        return True
+
+    def apply(self, spectro: Any, folds: list[tuple[list[int], list[int]]]) -> list[tuple[list[int], list[int]]]:
+        """``folds`` with each train list minus the exclusion fitted on that train list alone."""
+        from .folds import FoldLocalFolds
+
+        trimmed = FoldLocalFolds()
+        for train, validation in folds:
+            dropped = _sequential_exclusion(list(self.steps), spectro, list(train), self.cascade_to_augmented, self.children_by_origin)
+            trimmed.append(([sample for sample in train if sample not in dropped], list(validation)))
+        return trimmed
 
 
 def _base_pool_ints(spectro: Any, pool_ints: list[int]) -> list[int]:
@@ -47,9 +83,7 @@ def _filter_data_for_pool(spectro: Any, base_ints: list[int]) -> tuple[np.ndarra
     order = [row_of[int(sample_int)] for sample_int in base_ints]
     x_pool = x_pool[order]
     if y_pool is not None and y_pool.size:
-        y_pool = y_pool[order]
-        if y_pool.ndim > 1:
-            y_pool = y_pool.flatten()
+        y_pool = filter_targets(y_pool[order])
     return x_pool, y_pool
 
 
@@ -71,8 +105,8 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
 
     Two legacy edge behaviors are replicated:
 
-    * **Per-filter ``ValueError`` → neutral keep-all** (exclude.py:175-184): a filter that fails to
-      fit/mask (e.g. insufficient data) contributes a keep-all mask rather than propagating.
+    * **A filter that cannot be applied fails the step** (``ExcludeController``): its ``ValueError``
+      is re-raised with the filter name, never replaced by a keep-all mask.
     * **All-excluded guard** (exclude.py:213-222): if the COMBINED keep-mask would exclude every row,
       keep the first sample so exclusion never empties the pool.
 
@@ -97,9 +131,8 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
         try:
             filter_obj.fit(x_pool, y_pool)
             masks.append(filter_obj.get_mask(x_pool, y_pool))
-        except ValueError:
-            # exclude.py:175-184 — a filter that can't be applied contributes a neutral keep-all mask.
-            masks.append(np.ones(len(base_ints), dtype=bool))
+        except ValueError as error:
+            raise ValueError(f"{filter_obj.__class__.__name__} could not be applied: {error}") from error
 
     if len(masks) == 1:
         keep_mask = masks[0].copy()
@@ -114,34 +147,65 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
     return {int(sample_int) for sample_int, keep in zip(base_ints, keep_mask, strict=True) if not keep}
 
 
+def _sequential_exclusion(
+    exclude_steps: list[Any],
+    spectro: Any,
+    pool: list[int],
+    cascade_to_augmented: bool,
+    children_by_origin: dict[int, list[int]],
+    chart_stages: list[tuple[list[int], str, bool]] | None = None,
+) -> set[int]:
+    """Sample ints of ``pool`` excluded by ``exclude_steps`` fitted on ``pool`` alone.
+
+    Steps apply SEQUENTIALLY, exactly as legacy: each step fits on the rows the earlier steps kept
+    (base origins still kept AND their children not already cascaded out). Flagged origins cascade
+    to their augmented children when ``cascade_to_augmented``.
+    """
+
+    def _cascade(origins: set[int]) -> set[int]:
+        if not cascade_to_augmented:
+            return origins
+        return origins | {child for origin in origins for child in children_by_origin.get(origin, [])}
+
+    excluded_origins: set[int] = set()
+    for step in exclude_steps:
+        cascaded = _cascade(excluded_origins)
+        current_pool = [sample_int for sample_int in pool if sample_int not in cascaded]
+        newly_excluded = _excluded_from_pool(step, spectro, current_pool)
+        excluded_origins |= newly_excluded
+        if chart_stages is not None:
+            from nirs4all.controllers.data.exclude import ExcludeController
+
+            controller = ExcludeController()
+            filters, filter_mode, _ = controller._parse_config(step)  # noqa: SLF001 - legacy reason contract
+            names = [controller._get_filter_name(item) for item in filters]  # noqa: SLF001
+            reason = filters[0].exclusion_reason if len(filters) == 1 else f"exclude({filter_mode}:{','.join(names)})"
+            chart_stages.append((sorted(newly_excluded), reason, cascade_to_augmented))
+    return _cascade(excluded_origins)
+
+
 def _resolve_exclude(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list[int], set[int]]:
     """Consume ALL ``exclude`` steps and return ``(pipeline_without_exclude, cv_pool, excluded)``.
 
-    Mirrors the verified legacy + opt-in semantics:
-
     * **No exclude step** → ``(pipeline, full_train, set())``.
-    * **``keep_in_oof=False`` (default = legacy parity)** → the CV pool is the train universe MINUS
-      the excluded ints; excluded samples are absent from the folds AND the envelope (removed from
-      the CV universe entirely, matching legacy: the splitter runs over ``include_excluded=False``).
-      The native ``excluded`` bit is unused (``excluded`` set is empty for the envelope).
-    * **``keep_in_oof=True`` (opt-in, leakage-pure)** → the CV pool is the FULL train universe; the
-      excluded ints are marked in the envelope so Phase 1's native bit drops them from each fold's
-      TRAIN while keeping them in validation/OOF.
+    * **``keep_in_oof=False`` (default = legacy parity)** → dataset cleaning before CV: the filters
+      fit on the full train and the CV pool is the train universe MINUS the excluded ints, so
+      excluded samples are absent from the folds (train AND validation) and the envelope, matching
+      legacy (the splitter runs over ``include_excluded=False``).
+    * **``keep_in_oof=True`` (opt-in)** → the CV pool is the FULL train universe and ``excluded`` is
+      a :class:`FoldLocalExclusion`: each fold refits the filters on its own train rows and drops
+      what they flag from that train only (validation keeps every sample, predicted in the OOF);
+      the full-train fit marks the envelope and drives the refit.
 
-    Multiple ``exclude`` steps are applied SEQUENTIALLY, exactly as legacy: each step's filter fits on
-    the CURRENT kept train (``include_excluded=False``), i.e. the pool after the earlier steps'
-    exclusions (exclude.py:135-137 reads ``include_excluded=False``), so the excluded set is built
-    progressively. The ``keep_in_oof`` flag is honored from any exclude step (consistent across steps
-    is the caller's contract). All ``exclude`` steps are removed from the remaining pipeline — none is
-    lowered to a dag-ml node (the bridge still raises ``NotImplementedError`` for a raw ``exclude``).
+    Multiple ``exclude`` steps apply SEQUENTIALLY (see :func:`_sequential_exclusion`). The
+    ``keep_in_oof`` and ``cascade_to_augmented`` flags are honored from any exclude step (consistent
+    across steps is the caller's contract). All ``exclude`` steps are removed from the remaining
+    pipeline — none is lowered to a dag-ml node.
 
     AUGMENTED CHILDREN — the origin-boundary invariant. Filters fit on BASE samples only (origins);
     a flagged origin then CASCADES to its augmented children, exactly as legacy ``mark_excluded(...,
-    cascade_to_augmented=True)`` removes a base sample AND its children from the ``include_excluded=
-    False`` train universe (exclude.py:230-234, default ``cascade_to_augmented=True`` at exclude.py:278).
-    A child is therefore never excluded without its origin, and an excluded origin never keeps a child
-    in the pool. ``cascade_to_augmented`` is honored from the exclude steps (caller's contract, like
-    ``keep_in_oof``); cascade is a no-op on a dataset with no augmented children.
+    cascade_to_augmented=True)`` (exclude.py:230-234). A child is therefore never excluded without
+    its origin, and an excluded origin never keeps a child in the pool.
     """
     train_ints = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
     exclude_steps = [step for step in pipeline if _is_exclude_step(step)]
@@ -151,44 +215,22 @@ def _resolve_exclude(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list
     # {origin_int: [child_int, ...]} over the train universe — base rows self-reference origin
     # (origin == sample), so only augmented children (origin != sample) populate the map.
     children_by_origin: dict[int, list[int]] = {}
-    sample_col = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
     origin_col = [int(o) for o in spectro.index_column("origin", {"partition": "train"})]
-    for sample_int, origin_int in zip(sample_col, origin_col, strict=True):
+    for sample_int, origin_int in zip(train_ints, origin_col, strict=True):
         if sample_int != origin_int:
             children_by_origin.setdefault(origin_int, []).append(sample_int)
 
-    def _cascade(origins: set[int]) -> set[int]:
-        return origins | {child for origin in origins for child in children_by_origin.get(origin, [])}
-
     keep_in_oof = any(bool(step.get("keep_in_oof", False)) for step in exclude_steps)
     cascade_to_augmented = any(bool(step.get("cascade_to_augmented", True)) for step in exclude_steps)
-    excluded_origins: set[int] = set()
-    chart_stages: list[tuple[list[int], str, bool]] = []
-    for step in exclude_steps:
-        # Each step fits on the CURRENT kept train: base origins still kept AND their children that an
-        # earlier step's cascade has not already removed (mirrors legacy include_excluded=False).
-        cascaded = _cascade(excluded_origins) if cascade_to_augmented else excluded_origins
-        current_pool = [sample_int for sample_int in train_ints if sample_int not in cascaded]
-        newly_excluded = _excluded_from_pool(step, spectro, current_pool)
-        excluded_origins |= newly_excluded
-        if getattr(spectro, "_dagml_capture_exclusion_charts", False):
-            from nirs4all.controllers.data.exclude import ExcludeController
-
-            controller = ExcludeController()
-            filters, filter_mode, _ = controller._parse_config(step)  # noqa: SLF001 - legacy reason contract
-            names = [controller._get_filter_name(item) for item in filters]  # noqa: SLF001
-            reason = filters[0].exclusion_reason if len(filters) == 1 else f"exclude({filter_mode}:{','.join(names)})"
-            chart_stages.append((sorted(newly_excluded), reason, cascade_to_augmented))
-
-    if getattr(spectro, "_dagml_capture_exclusion_charts", False):
+    capture_charts = getattr(spectro, "_dagml_capture_exclusion_charts", False)
+    chart_stages: list[tuple[list[int], str, bool]] | None = [] if capture_charts else None
+    excluded = _sequential_exclusion(exclude_steps, spectro, train_ints, cascade_to_augmented, children_by_origin, chart_stages)
+    if capture_charts:
         spectro._dagml_exclusion_chart_stages = chart_stages
 
-    excluded = _cascade(excluded_origins) if cascade_to_augmented else excluded_origins
     remaining = [step for step in pipeline if not _is_exclude_step(step)]
     if keep_in_oof:
-        # Opt-in: keep excluded in the CV universe; mark them excluded in the envelope (native bit)
-        # and (host-side) drop them from each fold's TRAIN below so the OOF is leakage-pure.
-        return remaining, train_ints, excluded
+        return remaining, train_ints, FoldLocalExclusion(excluded, exclude_steps, cascade_to_augmented, children_by_origin)
     # Default (legacy): drop excluded from the CV universe entirely; envelope marks nothing excluded.
     pool = [sample_int for sample_int in train_ints if sample_int not in excluded]
     return remaining, pool, set()
@@ -222,9 +264,8 @@ def _resolve_tags(pipeline: list[Any], spectro: Any, pool: list[int]) -> tuple[l
             try:
                 filter_obj.fit(x_pool, y_pool)
                 mask = np.asarray(filter_obj.get_mask(x_pool, y_pool), dtype=bool)
-            except ValueError:
-                # TagController skips a filter that cannot be applied (e.g. insufficient data).
-                continue
+            except ValueError as error:
+                raise ValueError(f"{filter_obj.__class__.__name__} could not be applied: {error}") from error
             if mask.shape[0] != len(pool):
                 raise ValueError(f"tag filter {filter_obj.__class__.__name__} returned {mask.shape[0]} masks for {len(pool)} samples")
             for sample_int, keep in zip(pool, mask, strict=True):

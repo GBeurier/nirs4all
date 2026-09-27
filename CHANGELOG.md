@@ -44,8 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (F10). The envelope gains the additive `feature_names` and per-state
   `contains_training_rows`; older envelopes still load. The `estimators`
   attribute is replaced by `pipeline` (the native `n4m.roles.RolePipeline`).
-- Requires `nirs4all-core>=0.3.37`, `dag-ml>=0.3.29`, `nirs4all-methods>=1.2.0`
-  and `pls4all>=1.2.0` (Methods ABI 2.14).
+- Requires `nirs4all-core>=0.3.38`, `dag-ml>=0.3.30`, `nirs4all-methods>=1.2.1`
+  and `pls4all>=1.2.1` (Methods ABI 2.14).
 
 ### Fixed
 
@@ -55,6 +55,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ABI 2.14 an unset seed used to fail). Each call still draws with base + call
   index. The effective base seed of every augmenter is recorded in the
   execution trace (`augmentation_seeds` step metadata) (audit F09).
+- `exclude(..., keep_in_oof=True)` on `engine="dag-ml"` fits its filters on each
+  fold's train rows only, so validation targets no longer decide which rows a
+  fold trains on (re-audit R01). The full-train fit still marks the envelope
+  and drives the refit, and the fold set declares
+  `train_exclusion: "fold_local"` so DAG-ML trains each fold on its host train
+  list. The default mode is unchanged: dataset cleaning before CV, which
+  removes the flagged samples from training and validation alike.
+- `exclude` and `tag` pass multi-target Y to their filters as `(n, q)` instead
+  of flattening it to `n * q` values, and on `engine="dag-ml"` a filter that
+  cannot be applied fails the step, as on the legacy engine, instead of
+  silently keeping or tagging nothing (re-audit R02). `YOutlierFilter` refuses
+  several target columns.
 
 ---
 

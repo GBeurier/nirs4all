@@ -13,6 +13,15 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
 
+def filter_targets(y: np.ndarray) -> np.ndarray:
+    """Targets as sample filters receive them: ``(n,)`` for one target, ``(n, q)`` for several.
+
+    Multi-target Y is never flattened, which would give ``n * q`` values for ``n`` samples.
+    """
+    values = np.asarray(y)
+    return values.reshape(-1) if values.ndim == 2 and values.shape[1] == 1 else values
+
+
 class SampleFilter(TransformerMixin, BaseEstimator, ABC):
     """
     Base class for sample filtering operators.

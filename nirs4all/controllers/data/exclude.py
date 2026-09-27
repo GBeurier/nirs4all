@@ -13,7 +13,7 @@ import numpy as np
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.operators.filters.base import SampleFilter
+from nirs4all.operators.filters.base import SampleFilter, filter_targets
 from nirs4all.operators.filters.metadata import MetadataFilter
 from nirs4all.operators.filters.native import resolve_sample_filter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
@@ -156,9 +156,7 @@ class ExcludeController(OperatorController):
                 logger.info("   ExcludeController: No target values available for filtering")
             return context, []
 
-        # Flatten y if needed
-        if y_train.ndim > 1:
-            y_train = y_train.flatten()
+        y_train = filter_targets(y_train)
 
         # Fit all filters and collect masks
         masks: list[np.ndarray] = []

@@ -13,7 +13,7 @@ import numpy as np
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from nirs4all.operators.filters.base import SampleFilter
+from nirs4all.operators.filters.base import SampleFilter, filter_targets
 from nirs4all.operators.filters.metadata import MetadataFilter
 from nirs4all.operators.filters.native import resolve_sample_filter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
@@ -148,9 +148,8 @@ class TagController(OperatorController):
         X = X_data
         y = dataset.y(selector)
 
-        # Flatten y if needed
-        if y is not None and y.ndim > 1:
-            y = y.flatten()
+        if y is not None:
+            y = filter_targets(y)
 
         # Process each tagger
         artifacts = []

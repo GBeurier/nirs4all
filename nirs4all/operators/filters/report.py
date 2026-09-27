@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
+from nirs4all.operators.filters.base import filter_targets
+
 if TYPE_CHECKING:
     import polars as pl
 
@@ -246,7 +248,7 @@ class FilteringReportGenerator:
         )
 
         # Flatten y if needed
-        y_flat = y.flatten() if y.ndim > 1 else y
+        y_flat = filter_targets(y)
 
         # Collect individual filter masks and results
         all_masks = []
@@ -380,7 +382,7 @@ class FilteringReportGenerator:
                 - overlap: Samples flagged by multiple filters
                 - unique: Samples flagged by only one filter
         """
-        y_flat = y.flatten() if y.ndim > 1 else y
+        y_flat = filter_targets(y)
         n_samples = len(X)
 
         # Collect masks

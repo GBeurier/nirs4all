@@ -628,6 +628,9 @@ def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]
     default ``Partition`` mode (``partition_mode`` omitted → byte-identical fold set), while
     resampling CV (ShuffleSplit / repeated KFold, where a sample is validated 0 or 2+ times) is
     tagged ``"resampled"`` so dag-ml relaxes OOF completeness (the per-fold leakage guard holds).
+    Folds carrying a fold-local exclusion (:class:`~nirs4all.pipeline.dagml.folds.FoldLocalFolds`)
+    declare ``train_exclusion: "fold_local"``: DAG-ML then trains each fold on its train list as
+    given and applies the envelope's ``excluded`` samples to the refit only.
     """
     seen: set[int] = set()
     validation_counts: dict[int, int] = {}
@@ -659,4 +662,8 @@ def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]
     }
     if not is_oof_partition:
         fold_set["partition_mode"] = "resampled"
+    from .folds import FoldLocalFolds
+
+    if isinstance(folds, FoldLocalFolds):
+        fold_set["train_exclusion"] = "fold_local"
     return fold_set
