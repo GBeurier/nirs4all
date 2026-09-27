@@ -13,6 +13,8 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import KFold, ShuffleSplit
 
+from nirs4all.api.result import RunResult
+from nirs4all.data.predictions import Predictions
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.pipeline.dagml.detect import _generation_kind
 from nirs4all.pipeline.dagml.finetune_lowering import (
@@ -112,13 +114,15 @@ def test_public_dispatch_routes_proven_refit_noop_without_mutating_config(monkey
     pipeline = [SNV(), ShuffleSplit(n_splits=3, random_state=42), model_step]
     captured: dict[str, Any] = {}
 
-    def fake_run_concrete_scores(variant: list[Any], *_args: Any, **_kwargs: Any) -> tuple[Any, str, list[Any], dict[str, Any], list[Any]]:
+    def fake_run_concrete_scores(variant: list[Any], *_args: Any, **_kwargs: Any) -> tuple[Any, str, list[Any], dict[str, Any], list[Any], dict[str, Any]]:
         captured["variant"] = variant
-        return object(), "PLSRegression", [], {}, []
+        return object(), "PLSRegression", [], {}, [], {"lane": "host_callback"}
 
-    def fake_scores_to_run_result(*_args: Any, **kwargs: Any) -> str:
+    native_result = RunResult(predictions=Predictions(), per_dataset={"regression": {"engine": "dag-ml"}})
+
+    def fake_scores_to_run_result(*_args: Any, **kwargs: Any) -> RunResult:
         captured["config_name"] = kwargs["config_name"]
-        return "native-result"
+        return native_result
 
     monkeypatch.setattr(run_backend, "_is_repetition_dataset", lambda _spectro: False)
     monkeypatch.setattr(run_backend, "_resolve_exclude", lambda steps, _spectro: (steps, [0, 1, 2, 3], set()))
@@ -137,7 +141,8 @@ def test_public_dispatch_routes_proven_refit_noop_without_mutating_config(monkey
         None,
     )
 
-    assert result == "native-result"
+    assert result is native_result
+    assert result.execution_lane == "host_callback"
     assert captured["config_name"] == "config_b2d6a46d"
     assert captured["variant"][2] is model_step
     assert model_step["model"] is model
