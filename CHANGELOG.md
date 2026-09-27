@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `nirs4all.pipeline.portable_n4m_roles.PortableN4MRolePipeline` is now
+  `nirs4all_core.N4mRolePipeline`, the envelope wrapper over the native Methods
+  role pipeline (ABI 2.14); nirs4all no longer carries its own copy of the v8
+  logic. A DataFrame fit stores its column names and a prediction with renamed
+  or reordered columns is refused (audit F03); an envelope whose recipe
+  contradicts its states, or an empty pipeline, is refused on import (F05);
+  every target column reaches supervised intermediate steps (F06); exporting a
+  state that embeds training rows needs `to_json(..., allow_training_rows=True)`
+  (F10). The envelope gains the additive `feature_names` and per-state
+  `contains_training_rows`; older envelopes still load. The `estimators`
+  attribute is replaced by `pipeline` (the native `n4m.roles.RolePipeline`).
+- Requires `nirs4all-core>=0.3.37`, `nirs4all-methods>=1.2.0` and
+  `pls4all>=1.2.0` (Methods ABI 2.14).
+
+### Fixed
+
+- `sample_augmentation` keeps an explicit n4m role seed: the step
+  `random_state` derives a seed (base + transformer index) only for roles
+  without one, and a role without any seed runs the native default 0 (with
+  ABI 2.14 an unset seed used to fail). Each call still draws with base + call
+  index. The effective base seed of every augmenter is recorded in the
+  execution trace (`augmentation_seeds` step metadata) (audit F09).
+
 ---
 
 ## [1.2.1] — 2026-09-27

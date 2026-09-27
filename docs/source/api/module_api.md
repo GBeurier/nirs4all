@@ -103,9 +103,10 @@ native defaults), for example `{"class": "n4m:models.pls.cppls", "params":
 or inside `exclude`, `tag`, `model` and `sample_augmentation`; the R, JS/WASM
 and Rust n4m bindings resolve the same token from the native manifest.
 
-`PortableN4MRolePipeline` fits such a recipe (sample filters, transformers and
-selectors, then one regressor or classifier) and exports every fitted step as
-its native N4ME state. Any n4m binding rebuilds the estimators from those
+`PortableN4MRolePipeline` (the `nirs4all_core.N4mRolePipeline` wrapper over the
+native Methods role pipeline) fits such a recipe (sample filters, transformers
+and selectors, then one regressor or classifier) and exports every fitted step
+as its native N4ME state. Any n4m binding rebuilds the pipeline from those
 bytes and predicts identically:
 
 ```python
@@ -123,9 +124,15 @@ predictions = replayed.predict(X_validation)
 ```
 
 The envelope (`nirs4all.n4m.trained_pipeline.v8`) holds the recipe, the input
-width and, per fitted step, `method_id`, the base64 N4ME bytes and their
-SHA-256 (plus `class_names` for classifiers trained on label names). Filters
-act on training rows only and carry no state.
+width, `feature_names` when the fit had column names and, per fitted step,
+`method_id`, the base64 N4ME bytes, their SHA-256 and `contains_training_rows`
+(plus `class_names` for classifiers trained on label names). Envelopes without
+`feature_names` / `contains_training_rows` still load. Filters act on training
+rows only and carry no state. The native pipeline checks the recipe (one final
+regressor or classifier), passes every target column to the steps that need
+`y`, refuses a DataFrame whose columns are renamed or reordered and, on import,
+states that contradict the recipe. A state that embeds training rows (kernel
+PLS, LW-PLS, ...) is written only with `to_json(..., allow_training_rows=True)`.
 
 ### R/Python trained n4m recipe envelope
 

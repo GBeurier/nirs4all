@@ -61,7 +61,7 @@ def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> Non
     assert "--index-url https://pypi.org/simple/" in install_script
     assert '"nirs4all==${package_version}"' in install_script
     assert 'version("nirs4all") == expected' in verify_script
-    assert "n4m.abi_version()[:2] == (2, 13)" in verify_script
+    assert "n4m.abi_version()[:2] == (2, 14)" in verify_script
     assert 'engine="dag-ml"' in verify_script
     assert "np.isfinite(result.cv_best_score)" in verify_script
     assert "python -m pip check" in verify_script
@@ -90,9 +90,9 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
         "dag-ml>=0.3.27,<0.4",
         "dag-ml-data>=0.2.12,<0.3",
         "nirs4all-io>=0.2.0,<0.3",
-        "nirs4all-core>=0.3.31,<0.4",
-        "nirs4all-methods>=1.1.0,<2",
-        "pls4all>=1.1.0,<2",
+        "nirs4all-core>=0.3.37,<0.4",
+        "nirs4all-methods>=1.2.0,<2",
+        "pls4all>=1.2.0,<2",
     } <= dependencies
     assert pyproject["project"]["license"] == "CeCILL-2.1 OR AGPL-3.0-or-later"
     assert set(pyproject["project"]["license-files"]) == {
