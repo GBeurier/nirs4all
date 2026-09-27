@@ -674,30 +674,17 @@ class BranchController(OperatorController):
                 "names": ["passing", "failing"],  # Optional branch names
             }}
         """
-        from nirs4all.operators.filters.native import as_sample_filter
-        from nirs4all.pipeline.config.component_serialization import deserialize_component
+        from nirs4all.operators.filters.native import resolve_sample_filter
 
         filter_spec = raw_def["by_filter"]
         steps = raw_def.get("steps", [])
         names = raw_def.get("names", ["passing", "failing"])
 
-        # Deserialize filter if needed (the pipeline reaches the controller in
-        # serialized form, so an instance in the user pipeline arrives here as
-        # a {"class": ..., "params": ...} dict).
-        if isinstance(filter_spec, dict):
-            deserialized = deserialize_component(filter_spec)
-            filter_obj = as_sample_filter(deserialized)
-            if filter_obj is None:
-                raise ValueError(
-                    f"by_filter dict did not deserialize to a SampleFilter, "
-                    f"got {type(deserialized).__name__}"
-                )
-        else:
-            filter_obj = as_sample_filter(filter_spec)
-            if filter_obj is None:
-                raise ValueError(
-                    f"by_filter expects a SampleFilter instance or dict, got {type(filter_spec).__name__}"
-                )
+        filter_obj = resolve_sample_filter(filter_spec)
+        if filter_obj is None:
+            raise ValueError(
+                f"by_filter expects a SampleFilter (instance, n4m role token or serialized dict), got {type(filter_spec).__name__}"
+            )
 
         logger.info(f"Creating separation branches by filter {filter_obj.__class__.__name__}")
 

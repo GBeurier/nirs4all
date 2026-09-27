@@ -15,7 +15,7 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter
 from nirs4all.operators.filters.metadata import MetadataFilter
-from nirs4all.operators.filters.native import as_sample_filter
+from nirs4all.operators.filters.native import resolve_sample_filter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 logger = get_logger(__name__)
@@ -226,8 +226,7 @@ class TagController(OperatorController):
         taggers: list[tuple[str, SampleFilter]] = []
 
         def resolve(filter_def: Any) -> SampleFilter:
-            live = as_sample_filter(filter_def)
-            filter_obj = live if live is not None else as_sample_filter(deserialize_component(filter_def))
+            filter_obj = resolve_sample_filter(filter_def)
             if filter_obj is None:
                 raise TypeError(
                     f"Tag filter must be a SampleFilter instance, "
@@ -248,57 +247,6 @@ class TagController(OperatorController):
             # Single filter: a live instance or a serialized component
             filter_obj = resolve(config)
             taggers.append((self._get_tag_name(filter_obj), filter_obj))
-
-        return taggers
-
-        # Check if config is a serialized component dict (has "class", "function", or "instance" key)
-        if isinstance(config, dict) and any(key in config for key in ("class", "function", "instance")):
-            # This is a serialized component, deserialize it
-            filter_obj = deserialize_component(config)
-            if not isinstance(filter_obj, SampleFilter):
-                raise TypeError(
-                    f"Tag filter must be a SampleFilter instance, "
-                    f"got {type(filter_obj).__name__}"
-                )
-            tag_name = self._get_tag_name(filter_obj)
-            taggers.append((tag_name, filter_obj))
-            return taggers
-
-        if isinstance(config, dict):
-            # Named dict format: {"tag_name": Filter()}
-            for tag_name, filter_def in config.items():
-                # Handle both live instances and serialized components
-                filter_obj = filter_def if isinstance(filter_def, SampleFilter) else deserialize_component(filter_def)
-                if not isinstance(filter_obj, SampleFilter):
-                    raise TypeError(
-                        f"Tag filter must be a SampleFilter instance, "
-                        f"got {type(filter_obj).__name__}"
-                    )
-                taggers.append((tag_name, filter_obj))
-
-        elif isinstance(config, list):
-            # List format: [Filter1(), Filter2()]
-            for filter_def in config:
-                # Handle both live instances and serialized components
-                filter_obj = filter_def if isinstance(filter_def, SampleFilter) else deserialize_component(filter_def)
-                if not isinstance(filter_obj, SampleFilter):
-                    raise TypeError(
-                        f"Tag filter must be a SampleFilter instance, "
-                        f"got {type(filter_obj).__name__}"
-                    )
-                tag_name = self._get_tag_name(filter_obj)
-                taggers.append((tag_name, filter_obj))
-
-        else:
-            # Single filter (might be serialized)
-            filter_obj = deserialize_component(config)
-            if not isinstance(filter_obj, SampleFilter):
-                raise TypeError(
-                    f"Tag filter must be a SampleFilter instance, "
-                    f"got {type(filter_obj).__name__}"
-                )
-            tag_name = self._get_tag_name(filter_obj)
-            taggers.append((tag_name, filter_obj))
 
         return taggers
 
