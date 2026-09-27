@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (F10). The envelope gains the additive `feature_names` and per-state
   `contains_training_rows`; older envelopes still load. The `estimators`
   attribute is replaced by `pipeline` (the native `n4m.roles.RolePipeline`).
-- Requires `nirs4all-core>=0.3.38`, `dag-ml>=0.3.30`, `nirs4all-methods>=1.2.1`
+- Requires `nirs4all-core>=0.4.0`, `dag-ml>=0.3.30`, `nirs4all-methods>=1.2.1`
   and `pls4all>=1.2.1` (Methods ABI 2.14).
 
 ### Fixed
