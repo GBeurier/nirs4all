@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Typed variable-length temporal sources in multimodal Python training and replay,
+  with deterministic synthetic U12 qualification and schema validation.
+- A portable-output selection bridge for DAG-ML packages, including multi-output
+  role pipelines.
+
+### Fixed
+
+- Reject unsupported legacy prediction inputs with a clear error instead of
+  silently coercing multimodal or ragged source blocks.
+
 ---
 
 ## [1.3.0] — 2026-09-27
