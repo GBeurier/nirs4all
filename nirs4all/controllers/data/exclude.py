@@ -15,7 +15,7 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter
 from nirs4all.operators.filters.metadata import MetadataFilter
-from nirs4all.operators.filters.native import as_sample_filter
+from nirs4all.operators.filters.native import resolve_sample_filter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 logger = get_logger(__name__)
@@ -302,8 +302,7 @@ class ExcludeController(OperatorController):
         filters: list[SampleFilter] = []
 
         def resolve(filter_def: Any) -> SampleFilter:
-            live = as_sample_filter(filter_def)
-            filter_obj = live if live is not None else as_sample_filter(deserialize_component(filter_def))
+            filter_obj = resolve_sample_filter(filter_def)
             if filter_obj is None:
                 raise TypeError(
                     f"Exclude filter must be a SampleFilter instance, "

@@ -3,8 +3,9 @@
 ``n4m.roles`` exposes every native sample filter (Y/X outliers, leverage,
 spectral quality) through one role interface, ``NativeSampleFilter``
 (``fit`` / ``get_mask``). The exclude, tag and branch controllers accept
-those roles directly; :func:`as_sample_filter` gives them the
-:class:`SampleFilter` face those controllers use.
+those roles directly; :func:`resolve_sample_filter` is their single entry
+point for a filter given as an instance, a role token string
+(``"n4m:filters.…"``) or a serialized component dict.
 """
 
 import sys
@@ -39,6 +40,22 @@ class NativeRoleFilter(SampleFilter):
     def get_mask(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         mask: np.ndarray = self.role.get_mask(X, y)
         return mask
+
+
+def resolve_sample_filter(spec: Any) -> SampleFilter | None:
+    """``spec`` as a SampleFilter, whatever its representation.
+
+    Pipelines reach the controllers serialized: a native role with default
+    parameters becomes the bare token ``"n4m:filters.…"``, one with explicit
+    parameters a ``{"class": ..., "params": ...}`` dict. Both, and live
+    instances, resolve here. Returns None when ``spec`` is not a filter.
+    """
+    live = as_sample_filter(spec)
+    if live is not None or not isinstance(spec, (str, dict)):
+        return live
+    from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+    return as_sample_filter(deserialize_component(spec))
 
 
 def as_sample_filter(obj: Any) -> SampleFilter | None:
