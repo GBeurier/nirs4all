@@ -75,6 +75,7 @@ from .finetune_lowering import (
     reject_native_training_param_overrides,
 )
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool, lower_fold_file_holdout
+from .methods_lane import merge_lane_records, record_execution_lane, result_lane_record
 from .native_results import native_results_enabled, write_native_results
 from .result import _project_operator_sweep, _scores_to_run_result, _variant_cv_score
 from .run_paths import (
@@ -515,6 +516,7 @@ def run_via_dagml(
         if refit is False:
             for metadata in result.per_dataset.values():
                 metadata["refit_enabled"] = False
+        record_execution_lane(result, result_lane_record(result))
         from .envelope import target_names
 
         result._dagml_target_names = target_names(spectro)
@@ -1084,6 +1086,7 @@ def _dispatch_run(
                 predictions.extend_from_list([row])
         predictions.flush()
         result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml", "refit_enabled": refit}})
+        record_execution_lane(result, merge_lane_records([result_lane_record(branch) for branch in branch_results.values()]))
         import dag_ml
 
         candidates = []
@@ -1682,13 +1685,16 @@ def _dispatch_run(
         _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state, refit=refit, metric=metric)
         for index, variant in enumerate(variants)
     ]
+    lane = merge_lane_records([run[5] for run in variant_runs])
     if len(variant_runs) == 1:
         # SINGLE concrete pipeline: thread the node results + minted identity into the projection so the
         # strict direct-block rows (per-fold val + refit final/test) carry real y_pred/y_true/sample_indices
         # (2a-i), plus the captured fitted REFIT estimators (2c-i) for native model-artifact persistence.
         # Native measurements determine the projected rows.
-        scores, model_name, results, identity, refit_artifacts = variant_runs[0]
-        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
+        scores, model_name, results, identity, refit_artifacts, _lane = variant_runs[0]
+        result = _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
+        record_execution_lane(result, lane)
+        return result
 
     # Operator SWEEP (2a-ii): thread EACH variant's own node results + the (shared) identity into the
     # per-variant projection so every variant's direct-block rows carry ITS OWN y_pred/y_true/sample_indices
@@ -1697,10 +1703,12 @@ def _dispatch_run(
     # arrays come from its own variant's blocks (NO cross-variant leakage). All variants ran on the same
     # `spectro`, so the identity is identical — take the first. The aggregated avg/w_avg rows stay
     # score-only (deferred to 2a-iii). Native measurements determine the projected rows.
-    variant_scores = [(scores, model_name) for scores, model_name, _results, _identity, _artifacts in variant_runs]
-    results_by_index = [results for _scores, _model_name, results, _identity, _artifacts in variant_runs]
-    refit_artifacts_by_index = [artifacts for _scores, _model_name, _results, _identity, artifacts in variant_runs]
+    variant_scores = [(scores, model_name) for scores, model_name, _results, _identity, _artifacts, _lane in variant_runs]
+    results_by_index = [results for _scores, _model_name, results, _identity, _artifacts, _lane in variant_runs]
+    refit_artifacts_by_index = [artifacts for _scores, _model_name, _results, _identity, artifacts, _lane in variant_runs]
     identity = variant_runs[0][3]
-    return _project_operator_sweep(
+    result = _project_operator_sweep(
         variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names, results_by_index=results_by_index, identity=identity, refit_artifacts_by_index=refit_artifacts_by_index
     )
+    record_execution_lane(result, lane)
+    return result
