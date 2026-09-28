@@ -557,11 +557,21 @@ The qualified profile also accepts exact `KFold`, `StratifiedKFold` and
 `StratifiedGroupKFold` splitters, with a single concrete estimator. A concrete
 sklearn `Pipeline` may learn preprocessing inside that estimator on generated
 training views. Ragged series can be replaced as long as their declared schema
-is retained. The result records a view manifest, but models fitted on generated
-features cannot yet be exported or replayed. Tuning, resume after interruption,
-subprocess execution, and separately fitted DAG transform nodes remain outside
-this profile. Multimodal synthetic data in this example are test fixtures, not
-a new product generator.
+is retained. For `MultimodalRegressor` or `MultimodalClassifier`, this profile
+also supports sequential N4M random-search tuning (`engine="n4m"`, no pruning)
+with a paired native/optimizer checkpoint. The checkpoint contains a manifest
+of each completed trial's generated views. On resume, the provider regenerates
+and compares every saved view before another trial starts; changing the recipe
+or the generated content refuses the resume. Use a stable `storage` URI and
+`study_name`, then call `run` again with `resume=True` and the same provider
+recipe. A completed search refits the selected model on generated training
+views.
+
+The result records view manifests, but models fitted on generated features
+cannot yet be exported or replayed. Parallel generated-view trials, subprocess
+execution, and separately fitted DAG transform nodes remain outside this
+profile. Multimodal synthetic data in this example are test fixtures, not a new
+product generator.
 
 ## Archive and scope
 

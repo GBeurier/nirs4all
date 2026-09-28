@@ -50,11 +50,28 @@ def prepare_data_provider(
     if recipe["params"]["_io_assembly"].get("view_generation"):
         from .generated_views import qualified_generated_model_pipeline
 
+        tuning_ok = tuning is None
+        if isinstance(tuning, dict) and qualified_generated_model_pipeline(pipeline):
+            from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
+
+            from .tuning_contracts import SUPPORTED_TUNING_KEYS, parse_tuning_spec
+
+            controls = {key: value for key, value in tuning.items() if key in SUPPORTED_TUNING_KEYS}
+            spec = parse_tuning_spec(controls)
+            tuning_ok = (
+                isinstance(pipeline[1]["model"], (MultimodalRegressor, MultimodalClassifier))
+                and not (tuning.keys() - SUPPORTED_TUNING_KEYS - {"progress_callback"})
+                and spec.engine == "n4m" and spec.sampler in {None, "random"}
+                and spec.pruner in {None, "none"} and spec.force_params is None
+                and (spec.seed is None or 0 <= spec.seed < 2**32)
+                and (tuning.get("progress_callback") is None or callable(tuning["progress_callback"]))
+            )
+
         # Preflight before PLAN: no unsupported pipeline may materialize the
         # eager cohort and then silently train against it instead of views.
         qualified = (
             qualified_generated_model_pipeline(pipeline)
-            and refit is True and tuning is None and calibration is None
+            and refit is True and tuning_ok and calibration is None
             and terminal_predict is None
             and save_artifacts is False and project is None and session is None
             and "workspace_path" not in (runner_kwargs or {})
@@ -63,8 +80,8 @@ def prepare_data_provider(
             raise NotImplementedError(
                 "generate_view fold-view and training-content attestation is qualified only for "
                 "[KFold, GroupKFold, StratifiedKFold or StratifiedGroupKFold, {'model': a concrete estimator}] "
-                "with refit=True, save_artifacts=False, "
-                "and no tuning, calibration, project, session or workspace"
+                "with refit=True, save_artifacts=False, and no calibration, project, session or workspace; "
+                "tuning requires one multimodal estimator with the supported n4m search profile"
             )
         if random_state is not None and (type(random_state) is not int or not 0 <= random_state < 2**32):
             raise ValueError("generate_view requires a non-negative 32-bit integer random_state or None")
@@ -82,6 +99,10 @@ def prepare_data_provider(
         run_cv_refit = getattr(native, "run_cv_refit_in_process", None)
         if not callable(run_cv_refit) or "root_seed" not in inspect.signature(run_cv_refit).parameters:
             raise NotImplementedError("generate_view requires a DAG-ML in-process binding with root_seed support")
+        if tuning is not None:
+            hpo = getattr(native, "run_host_hpo_search_in_process", None)
+            if not callable(hpo) or not {"view_callback_factory", "resume_view_validator"}.issubset(inspect.signature(hpo).parameters):
+                raise NotImplementedError("generate_view tuning requires a DAG-ML binding with checkpointed HPO view support")
     cohorts: list[Any] = []
 
     def provide(task: dict[str, Any]) -> dict[str, Any]:

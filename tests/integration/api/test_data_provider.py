@@ -406,6 +406,99 @@ def test_generated_view_manifest_repeats_for_same_seed_and_changes_for_new_seed(
     assert first["fingerprint"] != changed["fingerprint"]
 
 
+def test_generated_hpo_views_resume_from_io_content_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The native HPO bridge must consume IO views and recheck them on resume."""
+    base = _cohort()
+    pipeline = [GroupKFold(3), {"model": _model()}]
+    study = tmp_path / "generated-study"
+    tuning = {**_tuning(study), "n_trials": 2}
+    options = {
+        "refit": True, "save_artifacts": False, "save_charts": False,
+        "random_state": 19, "verbose": 0, "results_path": tmp_path / "results",
+    }
+    generated_train: list[np.ndarray] = []
+    fitted_nir: list[np.ndarray] = []
+    original_fit = StandardScaler.fit
+
+    def observe_fit(self: StandardScaler, X: Any, y: Any = None, **kwargs: Any) -> Any:
+        values = np.asarray(X)
+        if values.ndim == 2 and values.shape[1] == 6:
+            fitted_nir.append(values.copy())
+        return original_fit(self, X, y, **kwargs)
+
+    monkeypatch.setattr(StandardScaler, "fit", observe_fit)
+
+    def configured(offset: float = 0.0) -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, context: dict[str, Any], **_: Any) -> dict[str, Any]:
+            source = base.take(sample_ids).sources["nir"]
+            values = np.asarray(source.values) + 10.0 + float(seed % 7) + offset
+            if context["_dag_ml_view"]["partition"] in {"fold_train", "full_train"}:
+                generated_train.append(values.copy())
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                values, sample_ids, representation_id=source.representation_id,
+                axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(generate, generate_view=generate_view,
+                            provider_id="qualification.view.hpo", base=base, replace_sources=["nir"])
+
+    def execute(offset: float, controls: dict[str, Any]) -> Any:
+        return nirs4all.run(pipeline, configured(offset), tuning=controls, engine="dag-ml", **options)
+
+    with pytest.raises(MultimodalTuningStopped):
+        execute(0.0, {
+            **tuning, "progress_callback": lambda event: len(event["checkpoint"]["trials"]) < 1,
+        })
+    first_checkpoint = _checkpoint(study)["native_checkpoint"]
+    first_manifest = first_checkpoint["trials"][0]["evidence"]["generated_view_manifest"]
+    assert first_manifest["views"]
+    saved_bytes = (study / "multimodal.n4mopt.json").read_bytes()
+    with pytest.raises(Exception, match="view content differs|resume changed content"):
+        execute(1.0, {**tuning, "resume": True})
+    assert (study / "multimodal.n4mopt.json").read_bytes() == saved_bytes
+
+    resumed = execute(0.0, {**tuning, "resume": True})
+    continuous = nirs4all.run(
+        pipeline, configured(), tuning={**tuning, "storage": (tmp_path / "continuous-study").as_uri()},
+        engine="dag-ml", **{**options, "results_path": tmp_path / "results-continuous"},
+    )
+    try:
+        assert len(resumed.tuning_result.trials) == 2
+        assert [trial.to_dict() for trial in resumed.tuning_result.trials] == [trial.to_dict() for trial in continuous.tuning_result.trials]
+        assert resumed.tuning_best_params == continuous.tuning_best_params
+        assert fitted_nir and all(any(np.array_equal(fitted, expected) for expected in generated_train)
+                                  for fitted in fitted_nir)
+        assert _checkpoint(study)["native_checkpoint"]["trials"][0] == first_checkpoint["trials"][0]
+        assert (_checkpoint(study)["native_checkpoint"]["trials"][1]["evidence"]["generated_view_manifest"]
+                == _checkpoint(tmp_path / "continuous-study")["native_checkpoint"]["trials"][1]["evidence"]["generated_view_manifest"])
+        assert resumed._dagml_generated_view_manifest["views"]
+        with pytest.raises(Exception, match="generated data views have no replay contract"):
+            resumed.export(tmp_path / "generated-hpo.n4a")
+    finally:
+        resumed.close()
+        continuous.close()
+
+
+def test_generated_hpo_rejects_unsupported_model_before_plan(tmp_path: Path) -> None:
+    base = _cohort()
+
+    def forbidden(**_: Any) -> Any:
+        pytest.fail("unsupported generated HPO executed a provider callback")
+
+    provider = DataProvider(forbidden, generate_view=forbidden,
+                            provider_id="qualification.view.hpo-refused", base=base)
+    with pytest.raises(NotImplementedError, match="tuning requires one multimodal estimator"):
+        nirs4all.run(
+            [GroupKFold(3), {"model": Ridge()}], provider,
+            tuning={"engine": "n4m", "space": {"alpha": [0.1, 1.0]}, "n_trials": 2},
+            engine="dag-ml", refit=True, save_artifacts=False,
+            random_state=19, results_path=tmp_path / "refused", verbose=0,
+        )
+
+
 def test_generated_views_fit_sklearn_pipeline_preprocessor_on_train_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A concrete sklearn Pipeline may learn its scaler from generated training X."""
     cohort = _cohort()
