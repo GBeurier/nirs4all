@@ -28,12 +28,13 @@ _BINDING_IDENTITY_FIELDS = (
 
 def qualified_generated_model_pipeline(pipeline: Any) -> bool:
     """Whether a pipeline has the sole currently qualified generated-view shape."""
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import GroupKFold, KFold
 
     return (
         isinstance(pipeline, list) and len(pipeline) == 2
-        and type(pipeline[0]) is KFold
-        and (not pipeline[0].shuffle or type(pipeline[0].random_state) is int)
+        and type(pipeline[0]) in (KFold, GroupKFold)
+        and (not getattr(pipeline[0], "shuffle", False)
+             or type(getattr(pipeline[0], "random_state", None)) is int)
         and type(pipeline[1]) is dict and set(pipeline[1]) == {"model"}
         and not isinstance(pipeline[1]["model"], type)
         and callable(getattr(pipeline[1]["model"], "fit", None))

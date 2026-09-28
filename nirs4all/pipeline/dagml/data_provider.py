@@ -61,7 +61,7 @@ def prepare_data_provider(
         if not qualified:
             raise NotImplementedError(
                 "generate_view fold-view and training-content attestation is qualified only for "
-                "[KFold, {'model': a concrete estimator}] with refit=True, save_artifacts=False, "
+                "[KFold or GroupKFold, {'model': a concrete estimator}] with refit=True, save_artifacts=False, "
                 "and no tuning, calibration, project, session or workspace"
             )
     cohorts: list[Any] = []
