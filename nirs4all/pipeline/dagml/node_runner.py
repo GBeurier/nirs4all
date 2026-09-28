@@ -1460,9 +1460,15 @@ def run_model_node(
         fit_view = _view_by_partition(task, "fold_train" if phase == "FIT_CV" else "full_train")
         include_augmented_fit = bool((fit_view or {}).get("include_augmented"))
         fit_partition = "fold_train" if phase == "FIT_CV" else "full_train"
-        if generated_views is not None and include_augmented_fit:
-            raise ValueError("generated data views do not yet support augmented fit rows")
-        fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label) if include_augmented_fit else train_ids
+        # The qualified generated profile has no augmentation operator. Native
+        # FoldTrain still requests include_augmented=True by default; its
+        # explicit sample IDs, materialized by IO, remain the complete fit set.
+        if generated_views is not None:
+            if resolver.expand_with_augmented_children(train_ids, fold_label) != train_ids:
+                raise ValueError("generated data views cannot fit augmented children")
+            fit_ids = train_ids
+        else:
+            fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label) if include_augmented_fit else train_ids
         if missing_source:
             presence = (
                 generated_presence(fit_ids, fit_partition, cast(int, source_index))
@@ -2211,8 +2217,9 @@ def run_node(
         generated_views.validate_task(task)
         if not task.get("data_view_receipts"):
             raise ValueError("generated task is missing native data view receipts")
-        if any(view.get("include_augmented") is True for view in task.get("data_views", {}).values()):
-            raise ValueError("generated data views do not yet support augmented rows")
+        # Native FoldTrain selectors set include_augmented even when the
+        # qualified pipeline contains no augmentation operator. The IO store
+        # checks that selector and materializes only its exact ordered IDs.
         if kind not in ("model", "tuner") or node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             raise ValueError("generated data views do not yet support this controller kind")
     if kind == "transform" and task.get("data_views"):

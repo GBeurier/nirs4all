@@ -791,7 +791,10 @@ def run(
             - Numpy arrays: ``(X, y)`` or ``X`` alone
             - Dict with arrays: ``{"X": X, "y": y, "metadata": meta}``
             - SpectroDataset instance
-            - IO DataProvider executed once by DAG-ML before cross-validation
+            - IO DataProvider: PLAN executes once before cross-validation.
+              A ``generate_view`` callback is supported only with
+              ``[KFold(...), {"model": estimator_instance}]``, ``refit=True``
+              and ``save_artifacts=False`` on the in-process DAG-ML engine.
             - List of SpectroDataset instances (multi-dataset)
             - DatasetConfigs object (backward compatibility)
             - **List of datasets**: ``[dataset1, dataset2, ...]`` - each
@@ -909,7 +912,8 @@ def run(
             - best_rmse, best_r2, best_accuracy: Score shortcuts
 
         Use ``result.top(n=5)`` to get top N predictions, or
-        ``result.export("path.n4a")`` to export the best model.
+        ``result.export("path.n4a")`` to export the best model. Results
+        trained from generated views cannot yet export a replayable model.
         When ``run(tuning=..., calibration=...)`` or nested
         ``tuning["calibration"]`` is supplied, returns a
         ``TunedSingleEstimatorConformalResult`` containing both the tuned
@@ -1035,7 +1039,12 @@ def run(
 
     from nirs4all.pipeline.dagml.data_provider import prepare_data_provider
 
-    dataset = prepare_data_provider(dataset, engine=selected_engine, should_stop=runner_kwargs.get("should_stop"))
+    dataset = prepare_data_provider(
+        dataset, engine=selected_engine, should_stop=runner_kwargs.get("should_stop"),
+        pipeline=pipeline, refit=refit, tuning=tuning, calibration=calibration,
+        terminal_predict=terminal_predict, save_artifacts=save_artifacts,
+        project=project, runner_kwargs=runner_kwargs, session=session,
+    )
 
     # Keep main's published extended Methods lane alongside the V1 Core-archive minimum. The latter
     # remains the default for plain portable PLS requests; only capabilities it does not represent

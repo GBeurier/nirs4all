@@ -1588,6 +1588,9 @@ class RunResult:
     # projection time so the native-results writer (P3 Slice 2b-i, OFF by default) can persist it
     # VERBATIM. In-memory metadata only; ``None`` for a legacy result.
     _dagml_score_set: dict[str, Any] | None = field(default=None, repr=False)
+    # Scheduler-selected generated views, validated by the native DAG-ML
+    # binding before optional results persistence. A static run leaves it None.
+    _dagml_generated_view_manifest: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_node_results: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _dagml_target_names: list[str] = field(default_factory=lambda: ["y"], repr=False)
 
@@ -2428,6 +2431,10 @@ class RunResult:
         # dag-ml exports use captured native artifacts by default. The legacy refit bridge is available
         # only through the explicit compatibility opt-in above.
         if self._is_dagml_engine():
+            if self._dagml_generated_view_manifest is not None:
+                raise self._dagml_export_refusal(
+                    "export", "generated data views have no replay contract for prediction or retraining",
+                )
             independent_sources = any(
                 dataset.get("output_topology") == "independent_by_source"
                 for dataset in self.per_dataset.values()
@@ -2665,6 +2672,8 @@ class RunResult:
         * any step fails to serialize to plain JSON (the ``json`` round-trip doubles as the
           serializability guard) — a wrong training spec must never be written.
         """
+        if self._dagml_generated_view_manifest is not None:
+            return None
         spec = self._dagml_export_spec
         if spec is None:
             return None
@@ -3219,6 +3228,10 @@ class RunResult:
         # dag-ml exports use captured native artifacts by default. The legacy refit bridge is available
         # only through the explicit compatibility opt-in above.
         if self._is_dagml_engine():
+            if self._dagml_generated_view_manifest is not None:
+                raise self._dagml_export_refusal(
+                    "export_model", "generated data views have no replay contract for prediction or retraining",
+                )
             if source is not None:
                 raise NotImplementedError(
                     "engine='dag-ml' export_model does not support an explicit source= (it references the "

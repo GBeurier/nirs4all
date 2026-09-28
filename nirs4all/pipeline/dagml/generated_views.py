@@ -1,8 +1,8 @@
 """Run-local IO view buffers keyed by DAG-ML's native data-view handles.
 
-This is an internal bridge for DATA-PROV-01 qualification. The public run path
-continues to refuse generated views until native training identity and replay
-bind the exact view content and the model-call evidence is required by contract.
+This internal bridge supports the qualified KFold/concrete-model run profile.
+The host reports generated-view digests and model-call evidence to DAG-ML;
+model export remains closed pending a replay contract.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import copy
 import hashlib
 import json
 import math
-from typing import Any
+from typing import Any, SupportsIndex
 
 import numpy as np
 
@@ -19,6 +19,26 @@ _SELECTOR_FIELDS = (
     "sample_ids", "partition", "fold_id", "source_ids", "columns",
     "branch_view", "include_augmented", "include_excluded", "extra",
 )
+_BINDING_IDENTITY_FIELDS = (
+    "schema_fingerprint", "plan_fingerprint", "relation_fingerprint",
+    "output_representation", "request_id", "input_name", "feature_set_id",
+    "source_ids", "metadata",
+)
+
+
+def qualified_generated_model_pipeline(pipeline: Any) -> bool:
+    """Whether a pipeline has the sole currently qualified generated-view shape."""
+    from sklearn.model_selection import KFold
+
+    return (
+        isinstance(pipeline, list) and len(pipeline) == 2
+        and type(pipeline[0]) is KFold
+        and (not pipeline[0].shuffle or type(pipeline[0].random_state) is int)
+        and type(pipeline[1]) is dict and set(pipeline[1]) == {"model"}
+        and not isinstance(pipeline[1]["model"], type)
+        and callable(getattr(pipeline[1]["model"], "fit", None))
+        and callable(getattr(pipeline[1]["model"], "predict", None))
+    )
 
 
 def _selector_fields(view: dict[str, Any]) -> dict[str, Any]:
@@ -102,6 +122,9 @@ def _require_option_rows(options: dict[str, Any], count: int) -> None:
 class GeneratedViewStore:
     """Materialize a scheduler-requested IO view and retain it under its handle."""
 
+    def __reduce_ex__(self, protocol: SupportsIndex) -> Any:
+        raise TypeError("live generated data view stores cannot be serialized")
+
     def __init__(self, provider: Any) -> None:
         recipe = provider.recipe()
         if not recipe["params"]["_io_assembly"].get("view_generation"):
@@ -112,6 +135,7 @@ class GeneratedViewStore:
         self._provider = provider
         self._context = copy.deepcopy(recipe["context"])
         self._views: dict[int, tuple[dict[str, Any], tuple[str, ...], Any, dict[str, Any], dict[str, Any]]] = {}
+        self._by_key: dict[str, tuple[tuple[str, ...], int, dict[str, Any], dict[str, Any], Any, dict[str, Any]]] = {}
 
     def __call__(self, call: dict[str, Any]) -> dict[str, Any]:
         """Answer the native callback with an IO checkpoint and retain its buffers."""
@@ -132,28 +156,61 @@ class GeneratedViewStore:
             raise ValueError("Native data-view request has no binding")
         if request.get("input_name") != binding.get("input_name"):
             raise ValueError("Native data-view input name does not match its binding")
-        if (view.get("source_ids") != binding.get("source_ids")
-                or view.get("columns") is not None
-                or view.get("branch_view") is not None
-                or view.get("extra") != {}
-                or view.get("include_augmented") is not False
-                or view.get("include_excluded") is not False):
-            raise ValueError("Generated IO view does not support this native selector")
+        native_extra = view.get("extra")
+        allowed_extra = {
+            "feature_set_id": binding.get("feature_set_id"),
+            "include_augmented_cv_train_predictions": False,
+        }
+        feature_extra = {"feature_set_id": binding.get("feature_set_id")}
+        refit_extra = {**feature_extra, "include_augmented_refit_predictions": False}
+        unsupported = [
+            name for name, invalid in (
+                ("source_ids", view.get("source_ids") != binding.get("source_ids")),
+                ("columns", view.get("columns") is not None),
+                ("branch_view", view.get("branch_view") is not None),
+                ("extra", native_extra not in (
+                    ({}, feature_extra, allowed_extra) if request.get("phase") == "FIT_CV"
+                    else ({}, feature_extra, refit_extra) if request.get("phase") == "REFIT"
+                    else ({}, feature_extra)
+                )),
+                ("include_augmented", view.get("include_augmented") is not False
+                 and not (view.get("include_augmented") is True
+                          and view.get("partition") in {"fold_train", "full_train"})),
+                ("include_excluded", view.get("include_excluded") is not False
+                 and not (view.get("include_excluded") is True
+                          and view.get("partition") in {"fold_validation", "predict"})),
+            ) if invalid
+        ]
+        if unsupported:
+            raise ValueError("Generated IO view does not support this native selector: " + ", ".join(unsupported))
         ids = view.get("sample_ids")
         if not isinstance(ids, list) or not ids or any(not isinstance(item, str) or not item for item in ids) or len(ids) != len(set(ids)):
             raise ValueError("Native data-view request requires unique ordered sample IDs")
         key, seed = request.get("view_key"), request.get("view_seed")
         if not isinstance(key, str) or not key.strip() or type(seed) is not int or seed < 0:
             raise ValueError("Native data-view request requires a stable key and seed")
-        context = copy.deepcopy(self._context)
-        context["_dag_ml_view"] = {
-            "phase": request.get("phase"),
-            "partition": view.get("partition"),
-            "fold_id": view.get("fold_id"),
-            "source_ids": view.get("source_ids"),
-        }
-        cohort = self._provider.materialize_view(ids, seed=seed, context=context, view_key=key)
-        state = self._provider.view_state_dict(cohort)
+        selector = _selector_fields(view)
+        binding_identity = {name: binding.get(name) for name in _BINDING_IDENTITY_FIELDS}
+        prior = self._by_key.get(key)
+        if prior is None:
+            context = copy.deepcopy(self._context)
+            # Phase is intentionally absent: the native key can be reused
+            # across execution phases for this same partition and selector.
+            context["_dag_ml_view"] = {
+                "partition": view.get("partition"),
+                "fold_id": view.get("fold_id"),
+                "source_ids": view.get("source_ids"),
+            }
+            cohort = self._provider.materialize_view(ids, seed=seed, context=context, view_key=key)
+            state = self._provider.view_state_dict(cohort)
+            self._by_key[key] = (tuple(ids), seed, copy.deepcopy(selector), copy.deepcopy(binding_identity), cohort, state)
+        else:
+            prior_ids, prior_seed, prior_selector, prior_binding, cohort, state = prior
+            if (prior_ids != tuple(ids) or prior_seed != seed
+                    or prior_selector != selector or prior_binding != binding_identity):
+                raise ValueError("Native data-view key was reused with a different selector or binding")
+            if self._provider.view_state_dict(cohort) != state:
+                raise ValueError("Generated data-view content changed after key reuse")
         if state["view_key"] != key or state["sample_ids"] != ids:
             raise ValueError("IO view checkpoint does not match the native request")
         frozen_handle = copy.deepcopy(handle)
@@ -278,7 +335,7 @@ class GeneratedTaskViews:
         """
         scope = (input_name, partition)
         if scope not in self._scopes:
-            raise ValueError(f"Generated task has no native view for {scope!r}")
+            raise ValueError(f"Generated task has no native view for {scope!r}; available={sorted(self._scopes)!r}")
         handle, full_ids = self._scopes[scope]
         if (not isinstance(sample_ids, list) or not sample_ids
                 or any(not isinstance(item, str) or not item for item in sample_ids)

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import inspect
 import json
+import pickle
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -13,13 +17,15 @@ from nirs4all_io import DataProvider, TensorSource
 from nirs4all_io.ragged import RaggedSeriesBatch
 
 from nirs4all.data.multimodal import MultimodalSpectroDataset
+from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml.envelope import build_envelope
 from nirs4all.pipeline.dagml.generated_views import GeneratedViewStore, _model_value_fingerprint
 from nirs4all.pipeline.dagml.identity import mint_identity
+from nirs4all.pipeline.dagml.native_results import read_native_results, write_native_results
 from tests.integration.api.test_multimodal_dagml import _cohort
 
 
-def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import dag_ml._dag_ml as native
 
     materialize_view = getattr(DataProvider, "materialize_view", None)
@@ -47,6 +53,8 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeyp
     provider = DataProvider(generate, generate_view=generate_view, provider_id="qualification.native-view-probe", base=base, replace_sources=["nir"])
     provider.materialize()
     store = GeneratedViewStore(provider)
+    with pytest.raises(TypeError, match="cannot be serialized"):
+        pickle.dumps(store)
 
     wrapped = MultimodalSpectroDataset(base)
     envelope = build_envelope(wrapped, mint_identity(wrapped), sample_ints=list(range(12)))
@@ -70,13 +78,85 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeyp
         },
         "view_key": "view:v1:" + "a" * 64, "view_seed": 19,
     }
-    receipt = json.loads(native.probe_data_view_in_process(json.dumps(envelope), json.dumps(request), store))
+    probe = json.loads(native.probe_data_view_in_process(json.dumps(envelope), json.dumps(request), store, True))
+    generated_manifest = probe.pop("generated_view_manifest")
+    receipt = probe
     view = store.resolve(receipt["handle"], selected)
     assert view.sample_ids == tuple(selected)
     assert receipt["content_fingerprint"] == provider.view_state_dict(view)["fingerprint"]
     expected = np.asarray(base.take(selected).sources["nir"].values) + float(19 % 7)
     np.testing.assert_array_equal(view.sources["nir"].values, expected)
-    assert scopes == [{"phase": "FIT_CV", "partition": "fold_train", "fold_id": "fold:0", "source_ids": source_ids}]
+    assert scopes == [{"partition": "fold_train", "fold_id": "fold:0", "source_ids": source_ids}]
+
+    # The no-fit probe's genuine IO receipt survives the native results writer
+    # and reader; tampered bytes or a rewritten SHA cannot bypass DAG-ML's TCV1.
+    result = SimpleNamespace(predictions=Predictions(), _dagml_refit_artifacts=[], best={},
+                             _dagml_generated_view_manifest=generated_manifest)
+    run_dir = write_native_results(result, {"reports": []}, tmp_path)
+    assert read_native_results(run_dir)["generated_view_manifest"] == generated_manifest
+    assert json.loads((run_dir / "manifest.json").read_text())["schema_version"] == 4
+    result._dagml_refit_artifacts = [{"estimator": object()}]
+    result._dagml_initial_full_refit_package = {"unreplayable": True}
+    filtered_dir = write_native_results(result, {"reports": []}, tmp_path)
+    filtered = read_native_results(filtered_dir)
+    assert filtered["artifacts"] == []
+    assert filtered["manifest"]["capabilities"]["has_model_artifacts"] is False
+    assert not (filtered_dir / "artifacts").exists()
+    assert not (filtered_dir / "initial_full_refit_package.json").exists()
+    result.per_dataset = {"synthetic": {"residual_replay": {}}}
+    with pytest.raises(ValueError, match="cannot carry model replay metadata"):
+        write_native_results(result, {"reports": []}, tmp_path)
+    result.per_dataset = {}
+    header_path = run_dir / "manifest.json"
+    clean_header = json.loads(header_path.read_text())
+    forged_header = copy.deepcopy(clean_header)
+    forged_header["artifacts"] = [{"uri": "artifacts/forged.joblib"}]
+    header_path.write_text(json.dumps(forged_header))
+    with pytest.raises(ValueError, match="v4 cannot contain replayable model artifacts"):
+        read_native_results(run_dir)
+    header_path.write_text(json.dumps(clean_header))
+    manifest_path = run_dir / "generated_view_manifest.json"
+    original_bytes = manifest_path.read_bytes()
+    manifest_path.write_bytes(original_bytes + b" ")
+    with pytest.raises(ValueError, match="byte fingerprint mismatch"):
+        read_native_results(run_dir)
+    altered = copy.deepcopy(generated_manifest)
+    altered["views"][0]["view"]["unexpected"] = 1
+    altered_bytes = json.dumps(altered).encode("utf-8")
+    manifest_path.write_bytes(altered_bytes)
+    header = json.loads(header_path.read_text())
+    header["generated_view_manifest_ref"]["sha256"] = hashlib.sha256(altered_bytes).hexdigest()
+    header_path.write_text(json.dumps(header))
+    with pytest.raises(ValueError, match="generated view manifest is invalid"):
+        read_native_results(run_dir)
+
+    altered = copy.deepcopy(generated_manifest)
+    altered["views"][0]["content_fingerprint"] = "0" * 64
+    altered_bytes = json.dumps(altered).encode("utf-8")
+    manifest_path.write_bytes(altered_bytes)
+    header["generated_view_manifest_ref"]["sha256"] = hashlib.sha256(altered_bytes).hexdigest()
+    header_path.write_text(json.dumps(header))
+    with pytest.raises(ValueError, match="generated view manifest is invalid"):
+        read_native_results(run_dir)
+
+    duplicate = original_bytes.replace(b'"views":', b'"views":[],"views":', 1)
+    assert duplicate != original_bytes
+    manifest_path.write_bytes(duplicate)
+    header["generated_view_manifest_ref"]["sha256"] = hashlib.sha256(duplicate).hexdigest()
+    header_path.write_text(json.dumps(header))
+    with pytest.raises(ValueError, match="generated view manifest is invalid"):
+        read_native_results(run_dir)
+
+    header["schema_version"] = 3
+    header_path.write_text(json.dumps(header))
+    with pytest.raises(ValueError, match="requires schema v4"):
+        read_native_results(run_dir)
+    header["schema_version"] = 4
+    manifest_path.unlink()
+    header.pop("generated_view_manifest_ref")
+    header_path.write_text(json.dumps(header))
+    with pytest.raises(ValueError, match="v4 require a generated view manifest reference"):
+        read_native_results(run_dir)
 
     with pytest.raises(ValueError, match="ordered IDs"):
         store.resolve(receipt["handle"], list(reversed(selected)))
@@ -86,7 +166,7 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeyp
     for unsupported in (
         {"source_ids": source_ids[:1]},
         {"columns": ["first"]},
-        {"include_augmented": True},
+        {"partition": "fold_validation", "include_augmented": True},
         {"include_excluded": True},
         {"extra": {"filter": "unexpected"}},
         {"branch_view": {"mode": "separation"}},
@@ -279,8 +359,8 @@ def test_generated_model_input_fingerprint_keeps_ragged_boundaries() -> None:
     assert _model_value_fingerprint(np.asarray(1.0)) != _model_value_fingerprint(np.asarray([1.0]))
 
 
-def test_native_cv_requests_scheduler_selected_views_before_refusing_dynamic_fit() -> None:
-    """The live scheduler asks for fold views, then its fit gate stops the controller."""
+def test_native_cv_requests_scheduler_selected_views_before_model_controller() -> None:
+    """The live scheduler supplies selected fold views before the model callback."""
     import dag_ml._dag_ml as native
     from sklearn.cross_decomposition import PLSRegression
 
@@ -312,12 +392,16 @@ def test_native_cv_requests_scheduler_selected_views_before_refusing_dynamic_fit
             "schema_fingerprint": "a" * 64, "content_fingerprint": "b" * 64,
         }
 
-    with pytest.raises(native.DagMlRuntimeError, match="cannot fit a dynamic data view"):
+    def stop_before_fit(task: dict[str, Any]) -> None:
+        operator_calls.append(task)
+        raise ValueError("model callback probe stopped before fit")
+
+    with pytest.raises(native.DagMlRuntimeError, match="model callback probe stopped before fit"):
         native.run_cv_refit_in_process(
             json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()),
-            lambda task: operator_calls.append(task), "rmse", None, False, 1, view_callback,
+            stop_before_fit, "rmse", None, False, 1, view_callback,
         )
-    assert operator_calls == []
+    assert len(operator_calls) == 1
     assert calls
     selected = set(base.sample_ids[:12])
     held_out = set(base.sample_ids[12:])

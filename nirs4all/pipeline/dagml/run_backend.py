@@ -93,6 +93,7 @@ from .run_paths import (
     _run_by_source_stacking_branch,
     _run_checkpoint_before_duplication_branch,
     _run_checkpoint_inside_duplication_feature_merge,
+    _run_concrete,
     _run_concrete_scores,
     _run_duplication_branch,
     _run_named_metamodel_feature_stack,
@@ -446,6 +447,12 @@ def run_via_dagml(
     # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
     # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
+    generated_view_store = getattr(dataset, "_generated_view_store", None)
+    provider_evidence = getattr(dataset, "_data_provider_evidence", None)
+    if (isinstance(provider_evidence, dict)
+            and provider_evidence.get("recipe", {}).get("params", {}).get("_io_assembly", {}).get("view_generation")
+            and generated_view_store is None):
+        raise ValueError("generated data provider lost its live view store before training")
     spectro = _materialize_dataset(dataset)
     requested_charts = isinstance(pipeline, list) and any(_is_chart_step(step) for step in pipeline)
     chart_pre_holdout_spectro = None
@@ -473,7 +480,17 @@ def run_via_dagml(
     # `dataset_arg` is the reloadable path (clean file-path datasets, no pickle — fast); `host_pickle`
     # is set only when the adapter cannot faithfully reload from a path (in-memory inputs, or a path
     # whose re-load diverges from the host identity), and ships the byte-identical host dataset.
-    dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
+    if generated_view_store is not None:
+        # The wrapper retains this cohort, so remove the live callback while
+        # serializing the PLAN dataset for the legacy subprocess channel.
+        del dataset._generated_view_store
+    try:
+        dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
+    finally:
+        if generated_view_store is not None:
+            dataset._generated_view_store = generated_view_store
+    if generated_view_store is not None:
+        spectro._generated_view_store = generated_view_store
     if chart_original_spectro is not None:
         # Capture each augmentation stage during the real full-train pass. The
         # snapshots stay on the result, never in the adapter's pickled dataset.
@@ -510,6 +527,16 @@ def run_via_dagml(
             refit_top_k=_native_refit_top_k(refit),
             holdout_train_sample_ids=holdout_train_sample_ids,
         )
+        if generated_view_store is not None:
+            manifest = getattr(spectro, "_dagml_generated_view_manifest", None)
+            if not isinstance(manifest, dict):
+                raise ValueError("generated DAG-ML run did not return a data-view manifest")
+            result._dagml_generated_view_manifest = manifest
+            # These fitted objects have no replay contract for generated X.
+            # Clear them at the source so in-memory capabilities and the v4
+            # results directory report the same non-exportable state.
+            result._dagml_refit_artifacts = []
+            result._dagml_initial_full_refit_package = None
         if holdout_train_sample_ids is not None:
             for metadata in result.per_dataset.values():
                 metadata["fold_file_holdout"] = True
@@ -529,7 +556,8 @@ def run_via_dagml(
                     for metadata in view.per_dataset.values():
                         metadata[key] = copy.deepcopy(relation)
         check_cancellation()
-        _attach_export_spec(result, pipeline, dataset, name, random_state)
+        if generated_view_store is None:
+            _attach_export_spec(result, pipeline, dataset, name, random_state)
         workspace_path = None
         if save_artifacts or project is not None or "workspace_path" in effective_runner_kwargs or (requested_charts and save_charts):
             from nirs4all.pipeline.runner import _get_default_workspace_path
@@ -572,6 +600,11 @@ def run_via_dagml(
             logger.info("DAG-ML completed: %s=%s", metric_names["cv_score"], result.cv_best_score)
         return result
     finally:
+        if generated_view_store is not None:
+            if getattr(dataset, "_generated_view_store", None) is generated_view_store:
+                del dataset._generated_view_store
+            if getattr(spectro, "_generated_view_store", None) is generated_view_store:
+                del spectro._generated_view_store
         reset_execution_resources(resource_token)
         SHOULD_STOP.reset(cancellation_token)
         if workdir is None:
@@ -1025,6 +1058,21 @@ def _dispatch_run(
     pipeline = normalize_model_steps(pipeline)
     pipeline = _lower_step_na_replacement(list(pipeline))
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
+    if getattr(spectro, "_generated_view_store", None) is not None:
+        from .generated_views import qualified_generated_model_pipeline
+
+        # DATA-PROV-01 qualifies one concrete model with ordinary KFold only.
+        # Other shapes must not train against the eager PLAN cohort.
+        if (not qualified_generated_model_pipeline(pipeline)
+                or _generation_kind(pipeline) != "none" or not refit or refit_top_k != 1
+                or holdout_train_sample_ids is not None):
+            raise NotImplementedError("generated data views currently require [KFold, {'model': a concrete estimator}] with refit=True")
+        return _run_concrete(
+            pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
+            base_dir / "generated_view", metric, task_type,
+            dataset_pickle=host_pickle, config_name=config_name,
+            random_state=random_state, refit=True,
+        )
     from .residual_run import residual_operator, run_residual_model
 
     residual = residual_operator(pipeline)
