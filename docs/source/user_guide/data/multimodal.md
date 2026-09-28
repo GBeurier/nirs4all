@@ -512,6 +512,57 @@ python examples/user/02_data_handling/U11_multimodal_data_provider.py --output /
 python examples/user/02_data_handling/U11_multimodal_data_provider.py --output /tmp/mm-provider-torch --torch-workers 2
 ```
 
+### Generated feature views per fold
+
+For a bounded native CV run, `generate_view` can replace declared raw sources
+after `PLAN`. The base cohort fixes IDs, targets, groups, partitions and source
+schemas before splitting. The callback receives only the scheduler-selected
+IDs and its deterministic view seed; return the same IDs in the same order.
+For example, given a fully aligned `cohort` and a source-aware concrete
+`model` (such as `MultimodalRegressor`):
+
+```python
+import numpy as np
+import nirs4all
+from nirs4all_io import DataProvider, TensorSource
+from sklearn.model_selection import GroupKFold
+
+def prepare_nir(**_):
+    return {"sample_ids": list(cohort.sample_ids),
+            "sources": {"nir": cohort.sources["nir"]}}
+
+def nir_for_view(*, sample_ids, seed, **_):
+    source = cohort.take(sample_ids).sources["nir"]
+    values = np.asarray(source.values)
+    # A deterministic fixture perturbation; replace with your own provider.
+    values = values + np.random.default_rng(seed).normal(0, 0.001, values.shape)
+    return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+        values, sample_ids, representation_id=source.representation_id,
+        axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+    )}}
+
+provider = DataProvider(prepare_nir, generate_view=nir_for_view,
+                        provider_id="example.fold-nir", base=cohort,
+                        replace_sources=["nir"])
+result = nirs4all.run([GroupKFold(3), {"model": model}], provider,
+                      engine="dag-ml", refit=True, save_artifacts=False,
+                      save_charts=False, random_state=19)
+try:
+    print(result.best_rmse)
+finally:
+    result.close()
+```
+
+The qualified profile also accepts exact `KFold`, `StratifiedKFold` and
+`StratifiedGroupKFold` splitters, with a single concrete estimator. A concrete
+sklearn `Pipeline` may learn preprocessing inside that estimator on generated
+training views. Ragged series can be replaced as long as their declared schema
+is retained. The result records a view manifest, but models fitted on generated
+features cannot yet be exported or replayed. Tuning, resume after interruption,
+subprocess execution, and separately fitted DAG transform nodes remain outside
+this profile. Multimodal synthetic data in this example are test fixtures, not
+a new product generator.
+
 ## Archive and scope
 
 The archive contains fitted encoders, fusion and final model, raw input contracts,
