@@ -1331,7 +1331,7 @@ def run(
         )
         tolerances = _resolve_dual_tolerances()
         expected_folds = pipeline[0].get_n_splits()  # type: ignore[index,union-attr]
-        expected_sample_count = dataset[0].shape[0]  # type: ignore[index,union-attr]
+        expected_sample_count = cast(tuple[np.ndarray, np.ndarray], dataset)[0].shape[0]
         try:
             native_pipeline = copy.deepcopy(pipeline)
             native_dataset = copy.deepcopy(dataset)
