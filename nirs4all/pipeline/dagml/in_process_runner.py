@@ -137,6 +137,7 @@ def run_cv_refit_bundle(
 
     if dataset is None:
         dataset, fold_children, fold_feature_views = _load_dataset(dataset_path, dataset_pickle)
+    view_store = getattr(dataset, "_generated_view_store", None)
     if sample_metadata is None:
         meta_path = os.environ.get("N4A_DAGML_SAMPLE_META_PATH")
         if meta_path and Path(meta_path).exists():
@@ -149,20 +150,27 @@ def run_cv_refit_bundle(
     edges = graph.get("edges", [])
     y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     store: dict[int, Any] = {}
-    op_callback = lambda task: run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)  # noqa: E731
+    def op_callback(task: dict[str, Any]) -> dict[str, Any]:
+        if view_store is not None and task["node_plan"]["kind"] in {"model", "tuner"} and not task.get("data_view_receipts"):
+            raise ValueError("generated model task is missing native data-view receipts")
+        generated_views = view_store.bind_task(task) if view_store is not None and task.get("data_view_receipts") else None
+        return run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata, generated_views)
 
-    payload = json.loads(
-        dag_ml_ext.run_cv_refit_in_process(
-            json.dumps(dsl),
-            json.dumps(envelope),
-            json.dumps(controller_manifests()),
-            op_callback,
-            selection_metric,
-            json.dumps(current_execution_resources().to_contract()),
-            refit,
-            refit_top_k,
-        )
+    bridge_args: tuple[Any, ...] = (
+        json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()),
+        op_callback, selection_metric, json.dumps(current_execution_resources().to_contract()),
+        refit, refit_top_k,
     )
+    if view_store is not None:
+        bridge_args += (view_store,)
+    payload = json.loads(
+        dag_ml_ext.run_cv_refit_in_process(*bridge_args)
+    )
+    if view_store is not None:
+        manifest = payload.get("generated_view_manifest")
+        if not isinstance(manifest, dict):
+            raise ValueError("generated DAG-ML run is missing its native data-view manifest")
+        dataset._dagml_generated_view_manifest = manifest
     node_results = payload.get("node_results", [])
     from .native_vote import collect_vote_evidence
 
@@ -174,6 +182,7 @@ def run_cv_refit_bundle(
         "residual_gates": payload.get("residual_gates", []),
         "variant_catalog": payload.get("variant_catalog", []),
         "selected_refit_variant_ids": payload.get("selected_refit_variant_ids", []),
+        "generated_view_manifest": payload.get("generated_view_manifest"),
         "classification_evidence": collect_vote_evidence(store),
         # The fitted REFIT estimators the run produced, captured HOST-SIDE from the live `store` the
         # op_callback closed over (P3 Slice 2c-i, D1 — zero ABI change). The store STILL holds the REFIT
@@ -346,6 +355,9 @@ def run_cv_refit_bundle_router(
                 metadata = dict(node.get("metadata") or {})
                 metadata["nirs4all_pipeline_fold_set"] = fold_set
                 node["metadata"] = metadata
+    view_store = getattr(dataset, "_generated_view_store", None)
+    if view_store is not None and not (in_process_enabled() and _dagml_extension_loads()):
+        raise NotImplementedError("generated data views require the DAG-ML in-process extension; subprocess execution is not qualified")
     if in_process_enabled() and _dagml_extension_loads():
         return run_cv_refit_bundle(
             dsl=dsl,

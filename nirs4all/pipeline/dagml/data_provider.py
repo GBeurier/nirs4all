@@ -6,7 +6,13 @@ import copy
 from typing import Any
 
 
-def prepare_data_provider(dataset: Any, *, engine: str, should_stop: Any = None) -> Any:
+def prepare_data_provider(
+    dataset: Any, *, engine: str, should_stop: Any = None,
+    pipeline: Any = None, refit: Any = None, tuning: Any = None,
+    calibration: Any = None, terminal_predict: Any = None,
+    save_artifacts: Any = None, project: Any = None,
+    runner_kwargs: dict[str, Any] | None = None, session: Any = None,
+) -> Any:
     """Materialize a finite provider once, before folds or scientific fitting.
 
     The provider owns its seed independently of estimator ``random_state``.
@@ -41,10 +47,23 @@ def prepare_data_provider(dataset: Any, *, engine: str, should_stop: Any = None)
         raise RuntimeError("The installed dag-ml binding lacks execute_data_provider; install a binding with data-provider PLAN support")
     recipe = dataset.recipe()
     if recipe["params"]["_io_assembly"].get("view_generation"):
-        raise NotImplementedError(
-            "generate_view is not connected to the DAG-ML fold-view and training-content "
-            "attestation path; nirs4all.run refuses to train on an eager base cohort instead"
+        from .generated_views import qualified_generated_model_pipeline
+
+        # Preflight before PLAN: no unsupported pipeline may materialize the
+        # eager cohort and then silently train against it instead of views.
+        qualified = (
+            qualified_generated_model_pipeline(pipeline)
+            and refit is True and tuning is None and calibration is None
+            and terminal_predict is None
+            and save_artifacts is False and project is None and session is None
+            and "workspace_path" not in (runner_kwargs or {})
         )
+        if not qualified:
+            raise NotImplementedError(
+                "generate_view fold-view and training-content attestation is qualified only for "
+                "[KFold, {'model': a concrete estimator}] with refit=True, save_artifacts=False, "
+                "and no tuning, calibration, project, session or workspace"
+            )
     cohorts: list[Any] = []
 
     def provide(task: dict[str, Any]) -> dict[str, Any]:
@@ -71,4 +90,10 @@ def prepare_data_provider(dataset: Any, *, engine: str, should_stop: Any = None)
     # Host provenance contains no callback, mutable provider, or training data.
     # MultimodalSpectroDataset copies it before any subprocess serialization.
     cohort._data_provider_evidence = {"recipe": copy.deepcopy(recipe), "execution": evidence}
+    if recipe["params"]["_io_assembly"].get("view_generation"):
+        from .generated_views import GeneratedViewStore
+
+        # This run-local callback is detached before any dataset pickle is
+        # produced; it is never part of archive provenance or replay state.
+        cohort._generated_view_store = GeneratedViewStore(dataset)
     return cohort

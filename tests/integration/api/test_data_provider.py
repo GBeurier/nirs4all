@@ -10,14 +10,16 @@ from typing import Any
 
 import numpy as np
 import pytest
-from nirs4all_io import DataProvider, MultimodalDataset
-from sklearn.model_selection import GroupKFold
+from nirs4all_io import DataProvider, MultimodalDataset, TensorSource
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import GroupKFold, KFold
 
 import nirs4all
 from nirs4all.data.multimodal import MultimodalSpectroDataset
 from nirs4all.operators.models.multimodal import TensorPCA
 from nirs4all.pipeline.dagml.cancellation import DagRunCancelled
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
+from nirs4all.pipeline.dagml.native_results import read_native_results
 from tests.integration.api.test_multimodal_dagml import _cohort, _model
 from tests.integration.api.test_multimodal_tuning import _checkpoint, _tuning
 
@@ -125,6 +127,88 @@ def test_view_provider_refuses_before_eager_materialization_or_fit(tmp_path: Pat
     )
     with pytest.raises(NotImplementedError, match="fold-view and training-content attestation"):
         _run(provider, tmp_path)
+    with pytest.raises(NotImplementedError, match="fold-view and training-content attestation"):
+        nirs4all.run(
+            [KFold(3, shuffle=True), {"model": Ridge()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False,
+            save_charts=False, verbose=0,
+        )
+
+
+def test_generated_views_fit_each_native_fold_and_persist_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    original = _cohort()
+    base = MultimodalDataset(
+        {"nir": original.sources["nir"]}, sample_ids=original.sample_ids,
+        y=original.y, groups=original.groups, partitions=original.partitions,
+        name=original.name,
+    )
+    generated_fits: list[np.ndarray] = []
+    generated_predicts: list[np.ndarray] = []
+    view_scopes: list[tuple[str, list[str], np.ndarray]] = []
+    original_fit = Ridge.fit
+    original_predict = Ridge.predict
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], context: dict[str, Any], **_: Any) -> dict[str, Any]:
+        partition = context["_dag_ml_view"]["partition"]
+        offset = {"fold_train": 10.0, "fold_validation": 20.0, "full_train": 30.0, "predict": 40.0}[partition]
+        source = base.take(sample_ids).sources["nir"]
+        values = np.asarray(source.values) + offset
+        view_scopes.append((partition, list(sample_ids), values.copy()))
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            values, sample_ids, representation_id=source.representation_id,
+            axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+        )}}
+
+    def observe_fit(self: Ridge, X: Any, y: Any, **kwargs: Any) -> Any:
+        generated_fits.append(np.asarray(X).copy())
+        return original_fit(self, X, y, **kwargs)
+
+    def observe_predict(self: Ridge, X: Any, **kwargs: Any) -> Any:
+        generated_predicts.append(np.asarray(X).copy())
+        return original_predict(self, X, **kwargs)
+
+    monkeypatch.setattr(Ridge, "fit", observe_fit)
+    monkeypatch.setattr(Ridge, "predict", observe_predict)
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.concrete",
+        base=base, replace_sources=["nir"],
+    )
+    result = nirs4all.run(
+        [KFold(3), {"model": Ridge(alpha=0.2)}], provider,
+        engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        expected_fits = [values for partition, _ids, values in view_scopes if partition in {"fold_train", "full_train"}]
+        assert len(expected_fits) == len(generated_fits) == 4
+        assert all(sum(np.array_equal(actual, expected) for actual in generated_fits) == 1 for expected in expected_fits)
+        expected_validation = [values for partition, _ids, values in view_scopes if partition == "fold_validation"]
+        assert len(expected_validation) == 3
+        assert all(any(np.array_equal(actual, expected) for actual in generated_predicts)
+                   for expected in expected_validation)
+        assert {partition for partition, _ids, _values in view_scopes} >= {"fold_train", "fold_validation", "full_train"}
+        assert np.isfinite(result.best_rmse)
+        manifest = result._dagml_generated_view_manifest
+        assert manifest["schema_version"] == 1
+        assert len(manifest["views"]) == len(view_scopes)
+        native = read_native_results(result._dagml_results_dir)
+        assert native["generated_view_manifest"] == manifest
+        assert native["artifacts"] == []
+        assert native["manifest"]["capabilities"]["has_model_artifacts"] is False
+        assert result._dagml_refit_artifacts == []
+        assert result.to_rt_result().manifest["capabilities"]["has_model_artifacts"] is False
+        for compatibility in (None, "legacy-refit"):
+            with pytest.raises(Exception, match="generated data views have no replay contract"):
+                result.export(tmp_path / "generated.n4a", compatibility=compatibility)
+            with pytest.raises(Exception, match="generated data views have no replay contract"):
+                result.export_model(tmp_path / "generated.joblib", compatibility=compatibility)
+        assert not (tmp_path / "generated.n4a").exists()
+        assert not (tmp_path / "generated.joblib").exists()
+    finally:
+        result.close()
 
 
 @pytest.mark.parametrize("engine", ["native", "legacy", "dual"])

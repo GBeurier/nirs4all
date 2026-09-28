@@ -189,6 +189,7 @@ def test_generated_fit_cv_reads_explicit_train_and_validation_views(slice_fixtur
     class TaskViews(GeneratedTaskViews):
         def __init__(self) -> None:
             self.calls: list[tuple[str, tuple[str, ...]]] = []
+            self.model_calls: list[tuple[str, str, tuple[str, ...]]] = []
 
         def validate_task(self, task) -> None:
             assert task["fold_id"] == "fold0"
@@ -201,6 +202,17 @@ def test_generated_fit_cv_reads_explicit_train_and_validation_views(slice_fixtur
             rows = np.asarray(f["dataset"].x_rows([identity.to_int(sample_id) for sample_id in sample_ids], layout="2d"))
             values = rows * (1.25 if partition == "fold_train" else 0.75)
             return {"source_names": source_names, "blocks": [values], "observation_ids": list(sample_ids)}
+
+        def record_model_call(self, operation, input_name, partition, sample_ids, features, *, options=None, targets=None):
+            assert input_name == "x"
+            assert len(features) == len(sample_ids)
+            assert (targets is not None) == (operation == "fit")
+            self.model_calls.append((operation, partition, tuple(sample_ids)))
+
+        def consumed_data_views(self):
+            # This isolated controller fake checks the fit/predict buffers;
+            # the native receipt ledger is covered by the full-run tests.
+            return {}
 
     views = TaskViews()
     task = {
@@ -216,6 +228,8 @@ def test_generated_fit_cv_reads_explicit_train_and_validation_views(slice_fixtur
     result = run_node(task, f["resolver"], f["node_lookup"], {}, generated_views=views)
     assert "train_pool" not in {block["partition"] for block in result["predictions"]}
     assert {partition for partition, _ids in views.calls} == {"fold_train", "fold_validation"}
+    assert ("fit", "fold_train", tuple(train_ids)) in views.model_calls
+    assert ("predict", "fold_validation", tuple(val_ids)) in views.model_calls
 
     expected_model = PLSRegression(n_components=5)
     x_train = np.asarray(f["dataset"].x_rows(train_ints, layout="2d")) * 1.25

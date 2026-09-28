@@ -38,6 +38,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import unicodedata
 import uuid
@@ -57,10 +58,18 @@ if TYPE_CHECKING:
 # native dag-ml ScoreSet schema, which is owned by dag-ml and stored verbatim). v2 adds the model
 # ArtifactRef ``artifacts[]`` list + the live ``has_model_artifacts`` capability flag (P3 Slice 2c-i).
 # v3 adds ``stacking_replay`` metadata for native .n4a replay of branch stacking artifacts.
+# v4 is used only for runs with generated data views; the sidecar is mandatory.
 MANIFEST_SCHEMA_VERSION = 3
+_GENERATED_VIEW_SCHEMA_VERSION = 4
 
 _DEFAULT_RESULTS_ROOT = "nirs4all_results"
 _ENV_GATE = "N4A_NATIVE_RESULTS"
+_GENERATED_VIEW_MANIFEST_FILE = "generated_view_manifest.json"
+_MAX_GENERATED_VIEW_MANIFEST_BYTES = 64 * 1024 * 1024
+_GENERATED_VIEW_FORBIDDEN_REPLAY_KEYS = (
+    "stacking_replay", "host_hpo", "separation_replay", "residual_replay",
+    "relation_replay_manifest", "source_stacking",
+)
 
 # The artifacts subtree holding the joblib-serialized fitted REFIT models, relative to the run dir.
 _ARTIFACTS_DIR = "artifacts"
@@ -113,6 +122,36 @@ def _canonical_json(obj: Any) -> str:
 def _score_set_hash(score_set: dict[str, Any] | None) -> str:
     """SHA-256 of the canonical-JSON ScoreSet — recorded in the manifest + verified by the reader."""
     return hashlib.sha256(_canonical_json(score_set).encode("utf-8")).hexdigest()
+
+
+def _validated_generated_view_manifest(value: Any) -> tuple[bytes, str]:
+    """Validate a generated-view manifest with its DAG-ML owner before persistence."""
+    if not isinstance(value, dict):
+        raise ValueError("generated view manifest must be a JSON object")
+    try:
+        payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("generated view manifest is not finite JSON") from exc
+    return payload, _validate_generated_view_manifest_bytes(payload)
+
+
+def _validate_generated_view_manifest_bytes(payload: bytes) -> str:
+    """Validate the original bytes, including duplicate-key rejection, before load."""
+    if len(payload) > _MAX_GENERATED_VIEW_MANIFEST_BYTES:
+        raise ValueError("generated view manifest exceeds 64 MiB")
+    import importlib
+
+    native = importlib.import_module("dag_ml._dag_ml")
+    validator = getattr(native, "validate_generated_view_manifest_in_process", None)
+    if not callable(validator):
+        raise RuntimeError("installed DAG-ML lacks generated view manifest validation")
+    try:
+        fingerprint = validator(payload.decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - translate the native validation boundary.
+        raise ValueError(f"generated view manifest is invalid: {exc}") from exc
+    if not isinstance(fingerprint, str):
+        raise ValueError("generated view manifest validator returned no fingerprint")
+    return fingerprint
 
 
 def _bytes_fingerprint(data: bytes) -> str:
@@ -600,7 +639,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         _allow_multi=not getattr(result, "_dagml_stacking_independent_terminal", False),
         target_node=getattr(result, "_dagml_stacking_replay_producer", _STACKING_PRODUCER_NODE),
     )
-    if host_searches:
+    if host_searches and getattr(result, "_dagml_generated_view_manifest", None) is None:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
     if stacking_replay is not None:
         manifest["stacking_replay"] = stacking_replay
@@ -662,6 +701,14 @@ def write_native_results(
     """
     if score_set is None:
         raise ValueError("write_native_results requires a dag-ml ScoreSet (got None); the native writer is only called for a real dag-ml run.")
+    generated_manifest = getattr(result, "_dagml_generated_view_manifest", None)
+    generated_payload = _validated_generated_view_manifest(generated_manifest) if generated_manifest is not None else None
+    if generated_payload is not None and any(
+        isinstance(metadata, dict)
+        and any(key in metadata for key in _GENERATED_VIEW_FORBIDDEN_REPLAY_KEYS)
+        for metadata in getattr(result, "per_dataset", {}).values()
+    ):
+        raise ValueError("native results generated views cannot carry model replay metadata")
     run_id = _mint_run_id()
     run_dir = _resolve_run_dir(results_path, run_id)
     # exist_ok=False: a minted run_id must be unique; a collision means a real bug, not a silent reuse.
@@ -690,9 +737,17 @@ def write_native_results(
 
     # artifacts/ — joblib-serialize the captured fitted REFIT models (P3 Slice 2c-i) + their ArtifactRefs.
     # Only fitted REFIT models produce payloads; empty captures leave the capability flag false.
-    artifact_refs = _write_model_artifacts(run_dir, result._dagml_refit_artifacts)  # noqa: SLF001
+    # A generated-view estimator cannot be replayed from this directory until
+    # prediction owns the same view recipe. Keep scores and view evidence, but
+    # do not expose a raw-X-loadable model artifact.
+    artifact_refs = (
+        _write_model_artifacts(run_dir, result._dagml_refit_artifacts)  # noqa: SLF001
+        if generated_payload is None else []
+    )
 
     initial_package = getattr(result, "_dagml_initial_full_refit_package", None)
+    if generated_payload is not None:
+        initial_package = None
     if initial_package is not None:
         from dag_ml import InitialFullRefitPackage
 
@@ -704,6 +759,15 @@ def write_native_results(
     if initial_package is not None:
         manifest["files"]["initial_full_refit_package"] = "initial_full_refit_package.json"
         manifest["initial_full_refit_package_fingerprint"] = initial_package["package_fingerprint"]
+    if generated_payload is not None:
+        payload_bytes, fingerprint = generated_payload
+        manifest["schema_version"] = _GENERATED_VIEW_SCHEMA_VERSION
+        (run_dir / _GENERATED_VIEW_MANIFEST_FILE).write_bytes(payload_bytes)
+        manifest["generated_view_manifest_ref"] = {
+            "path": _GENERATED_VIEW_MANIFEST_FILE,
+            "sha256": hashlib.sha256(payload_bytes).hexdigest(),
+            "fingerprint": fingerprint,
+        }
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
     return run_dir
@@ -736,6 +800,53 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
             f"native results score_set.json hash mismatch in {run_dir}: manifest recorded {expected_hash!r} "
             f"but score_set.json hashes to {actual_hash!r} (the ScoreSet was edited or corrupted)."
         )
+
+    generated_manifest = None
+    generated_ref = manifest.get("generated_view_manifest_ref")
+    generated_path = run_dir / _GENERATED_VIEW_MANIFEST_FILE
+    if manifest.get("schema_version") == _GENERATED_VIEW_SCHEMA_VERSION and generated_ref is None:
+        raise ValueError("native results v4 require a generated view manifest reference")
+    if generated_ref is not None and manifest.get("schema_version") != _GENERATED_VIEW_SCHEMA_VERSION:
+        raise ValueError("native results generated view manifest requires schema v4")
+    if manifest.get("schema_version") == _GENERATED_VIEW_SCHEMA_VERSION:
+        capabilities = manifest.get("capabilities")
+        if (manifest.get("artifacts") != [] or not isinstance(capabilities, dict)
+                or capabilities.get("has_model_artifacts") is not False):
+            raise ValueError("native results v4 cannot contain replayable model artifacts")
+        if ("initial_full_refit_package_fingerprint" in manifest
+                or "initial_full_refit_package" in manifest.get("files", {})
+                or any(key in manifest for key in _GENERATED_VIEW_FORBIDDEN_REPLAY_KEYS)):
+            raise ValueError("native results v4 cannot contain model replay metadata")
+    if generated_ref is None:
+        if os.path.lexists(generated_path):
+            raise ValueError("native results contain an undeclared generated view manifest")
+    else:
+        if (not isinstance(generated_ref, dict)
+                or set(generated_ref) != {"path", "sha256", "fingerprint"}
+                or generated_ref.get("path") != _GENERATED_VIEW_MANIFEST_FILE):
+            raise ValueError("native results generated view manifest reference is invalid")
+        if generated_path.is_symlink():
+            raise ValueError("native results generated view manifest must be a regular file")
+        try:
+            if not stat.S_ISREG(os.lstat(generated_path).st_mode):
+                raise ValueError("native results generated view manifest must be a regular file")
+            flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+            descriptor = os.open(generated_path, flags)
+            with os.fdopen(descriptor, "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ValueError("native results generated view manifest must be a regular file")
+                payload_bytes = stream.read(_MAX_GENERATED_VIEW_MANIFEST_BYTES + 1)
+        except OSError as exc:
+            raise ValueError("native results generated view manifest is missing or unreadable") from exc
+        if len(payload_bytes) > _MAX_GENERATED_VIEW_MANIFEST_BYTES:
+            raise ValueError("native results generated view manifest exceeds 64 MiB")
+        if hashlib.sha256(payload_bytes).hexdigest() != generated_ref["sha256"]:
+            raise ValueError("native results generated view manifest byte fingerprint mismatch")
+        fingerprint = _validate_generated_view_manifest_bytes(payload_bytes)
+        if fingerprint != generated_ref["fingerprint"]:
+            raise ValueError("native results generated view manifest TCV1 fingerprint mismatch")
+        generated_manifest = json.loads(payload_bytes)
 
     predictions = Predictions()
     df = pl.read_parquet(run_dir / "predictions.parquet")
@@ -791,7 +902,7 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
         InitialFullRefitPackage(initial_package)
         if initial_package["package_fingerprint"] != manifest.get("initial_full_refit_package_fingerprint"):
             raise ValueError("native results initial full-refit package fingerprint mismatch")
-    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts, "initial_full_refit_package": initial_package}
+    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts, "initial_full_refit_package": initial_package, "generated_view_manifest": generated_manifest}
 
 
 def _validate_portable_uri(uri: Any) -> str:
