@@ -117,6 +117,10 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
             "data:x": receipt["handle"],
             "data:x:validation": validation_receipt["handle"],
         },
+        "data_view_receipts": {
+            "data:x": receipt,
+            "data:x:validation": validation_receipt,
+        },
     }
     task_views = store.bind_task(task)
     train_row = task_views.take("x", "fold_train", [selected[1]])
@@ -137,11 +141,18 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
         task_views.take("x", "test", [selected[0]])
     with pytest.raises(ValueError, match="no native data-view handle"):
         store.bind_task({**task, "input_handles": {"data:x": receipt["handle"]}})
+    with pytest.raises(ValueError, match="receipt for every data view"):
+        store.bind_task({**task, "data_view_receipts": {"data:x": receipt}})
+    altered_receipt = copy.deepcopy(task)
+    altered_receipt["data_view_receipts"]["data:x"]["content_fingerprint"] = "0" * 64
+    with pytest.raises(ValueError, match="receipt does not match IO view"):
+        store.bind_task(altered_receipt)
     with pytest.raises(ValueError, match="ambiguous native view scope"):
         store.bind_task({
             **{key: task[key] for key in ("run_id", "node_plan", "phase", "fold_id", "variant_id")},
             "data_views": {"data:x": validation_request["view"], "data:x:validation": validation_request["view"]},
             "input_handles": {"data:x": validation_handle, "data:x:validation": validation_handle},
+            "data_view_receipts": {"data:x": validation_receipt, "data:x:validation": validation_receipt},
         })
     changed_scope = copy.deepcopy(task)
     changed_scope["data_views"]["data:x"]["partition"] = "fold_validation"
@@ -156,10 +167,11 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
     colon_request["binding"]["input_name"] = "aux:nir"
     colon_request["view_key"] = "view:v1:" + "c" * 64
     colon_handle = {**receipt["handle"], "handle": receipt["handle"]["handle"] + 2000}
-    store({"request": colon_request, "handle": colon_handle})
+    colon_receipt = store({"request": colon_request, "handle": colon_handle})
     colon_task = {
         **{key: task[key] for key in ("run_id", "node_plan", "phase", "fold_id", "variant_id")},
         "data_views": {"data:aux:nir": colon_request["view"]},
         "input_handles": {"data:aux:nir": colon_handle},
+        "data_view_receipts": {"data:aux:nir": colon_receipt},
     }
     assert store.bind_task(colon_task).take("aux:nir", "fold_train", [selected[0]]).sample_ids == (selected[0],)

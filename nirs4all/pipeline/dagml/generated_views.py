@@ -102,9 +102,17 @@ class GeneratedViewStore:
             raise ValueError("Generated data-view content changed after receipt")
         return cohort
 
-    def _request_for(self, handle: dict[str, Any], sample_ids: list[str]) -> dict[str, Any]:
+    def _task_binding_for(self, handle: dict[str, Any], sample_ids: list[str]) -> tuple[dict[str, Any], dict[str, Any]]:
         self.resolve(handle, sample_ids)
-        return copy.deepcopy(self._views[handle["handle"]][4])
+        stored_handle, stored_ids, _cohort, state, request = self._views[handle["handle"]]
+        receipt = {
+            "handle": copy.deepcopy(stored_handle),
+            "view_key": request["view_key"],
+            "sample_ids": list(stored_ids),
+            "schema_fingerprint": state["schema_fingerprint"],
+            "content_fingerprint": state["fingerprint"],
+        }
+        return copy.deepcopy(request), receipt
 
     def bind_task(self, task: dict[str, Any]) -> GeneratedTaskViews:
         """Bind a native task's named view handles to its exact IO cohorts."""
@@ -123,6 +131,9 @@ class GeneratedTaskViews:
         views, handles = task.get("data_views"), task.get("input_handles")
         if not isinstance(views, dict) or not views or not isinstance(handles, dict):
             raise ValueError("Generated task requires native data views and input handles")
+        receipts = task.get("data_view_receipts")
+        if not isinstance(receipts, dict) or set(receipts) != set(views):
+            raise ValueError("Generated task requires a native receipt for every data view")
         self._store = store
         self._scopes: dict[tuple[str, str], tuple[dict[str, Any], list[str]]] = {}
         seen_handles: set[int] = set()
@@ -141,7 +152,9 @@ class GeneratedTaskViews:
                     or len(ids) != len(set(ids))
                     or not isinstance(partition, str) or not partition):
                 raise ValueError(f"Generated task has an invalid selector for {key!r}")
-            request = store._request_for(handle, ids)
+            request, expected_receipt = store._task_binding_for(handle, ids)
+            if receipts[key] != expected_receipt:
+                raise ValueError(f"Generated task receipt does not match IO view {key!r}")
             input_name = request["input_name"]
             native_key = f"data:{input_name}"
             if key not in (native_key, f"{native_key}:validation", f"{native_key}:test"):
