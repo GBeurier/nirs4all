@@ -80,7 +80,7 @@ def test_general_contract_executes_typed_ragged_cohort_with_missing_sources(tmp_
     assert response["result"]["run_ids"] == []
     assert response["result"]["native_results_dirs"] == []
     archive = Path(response["result"]["archive_path"])
-    assert archive.is_file() and archive.parent == tmp_path
+    assert archive.is_file() and archive.parent == tmp_path / "exports"
     with zipfile.ZipFile(archive) as bundle:
         manifest = json.loads(bundle.read("manifest.json"))
     assert manifest["multimodal_host"]["source_presence"]["source_names"] == list(cohort.sources)
