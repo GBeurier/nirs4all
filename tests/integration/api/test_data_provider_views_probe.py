@@ -10,15 +10,16 @@ from typing import Any
 import numpy as np
 import pytest
 from nirs4all_io import DataProvider, TensorSource
+from nirs4all_io.ragged import RaggedSeriesBatch
 
 from nirs4all.data.multimodal import MultimodalSpectroDataset
 from nirs4all.pipeline.dagml.envelope import build_envelope
-from nirs4all.pipeline.dagml.generated_views import GeneratedViewStore
+from nirs4all.pipeline.dagml.generated_views import GeneratedViewStore, _model_value_fingerprint
 from nirs4all.pipeline.dagml.identity import mint_identity
 from tests.integration.api.test_multimodal_dagml import _cohort
 
 
-def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> None:
+def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeypatch: pytest.MonkeyPatch) -> None:
     import dag_ml._dag_ml as native
 
     materialize_view = getattr(DataProvider, "materialize_view", None)
@@ -142,14 +143,43 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
     model_task = copy.deepcopy(task)
     model_task["node_plan"] = {**plan["node_plans"][next(key for key, node in plan["node_plans"].items() if node["kind"] == "model")],
                                "node_id": request["node_id"]}
-    model_result = run_node(model_task, MaterializationResolver(wrapped, mint_identity(wrapped)),
-                            lambda _node_id: graph_model, {}, generated_views=store.bind_task(model_task))
+    observed_fit: list[tuple[np.ndarray, np.ndarray, dict[str, Any]]] = []
+    observed_predict: list[tuple[np.ndarray, dict[str, Any]]] = []
+    original_fit, original_predict = PLSRegression.fit, PLSRegression.predict
+
+    def spy_fit(self: PLSRegression, X: Any, y: Any, **options: Any) -> PLSRegression:
+        observed_fit.append((np.asarray(X).copy(), np.asarray(y).copy(), dict(options)))
+        return original_fit(self, X, y, **options)
+
+    def spy_predict(self: PLSRegression, X: Any, **options: Any) -> Any:
+        observed_predict.append((np.asarray(X).copy(), dict(options)))
+        return original_predict(self, X, **options)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(PLSRegression, "fit", spy_fit)
+        patcher.setattr(PLSRegression, "predict", spy_predict)
+        model_result = run_node(model_task, MaterializationResolver(wrapped, mint_identity(wrapped)),
+                                lambda _node_id: graph_model, {}, generated_views=store.bind_task(model_task))
     consumed = model_result["consumed_data_views"]
     assert set(consumed) == {"data:x", "data:x:validation"}
     assert consumed["data:x"]["receipt"] == receipt
     assert consumed["data:x:validation"]["receipt"] == validation_receipt
     assert selected in consumed["data:x"]["read_batches"]
     assert validation_ids in consumed["data:x:validation"]["read_batches"]
+    train_calls = consumed["data:x"]["model_calls"]
+    assert train_calls[0]["operation"] == "fit"
+    assert train_calls[0]["sample_ids"] == selected
+    assert len(observed_fit) == 1
+    fit_x, fit_y, fit_options = observed_fit[0]
+    assert train_calls[0]["input_fingerprint"] == _model_value_fingerprint({"features": fit_x, "options": fit_options})
+    assert train_calls[0]["target_fingerprint"] == _model_value_fingerprint(fit_y)
+    assert any(call["operation"] == "predict" for call in train_calls)
+    validation_calls = [call for call in consumed["data:x:validation"]["model_calls"]
+                        if call["operation"] == "predict" and call["sample_ids"] == validation_ids]
+    assert validation_calls
+    assert any(validation_calls[0]["input_fingerprint"] ==
+               _model_value_fingerprint({"features": features, "options": options})
+               for features, options in observed_predict)
     validation_prediction = next(block for block in model_result["predictions"] if block["partition"] == "validation")
     direct = PLSRegression(n_components=1)
     direct.fit(np.asarray(view.sources["nir"].values), np.asarray(base.take(selected).y))
@@ -184,8 +214,23 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
     with pytest.raises(ValueError, match="within its native view"):
         task_views.feature_blocks("x", "fold_train", [validation_ids[0]])
     task_views.take("x", "fold_train", list(reversed(selected)))
+    with pytest.raises(ValueError, match="not read in order"):
+        task_views.record_model_call("fit", "x", "fold_train", selected,
+                                     train_features["blocks"][0], targets=np.asarray([1.0, 2.0]))
+    with pytest.raises(ValueError, match="features has 2 rows for 1"):
+        task_views.record_model_call("fit", "x", "fold_train", [selected[1]],
+                                     np.repeat(train_features["blocks"][0], 2, axis=0), targets=np.asarray([1.0]))
+    with pytest.raises(ValueError, match="targets has 2 rows for 1"):
+        task_views.record_model_call("fit", "x", "fold_train", [selected[1]],
+                                     train_features["blocks"][0], targets=np.asarray([1.0, 2.0]))
+    task_views.record_model_call("fit", "x", "fold_train", [selected[1]],
+                                 train_features["blocks"][0], targets=np.asarray([1.0]))
+    calls = task_views.consumed_data_views()["data:x"]["model_calls"]
+    assert calls[0]["sample_ids"] == [selected[1]]
+    assert calls[0]["target_fingerprint"] != calls[0]["input_fingerprint"]
     assert task_views.consumed_data_views() == {
-        "data:x": {"receipt": receipt, "read_batches": [[selected[1]], [selected[1]], list(reversed(selected))]},
+        "data:x": {"receipt": receipt, "read_batches": [[selected[1]], [selected[1]], list(reversed(selected))],
+                   "model_calls": calls},
         "data:x:validation": {"receipt": validation_receipt, "read_batches": [[validation_ids[0]]]},
     }
     with pytest.raises(ValueError, match="no native data-view handle"):
@@ -224,6 +269,14 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
         "data_view_receipts": {"data:aux:nir": colon_receipt},
     }
     assert store.bind_task(colon_task).take("aux:nir", "fold_train", [selected[0]]).sample_ids == (selected[0],)
+
+
+def test_generated_model_input_fingerprint_keeps_ragged_boundaries() -> None:
+    values = np.asarray([[1.0], [2.0], [3.0]], dtype=np.float32)
+    first = RaggedSeriesBatch(values, np.asarray([0, 1, 3], dtype=np.int64))
+    second = RaggedSeriesBatch(values, np.asarray([0, 2, 3], dtype=np.int64))
+    assert _model_value_fingerprint(first) != _model_value_fingerprint(second)
+    assert _model_value_fingerprint(np.asarray(1.0)) != _model_value_fingerprint(np.asarray([1.0]))
 
 
 def test_native_cv_requests_scheduler_selected_views_before_refusing_dynamic_fit() -> None:
