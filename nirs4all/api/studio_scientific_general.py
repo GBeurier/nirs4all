@@ -255,6 +255,10 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
             raise StudioScientificJobError("missing_persistence", "general scientific result omitted durable run IDs")
         archive_path = None
         if multimodal:
+            export_dir = Path(workspace) / "exports"
+            export_dir.mkdir(exist_ok=True)
+            if export_dir.is_symlink() or export_dir.resolve() != export_dir:
+                raise StudioScientificJobError("invalid_workspace", "multimodal export directory must be canonical")
             merged = next((
                 child for child in children
                 if any(
@@ -262,7 +266,7 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
                     for metadata in child.per_dataset.values()
                 )
             ), result)
-            archive_path = str(merged.export(Path(workspace) / f"studio-multimodal-{uuid4().hex}.n4a"))
+            archive_path = str(merged.export(export_dir / f"studio-multimodal-{uuid4().hex}.n4a"))
         selected = result.cv_best or result.best
         evaluations = [
             {"run_id": metadata.get("run_id"), "dataset": dataset_name, **metadata["evaluation"]}
