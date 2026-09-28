@@ -211,10 +211,13 @@ def test_generated_views_fit_each_native_fold_and_persist_manifest(tmp_path: Pat
         result.close()
 
 
-def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("splitter", [KFold(3), GroupKFold(3)])
+def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(
+    splitter: KFold | GroupKFold, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A fold can regenerate NIR without changing the other three PLAN sources."""
-    base = _cohort()
-    view_scopes: list[tuple[str, list[str], np.ndarray]] = []
+    base = _cohort(unequal_groups=type(splitter) is GroupKFold)
+    view_scopes: list[tuple[str, str | None, list[str], np.ndarray]] = []
     fitted_blocks: list[tuple[tuple[str, ...], list[np.ndarray]]] = []
     predicted_blocks: list[tuple[tuple[str, ...], list[np.ndarray]]] = []
     original_fit = MultimodalRegressor.fit
@@ -229,7 +232,7 @@ def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(tmp_path: 
         values = np.asarray(source.values) + {
             "fold_train": 10.0, "fold_validation": 20.0, "full_train": 30.0, "predict": 40.0,
         }[partition]
-        view_scopes.append((partition, list(sample_ids), values.copy()))
+        view_scopes.append((partition, context["_dag_ml_view"]["fold_id"], list(sample_ids), values.copy()))
         return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
             values, sample_ids, representation_id=source.representation_id,
             axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
@@ -250,15 +253,29 @@ def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(tmp_path: 
         base=base, replace_sources=["nir"],
     )
     result = nirs4all.run(
-        [KFold(3), {"model": _model()}], provider,
+        [splitter, {"model": _model()}], provider,
         engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
         results_path=tmp_path / "native", random_state=19, verbose=0,
     )
     try:
         assert np.isfinite(result.best_rmse)
         assert len(fitted_blocks) == 4
-        assert {partition for partition, _ids, _values in view_scopes} >= {"fold_train", "fold_validation", "full_train"}
-        for partition, ids, nir in view_scopes:
+        assert {partition for partition, _fold, _ids, _values in view_scopes} >= {"fold_train", "fold_validation", "full_train"}
+        if type(splitter) is GroupKFold:
+            groups_by_id = dict(zip(base.sample_ids, base.groups, strict=True))
+            by_fold = {
+                fold: {
+                    partition: {groups_by_id[sample_id] for sample_id in ids}
+                    for partition, view_fold, ids, _values in view_scopes if view_fold == fold
+                }
+                for fold in {fold for _partition, fold, _ids, _values in view_scopes if fold is not None}
+            }
+            assert len(by_fold) == 3
+            for partitions in by_fold.values():
+                assert partitions["fold_train"].isdisjoint(partitions["fold_validation"])
+            expected_groups = {groups_by_id[sample_id] for sample_id, partition in zip(base.sample_ids, base.partitions, strict=True) if partition == "train"}
+            assert set.union(*(partitions["fold_validation"] for partitions in by_fold.values())) == expected_groups
+        for partition, _fold, ids, nir in view_scopes:
             expected = base.take(ids)
             matches = [(names, blocks) for names, blocks in (fitted_blocks if partition in {"fold_train", "full_train"} else predicted_blocks)
                        if np.array_equal(blocks[names.index("nir")], nir)]
