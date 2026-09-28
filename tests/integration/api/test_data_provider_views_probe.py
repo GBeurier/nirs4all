@@ -213,3 +213,59 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
         "data_view_receipts": {"data:aux:nir": colon_receipt},
     }
     assert store.bind_task(colon_task).take("aux:nir", "fold_train", [selected[0]]).sample_ids == (selected[0],)
+
+
+def test_native_cv_requests_scheduler_selected_views_before_refusing_dynamic_fit() -> None:
+    """The live scheduler asks for fold views, then its fit gate stops the controller."""
+    import dag_ml._dag_ml as native
+    from sklearn.cross_decomposition import PLSRegression
+
+    from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, controller_manifests
+
+    if "view_callback" not in inspect.signature(native.run_cv_refit_in_process).parameters:
+        pytest.skip("local DAG-ML binding does not expose scheduler-selected view callbacks")
+    with pytest.raises(native.DagMlRuntimeError, match="view_callback must be callable"):
+        native.run_cv_refit_in_process("{}", "{}", "[]", lambda _task: {}, "rmse", None, False, 1, 42)
+    base = _cohort()
+    wrapped = MultimodalSpectroDataset(base)
+    identity = mint_identity(wrapped)
+    envelope = build_envelope(wrapped, identity, sample_ints=list(range(12)))
+    folds = [
+        (list(range(6, 12)), list(range(6))),
+        (list(range(6)), list(range(6, 12))),
+    ]
+    dsl = assemble_cv_refit_dsl([{"model": PLSRegression(n_components=1)}], identity, envelope,
+                                folds, dsl_id="provider-live-folds", n_splits=2)
+    calls: list[dict[str, Any]] = []
+    operator_calls: list[dict[str, Any]] = []
+
+    def view_callback(call: dict[str, Any]) -> dict[str, Any]:
+        calls.append(call)
+        request = call["request"]
+        return {
+            "handle": call["handle"], "view_key": request["view_key"],
+            "sample_ids": request["view"]["sample_ids"],
+            "schema_fingerprint": "a" * 64, "content_fingerprint": "b" * 64,
+        }
+
+    with pytest.raises(native.DagMlRuntimeError, match="cannot fit a dynamic data view"):
+        native.run_cv_refit_in_process(
+            json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()),
+            lambda task: operator_calls.append(task), "rmse", None, False, 1, view_callback,
+        )
+    assert operator_calls == []
+    assert calls
+    selected = set(base.sample_ids[:12])
+    held_out = set(base.sample_ids[12:])
+    first_fold = dsl["split_invocation"]["fold_set"]["folds"][0]
+    for call in calls:
+        request = call["request"]
+        assert request["phase"] == "FIT_CV"
+        assert request["view"]["fold_id"] == first_fold["fold_id"]
+        assert request["view"]["partition"] in {"fold_train", "fold_validation", "predict"}
+        if request["view"]["partition"] in {"fold_train", "fold_validation"}:
+            fold_field = "train_sample_ids" if request["view"]["partition"] == "fold_train" else "validation_sample_ids"
+            assert request["view"]["sample_ids"] == first_fold[fold_field]
+        permitted = held_out if request["view"]["partition"] == "predict" else selected
+        assert set(request["view"]["sample_ids"]).issubset(permitted)
+    assert {call["request"]["view"]["partition"] for call in calls} >= {"fold_train", "fold_validation"}
