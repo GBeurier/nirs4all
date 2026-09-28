@@ -16,7 +16,7 @@ from sklearn.model_selection import GroupKFold, KFold
 
 import nirs4all
 from nirs4all.data.multimodal import MultimodalSpectroDataset
-from nirs4all.operators.models.multimodal import TensorPCA
+from nirs4all.operators.models.multimodal import MultimodalRegressor, TensorPCA
 from nirs4all.pipeline.dagml.cancellation import DagRunCancelled
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
 from nirs4all.pipeline.dagml.native_results import read_native_results
@@ -207,6 +207,67 @@ def test_generated_views_fit_each_native_fold_and_persist_manifest(tmp_path: Pat
                 result.export_model(tmp_path / "generated.joblib", compatibility=compatibility)
         assert not (tmp_path / "generated.n4a").exists()
         assert not (tmp_path / "generated.joblib").exists()
+    finally:
+        result.close()
+
+
+def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fold can regenerate NIR without changing the other three PLAN sources."""
+    base = _cohort()
+    view_scopes: list[tuple[str, list[str], np.ndarray]] = []
+    fitted_blocks: list[tuple[tuple[str, ...], list[np.ndarray]]] = []
+    predicted_blocks: list[tuple[tuple[str, ...], list[np.ndarray]]] = []
+    original_fit = MultimodalRegressor.fit
+    original_predict = MultimodalRegressor.predict
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], context: dict[str, Any], **_: Any) -> dict[str, Any]:
+        partition = context["_dag_ml_view"]["partition"]
+        source = base.take(sample_ids).sources["nir"]
+        values = np.asarray(source.values) + {
+            "fold_train": 10.0, "fold_validation": 20.0, "full_train": 30.0, "predict": 40.0,
+        }[partition]
+        view_scopes.append((partition, list(sample_ids), values.copy()))
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            values, sample_ids, representation_id=source.representation_id,
+            axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+        )}}
+
+    def observe_fit(self: MultimodalRegressor, X: list[Any], y: Any, **kwargs: Any) -> Any:
+        fitted_blocks.append((tuple(self.transformers), [np.asarray(block).copy() for block in X]))
+        return original_fit(self, X, y, **kwargs)
+
+    def observe_predict(self: MultimodalRegressor, X: list[Any], **kwargs: Any) -> Any:
+        predicted_blocks.append((tuple(self.transformers), [np.asarray(block).copy() for block in X]))
+        return original_predict(self, X, **kwargs)
+
+    monkeypatch.setattr(MultimodalRegressor, "fit", observe_fit)
+    monkeypatch.setattr(MultimodalRegressor, "predict", observe_predict)
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.multimodal",
+        base=base, replace_sources=["nir"],
+    )
+    result = nirs4all.run(
+        [KFold(3), {"model": _model()}], provider,
+        engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        assert np.isfinite(result.best_rmse)
+        assert len(fitted_blocks) == 4
+        assert {partition for partition, _ids, _values in view_scopes} >= {"fold_train", "fold_validation", "full_train"}
+        for partition, ids, nir in view_scopes:
+            expected = base.take(ids)
+            matches = [(names, blocks) for names, blocks in (fitted_blocks if partition in {"fold_train", "full_train"} else predicted_blocks)
+                       if np.array_equal(blocks[names.index("nir")], nir)]
+            assert matches, f"No model call consumed the generated {partition} view"
+            for names, blocks in matches:
+                assert set(names) == set(base.sources)
+                for name, block in zip(names, blocks, strict=True):
+                    np.testing.assert_array_equal(block, nir if name == "nir" else expected.sources[name].values)
+        assert result._dagml_refit_artifacts == []
     finally:
         result.close()
 
