@@ -95,3 +95,71 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
         with pytest.raises(ValueError, match="does not support this native selector"):
             store({"request": changed, "handle": {**receipt["handle"], "handle": 100}})
     assert len(scopes) == 1
+
+    validation_ids = [base.sample_ids[3], base.sample_ids[2]]
+    validation_request = copy.deepcopy(request)
+    validation_request["view"].update(sample_ids=validation_ids, partition="fold_validation")
+    validation_request["view_key"] = "view:v1:" + "b" * 64
+    validation_request["view_seed"] = 31
+    validation_handle = {**receipt["handle"], "handle": receipt["handle"]["handle"] + 1000}
+    validation_receipt = store({"request": validation_request, "handle": validation_handle})
+    task = {
+        "run_id": request["run_id"],
+        "node_plan": {"node_id": request["node_id"]},
+        "phase": request["phase"],
+        "fold_id": request["fold_id"],
+        "variant_id": request["variant_id"],
+        "data_views": {
+            "data:x": request["view"],
+            "data:x:validation": validation_request["view"],
+        },
+        "input_handles": {
+            "data:x": receipt["handle"],
+            "data:x:validation": validation_receipt["handle"],
+        },
+    }
+    task_views = store.bind_task(task)
+    train_row = task_views.take("x", "fold_train", [selected[1]])
+    validation_row = task_views.take("x", "fold_validation", [validation_ids[0]])
+    np.testing.assert_array_equal(
+        train_row.sources["nir"].values,
+        np.asarray(base.take([selected[1]]).sources["nir"].values) + float(19 % 7),
+    )
+    np.testing.assert_array_equal(
+        validation_row.sources["nir"].values,
+        np.asarray(base.take([validation_ids[0]]).sources["nir"].values) + float(31 % 7),
+    )
+    assert train_row.sample_ids == (selected[1],)
+    assert validation_row.sample_ids == (validation_ids[0],)
+    with pytest.raises(ValueError, match="within its native view"):
+        task_views.take("x", "fold_train", [validation_ids[0]])
+    with pytest.raises(ValueError, match="no native view"):
+        task_views.take("x", "test", [selected[0]])
+    with pytest.raises(ValueError, match="no native data-view handle"):
+        store.bind_task({**task, "input_handles": {"data:x": receipt["handle"]}})
+    with pytest.raises(ValueError, match="ambiguous native view scope"):
+        store.bind_task({
+            **{key: task[key] for key in ("run_id", "node_plan", "phase", "fold_id", "variant_id")},
+            "data_views": {"data:x": validation_request["view"], "data:x:validation": validation_request["view"]},
+            "input_handles": {"data:x": validation_handle, "data:x:validation": validation_handle},
+        })
+    changed_scope = copy.deepcopy(task)
+    changed_scope["data_views"]["data:x"]["partition"] = "fold_validation"
+    with pytest.raises(ValueError, match="scope or selector changed"):
+        store.bind_task(changed_scope)
+    changed_fold = copy.deepcopy(task)
+    changed_fold["fold_id"] = "fold:1"
+    with pytest.raises(ValueError, match="scope or selector changed"):
+        store.bind_task(changed_fold)
+    colon_request = copy.deepcopy(request)
+    colon_request["input_name"] = "aux:nir"
+    colon_request["binding"]["input_name"] = "aux:nir"
+    colon_request["view_key"] = "view:v1:" + "c" * 64
+    colon_handle = {**receipt["handle"], "handle": receipt["handle"]["handle"] + 2000}
+    store({"request": colon_request, "handle": colon_handle})
+    colon_task = {
+        **{key: task[key] for key in ("run_id", "node_plan", "phase", "fold_id", "variant_id")},
+        "data_views": {"data:aux:nir": colon_request["view"]},
+        "input_handles": {"data:aux:nir": colon_handle},
+    }
+    assert store.bind_task(colon_task).take("aux:nir", "fold_train", [selected[0]]).sample_ids == (selected[0],)
