@@ -38,6 +38,7 @@ from sklearn.utils.metaestimators import available_if
 
 from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _RESIDUAL_LEARNER_CONTROLLER_ID
 
+from .generated_views import GeneratedTaskViews
 from .operator_routing import route_graph_node
 
 if TYPE_CHECKING:
@@ -1226,6 +1227,7 @@ def run_model_node(
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
+    generated_views: GeneratedTaskViews | None = None,
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
 
@@ -1265,6 +1267,8 @@ def run_model_node(
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
+    if generated_views is not None and (graph_node.get("metadata") or {}).get("nirs4all_finetune_params"):
+        raise ValueError("generated data views do not yet support branch-local finetune_params")
     proba_output = (graph_node.get("metadata") or {}).get("nirs4all_prediction_output") == "proba"
     dual_probability_output = "proba" in (graph_node.get("metadata") or {}).get("auxiliary_prediction_ports", [])
     residual_mode = node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID
@@ -1275,6 +1279,34 @@ def run_model_node(
     missing_source = source_policy == "zero_with_indicator"
     if missing_source and source_index is None:
         raise ValueError("source-presence policy requires one declared raw source per base model")
+
+    def generated_blocks(ids: list[str], partition: str, source_names: tuple[str, ...] | None = None) -> dict[str, Any]:
+        if generated_views is None:
+            raise ValueError("generated feature read requires a bound task view")
+        from .envelope import source_order
+
+        expected_names = tuple(source_order(resolver._dataset))
+        ordered_names = source_names if source_names is not None else expected_names
+        if len(ordered_names) != len(expected_names) or set(ordered_names) != set(expected_names):
+            raise ValueError("generated feature sources differ from the PLAN source layout")
+        return generated_views.feature_blocks("x", partition, ids, source_names=ordered_names)
+
+    def generated_presence(ids: list[str], partition: str, index: int) -> np.ndarray:
+        resolved = generated_blocks(ids, partition)
+        names = resolved["source_names"]
+        if not 0 <= index < len(names):
+            raise ValueError("generated source index is outside the frozen source layout")
+        return cast(np.ndarray, np.asarray(resolved.get("source_masks", {}).get(names[index], np.ones(len(ids), dtype=bool))))
+
+    def generated_source(ids: list[str], partition: str, index: int, *, allow_missing: bool) -> Any:
+        resolved = generated_blocks(ids, partition)
+        names = resolved["source_names"]
+        if not 0 <= index < len(names):
+            raise ValueError("generated source index is outside the frozen source layout")
+        mask = resolved.get("source_masks", {}).get(names[index])
+        if mask is not None and not np.asarray(mask).all() and not allow_missing:
+            raise ValueError("by_source and late fusion require complete modalities; use an explicit missing_source_policy")
+        return resolved["blocks"][index]
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
     # the early-fusion concat. ``multi_block`` is true ONLY when BOTH the model is a multi-block consumer
     # AND the dataset actually has >1 source — a single-source MB-PLS stays the early-fusion concat path
@@ -1285,6 +1317,8 @@ def run_model_node(
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
         incoming_chain = _fitted_input_chain(task, model_store)
+        if generated_views is not None and incoming_chain is not None:
+            raise ValueError("generated data views do not yet support fitted data-edge chains")
         joined_chain = incoming_chain if isinstance(incoming_chain, _PredictionFeatureChain) else None
         multi_block = isinstance(estimator, _MultiBlockEstimator)
         source_concat = isinstance(estimator, _SourceConcatEstimator)
@@ -1314,6 +1348,8 @@ def run_model_node(
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
         fitted_chain = _fitted_input_chain(task, model_store)
+        if generated_views is not None and fitted_chain is not None:
+            raise ValueError("generated data views do not yet support fitted data-edge chains")
         joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
         if fitted_chain is None and any(
             (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
@@ -1423,9 +1459,16 @@ def run_model_node(
         fold_label = task.get("fold_id") if phase == "FIT_CV" else "refit"
         fit_view = _view_by_partition(task, "fold_train" if phase == "FIT_CV" else "full_train")
         include_augmented_fit = bool((fit_view or {}).get("include_augmented"))
+        fit_partition = "fold_train" if phase == "FIT_CV" else "full_train"
+        if generated_views is not None and include_augmented_fit:
+            raise ValueError("generated data views do not yet support augmented fit rows")
         fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label) if include_augmented_fit else train_ids
         if missing_source:
-            presence = resolver.resolve_source_presence(fit_ids, cast(int, source_index), include_augmented=include_augmented_fit, fold_label=fold_label)
+            presence = (
+                generated_presence(fit_ids, fit_partition, cast(int, source_index))
+                if generated_views is not None else
+                resolver.resolve_source_presence(fit_ids, cast(int, source_index), include_augmented=include_augmented_fit, fold_label=fold_label)
+            )
             fit_ids = [sample for sample, present in zip(fit_ids, presence, strict=True) if present]
             if not fit_ids:
                 raise ValueError(f"source {source_index} has no observed rows in the native training view")
@@ -1441,8 +1484,12 @@ def run_model_node(
         x_train: Any
         fit_options: dict[str, Any] = {}
         if source_concat or multi_block:
-            resolved = resolver.resolve_feature_blocks(
-                fit_ids, include_augmented=include_augmented_fit, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
+            resolved = (
+                generated_blocks(fit_ids, fit_partition, getattr(estimator, "source_names", None))
+                if generated_views is not None else
+                resolver.resolve_feature_blocks(
+                    fit_ids, include_augmented=include_augmented_fit, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
+                )
             )
             # Keep typed blocks intact until their explicit source encoder.
             x_train = resolved["blocks"]
@@ -1451,9 +1498,18 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 fit_options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x_train = resolver.resolve_source_block(fit_ids, source_index, include_augmented=include_augmented_fit, fold_label=fold_label)["values"]
+            if generated_views is not None:
+                x_train = generated_source(fit_ids, fit_partition, source_index, allow_missing=False)
+            else:
+                x_train = resolver.resolve_source_block(fit_ids, source_index, include_augmented=include_augmented_fit, fold_label=fold_label)["values"]
         else:
-            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
+            if generated_views is not None:
+                resolved = generated_blocks(fit_ids, fit_partition)
+                if len(resolved["blocks"]) != 1 or "source_masks" in resolved:
+                    raise ValueError("generated raw sources require a source-aware model or complete single source")
+                x_train = np.asarray(resolved["blocks"][0])
+            else:
+                x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
         if joined_chain is not None:
             if source_concat or multi_block or source_index is not None:
                 raise ValueError("joined prediction/feature data requires one feature source")
@@ -1510,14 +1566,18 @@ def run_model_node(
                     if isinstance(key, tuple) and len(key) == 5 and key[:3] == ("host_hpo_evidence", node_id, variant_label)
                 ]
 
-    def _features(ids: list[str], include_augmented: bool) -> tuple[Any, dict[str, Any]]:
+    def _features(ids: list[str], include_augmented: bool, view_partition: str) -> tuple[Any, dict[str, Any]]:
         # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):
         # np.asarray on the resolver's ndarray preserves float32; legacy predicts on float32.
         x: Any
         options: dict[str, Any] = {}
         if source_concat or multi_block:
-            resolved = resolver.resolve_feature_blocks(
-                ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
+            resolved = (
+                generated_blocks(ids, view_partition, getattr(estimator, "source_names", None))
+                if generated_views is not None else
+                resolver.resolve_feature_blocks(
+                    ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
+                )
             )
             x = resolved["blocks"]
             if "source_masks" in resolved:
@@ -1525,23 +1585,36 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x = resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label, allow_missing=missing_source)["values"]
+            if generated_views is not None:
+                x = generated_source(ids, view_partition, source_index, allow_missing=missing_source)
+            else:
+                x = resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label, allow_missing=missing_source)["values"]
         else:
-            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
+            if generated_views is not None:
+                resolved = generated_blocks(ids, view_partition)
+                if len(resolved["blocks"]) != 1 or "source_masks" in resolved:
+                    raise ValueError("generated raw sources require a source-aware model or complete single source")
+                x = np.asarray(resolved["blocks"][0])
+            else:
+                x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
         if joined_chain is not None:
             if isinstance(joined_chain, _PartitionedXChain) and sample_metadata is None:
                 raise ValueError("partition feature join requires sample metadata")
             x = joined_chain.transform_ids(x, ids, cast(dict[str, dict[str, Any]], sample_metadata))
         return x, options
 
-    def _predict(ids: list[str], include_augmented: bool, *, full_probabilities: bool = False) -> list[list[float]]:
-        features, options = _features(ids, include_augmented)
+    def _predict(ids: list[str], include_augmented: bool, view_partition: str, *, full_probabilities: bool = False) -> list[list[float]]:
+        features, options = _features(ids, include_augmented, view_partition)
         if missing_source:
             from .source_missing import predict_present_rows
 
             if proba_output or full_probabilities:
                 raise ValueError("source-presence late fusion currently requires regression")
-            presence = resolver.resolve_source_presence(ids, cast(int, source_index), include_augmented=include_augmented, fold_label=fold_label)
+            presence = (
+                generated_presence(ids, view_partition, cast(int, source_index))
+                if generated_views is not None else
+                resolver.resolve_source_presence(ids, cast(int, source_index), include_augmented=include_augmented, fold_label=fold_label)
+            )
 
             def predict_original(block: Any) -> np.ndarray:
                 with _gpu_device_scope(task, estimator):
@@ -1601,7 +1674,8 @@ def run_model_node(
         # complete training pool. Keep this report-only surface distinct from
         # the fold's own in-sample `train` measurement and validation OOF.
         train_pool_ids = list(dict.fromkeys([*train_ids, *predict_ids]))
-        specs.append((train_pool_ids, "train_pool", task.get("fold_id"), True))
+        if generated_views is None:
+            specs.append((train_pool_ids, "train_pool", task.get("fold_id"), True))
     if phase in ("FIT_CV", "REFIT"):
         if phase == "FIT_CV":
             test_view = _view_by_partition(task, "predict")
@@ -1625,6 +1699,20 @@ def run_model_node(
     for spec_ids, partition, spec_fold, spec_include_augmented in specs:
         if not spec_ids:
             continue
+        if generated_views is None:
+            view_partition = ""
+        else:
+            if phase == "FIT_CV":
+                view_partitions = {"validation": "fold_validation", "train": "fold_train", "test": "predict"}
+            elif phase == "REFIT":
+                view_partitions = {"final": "full_train", "test": "predict"}
+            elif phase == "PREDICT":
+                view_partitions = {"final": "predict"}
+            else:
+                raise ValueError(f"unsupported generated-view phase {phase!r}")
+            if partition not in view_partitions:
+                raise ValueError(f"no native data view for report partition {partition!r} in phase {phase!r}")
+            view_partition = view_partitions[partition]
         # MULTI-TARGET (S0): resolve_targets returns list-of-rows (n, n_targets); _predict already builds
         # 2D rows, so both blocks widen to k columns and carry per-target names (rmse:y0/rmse:y1 keys +
         # macro-mean). SINGLE-TARGET stays a flat list → [[v]] rows + ["y"] (BYTE-IDENTICAL legacy emit).
@@ -1644,7 +1732,7 @@ def run_model_node(
                 "partition": partition,
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
-                "values": _predict(spec_ids, spec_include_augmented),
+                "values": _predict(spec_ids, spec_include_augmented, view_partition),
                 "target_names": names,
             }
         )
@@ -1656,14 +1744,14 @@ def run_model_node(
                 "partition": partition,
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
-                "values": _predict(spec_ids, spec_include_augmented, full_probabilities=True),
+                "values": _predict(spec_ids, spec_include_augmented, view_partition, full_probabilities=True),
                 "target_names": [str(label) for label in estimator.classes_],
             })
         if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and not proba_output
                 and resolver._dataset.is_classification
                 and callable(getattr(estimator, "predict_proba", None))):
             classes = np.asarray(estimator.classes_, dtype=float)
-            features, options = _features(spec_ids, spec_include_augmented)
+            features, options = _features(spec_ids, spec_include_augmented, view_partition)
             with _gpu_device_scope(task, estimator):
                 probabilities = np.asarray(estimator.predict_proba(features, **options), dtype=float)
             classification_probabilities.append({
@@ -2068,6 +2156,7 @@ def run_node(
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
+    generated_views: GeneratedTaskViews | None = None,
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
@@ -2088,6 +2177,18 @@ def run_node(
     check_cancellation()
     node_plan = task["node_plan"]
     kind = node_plan["kind"]
+    if task.get("data_view_receipts") and generated_views is None:
+        raise ValueError("native task has generated view receipts without bound IO views")
+    if generated_views is not None:
+        if not isinstance(generated_views, GeneratedTaskViews):
+            raise TypeError("generated_views must be a GeneratedTaskViews bound to the native task")
+        generated_views.validate_task(task)
+        if not task.get("data_view_receipts"):
+            raise ValueError("generated task is missing native data view receipts")
+        if any(view.get("include_augmented") is True for view in task.get("data_views", {}).values()):
+            raise ValueError("generated data views do not yet support augmented rows")
+        if kind not in ("model", "tuner") or node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
+            raise ValueError("generated data views do not yet support this controller kind")
     if kind == "transform" and task.get("data_views"):
         return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata)
     if kind == "feature_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("merge_mode") == "concat":
@@ -2098,6 +2199,6 @@ def run_node(
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)
         if node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID:
-            return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
-        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
+            return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views)
+        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views)
     return _build_result(task, [], [], {})

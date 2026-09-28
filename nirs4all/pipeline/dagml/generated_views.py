@@ -135,6 +135,7 @@ class GeneratedTaskViews:
         if not isinstance(receipts, dict) or set(receipts) != set(views):
             raise ValueError("Generated task requires a native receipt for every data view")
         self._store = store
+        self._task = copy.deepcopy(task)
         self._scopes: dict[tuple[str, str], tuple[dict[str, Any], list[str]]] = {}
         seen_handles: set[int] = set()
         if any(handle.get("kind") == "data_view" and key not in views
@@ -180,6 +181,11 @@ class GeneratedTaskViews:
             seen_handles.add(handle["handle"])
             self._scopes[scope] = (copy.deepcopy(handle), list(ids))
 
+    def validate_task(self, task: dict[str, Any]) -> None:
+        """Refuse reuse of this binding for a different native task."""
+        if task != self._task:
+            raise ValueError("Generated task views are bound to a different native task")
+
     def take(self, input_name: str, partition: str, sample_ids: list[str]) -> Any:
         """Return typed IO rows from one named view, preserving requested order.
 
@@ -199,3 +205,30 @@ class GeneratedTaskViews:
             raise ValueError("Generated task read must use unique IDs within its native view")
         cohort = self._store.resolve(handle, full_ids)
         return cohort.take(sample_ids)
+
+    def feature_blocks(
+        self, input_name: str, partition: str, sample_ids: list[str],
+        *, source_names: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        """Read typed feature blocks from one explicitly named native view.
+
+        The source order comes from the frozen IO schema unless the controller
+        asks for a unique named subset. Missing-source masks travel with the
+        same selected rows. Targets are deliberately absent: they remain bound
+        to the PLAN cohort held by the host resolver.
+        """
+        cohort = self.take(input_name, partition, sample_ids)
+        names = tuple(cohort.sources) if source_names is None else source_names
+        if not names or len(names) != len(set(names)) or any(name not in cohort.sources for name in names):
+            raise ValueError("Generated feature read requires unique declared source names")
+        blocks = cohort.source_values(source_names=names)
+        presence = cohort.source_presence()
+        result: dict[str, Any] = {
+            "feature_set_id": "features",
+            "observation_ids": list(sample_ids),
+            "source_names": names,
+            "blocks": blocks,
+        }
+        if any(not presence[name].all() for name in names):
+            result["source_masks"] = {name: presence[name] for name in names}
+        return result
