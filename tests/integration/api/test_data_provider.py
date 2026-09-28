@@ -13,6 +13,8 @@ import pytest
 from nirs4all_io import DataProvider, MultimodalDataset, TensorSource
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold, StratifiedKFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 import nirs4all
 from nirs4all.data.multimodal import MultimodalSpectroDataset
@@ -402,6 +404,55 @@ def test_generated_view_manifest_repeats_for_same_seed_and_changes_for_new_seed(
     assert first == repeated
     assert first_score == repeated_score
     assert first["fingerprint"] != changed["fingerprint"]
+
+
+def test_generated_views_fit_sklearn_pipeline_preprocessor_on_train_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A concrete sklearn Pipeline may learn its scaler from generated training X."""
+    cohort = _cohort()
+    base = MultimodalDataset(
+        {"nir": cohort.sources["nir"]}, sample_ids=cohort.sample_ids,
+        y=cohort.y, groups=cohort.groups, partitions=cohort.partitions, name=cohort.name,
+    )
+    views: list[tuple[str, np.ndarray]] = []
+    scaler_fits: list[np.ndarray] = []
+    original_fit = StandardScaler.fit
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], context: dict[str, Any], **_: Any) -> dict[str, Any]:
+        partition = context["_dag_ml_view"]["partition"]
+        source = base.take(sample_ids).sources["nir"]
+        values = np.asarray(source.values) + {
+            "fold_train": 10.0, "fold_validation": 20.0, "full_train": 30.0, "predict": 40.0,
+        }[partition]
+        views.append((partition, values.copy()))
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            values, sample_ids, representation_id=source.representation_id,
+            axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+        )}}
+
+    def observe_fit(self: StandardScaler, X: Any, y: Any = None, **kwargs: Any) -> Any:
+        scaler_fits.append(np.asarray(X).copy())
+        return original_fit(self, X, y, **kwargs)
+
+    monkeypatch.setattr(StandardScaler, "fit", observe_fit)
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.sklearn-pipeline",
+        base=base, replace_sources=["nir"],
+    )
+    result = nirs4all.run(
+        [KFold(3), {"model": Pipeline([("scale", StandardScaler()), ("ridge", Ridge())])}],
+        provider, engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        expected_fits = [values for partition, values in views if partition in {"fold_train", "full_train"}]
+        assert len(expected_fits) == len(scaler_fits) == 4
+        assert all(sum(np.array_equal(actual, expected) for actual in scaler_fits) == 1 for expected in expected_fits)
+        assert np.isfinite(result.best_rmse)
+    finally:
+        result.close()
 
 
 @pytest.mark.parametrize("random_state", [-1, 2**32])
