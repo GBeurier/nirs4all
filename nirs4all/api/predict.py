@@ -35,7 +35,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias, Union
 
 import numpy as np
 
@@ -51,6 +51,9 @@ from .native_session import NativeMethodsSession
 from .result import PredictResult
 from .session import NativeArchiveSession, Session
 
+if TYPE_CHECKING:
+    from nirs4all_io import MultimodalDataset
+
 # Type aliases for clarity
 ModelSpec: TypeAlias = (
     dict[str, Any]  # Prediction dict from previous run
@@ -58,15 +61,16 @@ ModelSpec: TypeAlias = (
     | Path  # Path to bundle or config
 )
 
-DataSpec: TypeAlias = (
+DataSpec: TypeAlias = Union[
     str  # Path to data folder
     | Path  # Path to data folder
     | np.ndarray  # X array
     | tuple[np.ndarray, ...]  # (X,) or (X, y)
     | dict[str, Any]  # Dict with X key
     | SpectroDataset  # Direct SpectroDataset instance
-    | DatasetConfigs  # Backward compat
-)
+    | DatasetConfigs,  # Backward compat
+    "MultimodalDataset",  # Named raw modalities for captured host replay
+]
 
 
 def predict(
@@ -927,6 +931,10 @@ def _predict_from_model(
     try:
         # Convert Path to str for compatibility with type hints
         model_arg = str(model) if isinstance(model, Path) else model
+        from nirs4all_io import MultimodalDataset
+
+        if isinstance(data, MultimodalDataset):
+            raise TypeError("raw multimodal prediction requires a captured DAG-ML artifact")
         data_arg = str(data) if isinstance(data, Path) else data
 
         # Call the runner's predict method

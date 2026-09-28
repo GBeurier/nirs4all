@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from nirs4all_io import MultimodalDataset, TensorSource
+from nirs4all_io import MultimodalDataset, RaggedSeriesBatch, RaggedSeriesSource, TensorSource
 from sklearn.model_selection import GroupKFold
 
 from nirs4all.core.task_type import TaskType
@@ -68,6 +68,39 @@ def test_wire_ids_remain_explicit_after_cohort_reordering(cohort: MultimodalData
     np.testing.assert_array_equal(resolved["blocks"][1][:, 0, 0, 0], [4 * 18, 7 * 18])
     assert resolved["blocks"][1].ndim == 4
     assert resolved["blocks"][2].ndim == 3
+
+
+def test_one_source_resolution_preserves_order_and_missingness_with_io_fallback(cohort: MultimodalDataset) -> None:
+    sources = dict(cohort.sources)
+    sources["series"] = RaggedSeriesSource(
+        np.arange(16, dtype=np.float32).reshape(8, 2), np.arange(9), cohort.sample_ids,
+        time_coordinates=np.arange(8, dtype=np.float64), channel_names=["a", "b"], time_unit="h",
+        presence_mask=[True, False, True, True, True, True, True, True],
+    )
+    dataset = _materialize_dataset(MultimodalDataset(
+        sources, sample_ids=cohort.sample_ids, y=cohort.y, task_type="regression",
+        groups=cohort.groups, partitions=cohort.partitions,
+    ))
+    resolver = MaterializationResolver(dataset, mint_identity(dataset))
+    requested = ["sample-4", "sample-1", "sample-4"]
+    selected = resolver.resolve_source_block(requested, 0, include_augmented=False)
+    assert selected["observation_ids"] == requested
+    np.testing.assert_array_equal(selected["values"], cohort.sources["nir"].values[[4, 1, 4]])
+    with pytest.raises(ValueError, match="complete modalities"):
+        resolver.resolve_source_block(["sample-1"], 2)
+    series = resolver.resolve_source_block(requested, 2, allow_missing=True)["values"]
+    assert isinstance(series, RaggedSeriesBatch)
+    assert series.time_coordinates.tolist() == [4, 1, 4]
+    assert resolver.resolve_source_presence(requested, 2).tolist() == [True, False, True]
+    np.testing.assert_array_equal(series.values, [[8, 9], [2, 3], [8, 9]])
+
+
+@pytest.mark.parametrize("source_index", [-1, 4])
+def test_one_source_resolution_rejects_invalid_indices(cohort: MultimodalDataset, source_index: int) -> None:
+    dataset = _materialize_dataset(cohort)
+    resolver = MaterializationResolver(dataset, mint_identity(dataset))
+    with pytest.raises(ValueError, match="by_source block index"):
+        resolver.resolve_source_block(["sample-0"], source_index)
 
 
 def test_group_folds_use_train_rows_and_keep_each_unit_together(cohort: MultimodalDataset) -> None:

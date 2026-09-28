@@ -23,7 +23,7 @@ import tempfile
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, Union, cast
 
 import numpy as np
 
@@ -43,6 +43,8 @@ from .result import RunResult
 from .session import Session
 
 if TYPE_CHECKING:
+    from nirs4all_io import DataProvider, MultimodalDataset
+
     from .tuning import TunedSingleEstimatorConformalResult
 
 
@@ -78,15 +80,17 @@ SinglePipelineSpec: TypeAlias = (
     | PipelineConfigs  # Backward compat: existing PipelineConfigs
 )
 
-SingleDatasetSpec: TypeAlias = (
+SingleDatasetSpec: TypeAlias = Union[
     str  # Path to data folder
     | Path  # Path to data folder
     | np.ndarray  # X array (y inferred or None)
     | tuple[np.ndarray, ...]  # (X,) or (X, y) or (X, y, metadata)
     | dict[str, Any]  # Dict with X, y, metadata keys
     | SpectroDataset  # Direct SpectroDataset instance
-    | DatasetConfigs  # Backward compat: existing DatasetConfigs
-)
+    | DatasetConfigs,  # Backward compat: existing DatasetConfigs
+    "MultimodalDataset",  # Named raw modalities owned by IO
+    "DataProvider",  # Finite run-scoped data generation
+]
 
 # Type aliases that also support lists for batch execution
 PipelineSpec: TypeAlias = (
