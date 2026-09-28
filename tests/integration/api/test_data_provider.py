@@ -111,6 +111,22 @@ def test_partial_provider_adds_raw_modalities_to_fixed_base(tmp_path: Path) -> N
         result.close()
 
 
+def test_view_provider_refuses_before_eager_materialization_or_fit(tmp_path: Path) -> None:
+    base = _cohort()
+
+    def forbidden(**kwargs: Any) -> Any:
+        pytest.fail("An unconnected fold-view provider executed")
+
+    provider = DataProvider(
+        forbidden,
+        provider_id="qualification.view.pending",
+        base=base,
+        generate_view=forbidden,
+    )
+    with pytest.raises(NotImplementedError, match="fold-view and training-content attestation"):
+        _run(provider, tmp_path)
+
+
 @pytest.mark.parametrize("engine", ["native", "legacy", "dual"])
 def test_unsupported_engine_refuses_before_provider_execution(engine: str, tmp_path: Path) -> None:
     def forbidden(**kwargs: Any) -> Any:
