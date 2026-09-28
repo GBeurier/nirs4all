@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from sklearn.preprocessing import StandardScaler
 
 from nirs4all.pipeline.dagml import node_runner
@@ -100,3 +101,9 @@ def test_feature_join_uses_native_branch_handles_and_reassembles_by_sample_id() 
     metadata = {sample_id: {"group": sample_id[0].upper()} for sample_id in sample_ids}
     actual = joined.transform_ids(np.asarray([[200.0], [1.0], [100.0], [3.0]]), sample_ids, metadata)
     np.testing.assert_array_equal(actual.ravel(), [1.0, -1.0, -1.0, 1.0])
+    with pytest.raises(ValueError, match="no branch"):
+        joined.transform_ids(np.asarray([[5.0]]), ["missing"], {"missing": {"group": "C"}})
+    with pytest.raises(ValueError, match="multiple branches"):
+        node_runner._PartitionedXChain([({"metadata": {"group": "A"}}, store[1]), ({"metadata": {"group": "A"}}, store[2])]).transform_ids(
+            np.asarray([[1.0]]), ["a1"], {"a1": {"group": "A"}},
+        )
