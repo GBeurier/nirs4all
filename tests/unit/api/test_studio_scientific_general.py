@@ -1,6 +1,8 @@
 """The v2 host contract uses real general DAG results and bounded JSON."""
 
 import json
+import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,8 +11,11 @@ from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
+import nirs4all
 from nirs4all.api import studio_scientific_general as general
 from nirs4all.pipeline.config.component_serialization import serialize_component
+from tests.integration.api.test_multimodal_late_missing import _late_pipeline
+from tests.integration.api.test_multimodal_ragged import _ragged_cohort
 
 
 def _request(tmp_path, classification=False):
@@ -50,6 +55,90 @@ def test_general_contract_executes_canonical_pipeline_and_real_workspace(tmp_pat
         for run_id in response["result"]["run_ids"]:
             assert store.get_run(run_id)["status"] == "completed"
         assert store.query_predictions().height == response["result"]["prediction_count"]
+
+
+def test_general_contract_executes_typed_ragged_cohort_with_missing_sources(tmp_path, monkeypatch):
+    from nirs4all_io import MultimodalDataset, RaggedSeriesSource
+
+    monkeypatch.setattr(general, "_ambient_runtime_preflight", lambda: None)
+    monkeypatch.setattr("nirs4all.pipeline.PipelineRunner.run", lambda *args, **kwargs: pytest.fail("implicit legacy host"))
+    cohort = _ragged_cohort(missing=True)
+    request = _request(tmp_path)
+    request["pipeline"] = serialize_component(_late_pipeline())
+    request["dataset"] = {"schema": general.STUDIO_MULTIMODAL_DATASET_SCHEMA, "cohort": cohort.to_dict()}
+
+    restored = general._inline_dataset_arrays(request["dataset"])
+    assert isinstance(restored, MultimodalDataset)
+    assert tuple(restored.sources) == tuple(cohort.sources)
+    assert restored.sample_ids == cohort.sample_ids
+    assert isinstance(restored.sources["series"], RaggedSeriesSource)
+    np.testing.assert_array_equal(restored.sources["series"].presence_mask, cohort.sources["series"].presence_mask)
+    np.testing.assert_array_equal(restored.sources["series"].time_coordinates, cohort.sources["series"].time_coordinates)
+
+    response = general.studio_scientific_job_v2(request)
+    assert response["engine"] == "dag-ml"
+    assert response["result"]["run_ids"] == []
+    assert response["result"]["native_results_dirs"] == []
+    archive = Path(response["result"]["archive_path"])
+    assert archive.is_file() and archive.parent == tmp_path
+    with zipfile.ZipFile(archive) as bundle:
+        manifest = json.loads(bundle.read("manifest.json"))
+    assert manifest["multimodal_host"]["source_presence"]["source_names"] == list(cohort.sources)
+    from nirs4all.operators.transforms import SequenceSummary
+
+    for estimator in (SequenceSummary, StandardScaler, Ridge):
+        monkeypatch.setattr(estimator, "fit", lambda *args, **kwargs: pytest.fail("archive replay attempted fitting"))
+    replay = nirs4all.predict(archive, restored)
+    assert replay.y_pred.shape == (len(cohort),)
+    assert np.isfinite(replay.y_pred).all()
+    assert replay.metadata["training_performed"] is False
+    assert response["result"]["native_score_sets_available"]
+    assert np.isfinite(response["result"]["validation_score"])
+
+
+@pytest.mark.parametrize("cohort", [None, {}, {"schema": "wrong"}])
+def test_general_typed_cohort_refuses_invalid_payload_before_runtime(tmp_path, monkeypatch, cohort):
+    request = _request(tmp_path)
+    request["dataset"] = {"schema": general.STUDIO_MULTIMODAL_DATASET_SCHEMA, "cohort": cohort}
+    monkeypatch.setattr(general, "_ambient_runtime_preflight", lambda: pytest.fail("runtime touched before dataset validation"))
+    with pytest.raises(general.StudioScientificJobError) as error:
+        general.studio_scientific_job_v2(request)
+    assert error.value.code == "invalid_dataset"
+
+
+@pytest.mark.parametrize("dtype,shape", [("U500000000", [1]), ("U1", [0, 1000000000])])
+def test_general_typed_cohort_bounds_declared_array_allocation_before_runtime(tmp_path, monkeypatch, dtype, shape):
+    request = _request(tmp_path)
+    request["dataset"] = {
+        "schema": general.STUDIO_MULTIMODAL_DATASET_SCHEMA,
+        "cohort": {"sources": [{"array": {"dtype": dtype, "shape": shape, "values": ["a"] if shape == [1] else []}}]},
+    }
+    with pytest.raises(ValueError, match="allocation exceeds budget"):
+        general._validate_multimodal_array_budget(request["dataset"]["cohort"])
+    monkeypatch.setattr(general, "_ambient_runtime_preflight", lambda: pytest.fail("runtime touched before allocation validation"))
+    with pytest.raises(general.StudioScientificJobError) as error:
+        general.studio_scientific_job_v2(request)
+    assert error.value.code == "invalid_dataset"
+
+
+@pytest.mark.parametrize("amplification", ["values", "alignment"])
+def test_general_typed_cohort_refuses_array_allocation_amplification(tmp_path, monkeypatch, amplification):
+    request = _request(tmp_path)
+    if amplification == "values":
+        cohort = {"sources": [{"array": {"dtype": "U1000000", "shape": [1], "values": ["a"] * 1000}}]}
+    else:
+        cohort = {
+            "source_alignment": "left",
+            "sample_ids": [f"sample-{index}" for index in range(1000)],
+            "sources": [{"array": {"dtype": "float64", "shape": [0, 1000000], "values": []}}],
+        }
+    request["dataset"] = {"schema": general.STUDIO_MULTIMODAL_DATASET_SCHEMA, "cohort": cohort}
+    with pytest.raises(ValueError, match="Multimodal array"):
+        general._validate_multimodal_array_budget(cohort)
+    monkeypatch.setattr(general, "_ambient_runtime_preflight", lambda: pytest.fail("runtime touched before allocation validation"))
+    with pytest.raises(general.StudioScientificJobError) as error:
+        general.studio_scientific_job_v2(request)
+    assert error.value.code == "invalid_dataset"
 
 
 @pytest.mark.parametrize("change,code", [

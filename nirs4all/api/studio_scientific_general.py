@@ -14,6 +14,7 @@ import re
 from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
+from uuid import uuid4
 
 import numpy as np
 
@@ -25,6 +26,8 @@ from .studio_scientific import StudioScientificJobError, _ambient_runtime_prefli
 
 STUDIO_GENERAL_JOB_SCHEMA = "nirs4all.studio-scientific-job.v2"
 STUDIO_GENERAL_RESULT_SCHEMA = "nirs4all.studio-scientific-job-result.v2"
+STUDIO_MULTIMODAL_DATASET_SCHEMA = "nirs4all.studio-multimodal-dataset.v1"
+MAX_MULTIMODAL_ARRAY_BYTES = 32 * 1024 * 1024
 MAX_GENERAL_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_GENERAL_RESPONSE_BYTES = 256 * 1024
 _PACKAGE_PREFIXES = frozenset({"nirs4all", "sklearn", "numpy", "scipy", "xgboost", "lightgbm", "catboost", "torch", "tensorflow"})
@@ -119,12 +122,69 @@ def validate_studio_pipeline_config(value: Any) -> None:
 
 
 def _inline_dataset_arrays(value: Any) -> Any:
-    """Restore the ndarray wire representation; leave file configs untouched."""
+    """Restore typed in-memory datasets; leave ordinary file configs untouched."""
     if isinstance(value, list):
         return [_inline_dataset_arrays(item) for item in value]
+    if isinstance(value, dict) and value.get("schema") == STUDIO_MULTIMODAL_DATASET_SCHEMA:
+        if set(value) != {"schema", "cohort"} or not isinstance(value["cohort"], dict):
+            raise StudioScientificJobError("invalid_dataset", "multimodal dataset descriptor requires only a cohort object")
+        from nirs4all_io import MultimodalDataset
+
+        try:
+            _validate_multimodal_array_budget(value["cohort"])
+            return MultimodalDataset.from_dict(value["cohort"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise StudioScientificJobError("invalid_dataset", "multimodal cohort failed IO validation") from exc
     if isinstance(value, dict) and "X" in value and "y" in value:
         return {**value, "X": np.asarray(value["X"]), "y": np.asarray(value["y"])}
     return value
+
+
+def _validate_multimodal_array_budget(cohort: dict[str, Any]) -> None:
+    """Bound declared array storage before IO materializes untrusted dtypes."""
+    remaining = MAX_MULTIMODAL_ARRAY_BYTES
+    sample_ids = cohort.get("sample_ids")
+    cohort_rows = len(sample_ids) if isinstance(sample_ids, list) else 0
+    source_arrays = {
+        id(source["array"])
+        for source in cohort.get("sources", [])
+        if isinstance(source, dict) and source.get("source_kind") != "ragged_series" and isinstance(source.get("array"), dict)
+    } if isinstance(cohort.get("sources"), list) else set()
+    pending: list[Any] = [cohort]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, dict):
+            if {"dtype", "shape", "values"} <= item.keys():
+                try:
+                    dtype = np.dtype(item["dtype"])
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ValueError("Invalid multimodal array dtype") from exc
+                shape = item["shape"]
+                if not isinstance(shape, list) or not shape or len(shape) > 8 or any(type(dim) is not int or dim < 0 for dim in shape):
+                    raise ValueError("Invalid multimodal array shape")
+                try:
+                    actual_shape = np.asarray(item["values"], dtype=object).shape
+                except ValueError as exc:
+                    raise ValueError("Multimodal array values are not rectangular") from exc
+                zero_axis = shape.index(0) if 0 in shape else None
+                expected_shape = tuple(shape if zero_axis is None else shape[:zero_axis + 1])
+                if actual_shape != expected_shape:
+                    raise ValueError("Multimodal array values disagree with declared shape")
+                # A zero-row source can be left-aligned to a populated cohort.
+                # Bound its full aligned extent before IO creates placeholders.
+                size = max(dtype.itemsize, 1)
+                dimensions = shape.copy()
+                if id(item) in source_arrays:
+                    dimensions[0] = max(dimensions[0], cohort_rows)
+                for dim in dimensions:
+                    size *= max(dim, 1)
+                    if size > remaining:
+                        raise ValueError("Multimodal array allocation exceeds budget")
+                remaining -= size
+            else:
+                pending.extend(item.values())
 
 
 def studio_scientific_job_v2(request: object) -> dict[str, Any]:
@@ -166,12 +226,19 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
     if not isinstance(request["dataset"], (str, dict, list)):
         raise StudioScientificJobError("invalid_dataset", "dataset must be a canonical library path or config")
     validate_studio_pipeline_config(request["pipeline"])
+    multimodal = isinstance(request["dataset"], dict) and request["dataset"].get("schema") == STUDIO_MULTIMODAL_DATASET_SCHEMA
+    if multimodal and (options.get("refit") is False or options.get("save_artifacts") is False):
+        raise StudioScientificJobError("invalid_option", "multimodal Studio runs require refit and saved artifacts for replay")
+    dataset = _inline_dataset_arrays(request["dataset"])
     _ambient_runtime_preflight()
     _preflight_optional_product_operators(request["pipeline"])
     pipeline = deserialize_component(request["pipeline"])
+    run_options = {"verbose": 0, "save_artifacts": True, **options}
+    if multimodal:
+        run_options["refit"] = True
     result = cast(RunResult, _run_strict_product(
-        pipeline, _inline_dataset_arrays(request["dataset"]), engine="dag-ml", allow_fallback=False,
-        **{"verbose": 0, "save_artifacts": True, **options},
+        pipeline, dataset, engine="dag-ml", allow_fallback=False,
+        **run_options,
     ))
     try:
         children = getattr(result, "runs", (result,))
@@ -184,8 +251,18 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
                     run_ids.append(identifier)
             if child._dagml_results_dir is not None:
                 native_results.append(str(child._dagml_results_dir))
-        if not run_ids:
+        if not run_ids and not multimodal:
             raise StudioScientificJobError("missing_persistence", "general scientific result omitted durable run IDs")
+        archive_path = None
+        if multimodal:
+            merged = next((
+                child for child in children
+                if any(
+                    metadata.get("producer_node", "").startswith("merge:")
+                    for metadata in child.per_dataset.values()
+                )
+            ), result)
+            archive_path = str(merged.export(Path(workspace) / f"studio-multimodal-{uuid4().hex}.n4a"))
         selected = result.cv_best or result.best
         evaluations = [
             {"run_id": metadata.get("run_id"), "dataset": dataset_name, **metadata["evaluation"]}
@@ -200,6 +277,7 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
                 "run_ids": run_ids,
                 "workspace_path": workspace,
                 "native_results_dirs": native_results,
+                **({"archive_path": archive_path} if archive_path is not None else {}),
                 "metric": selected.get("metric"),
                 "validation_score": _finite_or_none(result.cv_best_score),
                 "evaluations": evaluations,
