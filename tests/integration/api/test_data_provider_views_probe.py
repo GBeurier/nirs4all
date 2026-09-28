@@ -175,6 +175,11 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeyp
         changed["view"].update(unsupported)
         with pytest.raises(ValueError, match="does not support this native selector"):
             store({"request": changed, "handle": {**receipt["handle"], "handle": 100}})
+    mismatched_source_index = copy.deepcopy(request)
+    mismatched_source_index["binding"]["metadata"] = {"source_index": {source: index for index, source in enumerate(source_ids)}}
+    mismatched_source_index["view"]["extra"] = {"source_index": {source_ids[0]: 1}}
+    with pytest.raises(ValueError, match="does not support this native selector"):
+        store({"request": mismatched_source_index, "handle": {**receipt["handle"], "handle": 100}})
     assert len(scopes) == 1
 
     validation_ids = [base.sample_ids[3], base.sample_ids[2]]
@@ -357,6 +362,11 @@ def test_generated_model_input_fingerprint_keeps_ragged_boundaries() -> None:
     second = RaggedSeriesBatch(values, np.asarray([0, 2, 3], dtype=np.int64))
     assert _model_value_fingerprint(first) != _model_value_fingerprint(second)
     assert _model_value_fingerprint(np.asarray(1.0)) != _model_value_fingerprint(np.asarray([1.0]))
+    mixed = np.asarray([[1.0, "a"], [2.0, "b"]], dtype=object)
+    changed = np.asarray([[1.0, "a"], [2.0, "c"]], dtype=object)
+    assert _model_value_fingerprint(mixed) != _model_value_fingerprint(changed)
+    with pytest.raises(TypeError, match="Unsupported generated model input type"):
+        _model_value_fingerprint(np.asarray([[object()]], dtype=object))
 
 
 def test_native_cv_requests_scheduler_selected_views_before_model_controller() -> None:

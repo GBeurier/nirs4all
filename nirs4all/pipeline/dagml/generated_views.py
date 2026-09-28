@@ -60,7 +60,10 @@ def _model_value_descriptor(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         array = np.asarray(value)
         if array.dtype.hasobject:
-            raise TypeError("Generated model inputs cannot contain object arrays")
+            return {
+                "kind": "array", "dtype": array.dtype.str, "shape": list(array.shape),
+                "items": [_model_value_descriptor(item) for item in array.flat],
+            }
         return {
             "kind": "array", "dtype": array.dtype.str, "shape": list(array.shape),
             "content": hashlib.sha256(np.ascontiguousarray(array).tobytes()).hexdigest(),
@@ -157,22 +160,33 @@ class GeneratedViewStore:
         if request.get("input_name") != binding.get("input_name"):
             raise ValueError("Native data-view input name does not match its binding")
         native_extra = view.get("extra")
+        binding_metadata = binding.get("metadata")
+        metadata_extra = {
+            name: binding_metadata[name]
+            for name in ("source_index", "feature_axes")
+            if isinstance(binding_metadata, dict) and name in binding_metadata
+        }
         allowed_extra = {
             "feature_set_id": binding.get("feature_set_id"),
             "include_augmented_cv_train_predictions": False,
         }
         feature_extra = {"feature_set_id": binding.get("feature_set_id")}
         refit_extra = {**feature_extra, "include_augmented_refit_predictions": False}
+        allowed_phase_extra = (
+            ({}, feature_extra, allowed_extra) if request.get("phase") == "FIT_CV"
+            else ({}, feature_extra, refit_extra) if request.get("phase") == "REFIT"
+            else ({}, feature_extra)
+        )
+        extra_valid = isinstance(native_extra, dict) and (
+            native_extra in allowed_phase_extra
+            or bool(metadata_extra) and native_extra in ({**base, **metadata_extra} for base in allowed_phase_extra)
+        )
         unsupported = [
             name for name, invalid in (
                 ("source_ids", view.get("source_ids") != binding.get("source_ids")),
                 ("columns", view.get("columns") is not None),
                 ("branch_view", view.get("branch_view") is not None),
-                ("extra", native_extra not in (
-                    ({}, feature_extra, allowed_extra) if request.get("phase") == "FIT_CV"
-                    else ({}, feature_extra, refit_extra) if request.get("phase") == "REFIT"
-                    else ({}, feature_extra)
-                )),
+                ("extra", not extra_valid),
                 ("include_augmented", view.get("include_augmented") is not False
                  and not (view.get("include_augmented") is True
                           and view.get("partition") in {"fold_train", "full_train"})),
