@@ -9,13 +9,14 @@ from typing import Any
 
 import numpy as np
 import pytest
-from nirs4all_io import MultimodalDataset, RaggedSeriesBatch, RaggedSeriesSource
+from nirs4all_io import DataProvider, MultimodalDataset, RaggedSeriesBatch, RaggedSeriesSource
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 import nirs4all
 from nirs4all.data.multimodal import MultimodalSpectroDataset
+from nirs4all.operators.models.multimodal import MultimodalRegressor
 from nirs4all.operators.models.sklearn.mbpls import MBPLS
 from nirs4all.operators.transforms import SequenceSummary
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
@@ -115,6 +116,72 @@ def test_ragged_native_folds_and_archive_accept_new_lengths(fusion: str, tmp_pat
         prediction = nirs4all.predict(archive, _ragged_cohort(prediction=True))
         assert np.asarray(prediction.values).shape == (5,)
         assert np.isfinite(prediction.values).all()
+    finally:
+        result.close()
+
+
+def test_generated_ragged_views_reach_each_grouped_model_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fold-specific lengths and times must reach the actual four-source model."""
+    base = _ragged_cohort()
+    views: list[tuple[str, str | None, tuple[str, ...], RaggedSeriesBatch]] = []
+    fits: list[RaggedSeriesBatch] = []
+    predictions: list[RaggedSeriesBatch] = []
+    original_fit = MultimodalRegressor.fit
+    original_predict = MultimodalRegressor.predict
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"series": base.sources["series"]}}
+
+    def generate_view(*, sample_ids: list[str], context: dict[str, Any], **_: Any) -> dict[str, Any]:
+        scope = context["_dag_ml_view"]
+        series = _shorten_series(base.take(sample_ids), 0).sources["series"]
+        views.append((scope["partition"], scope["fold_id"], tuple(sample_ids), series.values))
+        return {"sample_ids": sample_ids, "sources": {"series": series}}
+
+    def observe_fit(self: MultimodalRegressor, X: list[Any], y: Any, **kwargs: Any) -> Any:
+        assert set(self.transformers) == set(base.sources)
+        series = X[list(self.transformers).index("series")]
+        assert isinstance(series, RaggedSeriesBatch)
+        fits.append(series)
+        return original_fit(self, X, y, **kwargs)
+
+    def observe_predict(self: MultimodalRegressor, X: list[Any], **kwargs: Any) -> Any:
+        series = X[list(self.transformers).index("series")]
+        assert isinstance(series, RaggedSeriesBatch)
+        predictions.append(series)
+        return original_predict(self, X, **kwargs)
+
+    monkeypatch.setattr(MultimodalRegressor, "fit", observe_fit)
+    monkeypatch.setattr(MultimodalRegressor, "predict", observe_predict)
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.ragged",
+        base=base, replace_sources=["series"],
+    )
+    result = nirs4all.run(
+        [GroupKFold(3), {"model": _ragged_model()}], provider,
+        engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        assert np.isfinite(result.best_rmse)
+        assert len(fits) == 4
+        assert {partition for partition, _fold, _ids, _series in views} >= {"fold_train", "fold_validation", "full_train"}
+        groups_by_id = dict(zip(base.sample_ids, base.groups, strict=True))
+        for fold in {fold for _partition, fold, _ids, _series in views if fold is not None}:
+            train = {groups_by_id[sid] for partition, view_fold, ids, _series in views
+                     if view_fold == fold and partition == "fold_train" for sid in ids}
+            validation = {groups_by_id[sid] for partition, view_fold, ids, _series in views
+                          if view_fold == fold and partition == "fold_validation" for sid in ids}
+            assert train and validation and train.isdisjoint(validation)
+        for partition, _fold, ids, expected in views:
+            calls = fits if partition in {"fold_train", "full_train"} else predictions
+            assert any(
+                np.array_equal(actual.offsets, expected.offsets)
+                and np.array_equal(actual.values, expected.values)
+                and np.array_equal(actual.time_coordinates, expected.time_coordinates)
+                for actual in calls
+            ), f"No model call consumed the {partition} ragged view for {ids}"
+        assert result._dagml_refit_artifacts == []
     finally:
         result.close()
 
