@@ -40,6 +40,11 @@ def prepare_data_provider(dataset: Any, *, engine: str, should_stop: Any = None)
     if execute is None:
         raise RuntimeError("The installed dag-ml binding lacks execute_data_provider; install a binding with data-provider PLAN support")
     recipe = dataset.recipe()
+    if recipe["params"]["_io_assembly"].get("view_generation"):
+        raise NotImplementedError(
+            "generate_view is not connected to the DAG-ML fold-view and training-content "
+            "attestation path; nirs4all.run refuses to train on an eager base cohort instead"
+        )
     cohorts: list[Any] = []
 
     def provide(task: dict[str, Any]) -> dict[str, Any]:
