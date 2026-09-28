@@ -473,6 +473,24 @@ def test_generated_view_rejects_invalid_run_seed_before_plan(random_state: int, 
         )
 
 
+def test_generated_view_rejects_subprocess_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden(**_: Any) -> Any:
+        pytest.fail("Subprocess mode executed the provider")
+
+    base = _cohort()
+    provider = DataProvider(
+        forbidden, generate_view=forbidden, provider_id="qualification.view.subprocess-refused",
+        base=base, replace_sources=["nir"],
+    )
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    with pytest.raises(NotImplementedError, match="subprocess execution is not qualified"):
+        nirs4all.run(
+            [KFold(3), {"model": _model()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "native", random_state=19, verbose=0,
+        )
+
+
 @pytest.mark.parametrize("engine", ["native", "legacy", "dual"])
 def test_unsupported_engine_refuses_before_provider_execution(engine: str, tmp_path: Path) -> None:
     def forbidden(**kwargs: Any) -> Any:

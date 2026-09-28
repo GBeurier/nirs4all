@@ -68,10 +68,17 @@ def prepare_data_provider(
             )
         if random_state is not None and (type(random_state) is not int or not 0 <= random_state < 2**32):
             raise ValueError("generate_view requires a non-negative 32-bit integer random_state or None")
+        from .in_process_runner import in_process_enabled
+
+        if not in_process_enabled():
+            raise NotImplementedError("generate_view requires DAG-ML in-process execution; subprocess execution is not qualified")
         import importlib
         import inspect
 
-        native = importlib.import_module("dag_ml._dag_ml")
+        try:
+            native = importlib.import_module("dag_ml._dag_ml")
+        except ImportError as exc:
+            raise NotImplementedError("generate_view requires the DAG-ML in-process binding") from exc
         run_cv_refit = getattr(native, "run_cv_refit_in_process", None)
         if not callable(run_cv_refit) or "root_seed" not in inspect.signature(run_cv_refit).parameters:
             raise NotImplementedError("generate_view requires a DAG-ML in-process binding with root_seed support")
