@@ -144,6 +144,12 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
                                "node_id": request["node_id"]}
     model_result = run_node(model_task, MaterializationResolver(wrapped, mint_identity(wrapped)),
                             lambda _node_id: graph_model, {}, generated_views=store.bind_task(model_task))
+    consumed = model_result["consumed_data_views"]
+    assert set(consumed) == {"data:x", "data:x:validation"}
+    assert consumed["data:x"]["receipt"] == receipt
+    assert consumed["data:x:validation"]["receipt"] == validation_receipt
+    assert selected in consumed["data:x"]["read_batches"]
+    assert validation_ids in consumed["data:x:validation"]["read_batches"]
     validation_prediction = next(block for block in model_result["predictions"] if block["partition"] == "validation")
     direct = PLSRegression(n_components=1)
     direct.fit(np.asarray(view.sources["nir"].values), np.asarray(base.take(selected).y))
@@ -177,6 +183,11 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
         task_views.take("x", "test", [selected[0]])
     with pytest.raises(ValueError, match="within its native view"):
         task_views.feature_blocks("x", "fold_train", [validation_ids[0]])
+    task_views.take("x", "fold_train", list(reversed(selected)))
+    assert task_views.consumed_data_views() == {
+        "data:x": {"receipt": receipt, "read_batches": [[selected[1]], [selected[1]], list(reversed(selected))]},
+        "data:x:validation": {"receipt": validation_receipt, "read_batches": [[validation_ids[0]]]},
+    }
     with pytest.raises(ValueError, match="no native data-view handle"):
         store.bind_task({**task, "input_handles": {"data:x": receipt["handle"]}})
     with pytest.raises(ValueError, match="receipt for every data view"):

@@ -137,6 +137,8 @@ class GeneratedTaskViews:
         self._store = store
         self._task = copy.deepcopy(task)
         self._scopes: dict[tuple[str, str], tuple[dict[str, Any], list[str]]] = {}
+        self._scope_keys: dict[tuple[str, str], str] = {}
+        self._read_batches: dict[str, list[list[str]]] = {}
         seen_handles: set[int] = set()
         if any(handle.get("kind") == "data_view" and key not in views
                for key, handle in handles.items() if isinstance(handle, dict)):
@@ -180,6 +182,7 @@ class GeneratedTaskViews:
                 raise ValueError("Generated task reuses one native data-view handle")
             seen_handles.add(handle["handle"])
             self._scopes[scope] = (copy.deepcopy(handle), list(ids))
+            self._scope_keys[scope] = key
 
     def validate_task(self, task: dict[str, Any]) -> None:
         """Refuse reuse of this binding for a different native task."""
@@ -204,7 +207,23 @@ class GeneratedTaskViews:
                 or not set(sample_ids).issubset(full_ids)):
             raise ValueError("Generated task read must use unique IDs within its native view")
         cohort = self._store.resolve(handle, full_ids)
-        return cohort.take(sample_ids)
+        selected = cohort.take(sample_ids)
+        self._read_batches.setdefault(self._scope_keys[scope], []).append(list(sample_ids))
+        return selected
+
+    def consumed_data_views(self) -> dict[str, dict[str, Any]]:
+        """Report successful materialization reads, including presence checks.
+
+        This ledger does not prove which rows the fitted estimator used.
+        """
+        receipts = self._task["data_view_receipts"]
+        return {
+            key: {
+                "receipt": copy.deepcopy(receipts[key]),
+                "read_batches": copy.deepcopy(batches),
+            }
+            for key, batches in sorted(self._read_batches.items())
+        }
 
     def feature_blocks(
         self, input_name: str, partition: str, sample_ids: list[str],

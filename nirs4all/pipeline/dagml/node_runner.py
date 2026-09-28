@@ -1799,7 +1799,12 @@ def run_model_node(
     from .native_vote import capture_vote_evidence
 
     capture_vote_evidence(task, resolver, estimator, predictions, train_ids, _features, _predict, model_store)
-    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets, classification_probabilities)
+    result = _build_result(task, predictions, artifacts, artifact_handles, regression_targets, classification_probabilities)
+    if generated_views is not None:
+        reads = generated_views.consumed_data_views()
+        if reads:
+            result["consumed_data_views"] = reads
+    return result
 
 
 def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str,
