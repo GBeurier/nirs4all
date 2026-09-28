@@ -1061,12 +1061,15 @@ def _dispatch_run(
     if getattr(spectro, "_generated_view_store", None) is not None:
         from .generated_views import qualified_generated_model_pipeline
 
-        # DATA-PROV-01 qualifies one concrete model with KFold or GroupKFold.
+        # DATA-PROV-01 qualifies one concrete model with an exact CV splitter.
         # Other shapes must not train against the eager PLAN cohort.
         if (not qualified_generated_model_pipeline(pipeline)
                 or _generation_kind(pipeline) != "none" or not refit or refit_top_k != 1
                 or holdout_train_sample_ids is not None):
-            raise NotImplementedError("generated data views currently require [KFold or GroupKFold, {'model': a concrete estimator}] with refit=True")
+            raise NotImplementedError(
+                "generated data views currently require "
+                "[KFold, GroupKFold, StratifiedKFold or StratifiedGroupKFold, {'model': a concrete estimator}] with refit=True"
+            )
         return _run_concrete(
             pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
             base_dir / "generated_view", metric, task_type,

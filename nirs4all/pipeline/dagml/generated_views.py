@@ -1,6 +1,6 @@
 """Run-local IO view buffers keyed by DAG-ML's native data-view handles.
 
-This internal bridge supports the qualified KFold/concrete-model run profile.
+This internal bridge supports qualified concrete-model CV run profiles.
 The host reports generated-view digests and model-call evidence to DAG-ML;
 model export remains closed pending a replay contract.
 """
@@ -28,11 +28,11 @@ _BINDING_IDENTITY_FIELDS = (
 
 def qualified_generated_model_pipeline(pipeline: Any) -> bool:
     """Whether a pipeline has the sole currently qualified generated-view shape."""
-    from sklearn.model_selection import GroupKFold, KFold
+    from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold, StratifiedKFold
 
     return (
         isinstance(pipeline, list) and len(pipeline) == 2
-        and type(pipeline[0]) in (KFold, GroupKFold)
+        and type(pipeline[0]) in (KFold, GroupKFold, StratifiedKFold, StratifiedGroupKFold)
         and (not getattr(pipeline[0], "shuffle", False)
              or type(getattr(pipeline[0], "random_state", None)) is int)
         and type(pipeline[1]) is dict and set(pipeline[1]) == {"model"}

@@ -12,15 +12,16 @@ import numpy as np
 import pytest
 from nirs4all_io import DataProvider, MultimodalDataset, TensorSource
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import GroupKFold, KFold
+from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold, StratifiedKFold
 
 import nirs4all
 from nirs4all.data.multimodal import MultimodalSpectroDataset
-from nirs4all.operators.models.multimodal import MultimodalRegressor, TensorPCA
+from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor, TensorPCA
 from nirs4all.pipeline.dagml.cancellation import DagRunCancelled
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
 from nirs4all.pipeline.dagml.native_results import read_native_results
 from tests.integration.api.test_multimodal_dagml import _cohort, _model
+from tests.integration.api.test_multimodal_targets import _classification_cohort, _classifier
 from tests.integration.api.test_multimodal_tuning import _checkpoint, _tuning
 
 
@@ -284,6 +285,80 @@ def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(
                 assert set(names) == set(base.sources)
                 for name, block in zip(names, blocks, strict=True):
                     np.testing.assert_array_equal(block, nir if name == "nir" else expected.sources[name].values)
+        assert result._dagml_refit_artifacts == []
+    finally:
+        result.close()
+
+
+@pytest.mark.parametrize("splitter", [StratifiedKFold(3), StratifiedGroupKFold(3)])
+def test_generated_classification_views_keep_stratified_folds(
+    splitter: StratifiedKFold | StratifiedGroupKFold, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stratification uses PLAN targets while each model call consumes its own NIR view."""
+    original = _classification_cohort()
+    base = original if type(splitter) is StratifiedGroupKFold else MultimodalDataset(
+        original.sources, sample_ids=original.sample_ids, y=original.y,
+        partitions=original.partitions, name=original.name,
+    )
+    views: list[tuple[str, str | None, tuple[str, ...], np.ndarray]] = []
+    fitted: list[np.ndarray] = []
+    predicted: list[np.ndarray] = []
+    original_fit = MultimodalClassifier.fit
+    original_predict = MultimodalClassifier.predict
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], context: dict[str, Any], **_: Any) -> dict[str, Any]:
+        scope = context["_dag_ml_view"]
+        source = base.take(sample_ids).sources["nir"]
+        values = np.asarray(source.values) + {
+            "fold_train": 10.0, "fold_validation": 20.0, "full_train": 30.0, "predict": 40.0,
+        }[scope["partition"]]
+        views.append((scope["partition"], scope["fold_id"], tuple(sample_ids), values))
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            values, sample_ids, representation_id=source.representation_id,
+            axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+        )}}
+
+    def observe_fit(self: MultimodalClassifier, X: list[Any], y: Any, **kwargs: Any) -> Any:
+        fitted.append(np.asarray(X[list(self.transformers).index("nir")]).copy())
+        return original_fit(self, X, y, **kwargs)
+
+    def observe_predict(self: MultimodalClassifier, X: list[Any], **kwargs: Any) -> Any:
+        predicted.append(np.asarray(X[list(self.transformers).index("nir")]).copy())
+        return original_predict(self, X, **kwargs)
+
+    monkeypatch.setattr(MultimodalClassifier, "fit", observe_fit)
+    monkeypatch.setattr(MultimodalClassifier, "predict", observe_predict)
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.classification",
+        base=base, replace_sources=["nir"],
+    )
+    result = nirs4all.run(
+        [splitter, {"model": _classifier()}], provider,
+        engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        assert result.best["task_type"] == "classification"
+        assert len(fitted) == 4
+        labels_by_id = dict(zip(base.sample_ids, base.y, strict=True))
+        validation_by_fold = {
+            fold: ids for partition, fold, ids, _values in views if partition == "fold_validation"
+        }
+        assert len(validation_by_fold) == 3
+        assert all({labels_by_id[sid] for sid in ids} == set(base.y[:12]) for ids in validation_by_fold.values())
+        assert set.union(*(set(ids) for ids in validation_by_fold.values())) == set(base.sample_ids[:12])
+        if type(splitter) is StratifiedGroupKFold:
+            groups_by_id = dict(zip(base.sample_ids, base.groups, strict=True))
+            for fold, ids in validation_by_fold.items():
+                train_groups = {groups_by_id[sid] for partition, view_fold, train_ids, _values in views
+                                if view_fold == fold and partition == "fold_train" for sid in train_ids}
+                assert train_groups.isdisjoint({groups_by_id[sid] for sid in ids})
+        for partition, _fold, ids, values in views:
+            calls = fitted if partition in {"fold_train", "full_train"} else predicted
+            assert any(np.array_equal(call, values) for call in calls), f"No model call consumed the {partition} NIR view for {ids}"
         assert result._dagml_refit_artifacts == []
     finally:
         result.close()
