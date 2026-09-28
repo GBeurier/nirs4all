@@ -1,14 +1,19 @@
 """Run-local IO view buffers keyed by DAG-ML's native data-view handles.
 
 This is an internal bridge for DATA-PROV-01 qualification. The public run path
-continues to refuse generated views until the node resolver consumes this store
-and the native training identity includes the exact view content receipts.
+continues to refuse generated views until native training identity and replay
+bind the exact view content and the model-call evidence is required by contract.
 """
 
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import math
 from typing import Any
+
+import numpy as np
 
 _SELECTOR_FIELDS = (
     "sample_ids", "partition", "fold_id", "source_ids", "columns",
@@ -19,6 +24,79 @@ _SELECTOR_FIELDS = (
 def _selector_fields(view: dict[str, Any]) -> dict[str, Any]:
     """Compare a native selector including absent optional fields as null."""
     return {name: view.get(name) for name in _SELECTOR_FIELDS}
+
+
+def _model_value_descriptor(value: Any) -> Any:
+    """Describe model-call arguments without coercing their dtype or layout."""
+    from nirs4all_io.ragged import RaggedSeriesBatch
+
+    if isinstance(value, RaggedSeriesBatch):
+        return {
+            "kind": "ragged_series",
+            "values": _model_value_descriptor(value.values),
+            "offsets": _model_value_descriptor(value.offsets),
+            "time_coordinates": _model_value_descriptor(value.time_coordinates),
+        }
+    if isinstance(value, np.ndarray):
+        array = np.asarray(value)
+        if array.dtype.hasobject:
+            raise TypeError("Generated model inputs cannot contain object arrays")
+        return {
+            "kind": "array", "dtype": array.dtype.str, "shape": list(array.shape),
+            "content": hashlib.sha256(np.ascontiguousarray(array).tobytes()).hexdigest(),
+        }
+    if isinstance(value, np.generic):
+        return _model_value_descriptor(np.asarray(value))
+    if isinstance(value, (list, tuple)):
+        return {"kind": "tuple" if isinstance(value, tuple) else "list",
+                "items": [_model_value_descriptor(item) for item in value]}
+    if isinstance(value, dict):
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("Generated model input mappings require string keys")
+        return {"kind": "mapping", "items": {key: _model_value_descriptor(value[key]) for key in sorted(value)}}
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else _model_value_descriptor(np.asarray(value))
+    raise TypeError(f"Unsupported generated model input type: {type(value).__name__}")
+
+
+def _model_value_fingerprint(value: Any) -> str:
+    descriptor = _model_value_descriptor(value)
+    encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _require_model_rows(value: Any, count: int, label: str) -> None:
+    """Reject a reported ID list that does not match the supplied row buffers."""
+    from nirs4all_io.ragged import RaggedSeriesBatch
+
+    if isinstance(value, RaggedSeriesBatch):
+        rows = len(value)
+    elif isinstance(value, np.ndarray):
+        if value.ndim == 0:
+            raise ValueError(f"Generated {label} must have a row dimension")
+        rows = value.shape[0]
+    elif isinstance(value, (list, tuple)):
+        if not value:
+            raise ValueError(f"Generated {label} cannot be empty")
+        if all(isinstance(item, (np.ndarray, RaggedSeriesBatch)) for item in value):
+            for item in value:
+                _require_model_rows(item, count, label)
+            return
+        rows = len(value)
+    else:
+        raise TypeError(f"Generated {label} has unsupported row buffer type {type(value).__name__}")
+    if rows != count:
+        raise ValueError(f"Generated {label} has {rows} rows for {count} native sample IDs")
+
+
+def _require_option_rows(options: dict[str, Any], count: int) -> None:
+    for key, value in options.items():
+        if isinstance(value, dict):
+            _require_option_rows(value, count)
+        elif isinstance(value, (np.ndarray, list, tuple)):
+            _require_model_rows(value, count, f"option {key}")
 
 
 class GeneratedViewStore:
@@ -139,6 +217,7 @@ class GeneratedTaskViews:
         self._scopes: dict[tuple[str, str], tuple[dict[str, Any], list[str]]] = {}
         self._scope_keys: dict[tuple[str, str], str] = {}
         self._read_batches: dict[str, list[list[str]]] = {}
+        self._model_calls: dict[str, list[dict[str, Any]]] = {}
         seen_handles: set[int] = set()
         if any(handle.get("kind") == "data_view" and key not in views
                for key, handle in handles.items() if isinstance(handle, dict)):
@@ -221,9 +300,56 @@ class GeneratedTaskViews:
             key: {
                 "receipt": copy.deepcopy(receipts[key]),
                 "read_batches": copy.deepcopy(batches),
+                **({"model_calls": copy.deepcopy(self._model_calls[key])} if key in self._model_calls else {}),
             }
             for key, batches in sorted(self._read_batches.items())
         }
+
+    def record_model_call(
+        self, operation: str, input_name: str, partition: str, sample_ids: list[str],
+        features: Any, *, options: dict[str, Any] | None = None, targets: Any = None,
+    ) -> None:
+        """Record the exact X/options and optional y supplied to a model call.
+
+        This is host-reported boundary evidence, not native recomputation of
+        Python-owned buffers. Each row must have been read from this task view.
+        """
+        if operation not in {"fit", "predict", "predict_proba"}:
+            raise ValueError("Unknown generated model operation")
+        if (operation == "fit") != (targets is not None):
+            raise ValueError("Generated fit requires targets and prediction forbids them")
+        if operation == "fit":
+            phase = self._task.get("phase")
+            required_partition = {"FIT_CV": "fold_train", "REFIT": "full_train"}.get(phase) if isinstance(phase, str) else None
+            if partition != required_partition:
+                raise ValueError("Generated fit requires its phase's native training partition")
+        scope = (input_name, partition)
+        key = self._scope_keys.get(scope)
+        if key is None or not sample_ids or len(sample_ids) != len(set(sample_ids)):
+            raise ValueError("Generated model call requires a native view and unique rows")
+        def in_read_order(batch: list[str]) -> bool:
+            wanted = iter(sample_ids)
+            next_id = next(wanted, None)
+            for seen in batch:
+                if seen == next_id:
+                    next_id = next(wanted, None)
+                    if next_id is None:
+                        return True
+            return False
+        if not any(in_read_order(batch) for batch in self._read_batches.get(key, [])):
+            raise ValueError("Generated model call rows were not read in order from their native view")
+        _require_model_rows(features, len(sample_ids), "features")
+        _require_option_rows(options or {}, len(sample_ids))
+        if targets is not None:
+            _require_model_rows(targets, len(sample_ids), "targets")
+        call: dict[str, Any] = {
+            "operation": operation,
+            "sample_ids": list(sample_ids),
+            "input_fingerprint": _model_value_fingerprint({"features": features, "options": options or {}}),
+        }
+        if targets is not None:
+            call["target_fingerprint"] = _model_value_fingerprint(targets)
+        self._model_calls.setdefault(key, []).append(call)
 
     def feature_blocks(
         self, input_name: str, partition: str, sample_ids: list[str],

@@ -1546,6 +1546,10 @@ def run_model_node(
         if target_mask is not None:
             fit_options["target_mask"] = np.asarray(target_mask, dtype=bool).reshape(y_fit.shape)
         apply_pipeline_folds_to_model(model, training_metadata, phase, fit_ids)
+        if generated_views is not None:
+            generated_views.record_model_call(
+                "fit", "x", fit_partition, fit_ids, x_train, options=fit_options, targets=y_fit,
+            )
         with _gpu_device_scope(task, estimator):
             estimator.fit(x_train, y_fit, **fit_options)
         from .multimodal_contracts import bind_input_contract
@@ -1617,6 +1621,11 @@ def run_model_node(
             )
 
             def predict_original(block: Any) -> np.ndarray:
+                if generated_views is not None:
+                    present_ids = [sample_id for sample_id, present in zip(ids, presence, strict=True) if present]
+                    generated_views.record_model_call(
+                        "predict", "x", view_partition, present_ids, block, options=options,
+                    )
                 with _gpu_device_scope(task, estimator):
                     pred = np.asarray(estimator.predict(block, **options), dtype=float).reshape(len(block), -1)
                 return np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(block), -1) if y_transform is not None else pred
@@ -1627,6 +1636,10 @@ def run_model_node(
             if proba_output or full_probabilities:
                 if y_transform is not None or not hasattr(estimator, "predict_proba"):
                     raise ValueError(f"classifier model {node_id!r} cannot provide probabilities for proba_mean")
+                if generated_views is not None:
+                    generated_views.record_model_call(
+                        "predict_proba", "x", view_partition, ids, features, options=options,
+                    )
                 pred = np.asarray(estimator.predict_proba(features, **options), dtype=float).reshape(len(ids), -1)
             else:
                 if isinstance(estimator, _PartitionJoinedEstimator):
@@ -1634,6 +1647,10 @@ def run_model_node(
                         raise ValueError("partition feature join requires sample metadata")
                     pred = np.asarray(estimator.predict_with_ids(features, ids, sample_metadata), dtype=float).reshape(len(ids), -1)
                 else:
+                    if generated_views is not None:
+                        generated_views.record_model_call(
+                            "predict", "x", view_partition, ids, features, options=options,
+                        )
                     pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
@@ -1753,6 +1770,10 @@ def run_model_node(
             classes = np.asarray(estimator.classes_, dtype=float)
             features, options = _features(spec_ids, spec_include_augmented, view_partition)
             with _gpu_device_scope(task, estimator):
+                if generated_views is not None:
+                    generated_views.record_model_call(
+                        "predict_proba", "x", view_partition, spec_ids, features, options=options,
+                    )
                 probabilities = np.asarray(estimator.predict_proba(features, **options), dtype=float)
             classification_probabilities.append({
                 "producer_node": node_id,
