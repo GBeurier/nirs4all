@@ -12,6 +12,7 @@ def prepare_data_provider(
     calibration: Any = None, terminal_predict: Any = None,
     save_artifacts: Any = None, project: Any = None,
     runner_kwargs: dict[str, Any] | None = None, session: Any = None,
+    random_state: int | None = None,
 ) -> Any:
     """Materialize a finite provider once, before folds or scientific fitting.
 
@@ -65,6 +66,15 @@ def prepare_data_provider(
                 "with refit=True, save_artifacts=False, "
                 "and no tuning, calibration, project, session or workspace"
             )
+        if random_state is not None and (type(random_state) is not int or not 0 <= random_state < 2**32):
+            raise ValueError("generate_view requires a non-negative 32-bit integer random_state or None")
+        import importlib
+        import inspect
+
+        native = importlib.import_module("dag_ml._dag_ml")
+        run_cv_refit = getattr(native, "run_cv_refit_in_process", None)
+        if not callable(run_cv_refit) or "root_seed" not in inspect.signature(run_cv_refit).parameters:
+            raise NotImplementedError("generate_view requires a DAG-ML in-process binding with root_seed support")
     cohorts: list[Any] = []
 
     def provide(task: dict[str, Any]) -> dict[str, Any]:
