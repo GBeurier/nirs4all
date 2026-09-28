@@ -141,6 +141,37 @@ class GeneratedViewStore:
         self._views: dict[int, tuple[dict[str, Any], tuple[str, ...], Any, dict[str, Any], dict[str, Any]]] = {}
         self._by_key: dict[str, tuple[tuple[str, ...], int, dict[str, Any], dict[str, Any], Any, dict[str, Any]]] = {}
 
+    def for_trial(self) -> GeneratedViewStore:
+        """Give one HPO candidate an isolated native-handle namespace."""
+        return GeneratedViewStore(self._provider)
+
+    def _context_for(self, view: dict[str, Any]) -> dict[str, Any]:
+        context: dict[str, Any] = copy.deepcopy(self._context)
+        context["_dag_ml_view"] = {
+            "partition": view.get("partition"),
+            "fold_id": view.get("fold_id"),
+            "source_ids": view.get("source_ids"),
+        }
+        return context
+
+    def recheck_record(self, record: dict[str, Any]) -> dict[str, str]:
+        """Regenerate a saved HPO view and compare its actual IO content."""
+        if not isinstance(record, dict) or not isinstance(record.get("view"), dict):
+            raise ValueError("Generated HPO resume requires a native view record")
+        view = record["view"]
+        ids, key, seed = view.get("sample_ids"), record.get("view_key"), record.get("view_seed")
+        if (not isinstance(ids, list) or not ids or any(not isinstance(item, str) or not item for item in ids)
+                or len(ids) != len(set(ids)) or not isinstance(key, str) or not key.strip()
+                or type(seed) is not int or seed < 0):
+            raise ValueError("Generated HPO resume record has invalid IDs, key or seed")
+        cohort = self._provider.materialize_view(ids, seed=seed, context=self._context_for(view), view_key=key)
+        state = self._provider.view_state_dict(cohort)
+        if (state["view_key"] != key or state["sample_ids"] != ids
+                or state["schema_fingerprint"] != record.get("schema_fingerprint")
+                or state["fingerprint"] != record.get("content_fingerprint")):
+            raise ValueError("Generated HPO resume view content differs from its saved checkpoint")
+        return {"schema_fingerprint": state["schema_fingerprint"], "content_fingerprint": state["fingerprint"]}
+
     def __call__(self, call: dict[str, Any]) -> dict[str, Any]:
         """Answer the native callback with an IO checkpoint and retain its buffers."""
         if set(call) != {"request", "handle"}:
@@ -208,14 +239,9 @@ class GeneratedViewStore:
         binding_identity = {name: binding.get(name) for name in _BINDING_IDENTITY_FIELDS}
         prior = self._by_key.get(key)
         if prior is None:
-            context = copy.deepcopy(self._context)
             # Phase is intentionally absent: the native key can be reused
             # across execution phases for this same partition and selector.
-            context["_dag_ml_view"] = {
-                "partition": view.get("partition"),
-                "fold_id": view.get("fold_id"),
-                "source_ids": view.get("source_ids"),
-            }
+            context = self._context_for(view)
             cohort = self._provider.materialize_view(ids, seed=seed, context=context, view_key=key)
             state = self._provider.view_state_dict(cohort)
             self._by_key[key] = (tuple(ids), seed, copy.deepcopy(selector), copy.deepcopy(binding_identity), cohort, state)

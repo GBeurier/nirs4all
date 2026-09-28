@@ -59,6 +59,9 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise ValueError("multimodal tuning requires an explicit outer splitter")
     model = (steps[0]["model"] if len(steps) == 1 and isinstance(steps[0], dict) and set(steps[0]) == {"model"}
              and isinstance(steps[0]["model"], (MultimodalRegressor, MultimodalClassifier)) else None)
+    generated_store = getattr(cohort, "_generated_view_store", None)
+    if generated_store is not None and model is None:
+        raise NotImplementedError("generated-view tuning requires one concrete multimodal model")
     # Only training rows enter either the native search contract or callbacks.
     train_ids = [sample for sample, partition in zip(cohort.sample_ids, cohort.partitions, strict=True) if partition == "train"]
     dataset = MultimodalSpectroDataset(cohort.take(train_ids))
@@ -101,6 +104,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     native = importlib.import_module("dag_ml")
     if recipe is None:
         dsl = assemble_cv_refit_dsl([{"model": clone(model)}], identity, envelope, folds, dsl_id="multimodal-hpo", n_splits=len(folds))
+        if generated_store is not None:
+            dsl["root_seed"] = operator_seed
         graph = json.loads(native.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
         target = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
     else:
@@ -118,6 +123,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     for key in ("resume", "n_trials", "storage", "study_name"):
         descriptor.pop(key, None)
     descriptor["operator_rng"] = {"policy": "per_native_task_v1", "seed": operator_seed}
+    if generated_store is not None:
+        descriptor["generated_view_mode"] = "checkpoint_manifest_v1"
     provider_evidence = getattr(cohort, "_data_provider_evidence", None)
     if provider_evidence is not None:
         descriptor["data_provider_execution"] = provider_evidence["execution"]["execution_fingerprint"]
@@ -137,7 +144,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     if recipe is not None:
         request["parameter_bindings"] = recipe.bindings
 
-    def evaluate(task: dict[str, Any]) -> dict[str, Any]:
+    def evaluate(task: dict[str, Any], *, model_store: dict[Any, Any], view_store: Any = None) -> dict[str, Any]:
         # Starting from the same native task identity also reproduces unseeded
         # sklearn operators after resume, independently of earlier callbacks.
         task_seed = int(tcv1_sha256({
@@ -150,7 +157,36 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         for choice in (host_task.get("variant") or {}).get("choices", {}).values():
             for override in choice.get("param_overrides", []):
                 override["params"] = {key.replace(".", "__"): value for key, value in override.get("params", {}).items()}
-        return run_node(host_task, resolver, nodes.__getitem__, store, graph.get("edges", []), None)
+        generated_views = view_store.bind_task(host_task) if view_store is not None else None
+        return run_node(host_task, resolver, nodes.__getitem__, model_store, graph.get("edges", []), None,
+                        generated_views=generated_views)
+
+    trial_view_stores: dict[int, Any] = {}
+
+    def view_callback_factory(index: int) -> Any:
+        if generated_store is None:
+            raise ValueError("static HPO cannot create generated view callbacks")
+        if index in trial_view_stores:
+            raise ValueError("generated HPO candidate reused its trial index")
+        view_store = generated_store.for_trial()
+        trial_view_stores[index] = view_store
+        return view_store
+
+    def candidate_callback_factory(index: int) -> Any:
+        view_store = trial_view_stores[index]
+        model_store: dict[Any, Any] = {}
+
+        def evaluate_candidate(task: dict[str, Any]) -> dict[str, Any]:
+            if not task.get("data_view_receipts"):
+                raise ValueError("generated HPO candidate has no native data-view receipts")
+            return evaluate(task, model_store=model_store, view_store=view_store)
+
+        return evaluate_candidate
+
+    def fallback_evaluate(task: dict[str, Any]) -> dict[str, Any]:
+        if generated_store is not None:
+            raise ValueError("generated HPO used the static fallback operator")
+        return evaluate(task, model_store=store)
 
     optimizer = HostSearchOptimizer(spec)
     stop_requested = False
@@ -169,8 +205,12 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
 
     try:
         evidence = native.run_host_hpo_search_in_process(
-            dsl, envelope, controller_manifests(), request, evaluate, optimizer,
+            dsl, envelope, controller_manifests(), request,
+            fallback_evaluate, optimizer,
             resume_checkpoint=optimizer.resume_checkpoint, progress_callback=checkpoint,
+            candidate_callback_factory=candidate_callback_factory if generated_store is not None else None,
+            view_callback_factory=view_callback_factory if generated_store is not None else None,
+            resume_view_validator=generated_store.recheck_record if generated_store is not None and optimizer.resume_checkpoint is not None else None,
         )
     finally:
         optimizer.close()
