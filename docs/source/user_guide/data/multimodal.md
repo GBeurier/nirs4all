@@ -52,7 +52,7 @@ Each case directory contains `dataset.json`, `pipeline.json`,
 declaration and checkpoint when applicable. Reports preserve native scores,
 per-target metrics, observed target counts and twelve new predictions. The script
 reloads each archive with fitting forbidden and checks that predictions agree
-exactly. `examples/run.sh` includes U07 through U11; its plot switches have no
+exactly. `examples/run.sh` includes U07 through U13; its plot switches have no
 effect on these examples, which write artifacts to fresh temporary directories.
 
 ## Describe inputs
@@ -87,6 +87,65 @@ no units, resampling, alignment by nearest time, or imputation are inferred.
 `dataset.to_dict()` and `MultimodalDataset.from_dict(payload)` preserve the raw
 arrays, dtypes, identities and axis metadata through JSON or YAML.
 
+## Encode variable-length series
+
+Use `RaggedSeriesSource` when the time dimension varies between observations.
+Its packed `values` array has shape `(total_points, channels)`, while `offsets`
+contains one boundary per sample plus the final boundary. The number of channels
+is fixed. There is no padding, truncation, interpolation or implicit conversion
+to a dense NumPy array.
+
+```python
+from nirs4all_io import RaggedSeriesSource
+from nirs4all.operators.models import MultimodalRegressor
+from nirs4all.operators.transforms import SequenceSummary
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+
+series = RaggedSeriesSource(
+    packed_values, offsets, sample_ids,
+    time_coordinates=packed_times,  # optional; strictly increasing per sample
+    channel_names=["temperature", "intensity"], time_unit="s",
+)
+encoder = make_pipeline(
+    SequenceSummary(channel_names=["temperature", "intensity"]),
+    StandardScaler(),
+)
+model = MultimodalRegressor(
+    transformers={"nir": StandardScaler(), "series": encoder},
+    model=Ridge(alpha=1.0),
+)
+```
+
+`series.values` is a `RaggedSeriesBatch`. `SequenceSummary` computes mean,
+population standard deviation, minimum and maximum per channel, then appends
+the sequence length. Configure `statistics=("mean", "std")` and
+`include_length=False` to choose a smaller representation. Output columns follow
+channel order, then statistic order; `get_feature_names_out()` names them.
+Fit retains the channel contract, without training values or lengths.
+
+All observations receive equal weight. Time coordinates are preserved by IO but
+are **not used** by this summary encoder, even for irregular sampling. Empty
+series and nonfinite observed values are refused by the encoder. Per-cell masks
+and automatic interpolation of missing time points are not supported.
+
+U12 generates complete NIR and variable-length series through a finite
+`DataProvider`, uses three grouped folds, exports the fitted model, and predicts
+eight new observations whose sequences are longer than every training sequence:
+
+```bash
+python examples/user/02_data_handling/U12_multimodal_ragged_series.py --output /tmp/mm-ragged
+python examples/user/02_data_handling/U12_multimodal_ragged_series.py --fusion intermediate --output /tmp/mm-ragged-mbpls
+```
+
+Early fusion uses Ridge; intermediate fusion uses MBPLS. The script limits BLAS
+to one thread, writes the provider recipe, pipeline, typed training/prediction
+datasets, archive and report, and checks JSON-roundtrip replay with fitting and
+training-provider execution forbidden. New lengths and source mapping order may
+change. Channel names/count, dtype, declared time unit and the time-coordinate
+schema must retain the fitted contract.
+
 ## Handle absent modalities
 
 `source_alignment="left"` explicitly allows a source to contain a subset of the
@@ -110,8 +169,8 @@ source rows. A source with no such training rows is rejected. At inference,
 an entire modality may be absent: retain its name, dtype and trailing dimensions
 in a zero-row `TensorSource` and use left alignment. Its fitted encoder is not
 called. Presence patterns may change without changing the archive's input schema.
-Late fusion and upstream preprocessing outside the multimodal model currently
-require complete sources.
+Late regression fusion has a separate branch policy described below. Upstream
+preprocessing outside these source-aware paths requires complete sources.
 
 The third synthetic example combines incomplete sources with two partial targets,
 tunes the grouped pipeline, and predicts new observations with no images:
@@ -215,7 +274,7 @@ result.close()
 ```
 
 The durable profile covers one `MultimodalRegressor` or `MultimodalClassifier`,
-or a complete late-fusion pipeline as described below. Topology is fixed and
+or a late-fusion pipeline as described below. Topology is fixed and
 proposals use random N4M search. Regression
 supports complete or partially observed targets and native regression metrics;
 classification supports accuracy and balanced accuracy, defaulting to maximizing
@@ -287,8 +346,9 @@ of the checkpoint identity; changing their routing refuses resume.
 
 The returned `RunResult` represents the selected **ensemble**. Its direct
 `export()` saves that ensemble even if an individual base model scores better.
-The profile requires complete sources and targets, instantiated sklearn
-operators, and plain model steps. Model-local `finetune_params`, `train_params`
+The profile requires complete targets, instantiated sklearn operators and plain
+model steps. Sources must be complete unless the regression branch policy below
+is explicit. Model-local `finetune_params`, `train_params`
 and `refit_params` are refused in this global search profile. Single-target
 classification and complete multi-target regression use the same graph.
 
@@ -299,6 +359,68 @@ archive, then predicts twelve new observations with fit forbidden:
 python examples/user/02_data_handling/U10_multimodal_late_tuning.py --output /tmp/mm-late --stop-after 2
 python examples/user/02_data_handling/U10_multimodal_late_tuning.py --output /tmp/mm-late --resume
 ```
+
+## Late regression fusion with absent modalities
+
+Declare `missing_source_policy="zero_with_indicator"` on the named source branch:
+
+```python
+pipeline = [
+    GroupKFold(3),
+    {"branch": {
+        "by_source": True,
+        "missing_source_policy": "zero_with_indicator",
+        "steps": {
+            "nir": [StandardScaler(), Ridge()],
+            "series": [SequenceSummary(), StandardScaler(), Ridge()],
+        },
+    }},
+    {"merge": "predictions"},
+    Ridge(),
+]
+```
+
+Every branch encoder and base model fits only the present rows of its current
+native training scope, including the inner folds that supply meta-model inputs.
+The meta-model retains every OOF observation ID. Each branch contributes its
+predictions followed by one presence indicator. For an absent source, prediction
+columns are zero in the original target space and the indicator is zero; that
+source's encoders and predictor are not called. The indicator remains a column
+when every source observation is present. Two single-target branches therefore
+produce four meta-model features. Complete multiple targets are also supported.
+
+Zeros encode an absent branch for the meta-model; they do not reconstruct raw
+measurements. Native scores include these fallback predictions on absent rows.
+An entirely unobserved source in any inner, outer or final training scope is
+rejected, rather than borrowing fitted state from another fold. This policy
+currently accepts regression with complete targets. Classification, partial
+targets and preprocessing before the source branch are refused.
+
+At prediction, presence patterns and series lengths may change. An entire series
+modality can be absent: retain its declared channels, dtype, time unit and
+coordinate schema in a zero-row `RaggedSeriesSource`, and use
+`source_alignment="left"`. The archive records and validates source order,
+prediction widths, indicators and the fitted meta-model width. As with other
+ragged inputs, `SequenceSummary` uses equal weights for time points and ignores
+time coordinates; per-cell masks are unsupported.
+
+U13 generates 24 training and eight test observations, with separate groups,
+dense NIR and partially absent variable-length series. Its three native trials
+tune `branches.series.0.include_length`, `branches.nir.1.alpha` and `meta.alpha`:
+
+```bash
+python examples/user/02_data_handling/U13_multimodal_late_missing_sources.py --output /tmp/mm-late-missing --stop-after 1
+python examples/user/02_data_handling/U13_multimodal_late_missing_sources.py --output /tmp/mm-late-missing --resume
+```
+
+Use a fresh directory and omit both flags for a continuous run. The example
+writes provider/pipeline/tuning recipes, typed datasets, durable checkpoints,
+`late-fusion.n4a` and JSON/text reports. On resume it checks that the completed
+prefix is retained and only remaining trial numbers are reported as new. It
+then replays eight new observations with some series absent and eight with all
+series absent, while fitting and provider materialization are forbidden. The
+all-absent case additionally forbids calling the series encoder. The standalone
+prediction datasets and report retain both sets of predictions.
 
 ## Executable synthetic data providers
 
