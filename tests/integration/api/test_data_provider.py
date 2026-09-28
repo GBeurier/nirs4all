@@ -364,6 +364,64 @@ def test_generated_classification_views_keep_stratified_folds(
         result.close()
 
 
+def test_generated_view_manifest_repeats_for_same_seed_and_changes_for_new_seed(tmp_path: Path) -> None:
+    """A fresh run can verify the same generated-view content without a saved callback."""
+    base = _cohort()
+
+    def provider() -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            source = base.take(sample_ids).sources["nir"]
+            values = np.asarray(source.values) + float(seed % 7)
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                values, sample_ids, representation_id=source.representation_id,
+                axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(
+            generate, generate_view=generate_view, provider_id="qualification.view.repeatable",
+            base=base, replace_sources=["nir"],
+        )
+
+    def run(index: int, seed: int) -> tuple[dict[str, Any], float]:
+        result = nirs4all.run(
+            [KFold(3), {"model": _model()}], provider(), engine="dag-ml",
+            refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / f"run-{index}", random_state=seed, verbose=0,
+        )
+        try:
+            return result._dagml_generated_view_manifest, result.best_rmse
+        finally:
+            result.close()
+
+    first, first_score = run(0, 19)
+    repeated, repeated_score = run(1, 19)
+    changed, _ = run(2, 20)
+    assert first == repeated
+    assert first_score == repeated_score
+    assert first["fingerprint"] != changed["fingerprint"]
+
+
+@pytest.mark.parametrize("random_state", [-1, 2**32])
+def test_generated_view_rejects_invalid_run_seed_before_plan(random_state: int, tmp_path: Path) -> None:
+    def forbidden(**_: Any) -> Any:
+        pytest.fail("Invalid run seed executed the provider")
+
+    base = _cohort()
+    provider = DataProvider(
+        forbidden, generate_view=forbidden, provider_id="qualification.view.invalid-seed",
+        base=base, replace_sources=["nir"],
+    )
+    with pytest.raises(ValueError, match="non-negative 32-bit integer random_state"):
+        nirs4all.run(
+            [KFold(3), {"model": _model()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "native", random_state=random_state, verbose=0,
+        )
+
+
 @pytest.mark.parametrize("engine", ["native", "legacy", "dual"])
 def test_unsupported_engine_refuses_before_provider_execution(engine: str, tmp_path: Path) -> None:
     def forbidden(**kwargs: Any) -> Any:

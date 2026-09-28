@@ -105,6 +105,7 @@ def run_cv_refit_bundle(
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
+    random_state: int | None = None,
     refit: bool = True,
     refit_top_k: int = 1,
 ) -> dict[str, Any]:
@@ -162,7 +163,7 @@ def run_cv_refit_bundle(
         refit, refit_top_k,
     )
     if view_store is not None:
-        bridge_args += (view_store,)
+        bridge_args += (view_store, random_state if random_state is not None else 0)
     payload = json.loads(
         dag_ml_ext.run_cv_refit_in_process(*bridge_args)
     )
@@ -315,10 +316,9 @@ def run_cv_refit_bundle_router(
     that in-memory dataset, skipping the duplicate disk reload. The subprocess branch ignores it: the
     adapter re-materializes from ``dataset_path`` / ``dataset_pickle`` (env channel) as before.
 
-    ``random_state`` is forwarded ONLY to the subprocess branch (it sets ``N4A_RANDOM_STATE`` in the
-    PER-CALL child env so the fresh-python adapter seeds its global RNG before fitting). The in-process
-    branch ignores it: it fits operators in THIS process, whose global RNG ``run_via_dagml`` already
-    seeded — so re-seeding here would be redundant.
+    ``random_state`` seeds the subprocess host RNG as before. The in-process host RNG is already
+    seeded by ``run_via_dagml``; for generated views we additionally give this seed to DAG-ML's
+    control RNG, so native view keys and callback seeds bind to the requested run seed.
     """
     # A held-out test cohort is a separate native authority. FIT_CV may read it
     # through a non-fit companion view, but the ordinary training envelope and
@@ -370,6 +370,7 @@ def run_cv_refit_bundle_router(
             dataset=dataset,
             fold_children=fold_children,
             fold_feature_views=fold_feature_views,
+            random_state=random_state,
             refit=refit,
             refit_top_k=refit_top_k,
         )

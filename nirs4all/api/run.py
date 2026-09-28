@@ -1044,6 +1044,7 @@ def run(
         pipeline=pipeline, refit=refit, tuning=tuning, calibration=calibration,
         terminal_predict=terminal_predict, save_artifacts=save_artifacts,
         project=project, runner_kwargs=runner_kwargs, session=session,
+        random_state=random_state,
     )
 
     # Keep main's published extended Methods lane alongside the V1 Core-archive minimum. The latter
