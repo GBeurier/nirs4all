@@ -123,8 +123,44 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
         },
     }
     task_views = store.bind_task(task)
+    task_views.validate_task(task)
+    with pytest.raises(ValueError, match="different native task"):
+        task_views.validate_task({**task, "fold_id": "fold:other"})
+
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import ShuffleSplit
+
+    from nirs4all.pipeline.dagml.node_runner import run_node
+    from nirs4all.pipeline.dagml.resolver import MaterializationResolver
+    from nirs4all.pipeline.dagml_bridge import build_dagml_plan
+
+    plan = build_dagml_plan([ShuffleSplit(n_splits=2, random_state=7), {"model": PLSRegression(n_components=1)}],
+                            plan_id="provider-view", dsl_id="provider-view").to_dict()
+    graph_model = next(node for node in plan["graph_plan"]["graph"]["nodes"] if node["kind"] == "model")
+    graph_model = {**graph_model, "id": request["node_id"],
+                   "metadata": {**(graph_model.get("metadata") or {}), "source_index": 0}}
+    model_task = copy.deepcopy(task)
+    model_task["node_plan"] = {**plan["node_plans"][next(key for key, node in plan["node_plans"].items() if node["kind"] == "model")],
+                               "node_id": request["node_id"]}
+    model_result = run_node(model_task, MaterializationResolver(wrapped, mint_identity(wrapped)),
+                            lambda _node_id: graph_model, {}, generated_views=store.bind_task(model_task))
+    validation_prediction = next(block for block in model_result["predictions"] if block["partition"] == "validation")
+    direct = PLSRegression(n_components=1)
+    direct.fit(np.asarray(view.sources["nir"].values), np.asarray(base.take(selected).y))
+    validation_values = np.asarray(store.resolve(validation_handle, validation_ids).sources["nir"].values)
+    expected_prediction = np.asarray(direct.predict(validation_values))
+    np.testing.assert_allclose(validation_prediction["values"], expected_prediction.reshape(len(validation_ids), -1), atol=1e-9)
+    assert "train_pool" not in {block["partition"] for block in model_result["predictions"]}
+    with pytest.raises(ValueError, match="without bound IO views"):
+        run_node(model_task, MaterializationResolver(wrapped, mint_identity(wrapped)),
+                 lambda _node_id: graph_model, {})
+
     train_row = task_views.take("x", "fold_train", [selected[1]])
     validation_row = task_views.take("x", "fold_validation", [validation_ids[0]])
+    train_features = task_views.feature_blocks("x", "fold_train", [selected[1]], source_names=("nir",))
+    assert train_features["source_names"] == ("nir",)
+    np.testing.assert_array_equal(train_features["blocks"][0], train_row.sources["nir"].values)
+    assert train_features["observation_ids"] == [selected[1]]
     np.testing.assert_array_equal(
         train_row.sources["nir"].values,
         np.asarray(base.take([selected[1]]).sources["nir"].values) + float(19 % 7),
@@ -139,6 +175,8 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids() -> No
         task_views.take("x", "fold_train", [validation_ids[0]])
     with pytest.raises(ValueError, match="no native view"):
         task_views.take("x", "test", [selected[0]])
+    with pytest.raises(ValueError, match="within its native view"):
+        task_views.feature_blocks("x", "fold_train", [validation_ids[0]])
     with pytest.raises(ValueError, match="no native data-view handle"):
         store.bind_task({**task, "input_handles": {"data:x": receipt["handle"]}})
     with pytest.raises(ValueError, match="receipt for every data view"):

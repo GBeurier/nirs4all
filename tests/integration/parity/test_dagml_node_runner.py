@@ -20,8 +20,10 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 
 from nirs4all.data.config import DatasetConfigs
+from nirs4all.pipeline.dagml.envelope import source_order
+from nirs4all.pipeline.dagml.generated_views import GeneratedTaskViews
 from nirs4all.pipeline.dagml.identity import mint_identity
-from nirs4all.pipeline.dagml.node_runner import _resolve_finetune_best_params, run_node
+from nirs4all.pipeline.dagml.node_runner import _FittedXChain, _resolve_finetune_best_params, run_node
 from nirs4all.pipeline.dagml.process_adapter import describe, run_jsonl_loop
 from nirs4all.pipeline.dagml.resolver import MaterializationResolver
 
@@ -174,6 +176,98 @@ def test_fit_cv_predictions_match_direct_sklearn(slice_fixture) -> None:
     x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"))[0] for i in val_ints])
     expected = np.asarray(expected_model.predict(x_val), dtype=float).reshape(len(val_ints), -1)
     assert np.allclose(np.asarray(block["values"], dtype=float), expected, atol=1e-9)
+
+
+def test_generated_fit_cv_reads_explicit_train_and_validation_views(slice_fixture, monkeypatch) -> None:
+    """The model fits and predicts on the two generated scopes, never the fixed X."""
+    f = slice_fixture
+    train_ints, val_ints = f["train_ints"][:90], f["train_ints"][90:120]
+    identity = f["identity"]
+    train_ids = [identity.to_wire(i) for i in train_ints]
+    val_ids = [identity.to_wire(i) for i in val_ints]
+
+    class TaskViews(GeneratedTaskViews):
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[str, ...]]] = []
+
+        def validate_task(self, task) -> None:
+            assert task["fold_id"] == "fold0"
+
+        def feature_blocks(self, input_name, partition, sample_ids, *, source_names=None):
+            assert input_name == "x" and source_names == tuple(source_order(f["dataset"]))
+            assert partition in {"fold_train", "fold_validation"}
+            assert set(sample_ids).issubset(train_ids if partition == "fold_train" else val_ids)
+            self.calls.append((partition, tuple(sample_ids)))
+            rows = np.asarray(f["dataset"].x_rows([identity.to_int(sample_id) for sample_id in sample_ids], layout="2d"))
+            values = rows * (1.25 if partition == "fold_train" else 0.75)
+            return {"source_names": source_names, "blocks": [values], "observation_ids": list(sample_ids)}
+
+    views = TaskViews()
+    task = {
+        "phase": "FIT_CV", "fold_id": "fold0", "run_id": "r", "variant_id": None,
+        "node_plan": f["node_plan"],
+        "data_views": {
+            "data:x": {"partition": "fold_train", "sample_ids": train_ids},
+            "data:x:validation": {"partition": "fold_validation", "sample_ids": val_ids},
+        },
+        "data_view_receipts": {"data:x": {"content_fingerprint": "a" * 64}},
+    }
+    monkeypatch.setattr(f["resolver"], "resolve_features", lambda *_args, **_kwargs: pytest.fail("fixed X was read"))
+    result = run_node(task, f["resolver"], f["node_lookup"], {}, generated_views=views)
+    assert "train_pool" not in {block["partition"] for block in result["predictions"]}
+    assert {partition for partition, _ids in views.calls} == {"fold_train", "fold_validation"}
+
+    expected_model = PLSRegression(n_components=5)
+    x_train = np.asarray(f["dataset"].x_rows(train_ints, layout="2d")) * 1.25
+    y_train = np.asarray(f["resolver"].resolve_targets(train_ids)["values"])
+    expected_model.fit(x_train, y_train)
+    x_val = np.asarray(f["dataset"].x_rows(val_ints, layout="2d")) * 0.75
+    expected = np.asarray(expected_model.predict(x_val), dtype=float).reshape(len(val_ids), -1)
+    block = next(block for block in result["predictions"] if block["partition"] == "validation")
+    assert np.allclose(np.asarray(block["values"], dtype=float), expected, atol=1e-9)
+    with pytest.raises(ValueError, match="without bound IO views"):
+        run_node(task, f["resolver"], f["node_lookup"], {})
+    fitted_task = {**task, "input_handles": {"upstream": {"kind": "data", "handle": 123}}}
+    with pytest.raises(ValueError, match="fitted data-edge chains"):
+        run_node(fitted_task, f["resolver"], f["node_lookup"], {123: _FittedXChain()}, generated_views=views)
+
+
+def test_generated_by_source_refuses_missing_rows_without_policy(slice_fixture) -> None:
+    f = slice_fixture
+    identity = f["identity"]
+    train_ids = [identity.to_wire(i) for i in f["train_ints"][:90]]
+    val_ids = [identity.to_wire(i) for i in f["train_ints"][90:120]]
+
+    class MissingSourceViews(GeneratedTaskViews):
+        def __init__(self) -> None:
+            pass
+
+        def validate_task(self, task) -> None:
+            assert task["phase"] == "FIT_CV"
+
+        def feature_blocks(self, input_name, partition, sample_ids, *, source_names=None):
+            return {
+                "source_names": source_names,
+                "blocks": [np.ones((len(sample_ids), 2), dtype=np.float32)],
+                "source_masks": {source_names[0]: np.asarray([False, *([True] * (len(sample_ids) - 1))])},
+            }
+
+    task = {
+        "phase": "FIT_CV", "fold_id": "fold0", "run_id": "r", "variant_id": None,
+        "node_plan": f["node_plan"],
+        "data_views": {
+            "data:x": {"partition": "fold_train", "sample_ids": train_ids},
+            "data:x:validation": {"partition": "fold_validation", "sample_ids": val_ids},
+        },
+        "data_view_receipts": {"data:x": {"content_fingerprint": "a" * 64}},
+    }
+
+    def lookup(node_id):
+        node = f["node_lookup"](node_id)
+        return {**node, "metadata": {**(node.get("metadata") or {}), "source_index": 0}}
+
+    with pytest.raises(ValueError, match="require complete modalities"):
+        run_node(task, f["resolver"], lookup, {}, generated_views=MissingSourceViews())
 
 
 def test_refit_then_predict_round_trips_the_model(slice_fixture) -> None:
