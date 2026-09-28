@@ -32,13 +32,14 @@ def test_capture_retains_native_fold_proba_ids_and_separate_training_views(with_
     indices = {"a": 1, "b": 2, "c": 8, "d": 9}
     materialized = []
 
-    def features(ids, include_augmented):
+    def features(ids, include_augmented, view_partition):
         assert not include_augmented
-        materialized.append(ids)
+        materialized.append((ids, view_partition))
         options = {"source_masks": {"nir": np.asarray([identity != "d" for identity in ids])}} if with_options else {}
         return np.array([[indices[identity]] for identity in ids]), options
 
-    def predict(ids, include_augmented):
+    def predict(ids, include_augmented, view_partition):
+        assert view_partition in {"fold_train", "fold_validation", "predict", ""}
         return [[0. if identity in {"a", "b"} else 2.] for identity in ids]
 
     task = {"phase": "FIT_CV", "fold_id": "fold0", "variant_id": None, "run_id": "real-run",
@@ -55,7 +56,7 @@ def test_capture_retains_native_fold_proba_ids_and_separate_training_views(with_
     np.testing.assert_allclose(records["test"]["y_proba"], [[.75, .25]] if with_options else [[.1, .9]])
     assert records["test"]["classes"] == [0., 2.]
     assert all(record["training_performed_for_evidence"] is False for record in records.values())
-    assert 101 in store and len(materialized) == 4
+    assert 101 in store and [partition for _, partition in materialized] == ["fold_validation", "fold_train", "", "predict"]
 
 
 def _record(classes, proba, pred=2.):

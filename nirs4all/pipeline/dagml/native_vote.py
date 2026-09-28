@@ -22,8 +22,8 @@ EVIDENCE_KEY = "classification_evidence"
 def capture_vote_evidence(
     task: dict[str, Any], resolver: Any, estimator: Any,
     predictions: list[dict[str, Any]], train_ids: list[str],
-    features: Callable[[list[str], bool], tuple[Any, dict[str, Any]]],
-    predict: Callable[[list[str], bool], list[list[float]]],
+    features: Callable[[list[str], bool, str], tuple[Any, dict[str, Any]]],
+    predict: Callable[[list[str], bool, str], list[list[float]]],
     model_store: MutableMapping[Any, Any],
 ) -> None:
     """Capture labelled fold/refit outputs; never fit or replace a native block."""
@@ -51,13 +51,17 @@ def capture_vote_evidence(
     for ids, partition, values in specs:
         if len(ids) != len(set(ids)):
             raise ValueError("classification evidence requires unique row identities")
-        y_pred = np.asarray(values if values is not None else predict(ids, False), dtype=float).reshape(len(ids), -1)
+        view_partition = (
+            {"train": "fold_train", "validation": "fold_validation", "test": "predict"}.get(partition, "")
+            if phase == "FIT_CV" else {"train": "full_train", "test": "predict"}.get(partition, "")
+        )
+        y_pred = np.asarray(values if values is not None else predict(ids, False, view_partition), dtype=float).reshape(len(ids), -1)
         y_true = np.asarray(resolver.resolve_targets(ids)["values"], dtype=float).reshape(len(ids), -1)
         if y_pred.shape != y_true.shape or y_true.shape[1] != 1:
             raise ValueError("classification vote evidence requires one aligned target")
         probabilities = None
         if callable(getattr(estimator, "predict_proba", None)):
-            feature_values, options = features(ids, False)
+            feature_values, options = features(ids, False, view_partition)
             proba = np.asarray(estimator.predict_proba(feature_values, **options), dtype=float)
             if (proba.shape != (len(ids), len(classes)) or not np.isfinite(proba).all()
                     or np.any(proba < 0) or np.any(proba > 1) or not np.allclose(proba.sum(axis=1), 1, atol=1e-7, rtol=1e-7)):
