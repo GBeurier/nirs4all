@@ -69,6 +69,13 @@ def _run_cancellable_worker(command: list[str], should_stop: Any = None) -> subp
                     with contextlib.suppress(ProcessLookupError):
                         process.kill()
                 process.communicate()
+            finally:
+                # communicate() only waits for the outer worker. Candidate
+                # children have separate pipes and may ignore SIGTERM, so reap
+                # the remaining group even when the worker exited promptly.
+                if os.name == "posix":
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGKILL)
         raise
 
 

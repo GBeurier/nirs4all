@@ -1252,9 +1252,9 @@ def test_generated_hpo_parallel_subprocess_resumes_and_exports(tmp_path: Path, m
         resumed.close()
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group cancellation")
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux process-group cancellation")
 def test_generated_hpo_parallel_subprocess_cancels_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cancelling the outer worker also signals its active candidate children."""
+    """Cancelling the outer worker kills candidates that ignore SIGTERM."""
     base = _cohort()
     markers = tmp_path / "candidate-signals"
     markers.mkdir()
@@ -1267,7 +1267,6 @@ def test_generated_hpo_parallel_subprocess_cancels_candidates(tmp_path: Path, mo
 
         def on_terminate(_number: int, _frame: Any) -> None:
             (markers / f"terminated-{pid}").touch()
-            raise SystemExit(0)
 
         signal.signal(signal.SIGTERM, on_terminate)
         (markers / f"active-{pid}").touch()
@@ -1302,6 +1301,22 @@ def test_generated_hpo_parallel_subprocess_cancels_candidates(tmp_path: Path, mo
         time.sleep(0.02)
     terminated = {path.name.removeprefix("terminated-") for path in markers.glob("terminated-*")}
     assert active and active <= terminated
+
+    def running(pid: str) -> bool:
+        stat = Path(f"/proc/{pid}/stat")
+        try:
+            return stat.read_text().split()[2] != "Z"
+        except FileNotFoundError:
+            return False
+
+    try:
+        while any(running(pid) for pid in active) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not any(running(pid) for pid in active)
+    finally:
+        for pid in active:
+            if running(pid):
+                os.kill(int(pid), signal.SIGKILL)
     assert not (tmp_path / "native" / "manifest.json").exists()
 
 
