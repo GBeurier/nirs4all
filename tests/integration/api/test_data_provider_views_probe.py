@@ -7,6 +7,9 @@ import hashlib
 import inspect
 import json
 import pickle
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -23,6 +26,70 @@ from nirs4all.pipeline.dagml.generated_views import GeneratedViewStore, _model_v
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.native_results import read_native_results, write_native_results
 from tests.integration.api.test_multimodal_dagml import _cohort
+
+
+def test_generated_hpo_trial_stores_serialize_shared_provider_callbacks() -> None:
+    """Trial handle namespaces may differ, but IO view generation is shared state."""
+    base = _cohort()
+    active = 0
+    peak_active = 0
+    counter_lock = threading.Lock()
+    start = threading.Barrier(2)
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": base.sample_ids, "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+        nonlocal active, peak_active
+        with counter_lock:
+            active += 1
+            peak_active = max(peak_active, active)
+        try:
+            time.sleep(0.1)  # Releases the GIL while the shared provider callback is active.
+            original = base.take(sample_ids).sources["nir"]
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                np.asarray(original.values) + float(seed % 7), sample_ids,
+                representation_id=original.representation_id,
+                axis_units=original.axis_units,
+                axis_coordinates=original.axis_coordinates,
+            )}}
+        finally:
+            with counter_lock:
+                active -= 1
+
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.concurrent-trial-views",
+        base=base, replace_sources=["nir"],
+    )
+    provider.materialize()
+    root = GeneratedViewStore(provider)
+    trials = [root.for_trial(), root.for_trial()]
+    selected = [base.sample_ids[0], base.sample_ids[1]]
+
+    def run_trial(index: int) -> tuple[dict[str, Any], Any]:
+        request = {
+            "input_name": "x", "phase": "FIT_CV",
+            "binding": {"input_name": "x", "feature_set_id": "x", "source_ids": ["src0"], "metadata": {}},
+            "view": {
+                "sample_ids": selected, "partition": "fold_train", "fold_id": "fold:0",
+                "source_ids": ["src0"], "columns": None, "branch_view": None,
+                "include_augmented": False, "include_excluded": False, "extra": {},
+            },
+            "view_key": "view:v1:" + str(index + 1) * 64, "view_seed": 19 + index,
+        }
+        handle = {"kind": "data_view", "handle": 1, "owner_controller": "controller:data.provider"}
+        start.wait(timeout=5)
+        receipt = trials[index]({"request": request, "handle": handle})
+        return receipt, trials[index].resolve(handle, selected)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(run_trial, range(2)))
+
+    assert peak_active == 1
+    assert [receipt["view_key"] for receipt, _ in results] == ["view:v1:" + digit * 64 for digit in ("1", "2")]
+    for index, (_, view) in enumerate(results):
+        expected = np.asarray(base.take(selected).sources["nir"].values) + float((19 + index) % 7)
+        np.testing.assert_array_equal(view.sources["nir"].values, expected)
 
 
 def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

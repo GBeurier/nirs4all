@@ -11,6 +11,7 @@ import copy
 import hashlib
 import json
 import math
+import threading
 from typing import Any, SupportsIndex
 
 import numpy as np
@@ -164,13 +165,15 @@ class GeneratedViewStore:
     def __reduce_ex__(self, protocol: SupportsIndex) -> Any:
         raise TypeError("live generated data view stores cannot be serialized")
 
-    def __init__(self, provider: Any) -> None:
-        recipe = provider.recipe()
-        if not recipe["params"]["_io_assembly"].get("view_generation"):
-            raise ValueError("GeneratedViewStore requires an IO provider with generate_view")
-        if "_dag_ml_view" in recipe["context"]:
-            raise ValueError("DataProvider context reserves _dag_ml_view for the native view scope")
-        provider.state_dict()  # PLAN must be complete and unchanged before any view callback.
+    def __init__(self, provider: Any, *, _provider_lock: Any = None) -> None:
+        self._provider_lock = _provider_lock if _provider_lock is not None else threading.RLock()
+        with self._provider_lock:
+            recipe = provider.recipe()
+            if not recipe["params"]["_io_assembly"].get("view_generation"):
+                raise ValueError("GeneratedViewStore requires an IO provider with generate_view")
+            if "_dag_ml_view" in recipe["context"]:
+                raise ValueError("DataProvider context reserves _dag_ml_view for the native view scope")
+            provider.state_dict()  # PLAN must be complete and unchanged before any view callback.
         self._provider = provider
         self._context = copy.deepcopy(recipe["context"])
         self._views: dict[int, tuple[dict[str, Any], tuple[str, ...], Any, dict[str, Any], dict[str, Any]]] = {}
@@ -178,14 +181,15 @@ class GeneratedViewStore:
 
     def for_trial(self) -> GeneratedViewStore:
         """Give one HPO candidate an isolated native-handle namespace."""
-        return GeneratedViewStore(self._provider)
+        return GeneratedViewStore(self._provider, _provider_lock=self._provider_lock)
 
     def provider_for_worker(self) -> Any:
         """Transfer the PLAN-complete provider, never the live receipt/buffer store."""
-        if self._views or self._by_key:
-            raise ValueError("generated worker requires a fresh view store")
-        self._provider.state_dict()
-        return self._provider
+        with self._provider_lock:
+            if self._views or self._by_key:
+                raise ValueError("generated worker requires a fresh view store")
+            self._provider.state_dict()
+            return self._provider
 
     def _context_for(self, view: dict[str, Any]) -> dict[str, Any]:
         context: dict[str, Any] = copy.deepcopy(self._context)
@@ -198,6 +202,10 @@ class GeneratedViewStore:
 
     def recheck_record(self, record: dict[str, Any]) -> dict[str, str]:
         """Regenerate a saved HPO view and compare its actual IO content."""
+        with self._provider_lock:
+            return self._recheck_record_locked(record)
+
+    def _recheck_record_locked(self, record: dict[str, Any]) -> dict[str, str]:
         if not isinstance(record, dict) or not isinstance(record.get("view"), dict):
             raise ValueError("Generated HPO resume requires a native view record")
         view = record["view"]
@@ -216,6 +224,10 @@ class GeneratedViewStore:
 
     def __call__(self, call: dict[str, Any]) -> dict[str, Any]:
         """Answer the native callback with an IO checkpoint and retain its buffers."""
+        with self._provider_lock:
+            return self._call_locked(call)
+
+    def _call_locked(self, call: dict[str, Any]) -> dict[str, Any]:
         if set(call) != {"request", "handle"}:
             raise ValueError("Native data-view callback must supply request and handle")
         request, handle = call["request"], call["handle"]
@@ -308,6 +320,10 @@ class GeneratedViewStore:
 
     def resolve(self, handle: dict[str, Any], sample_ids: list[str]) -> Any:
         """Return the exact attested cohort for a native view handle and ID order."""
+        with self._provider_lock:
+            return self._resolve_locked(handle, sample_ids)
+
+    def _resolve_locked(self, handle: dict[str, Any], sample_ids: list[str]) -> Any:
         if not isinstance(handle, dict) or type(handle.get("handle")) is not int:
             raise ValueError("Generated view resolution requires a native handle")
         record = self._views.get(handle["handle"])
@@ -321,16 +337,17 @@ class GeneratedViewStore:
         return cohort
 
     def _task_binding_for(self, handle: dict[str, Any], sample_ids: list[str]) -> tuple[dict[str, Any], dict[str, Any]]:
-        self.resolve(handle, sample_ids)
-        stored_handle, stored_ids, _cohort, state, request = self._views[handle["handle"]]
-        receipt = {
-            "handle": copy.deepcopy(stored_handle),
-            "view_key": request["view_key"],
-            "sample_ids": list(stored_ids),
-            "schema_fingerprint": state["schema_fingerprint"],
-            "content_fingerprint": state["fingerprint"],
-        }
-        return copy.deepcopy(request), receipt
+        with self._provider_lock:
+            self._resolve_locked(handle, sample_ids)
+            stored_handle, stored_ids, _cohort, state, request = self._views[handle["handle"]]
+            receipt = {
+                "handle": copy.deepcopy(stored_handle),
+                "view_key": request["view_key"],
+                "sample_ids": list(stored_ids),
+                "schema_fingerprint": state["schema_fingerprint"],
+                "content_fingerprint": state["fingerprint"],
+            }
+            return copy.deepcopy(request), receipt
 
     def bind_task(self, task: dict[str, Any]) -> GeneratedTaskViews:
         """Bind a native task's named view handles to its exact IO cohorts."""
