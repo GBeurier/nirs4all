@@ -22,6 +22,22 @@ from nirs4all.pipeline.dagml.tuning_contracts import (
 )
 
 
+def test_hpo_parallelism_keeps_sequential_checkpoint_identity() -> None:
+    base = {"engine": "n4m", "space": {"model.alpha": [0.1, 1.0]}}
+    sequential = parse_tuning_spec(base)
+    explicit_one = parse_tuning_spec({**base, "n_jobs": 1})
+    parallel = parse_tuning_spec({**base, "n_jobs": 2})
+    assert sequential.to_dict() == explicit_one.to_dict()
+    assert sequential.fingerprint == explicit_one.fingerprint
+    assert "n_jobs" not in sequential.to_dict()
+    assert parallel.to_dict()["n_jobs"] == 2
+    assert parallel.fingerprint != sequential.fingerprint
+    assert parse_tuning_spec({**base, "n_jobs": -1}).n_jobs == -1
+    for invalid in (0, -2, True, "2"):
+        with pytest.raises(ValueError, match="n_jobs must be positive or -1"):
+            parse_tuning_spec({**base, "n_jobs": invalid})
+
+
 def test_parse_tuning_spec_normalizes_public_contract_and_fingerprint() -> None:
     spec = parse_tuning_spec(
         {

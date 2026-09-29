@@ -8,6 +8,7 @@ import pickle
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -849,6 +850,129 @@ def test_generated_hpo_views_resume_from_io_content_checkpoint(tmp_path: Path, m
         continuous.close()
 
 
+def test_generated_hpo_parallel_candidates_resume_with_original_proposals(tmp_path: Path) -> None:
+    """Two isolated providers run together; a partial batch resumes exactly."""
+    base = _cohort()
+    markers = tmp_path / "candidate-pids"
+    markers.mkdir()
+
+    def configured(offset: float = 0.0) -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            (markers / str(os.getpid())).touch()
+            deadline = time.monotonic() + 15
+            while len(list(markers.iterdir())) < 2 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            if len(list(markers.iterdir())) < 2:
+                raise AssertionError("generated HPO candidates did not overlap")
+            source = base.take(sample_ids).sources["nir"]
+            values = np.asarray(source.values) + 10.0 + float(seed % 7) + offset
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                values, sample_ids, representation_id=source.representation_id,
+                axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(generate, generate_view=generate_view,
+                            provider_id="qualification.view.hpo.parallel", base=base, replace_sources=["nir"])
+
+    study = tmp_path / "parallel-study"
+    tuning = {**_tuning(study), "n_trials": 3, "n_jobs": 2}
+    options = {
+        "engine": "dag-ml", "refit": True, "save_artifacts": False,
+        "save_charts": False, "random_state": 19, "verbose": 0,
+    }
+
+    def execute(provider: DataProvider, controls: dict[str, Any], results: str) -> Any:
+        return nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], provider, tuning=controls,
+            results_path=tmp_path / results, **options,
+        )
+
+    with pytest.raises(MultimodalTuningStopped):
+        execute(configured(), {
+            **tuning, "progress_callback": lambda event: len(event["checkpoint"]["trials"]) < 1,
+        }, "interrupted-results")
+    assert len(list(markers.iterdir())) >= 2
+    first = _checkpoint(study)["native_checkpoint"]["trials"]
+    assert len(first) == 2
+    saved_bytes = (study / "multimodal.n4mopt.json").read_bytes()
+    with pytest.raises(Exception, match="view content differs|resume changed content"):
+        execute(configured(1.0), {**tuning, "resume": True}, "changed-results")
+    assert (study / "multimodal.n4mopt.json").read_bytes() == saved_bytes
+
+    resumed = execute(configured(), {**tuning, "resume": True}, "resumed-results")
+    continuous = execute(
+        configured(), {**tuning, "storage": (tmp_path / "continuous-study").as_uri()},
+        "continuous-results",
+    )
+    try:
+        assert [trial.to_dict() for trial in resumed.tuning_result.trials] == [
+            trial.to_dict() for trial in continuous.tuning_result.trials
+        ]
+        assert _checkpoint(study)["native_checkpoint"]["trials"][:2] == first
+        assert resumed.tuning_best_params == continuous.tuning_best_params
+        assert resumed._dagml_generated_view_manifest["views"]
+        archive = resumed.export(tmp_path / "parallel-generated.n4a")
+        prediction = _cohort(prediction=True)
+        fitted = resumed._dagml_refit_artifacts[0]["estimator"]
+        expected = fitted.predict([prediction.sources[name].values for name in fitted.source_names])
+        replay = nirs4all.predict(archive, prediction)
+        np.testing.assert_allclose(replay.y_pred.reshape(-1), np.asarray(expected).reshape(-1))
+        assert replay.metadata["training_performed"] is False
+    finally:
+        resumed.close()
+        continuous.close()
+
+
+def test_generated_hpo_parallel_failure_keeps_shared_view_manifest(tmp_path: Path) -> None:
+    """A failed candidate cannot erase a successful peer's verified views."""
+    base = _cohort()
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+        source = base.take(sample_ids).sources["nir"]
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            np.asarray(source.values) + float(seed % 7), sample_ids,
+            representation_id=source.representation_id, axis_units=source.axis_units,
+            axis_coordinates=source.axis_coordinates,
+        )}}
+
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.hpo.parallel-failure",
+        base=base, replace_sources=["nir"],
+    )
+    study = tmp_path / "parallel-failure-study"
+    controls = {**_tuning(study, failed_candidate=True), "n_trials": 3, "n_jobs": 2}
+    options = {
+        "engine": "dag-ml", "refit": True, "save_artifacts": False,
+        "save_charts": False, "random_state": 19, "verbose": 0,
+        "results_path": tmp_path / "parallel-failure-results",
+    }
+    with pytest.raises(Exception, match="n_components=99"):
+        nirs4all.run([GroupKFold(3), {"model": _model()}], provider, tuning=controls, **options)
+    trials = _checkpoint(study)["native_checkpoint"]["trials"]
+    assert [trial["state"] for trial in trials] == ["failed", "complete"]
+    failed_manifest = trials[0]["generated_view_manifest"]
+    successful_manifest = trials[1]["evidence"]["generated_view_manifest"]
+    assert failed_manifest == successful_manifest
+    assert failed_manifest["views"]
+
+    resumed = nirs4all.run(
+        [GroupKFold(3), {"model": _model()}], provider,
+        tuning={**controls, "resume": True},
+        **{**options, "results_path": tmp_path / "parallel-failure-resumed"},
+    )
+    try:
+        assert len(resumed.tuning_result.trials) == 3
+        assert _checkpoint(study)["native_checkpoint"]["trials"][:2] == trials
+    finally:
+        resumed.close()
+
+
 def test_generated_hpo_rejects_unsupported_model_before_plan(tmp_path: Path) -> None:
     base = _cohort()
 
@@ -1050,6 +1174,25 @@ def test_generated_hpo_subprocess_rejects_progress_callback_before_plan(tmp_path
             engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
             results_path=tmp_path / "native", random_state=19, verbose=0,
             tuning={**_tuning(tmp_path / "study"), "progress_callback": lambda _event: True},
+        )
+
+
+def test_generated_hpo_subprocess_rejects_parallel_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden(**_: Any) -> Any:
+        pytest.fail("Parallel subprocess mode executed the provider")
+
+    base = _cohort()
+    provider = DataProvider(
+        forbidden, generate_view=forbidden, provider_id="qualification.view.subprocess-parallel-refused",
+        base=base, replace_sources=["nir"],
+    )
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    with pytest.raises(NotImplementedError, match="parallel HPO requires an in-process host"):
+        nirs4all.run(
+            [KFold(3), {"model": _model()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "native", random_state=19, verbose=0,
+            tuning={**_tuning(tmp_path / "study"), "n_jobs": 2},
         )
 
 

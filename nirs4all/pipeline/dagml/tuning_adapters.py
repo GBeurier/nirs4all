@@ -211,6 +211,10 @@ def optimize_pipeline_objective(
 ) -> TuningResult:
     """Dispatch the objective to the optimizer selected by its tuning spec."""
 
+    if objective.tuning.n_jobs != 1:
+        raise NotImplementedError(
+            "tuning.n_jobs currently requires the native multimodal host HPO path"
+        )
     if objective.tuning.engine == "optuna":
         return OptunaPipelineObjectiveAdapter().optimize(
             objective,

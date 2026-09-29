@@ -37,6 +37,27 @@ class MultimodalTuningStopped(RuntimeError):
         self.evidence = evidence
 
 
+def _evaluate_host_task(
+    task: dict[str, Any], *, resolver: Any, nodes: dict[str, Any], graph: dict[str, Any],
+    model_store: dict[Any, Any], view_store: Any, operator_seed: int,
+) -> dict[str, Any]:
+    """Apply the same per-task seed and native task mapping in either host process."""
+    from nirs4all.pipeline.runner import init_global_random_state
+
+    task_seed = int(tcv1_sha256({
+        "seed": operator_seed, "variant": task.get("variant_id"), "fold": task.get("fold_id"),
+        "node": task["node_plan"]["node_id"], "phase": task["phase"],
+    })[:8], 16)
+    init_global_random_state(task_seed)
+    host_task = copy.deepcopy(task)
+    for choice in (host_task.get("variant") or {}).get("choices", {}).values():
+        for override in choice.get("param_overrides", []):
+            override["params"] = {key.replace(".", "__"): value for key, value in override.get("params", {}).items()}
+    generated_views = view_store.bind_task(host_task) if view_store is not None else None
+    return run_node(host_task, resolver, nodes.__getitem__, model_store, graph.get("edges", []), None,
+                    generated_views=generated_views)
+
+
 def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_options: dict[str, Any]) -> Any:
     """Use DAG for folds, trial execution, scoring and winner selection; N4M for proposals."""
     from .cancellation import DagRunCancelled
@@ -81,6 +102,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise ValueError(f"multimodal {'classification' if classification else 'regression'} tuning requires one of {sorted(supported_metrics)}")
     if spec.force_params is not None:
         raise ValueError("durable multimodal tuning does not yet support queued force_params")
+    parallel_candidates = spec.n_jobs != 1
     from nirs4all.pipeline.runner import init_global_random_state
 
     operator_seed = run_options.get("random_state")
@@ -145,27 +167,33 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         request["parameter_bindings"] = recipe.bindings
 
     def evaluate(task: dict[str, Any], *, model_store: dict[Any, Any], view_store: Any = None) -> dict[str, Any]:
-        # Starting from the same native task identity also reproduces unseeded
-        # sklearn operators after resume, independently of earlier callbacks.
-        task_seed = int(tcv1_sha256({
-            "seed": operator_seed, "variant": task.get("variant_id"), "fold": task.get("fold_id"),
-            "node": task["node_plan"]["node_id"], "phase": task["phase"],
-        })[:8], 16)
-        init_global_random_state(task_seed)
-        # The portable tuning contract uses dotted paths; sklearn uses '__'.
-        host_task = copy.deepcopy(task)
-        for choice in (host_task.get("variant") or {}).get("choices", {}).values():
-            for override in choice.get("param_overrides", []):
-                override["params"] = {key.replace(".", "__"): value for key, value in override.get("params", {}).items()}
-        generated_views = view_store.bind_task(host_task) if view_store is not None else None
-        return run_node(host_task, resolver, nodes.__getitem__, model_store, graph.get("edges", []), None,
-                        generated_views=generated_views)
+        # Native task identity reproduces unseeded operators across resume.
+        return _evaluate_host_task(
+            task, resolver=resolver, nodes=nodes, graph=graph, model_store=model_store,
+            view_store=view_store, operator_seed=operator_seed,
+        )
 
     trial_view_stores: dict[int, Any] = {}
+    candidate_processes: dict[int, Any] = {}
+
+    def candidate_process(index: int) -> Any:
+        worker = candidate_processes.get(index)
+        if worker is None:
+            from .host_hpo_candidate import HostHpoCandidate
+
+            provider = generated_store.provider_for_worker() if generated_store is not None else None
+            worker = HostHpoCandidate(
+                index, provider=provider, dataset=dataset, identity=identity,
+                graph=graph, operator_seed=operator_seed,
+            )
+            candidate_processes[index] = worker
+        return worker
 
     def view_callback_factory(index: int) -> Any:
         if generated_store is None:
             raise ValueError("static HPO cannot create generated view callbacks")
+        if parallel_candidates:
+            return lambda call: candidate_process(index).call("view", call)
         if index in trial_view_stores:
             raise ValueError("generated HPO candidate reused its trial index")
         view_store = generated_store.for_trial()
@@ -173,6 +201,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         return view_store
 
     def candidate_callback_factory(index: int) -> Any:
+        if parallel_candidates:
+            return lambda task: candidate_process(index).call("operator", task)
         view_store = trial_view_stores[index]
         model_store: dict[Any, Any] = {}
 
@@ -197,6 +227,10 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             # The optimizer is still RUNNING here; publish only after tell/fail.
             return True
         optimizer.checkpoint(event)
+        terminal_count = len(event["checkpoint"]["trials"])
+        for index in list(candidate_processes):
+            if index < terminal_count:
+                candidate_processes.pop(index).close()
         response = progress(copy.deepcopy(event)) if progress is not None else True
         if should_stop is not None and should_stop():
             stop_requested = True
@@ -208,12 +242,16 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             dsl, envelope, controller_manifests(), request,
             fallback_evaluate, optimizer,
             resume_checkpoint=optimizer.resume_checkpoint, progress_callback=checkpoint,
-            candidate_callback_factory=candidate_callback_factory if generated_store is not None else None,
+            candidate_callback_factory=candidate_callback_factory if generated_store is not None or parallel_candidates else None,
             view_callback_factory=view_callback_factory if generated_store is not None else None,
             resume_view_validator=generated_store.recheck_record if generated_store is not None and optimizer.resume_checkpoint is not None else None,
         )
     finally:
-        optimizer.close()
+        try:
+            for worker in candidate_processes.values():
+                worker.close()
+        finally:
+            optimizer.close()
     if evidence["status"] == "cancelled":
         if stop_requested:
             raise DagRunCancelled("DAG multimodal search cancelled by caller; checkpoint saved for resume=True")

@@ -1120,6 +1120,7 @@ def test_public_tuning_vocabulary_constants_match_registry_and_runtime() -> None
         "engine",
         "force_params",
         "metric",
+        "n_jobs",
         "n_trials",
         "pruner",
         "resume",

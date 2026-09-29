@@ -42,14 +42,26 @@ class HostSearchOptimizer:
                 direction=adapters._n4m_enum(self.api.Direction, tuning.direction), seed=tuning.seed or 0,
             )
             adapters._enqueue_n4m_force_params(self.optimizer, tuning, adapters._slot_categorical_codecs(self.slots))
-        self.pending: dict[int, Any] = {}
+        # Parallel DAG-ML may have asked ahead of its contiguous terminal
+        # checkpoint. Keep those RUNNING native trials so resume replays their
+        # original IDs and parameters instead of asking for new proposals.
+        self.pending: dict[int, Any] = (
+            {
+                record.id: record
+                for record in self.optimizer.get_trials()[len(self.resume_checkpoint["trials"]):]
+            }
+            if self.resume_checkpoint is not None else {}
+        )
 
     def _validate_history(self, checkpoint: dict[str, Any]) -> None:
         records = self.optimizer.get_trials()
         trials = checkpoint["trials"]
-        if len(records) != len(trials):
+        if len(records) < len(trials):
             raise ValueError("native DAG and optimizer checkpoint trial counts disagree")
-        for record, trial in zip(records, trials, strict=True):
+        if any(record.id != index or adapters._n4m_trial_state(record.status) != "RUNNING"
+               for index, record in enumerate(records[len(trials):], start=len(trials))):
+            raise ValueError("native DAG and optimizer checkpoint has non-running pending trials")
+        for record, trial in zip(records[:len(trials)], trials, strict=True):
             evidence = trial.get("evidence", trial)
             params = adapters._decode_n4m_record_params(record.params, self.slots)
             complete = trial["state"] == "complete"
@@ -61,6 +73,9 @@ class HostSearchOptimizer:
     def __call__(self, event: dict[str, Any]) -> Any:
         index = event["trial_index"]
         if event["operation"] == "ask":
+            trial = self.pending.get(index)
+            if trial is not None:
+                return adapters._decode_n4m_record_params(trial.params, self.slots)
             trial = self.optimizer.ask()
             if trial.id != index:
                 raise ValueError("native DAG and optimizer trial IDs disagree")
