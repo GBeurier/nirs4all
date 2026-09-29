@@ -92,11 +92,8 @@ def prepare_data_provider(
             raise ValueError("generate_view requires a non-negative 32-bit integer random_state or None")
         from .in_process_runner import in_process_enabled
 
-        if not in_process_enabled():
-            if tuning is not None:
-                raise NotImplementedError("generate_view tuning requires in-process execution; subprocess HPO is not qualified")
-            if should_stop is not None:
-                raise NotImplementedError("generate_view subprocess execution does not support a cancellation callback")
+        if not in_process_enabled() and tuning is not None:
+            raise NotImplementedError("generate_view tuning requires in-process execution; subprocess HPO is not qualified")
         import importlib
         import inspect
 

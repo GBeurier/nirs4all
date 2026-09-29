@@ -594,8 +594,9 @@ Python worker: it receives the completed `PLAN` provider, creates its own view
 store, and returns the native view manifest and fitted refit artifacts. The
 provider callbacks must be serializable by `cloudpickle`, and that interpreter
 must have the DAG-ML Python binding installed. This path does not use
-`dag-ml-cli`. Generated-view tuning and a `should_stop` callback are refused
-before `PLAN` in subprocess mode. Parallel generated-view trials and separate
+`dag-ml-cli`. The parent's `should_stop` callback can cancel the worker; no
+completed run or refit archive is published in that case. Generated-view
+tuning remains refused before `PLAN` in subprocess mode. Parallel generated-view trials and separate
 transform nodes on multiple raw sources remain outside this profile.
 Multimodal synthetic data in this example are test fixtures, not a new product
 generator.
