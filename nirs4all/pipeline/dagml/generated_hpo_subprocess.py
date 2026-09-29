@@ -52,7 +52,7 @@ def run_generated_hpo_subprocess(
             cohort._generated_view_store = store
         command = [
             str(run_options.get("venv_python") or sys.executable),
-            "-m", "nirs4all.pipeline.dagml.generated_hpo_worker",
+            "-P", "-s", "-B", "-m", "nirs4all.pipeline.dagml.generated_hpo_worker",
             str(request_path), str(response_path),
         ]
         completed: subprocess.CompletedProcess[str] = _run_cancellable_worker(

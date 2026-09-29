@@ -15,6 +15,7 @@ from typing import Any
 import cloudpickle
 
 from .resources import current_execution_resources
+from .worker_environment import scientific_worker_environment
 
 
 def _relay_worker_progress(directory: Path, callback: Callable[[dict[str, Any]], Any]) -> None:
@@ -57,6 +58,7 @@ def _run_cancellable_worker(
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=os.name == "posix",
+        env=scientific_worker_environment(command[0]),
     )
     try:
         while True:
@@ -164,7 +166,7 @@ def run_generated_subprocess(
         finally:
             cohort._generated_view_store = store
         command = [
-            str(venv_python or sys.executable), "-m", "nirs4all.pipeline.dagml.generated_worker",
+            str(venv_python or sys.executable), "-P", "-s", "-B", "-m", "nirs4all.pipeline.dagml.generated_worker",
             str(request_path), str(response_path),
         ]
         completed = _run_cancellable_worker(command)
