@@ -933,21 +933,126 @@ def test_generated_view_rejects_invalid_run_seed_before_plan(random_state: int, 
         )
 
 
-def test_generated_view_rejects_subprocess_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generated_view_subprocess_replays_native_manifest_and_refit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child owns all fold views; the parent receives native evidence and a fitted model."""
+    base = _cohort(unequal_groups=True)
+
+    def make_provider(marker: Path) -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            with marker.open("a", encoding="utf-8") as stream:
+                stream.write(f"{os.getpid()}\n")
+            source = base.take(sample_ids).sources["nir"]
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                np.asarray(source.values) + 10.0 + float(seed % 7), sample_ids,
+                representation_id=source.representation_id, axis_units=source.axis_units,
+                axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(
+            generate, generate_view=generate_view, provider_id="qualification.view.subprocess",
+            base=base, replace_sources=["nir"],
+        )
+
+    def run(provider: DataProvider, name: str) -> Any:
+        return nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / name, random_state=19, verbose=0,
+        )
+
+    direct_marker = tmp_path / "direct-pids.txt"
+    direct = run(make_provider(direct_marker), "direct")
+    worker_marker = tmp_path / "worker-pids.txt"
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    monkeypatch.setattr("nirs4all.pipeline.dagml.run_backend._default_dagml_cli", lambda: tmp_path / "missing-cli")
+    worker = run(make_provider(worker_marker), "worker")
+    try:
+        assert set(direct_marker.read_text().splitlines()) == {str(os.getpid())}
+        child_pids = set(worker_marker.read_text().splitlines())
+        assert len(child_pids) == 1 and str(os.getpid()) not in child_pids
+        assert np.isfinite(worker.best_rmse)
+        np.testing.assert_allclose(worker.best_rmse, direct.best_rmse)
+        assert worker._dagml_generated_view_manifest == direct._dagml_generated_view_manifest
+        assert read_native_results(worker._dagml_results_dir)["generated_view_manifest"] == worker._dagml_generated_view_manifest
+        assert len(worker._dagml_refit_artifacts) == 1
+        prediction = _cohort(prediction=True)
+        archive = worker.export(tmp_path / "worker.n4a")
+        captured = worker._dagml_refit_artifacts[0]["estimator"]
+        expected = captured.predict([prediction.sources[name].values for name in captured.source_names])
+        np.testing.assert_allclose(nirs4all.predict(archive, prediction).y_pred.reshape(-1), np.asarray(expected).reshape(-1))
+    finally:
+        direct.close()
+        worker.close()
+
+
+def test_generated_by_source_subprocess_keeps_prediction_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The child also preserves distinct source chains through the refit archive."""
+    base = _cohort(unequal_groups=True)
+    marker = tmp_path / "by-source-pids.txt"
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], **_: Any) -> dict[str, Any]:
+        with marker.open("a", encoding="utf-8") as stream:
+            stream.write(f"{os.getpid()}\n")
+        source = base.take(sample_ids).sources["nir"]
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            np.asarray(source.values) + 30.0, sample_ids,
+            representation_id=source.representation_id, axis_units=source.axis_units,
+            axis_coordinates=source.axis_coordinates,
+        )}}
+
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.by-source-subprocess",
+        base=base, replace_sources=["nir"],
+    )
+    source_steps = {name: [transformer] for name, transformer in _model().transformers.items()}
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    result = nirs4all.run(
+        [
+            GroupKFold(3), {"branch": {"by_source": True, "steps": source_steps}},
+            {"merge": {"sources": "concat"}}, {"model": Ridge(alpha=0.2)},
+        ],
+        provider, engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        child_pids = set(marker.read_text().splitlines())
+        assert len(child_pids) == 1 and str(os.getpid()) not in child_pids
+        assert len(result._dagml_refit_artifacts) == 1
+        assert result._dagml_generated_view_manifest == read_native_results(result._dagml_results_dir)["generated_view_manifest"]
+        archive = result.export(tmp_path / "by-source-worker.n4a")
+        prediction = _cohort(prediction=True)
+        captured = result._dagml_refit_artifacts[0]["estimator"]
+        expected = captured.predict([prediction.sources[name].values for name in base.sources])
+        np.testing.assert_allclose(nirs4all.predict(archive, prediction).y_pred.reshape(-1), np.asarray(expected).reshape(-1))
+    finally:
+        result.close()
+
+
+@pytest.mark.parametrize("option", ["tuning", "should_stop"])
+def test_generated_view_subprocess_refuses_untransported_control_before_plan(
+    option: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def forbidden(**_: Any) -> Any:
         pytest.fail("Subprocess mode executed the provider")
 
     base = _cohort()
     provider = DataProvider(
-        forbidden, generate_view=forbidden, provider_id="qualification.view.subprocess-refused",
+        forbidden, generate_view=forbidden, provider_id="qualification.view.subprocess-control-refused",
         base=base, replace_sources=["nir"],
     )
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
-    with pytest.raises(NotImplementedError, match="subprocess execution is not qualified"):
+    options = {"tuning": _tuning(tmp_path / "study")} if option == "tuning" else {"should_stop": lambda: False}
+    with pytest.raises(NotImplementedError, match="subprocess (HPO|execution does not support)"):
         nirs4all.run(
             [KFold(3), {"model": _model()}], provider,
             engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
-            results_path=tmp_path / "native", random_state=19, verbose=0,
+            results_path=tmp_path / "native", random_state=19, verbose=0, **options,
         )
 
 

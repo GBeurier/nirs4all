@@ -588,10 +588,17 @@ multimodal cohort** to `nirs4all.predict(archive, new_cohort)`; prediction does
 not call the training provider or fit a model. Its sources must match the
 training schema, including names, shapes, axes, units and feature names. The
 archive does not regenerate training data and cannot be used for retraining.
-Other generated-view estimator shapes still refuse export. Parallel
-generated-view trials, subprocess execution and separate transform nodes on
-multiple raw sources remain outside this profile. Multimodal synthetic data in this example
-are test fixtures, not a new product generator.
+Other generated-view estimator shapes still refuse export. Set
+`N4A_DAGML_INPROCESS=0` to run the qualified CV/refit profile in an isolated
+Python worker: it receives the completed `PLAN` provider, creates its own view
+store, and returns the native view manifest and fitted refit artifacts. The
+provider callbacks must be serializable by `cloudpickle`, and that interpreter
+must have the DAG-ML Python binding installed. This path does not use
+`dag-ml-cli`. Generated-view tuning and a `should_stop` callback are refused
+before `PLAN` in subprocess mode. Parallel generated-view trials and separate
+transform nodes on multiple raw sources remain outside this profile.
+Multimodal synthetic data in this example are test fixtures, not a new product
+generator.
 
 ## Archive and scope
 

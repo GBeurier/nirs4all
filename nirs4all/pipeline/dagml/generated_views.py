@@ -180,6 +180,13 @@ class GeneratedViewStore:
         """Give one HPO candidate an isolated native-handle namespace."""
         return GeneratedViewStore(self._provider)
 
+    def provider_for_worker(self) -> Any:
+        """Transfer the PLAN-complete provider, never the live receipt/buffer store."""
+        if self._views or self._by_key:
+            raise ValueError("generated worker requires a fresh view store")
+        self._provider.state_dict()
+        return self._provider
+
     def _context_for(self, view: dict[str, Any]) -> dict[str, Any]:
         context: dict[str, Any] = copy.deepcopy(self._context)
         context["_dag_ml_view"] = {
