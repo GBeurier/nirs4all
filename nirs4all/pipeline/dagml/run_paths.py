@@ -492,7 +492,10 @@ def _run_concrete_scores(
     pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, excluded or set())
     envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
-    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+    dsl = assemble_cv_refit_dsl(
+        steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds),
+        force_fitted_x_chain=getattr(spectro, "_generated_view_store", None) is not None and len(steps) == 2,
+    )
 
     def run_callback() -> dict[str, Any]:
         import dag_ml

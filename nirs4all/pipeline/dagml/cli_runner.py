@@ -143,7 +143,7 @@ def needs_dynamic_feature_axis(pipeline: list[Any]) -> bool:
     )
 
 
-def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: dict[str, Any], folds: list[tuple[list[int], list[int]]], *, dsl_id: str = "nirs4all-pipeline", n_splits: int, source_id: str = _SOURCE_ID) -> dict[str, Any]:
+def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: dict[str, Any], folds: list[tuple[list[int], list[int]]], *, dsl_id: str = "nirs4all-pipeline", n_splits: int, source_id: str = _SOURCE_ID, force_fitted_x_chain: bool = False) -> dict[str, Any]:
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
@@ -151,7 +151,7 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     # fit. Keep that transformation as a native node so its output axis can be
     # handed to a downstream wavelength-aware operator in the same fold.
     dynamic_axis = needs_dynamic_feature_axis(pipeline)
-    if not dynamic_axis and not any(
+    if not force_fitted_x_chain and not dynamic_axis and not any(
         isinstance(step, dict) and (step.get("metadata") or {}).get("nirs4all_fit_on_all") is True
         for step in dsl["pipeline"]
     ):
@@ -163,7 +163,7 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     # handle reaches it through the graph edge instead of refitting at the model.
     graph = build_dagml_plan(pipeline, plan_id="plan:probe", dsl_id=dsl_id).to_dict()["graph_plan"]["graph"]
     model_id = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
-    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope, source_id=source_id, force=dynamic_axis)
+    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope, source_id=source_id, force=force_fitted_x_chain or dynamic_axis)
     return dsl
 
 

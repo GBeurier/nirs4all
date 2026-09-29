@@ -331,6 +331,93 @@ np.save('predictions.npy', result.y_pred)
         load_general_archive(damaged)
 
 
+def test_generated_fitted_transform_node_uses_fold_views_and_replays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A native transform task fits only the generated training view for its fold."""
+    complete = _cohort(unequal_groups=True)
+    base = MultimodalDataset(
+        {"nir": complete.sources["nir"]}, sample_ids=complete.sample_ids,
+        y=complete.y, groups=complete.groups, partitions=complete.partitions,
+    )
+    views: list[tuple[str, np.ndarray]] = []
+    fitted: list[np.ndarray] = []
+    original_fit = StandardScaler.fit
+
+    def observe_fit(self: StandardScaler, X: Any, y: Any = None, **kwargs: Any) -> StandardScaler:
+        fitted.append(np.asarray(X).copy())
+        return original_fit(self, X, y, **kwargs)
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], seed: int, context: dict[str, Any], **_: Any) -> dict[str, Any]:
+        source = base.take(sample_ids).sources["nir"]
+        values = np.asarray(source.values) + 30.0 + float(seed % 7)
+        views.append((context["_dag_ml_view"]["partition"], values.copy()))
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            values, sample_ids, representation_id=source.representation_id,
+            axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+        )}}
+
+    monkeypatch.setattr(StandardScaler, "fit", observe_fit)
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.fitted-transform",
+        base=base, replace_sources=["nir"],
+    )
+    result = nirs4all.run(
+        [GroupKFold(3), StandardScaler(), {"model": MultimodalRegressor({"nir": "passthrough"}, Ridge())}],
+        provider, engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        expected_fit = [values for partition, values in views if partition in {"fold_train", "full_train"}]
+        assert len(expected_fit) == len(fitted) == 4
+        for actual, expected in zip(fitted, expected_fit, strict=True):
+            np.testing.assert_array_equal(actual, expected)
+        assert all(np.min(values) > 20.0 for values in fitted)
+        assert any(node["node_id"].startswith("transform:") and node.get("consumed_data_views")
+                   for node in result._dagml_node_results)
+        archive = result.export(tmp_path / "generated-transform.n4a")
+        prediction = _cohort(prediction=True)
+        input_cohort = MultimodalDataset(
+            {"nir": prediction.sources["nir"]}, sample_ids=prediction.sample_ids,
+            partitions=["predict"] * len(prediction),
+        )
+        captured = result._dagml_refit_artifacts[0]["estimator"]
+        expected = captured.predict([input_cohort.sources["nir"].values])
+        replay = nirs4all.predict(archive, input_cohort)
+        np.testing.assert_allclose(replay.y_pred.reshape(-1), np.asarray(expected).reshape(-1))
+        assert replay.metadata["training_performed"] is False
+        assert len(fitted) == 4
+    finally:
+        result.close()
+
+
+def test_generated_fitted_transform_refuses_multiple_raw_sources_before_fit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shared sklearn transformer must not silently fit on four PLAN sources."""
+    base = _cohort(unequal_groups=True)
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], **_: Any) -> dict[str, Any]:
+        source = base.take(sample_ids).sources["nir"]
+        return {"sample_ids": sample_ids, "sources": {"nir": source}}
+
+    monkeypatch.setattr(StandardScaler, "fit", lambda *a, **k: pytest.fail("transform fitted on PLAN data"))
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.transform-multisource-refusal",
+        base=base, replace_sources=["nir"],
+    )
+    with pytest.raises(Exception, match="generated fitted transform requires one source"):
+        nirs4all.run(
+            [GroupKFold(3), StandardScaler(), {"model": _model()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "native", random_state=19, verbose=0,
+        )
+
+
 @pytest.mark.parametrize("splitter", [KFold(3), GroupKFold(3)])
 def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(
     splitter: KFold | GroupKFold, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
