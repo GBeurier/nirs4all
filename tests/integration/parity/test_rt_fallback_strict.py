@@ -37,7 +37,7 @@ def test_default_dagml_refusal_raises_rterror(monkeypatch: pytest.MonkeyPatch) -
     """A dag-ml unsupported shape RAISES ``RtError(cause='unsupported_shape')`` by default — no degrade."""
     import nirs4all.pipeline.dagml.run_backend as run_backend
 
-    monkeypatch.setattr(run_backend, "preflight_dagml_backend", lambda _cli: None)
+    monkeypatch.setattr(run_backend, "preflight_dagml_backend", lambda _cli, **_kwargs: None)
     monkeypatch.delenv("N4A_ENGINE", raising=False)
     with pytest.raises(RtError) as excinfo:
         nirs4all.run(pipeline=_unsupported_pipeline(), dataset=dataset_path("regression"), verbose=0)
@@ -51,7 +51,7 @@ def test_allow_fallback_false_raises_rterror(monkeypatch: pytest.MonkeyPatch) ->
     """The explicit strict spelling remains equivalent to the V1 default."""
     import nirs4all.pipeline.dagml.run_backend as run_backend
 
-    monkeypatch.setattr(run_backend, "preflight_dagml_backend", lambda _cli: None)
+    monkeypatch.setattr(run_backend, "preflight_dagml_backend", lambda _cli, **_kwargs: None)
     with pytest.raises(RtError) as excinfo:
         nirs4all.run(pipeline=_unsupported_pipeline(), dataset=dataset_path("regression"), engine="dag-ml", allow_fallback=False, verbose=0)
     assert excinfo.value.cause == "unsupported_shape"
@@ -75,7 +75,7 @@ def test_allow_fallback_false_raises_unavailable_backend_rterror(monkeypatch: py
     """A missing native backend is catchable as ``RtError(cause='unavailable_backend')`` by default."""
     import nirs4all.pipeline.dagml.run_backend as run_backend
 
-    def _unavailable(_cli: str) -> None:
+    def _unavailable(_cli: str, **_kwargs: object) -> None:
         raise DagMlUnavailable("simulated missing dag-ml backend")
 
     monkeypatch.setattr(run_backend, "preflight_dagml_backend", _unavailable)
