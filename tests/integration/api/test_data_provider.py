@@ -770,10 +770,8 @@ def test_generated_view_manifest_repeats_for_same_seed_and_changes_for_new_seed(
     assert first["fingerprint"] != changed["fingerprint"]
 
 
-def test_generated_hpo_views_support_native_sampler_and_pruning(tmp_path: Path) -> None:
-    """Generated fold views and a pruned trial must survive native HPO resume."""
-    base = _cohort(unequal_groups=True)
-
+def _native_hpo_view_provider(base: MultimodalDataset) -> DataProvider:
+    """Replace NIR per fold while retaining three fixed raw modalities."""
     def generate(**_: Any) -> dict[str, Any]:
         return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
 
@@ -785,11 +783,34 @@ def test_generated_hpo_views_support_native_sampler_and_pruning(tmp_path: Path) 
             axis_coordinates=source.axis_coordinates,
         )}}
 
-    def configured() -> DataProvider:
-        return DataProvider(
-            generate, generate_view=generate_view, provider_id="qualification.view.native-pruner",
-            base=base, replace_sources=["nir"],
-        )
+    return DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.native-pruner",
+        base=base, replace_sources=["nir"],
+    )
+
+
+@pytest.mark.parametrize("sampler", ["random", "sobol", "lhs", "ternary", "ga", "pso", "cmaes", "tpe", "gp_ei"])
+@pytest.mark.parametrize("pruner", ["none", "median", "asha", "hyperband", "racing"])
+def test_generated_hpo_views_support_every_native_optimizer_combination(sampler: str, pruner: str, tmp_path: Path) -> None:
+    """Each Methods optimizer combination executes generated folds and winner refit."""
+    result = nirs4all.run(
+        [GroupKFold(3), {"model": _model()}], _native_hpo_view_provider(_cohort(unequal_groups=True)),
+        tuning={"engine": "n4m", "sampler": sampler, "pruner": pruner, "seed": 19,
+                "metric": "rmse", "n_trials": 2, "space": {"model__alpha": (0.01, 1.0)}},
+        engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "result", random_state=19, verbose=0,
+    )
+    try:
+        assert [trial.state for trial in result.tuning_result.trials] == ["COMPLETE", "COMPLETE"]
+        assert result.tuning_best_value == min(trial.value for trial in result.tuning_result.trials)
+        assert result._dagml_generated_view_manifest["views"]
+        assert len(result._dagml_refit_artifacts) == 1
+    finally:
+        result.close()
+
+
+def test_generated_hpo_views_support_native_sampler_and_pruning(tmp_path: Path) -> None:
+    """Generated fold views and a pruned trial must survive native HPO resume."""
 
     tuning = {
         "engine": "n4m", "sampler": "sobol", "pruner": "asha", "seed": 19,
@@ -799,7 +820,7 @@ def test_generated_hpo_views_support_native_sampler_and_pruning(tmp_path: Path) 
 
     def execute(controls: dict[str, Any], output: str) -> Any:
         return nirs4all.run(
-            [GroupKFold(3), {"model": _model()}], configured(), tuning=controls,
+            [GroupKFold(3), {"model": _model()}], _native_hpo_view_provider(_cohort(unequal_groups=True)), tuning=controls,
             engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
             results_path=tmp_path / output, random_state=19, verbose=0,
         )

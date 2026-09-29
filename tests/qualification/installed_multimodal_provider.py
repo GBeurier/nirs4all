@@ -205,3 +205,26 @@ try:
     print("INSTALLED_PROGRESS_RESUME_OK", events)
 finally:
     resumed.close()
+
+
+if os.environ.get("N4A_FULL_HPO_MATRIX") == "1":
+    samplers = ("random", "sobol", "lhs", "ternary", "ga", "pso", "cmaes", "tpe", "gp_ei")
+    pruners = ("none", "median", "asha", "hyperband", "racing")
+    for sampler in samplers:
+        for pruner in pruners:
+            candidate = nirs4all.run(
+                [GroupKFold(3), {"model": model()}], provider(),
+                tuning={"engine": "n4m", "sampler": sampler, "pruner": pruner, "seed": 19,
+                        "metric": "rmse", "n_trials": 2, "space": {"model__alpha": (0.01, 1.0)}},
+                engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+                results_path=root / "optimizer-matrix" / f"{sampler}-{pruner}",
+                random_state=19, verbose=0,
+            )
+            try:
+                assert [trial.state for trial in candidate.tuning_result.trials] == ["COMPLETE", "COMPLETE"]
+                assert candidate.tuning_best_value == min(trial.value for trial in candidate.tuning_result.trials)
+                assert candidate._dagml_generated_view_manifest["views"]
+                assert len(candidate._dagml_refit_artifacts) == 1
+            finally:
+                candidate.close()
+    print("INSTALLED_GENERATED_HPO_MATRIX_OK", len(samplers) * len(pruners))
