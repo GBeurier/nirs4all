@@ -566,9 +566,10 @@ multimodal model in that case. The existing `by_source` branch with a distinct
 preprocessing list for each named source, followed by `{"merge": {"sources":
 "concat"}}` and a concrete model, also fits each source chain on its generated
 fold-train view. This branch uses one native model task to attest all input
-blocks. Its generated-view result is not yet exportable as a prediction archive;
-use source encoders inside `MultimodalRegressor` or `MultimodalClassifier` when
-archive prediction is required. Ragged series can be replaced as long as their
+blocks. Its refitted source chains can be exported in a prediction-only `.n4a`
+archive when the downstream model is a sklearn-style regressor, then replayed on a new explicit multimodal cohort, as can the source
+encoders inside `MultimodalRegressor` or `MultimodalClassifier`. Ragged series
+can be replaced as long as their
 declared schema is retained. For `MultimodalRegressor` or `MultimodalClassifier`,
 the **model-only** profile
 also supports sequential N4M random-search tuning (`engine="n4m"`, no pruning)
