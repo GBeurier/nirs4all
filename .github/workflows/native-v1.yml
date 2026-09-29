@@ -9,7 +9,7 @@ on:
 jobs:
   native-lifecycle:
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -66,3 +66,25 @@ jobs:
             tests/integration/api/test_installed_native_quickstart.py \
             tests/integration/api/test_installed_studio_general.py \
             tests/integration/api/test_general_dag_run.py
+      - name: Check out qualified DAG-ML CLI
+        if: matrix.python-version == '3.11'
+        uses: actions/checkout@v6
+        with:
+          repository: GBeurier/dag-ml
+          ref: f3e6ec34fec64515e8f270b4ce391f5ab44524eb
+          path: candidate-dag-ml
+      - name: Install Rust toolchain for DAG-ML CLI
+        if: matrix.python-version == '3.11'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build qualified DAG-ML CLI
+        if: matrix.python-version == '3.11'
+        run: cargo build --locked -p dag-ml-cli --manifest-path candidate-dag-ml/Cargo.toml
+      - name: Require multimodal HPO parity with installed Methods
+        if: matrix.python-version == '3.11'
+        env:
+          N4A_DAGML_CLI: ${{ github.workspace }}/candidate-dag-ml/target/debug/dag-ml-cli
+          NIRS4ALL_REQUIRE_HPO_CLI_PARITY: "1"
+        run: |
+          test -x "$N4A_DAGML_CLI"
+          test -f candidate-dag-ml/examples/adapters/hpo_n4m_optimizer.sh
+          python -m pytest -q tests/integration/api/test_multimodal_hpo_cli_parity.py
