@@ -469,9 +469,47 @@ def test_generated_views_fit_distinct_by_source_chains_on_four_modalities(
         assert all(np.min(values) > 20.0 for values in nir_fits)
         assert np.isfinite(result.best_rmse)
         assert result._dagml_generated_view_manifest is not None
-        assert result._dagml_generated_prediction_contract is None
-        with pytest.raises(Exception, match="generated data views have no qualified model replay contract"):
-            result.export(tmp_path / "by-source.n4a")
+        assert result._dagml_generated_prediction_contract["source_order"] == list(base.sources)
+        archive = result.export(tmp_path / "by-source.n4a")
+        prediction = _cohort(prediction=True)
+        captured = result._dagml_refit_artifacts[0]["estimator"]
+        expected_prediction = captured.predict([prediction.sources[name].values for name in base.sources])
+        result.close()
+        shutil.rmtree(tmp_path / "native")
+        (tmp_path / "prediction.pkl").write_bytes(pickle.dumps(prediction))
+        script = """
+import pickle, sys
+import numpy as np, nirs4all
+from nirs4all.pipeline import PipelineRunner
+from nirs4all.pipeline.dagml.node_runner import _SourceConcatEstimator
+from nirs4all.operators.models.multimodal import TensorPCA
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
+def forbidden(*args, **kwargs): raise AssertionError('archive prediction attempted fit or legacy run')
+for cls in (_SourceConcatEstimator, TensorPCA, Ridge, StandardScaler): cls.fit = forbidden
+PipelineRunner.run = forbidden
+with open('prediction.pkl', 'rb') as stream: cohort = pickle.load(stream)
+result = nirs4all.predict(sys.argv[1], cohort)
+assert result.metadata['phase'] == 'PREDICT'
+assert result.metadata['training_performed'] is False
+np.save('predictions.npy', result.y_pred)
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(archive.resolve())], cwd=tmp_path,
+            env=dict(os.environ), capture_output=True, text=True, timeout=90, check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        np.testing.assert_allclose(np.load(tmp_path / "predictions.npy").reshape(-1), np.asarray(expected_prediction).reshape(-1))
+        nir = prediction.sources["nir"]
+        changed = dict(prediction.sources)
+        changed["nir"] = TensorSource(
+            nir.values, nir.sample_ids, representation_id=nir.representation_id,
+            axis_units={"wavelength": "um"}, axis_coordinates=nir.axis_coordinates,
+        )
+        invalid = MultimodalDataset(changed, sample_ids=prediction.sample_ids,
+                                    partitions=["predict"] * len(prediction))
+        with pytest.raises(Exception, match="input schema mismatch"):
+            nirs4all.predict(archive, invalid)
     finally:
         result.close()
 

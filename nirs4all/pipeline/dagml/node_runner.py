@@ -1444,6 +1444,15 @@ def run_model_node(
                 source_chains or [],
                 preserve_legacy_sources_after_merge=_source_concat_preserve_legacy_sources(graph_node),
             )
+            if generated_views is not None:
+                spec = training_metadata.get("source_concat_preprocessing") or {}
+                sources = spec.get("sources") or []
+                source_name_order = tuple(source.get("source_name") for source in sources)
+                if (len(source_name_order) != len(source_chains)
+                        or not all(isinstance(name, str) and name for name in source_name_order)
+                        or len(set(source_name_order)) != len(source_name_order)):
+                    raise ValueError("generated source concat requires distinct named source chains")
+                estimator.source_names = source_name_order
         elif multi_block:
             source_names = tuple(model.transformers) if isinstance(model, (MultimodalRegressor, MultimodalClassifier)) else None
             if source_templates is None and feature_axes is not None:

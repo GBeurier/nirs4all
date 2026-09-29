@@ -42,16 +42,31 @@ def validate_input_contract(estimator: Any, dataset: Any) -> None:
 
 def generated_prediction_contract(estimator: Any) -> dict[str, Any] | None:
     """Qualify a captured generated-view model for explicit-cohort prediction."""
+    from sklearn.base import is_regressor
+
     from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
+
+    from .node_runner import _SourceConcatEstimator
 
     model = getattr(estimator, "_model", estimator)
     schema = getattr(estimator, "multimodal_input_schema", None)
     names = getattr(estimator, "source_names", None)
-    if (not isinstance(model, (MultimodalRegressor, MultimodalClassifier))
+    source_concat = isinstance(estimator, _SourceConcatEstimator)
+    if source_concat and (
+        not isinstance(names, (list, tuple))
+        or len(estimator._source_chains) != len(names)
+        or len(getattr(estimator, "_source_widths", ())) != len(names)
+        or not is_regressor(model)
+        or not callable(getattr(model, "predict", None))
+    ):
+        return None
+    if (not (isinstance(model, (MultimodalRegressor, MultimodalClassifier)) or source_concat)
             or not isinstance(schema, dict) or not schema
             or not isinstance(names, (list, tuple)) or set(names) != set(schema)
             or len(names) != len(set(names))
             or not all(isinstance(name, str) and name for name in names)):
+        return None
+    if source_concat and list(names) != list(schema):
         return None
     try:
         schema_sha256 = generated_input_schema_sha256(schema)
