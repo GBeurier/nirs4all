@@ -31,6 +31,7 @@ SUPPORTED_TUNING_KEYS = frozenset(
         "engine",
         "force_params",
         "metric",
+        "n_jobs",
         "n_trials",
         "pruner",
         "resume",
@@ -427,6 +428,7 @@ class DagMLTuningSpec:
     metric: str = "rmse"
     direction: TuningDirection = "minimize"
     n_trials: int = 50
+    n_jobs: int = 1
     sampler: str | None = None
     pruner: str | None = None
     seed: int | None = None
@@ -448,6 +450,8 @@ class DagMLTuningSpec:
         sampler = None if self.sampler is None else _normalize_non_empty_string(self.sampler, "DagMLTuningSpec.sampler").lower()
         pruner = None if self.pruner is None else _normalize_non_empty_string(self.pruner, "DagMLTuningSpec.pruner").lower()
         n_trials = _positive_int(self.n_trials, "DagMLTuningSpec.n_trials")
+        if type(self.n_jobs) is not int or (self.n_jobs != -1 and self.n_jobs < 1):
+            raise ValueError("DagMLTuningSpec.n_jobs must be positive or -1")
         if self.seed is not None and (not isinstance(self.seed, int) or isinstance(self.seed, bool)):
             raise ValueError("DagMLTuningSpec.seed must be an integer")
         if not isinstance(self.resume, bool):
@@ -468,7 +472,7 @@ class DagMLTuningSpec:
     def to_dict(self) -> dict[str, Any]:
         """Return the deterministic JSON-like contract form."""
 
-        return {
+        result = {
             "direction": self.direction,
             "engine": self.engine,
             "force_params": None if self.force_params is None else {key: self.force_params[key] for key in sorted(self.force_params)},
@@ -482,6 +486,11 @@ class DagMLTuningSpec:
             "storage": self.storage,
             "study_name": self.study_name,
         }
+        # Historical sequential checkpoints and tuning summaries have no
+        # n_jobs key. An explicit 1 must retain their exact identity.
+        if self.n_jobs != 1:
+            result["n_jobs"] = self.n_jobs
+        return result
 
     @property
     def fingerprint(self) -> str:
@@ -860,6 +869,7 @@ def parse_tuning_spec(tuning: Mapping[str, Any], *, context: str = "run(tuning=.
         metric=metric,
         direction=direction,  # type: ignore[arg-type]
         n_trials=_positive_int(tuning.get("n_trials", 50), f"{context}.n_trials"),
+        n_jobs=tuning.get("n_jobs", 1),
         sampler=_optional_lower_string_or_none(tuning, "sampler"),
         pruner=_optional_lower_string_or_none(tuning, "pruner"),
         seed=_optional_int(tuning, "seed", context),

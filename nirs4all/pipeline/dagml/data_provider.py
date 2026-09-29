@@ -93,6 +93,9 @@ def prepare_data_provider(
         from .in_process_runner import in_process_enabled
 
         if (not in_process_enabled() and isinstance(tuning, dict)
+                and tuning.get("n_jobs", 1) != 1):
+            raise NotImplementedError("generate_view parallel HPO requires an in-process host")
+        if (not in_process_enabled() and isinstance(tuning, dict)
                 and tuning.get("progress_callback") is not None):
             raise NotImplementedError("generate_view subprocess HPO cannot relay tuning.progress_callback")
         import importlib

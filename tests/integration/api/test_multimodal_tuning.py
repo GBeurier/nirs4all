@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -105,6 +108,53 @@ def test_stopped_search_resumes_native_history_identically_to_continuous_search(
             baseline.predict([new_data.sources[name].values for name in baseline.source_names]),
             rtol=1e-12, atol=1e-12,
         )
+    finally:
+        resumed.close()
+        continuous.close()
+
+
+def test_parallel_hpo_resumes_pending_native_proposal_after_hard_interruption(tmp_path: Path) -> None:
+    """An asked but unterminated N4M trial keeps its ID after process death."""
+    study = tmp_path / "parallel-hard-stop"
+    script = """
+import os
+from pathlib import Path
+import nirs4all
+from sklearn.model_selection import GroupKFold
+from tests.integration.api.test_multimodal_tuning import _cohort, _model, _tuning
+root = Path(os.environ['N4A_TEST_ROOT'])
+def stop(event):
+    if len(event['checkpoint']['trials']) == 1:
+        os._exit(86)
+    return True
+nirs4all.run(
+    [GroupKFold(3), {'model': _model()}], _cohort(),
+    tuning={**_tuning(root / 'parallel-hard-stop'), 'n_trials': 3,
+            'n_jobs': 2, 'progress_callback': stop},
+    engine='dag-ml', results_path=root / 'interrupted-results', random_state=19,
+    refit=True, save_artifacts=False, save_charts=False, verbose=0,
+)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script], env={**os.environ, "N4A_TEST_ROOT": str(tmp_path)},
+        capture_output=True, text=True, timeout=90, check=False,
+    )
+    assert completed.returncode == 86, completed.stderr
+    first = _checkpoint(study)["native_checkpoint"]["trials"]
+    assert len(first) == 1
+
+    controls = {**_tuning(study), "n_trials": 3, "n_jobs": 2, "resume": True}
+    resumed = _run(_cohort(), controls, tmp_path / "resumed-workspace")
+    continuous = _run(
+        _cohort(), {**controls, "storage": (tmp_path / "continuous-study").as_uri(), "resume": False},
+        tmp_path / "continuous-workspace",
+    )
+    try:
+        assert [trial.to_dict() for trial in resumed.tuning_result.trials] == [
+            trial.to_dict() for trial in continuous.tuning_result.trials
+        ]
+        assert _checkpoint(study)["native_checkpoint"]["trials"][:1] == first
+        assert resumed.tuning_best_params == continuous.tuning_best_params
     finally:
         resumed.close()
         continuous.close()

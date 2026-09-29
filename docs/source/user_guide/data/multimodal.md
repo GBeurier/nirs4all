@@ -305,7 +305,17 @@ the search identity. Source presence is also fingerprinted. Hidden target/source
 values and held-out test data are excluded from search; modifying them does not
 create a new search objective.
 
-For generated views with `N4A_DAGML_INPROCESS=0`, HPO uses an isolated Python
+For the native multimodal N4M random-search path, set `tuning.n_jobs=2` or
+another positive worker count to evaluate independent candidates concurrently.
+Each candidate owns a Python process, its provider snapshot, fitted models and
+Python/NumPy RNG. `n_jobs=1` retains the existing sequential checkpoint
+identity. Parallel checkpoints may contain proposals already opened for other
+candidates; `resume=True` reuses those proposals and verifies saved generated
+views before new evaluation. This setting does not enable parallelism in the
+general `PipelineObjective` tuning adapter. For generated views it requires the
+in-process DAG-ML host.
+
+For generated views with `N4A_DAGML_INPROCESS=0`, sequential HPO uses an isolated Python
 worker. Its progress events cannot call back into the parent, so
 `tuning.progress_callback` is refused before the provider's `PLAN`. The parent's
 `should_stop` may terminate the worker; the last complete paired checkpoint
@@ -578,7 +588,7 @@ encoders inside `MultimodalRegressor` or `MultimodalClassifier`. Ragged series
 can be replaced as long as their
 declared schema is retained. For `MultimodalRegressor` or `MultimodalClassifier`,
 the **model-only** profile
-also supports sequential N4M random-search tuning (`engine="n4m"`, no pruning)
+also supports N4M random-search tuning (`engine="n4m"`, no pruning)
 with a paired native/optimizer checkpoint. The checkpoint contains a manifest
 of each completed trial's generated views. On resume, the provider regenerates
 and compares every saved view before another trial starts; changing the recipe
@@ -607,8 +617,9 @@ the child owns its trial views, optimizer and selected refit, then returns a
 usable `RunResult` for archive export. A paired checkpoint can be resumed in a
 later worker. `tuning.progress_callback` is not supported in this mode; the
 callback is refused before `PLAN` rather than executed silently in the child.
-Parallel generated-view trials and separate transform nodes on multiple raw
-sources remain outside this profile.
+Parallel generated-view HPO (`tuning.n_jobs>1`) is available only with the
+in-process host; the subprocess HPO mode refuses it before `PLAN`. Separate
+transform nodes on multiple raw sources remain outside this profile.
 Multimodal synthetic data in this example are test fixtures, not a new product
 generator.
 

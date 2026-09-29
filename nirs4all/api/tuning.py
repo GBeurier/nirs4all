@@ -94,6 +94,7 @@ TUNING_CONTRACT_KEYS: tuple[str, ...] = (
     "engine",
     "force_params",
     "metric",
+    "n_jobs",
     "n_trials",
     "pruner",
     "resume",
