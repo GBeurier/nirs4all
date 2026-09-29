@@ -612,15 +612,18 @@ store, and returns the native view manifest and fitted refit artifacts. The
 provider callbacks must be serializable by `cloudpickle`, and that interpreter
 must have the DAG-ML Python binding installed. This path does not use
 `dag-ml-cli`. The parent's `should_stop` callback can cancel the worker; no
-completed run or refit archive is published in that case. Generated-view
-**sequential HPO** also runs in a Python worker when `N4A_DAGML_INPROCESS=0`:
-the child owns its trial views, optimizer and selected refit, then returns a
-usable `RunResult` for archive export. A paired checkpoint can be resumed in a
-later worker. `tuning.progress_callback` is not supported in this mode; the
-callback is refused before `PLAN` rather than executed silently in the child.
-Parallel generated-view HPO (`tuning.n_jobs>1`) is available only with the
-in-process host; the subprocess HPO mode refuses it before `PLAN`. Separate
-transform nodes on multiple raw sources remain outside this profile.
+completed run or refit archive is published in that case. **Generated-view
+HPO** also runs in a Python worker when `N4A_DAGML_INPROCESS=0`, including
+`tuning.n_jobs>1` for the qualified N4M random-search profile. The worker
+owns its trial views, optimizer and selected refit; parallel candidates each
+run in a separate child process. It returns a usable `RunResult` for archive
+export, and a paired checkpoint can be resumed in a later worker. The parent
+stops active candidate processes when `should_stop` cancels the worker.
+`tuning.progress_callback` is not supported in this mode; the callback is
+refused before `PLAN` rather than executed silently in the child. The nested
+parallel worker path has been qualified on Linux; Windows and macOS are still
+to be tested. Separate transform nodes on multiple raw sources remain outside
+this profile.
 Multimodal synthetic data in this example are test fixtures, not a new product
 generator.
 
