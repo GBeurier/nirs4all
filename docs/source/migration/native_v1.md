@@ -51,8 +51,8 @@ means unsupported input or strict refusal. There is no native-to-legacy reverse
 conversion.
 
 The authoritative read/write/migrate dispositions and retention window are in
-the Tools [support matrix](https://github.com/GBeurier/nirs4all-tools/blob/codex/r4-sup002-tools/docs/contracts/legacy-support-matrix.v1.json)
-and [support SLA](https://github.com/GBeurier/nirs4all-tools/blob/codex/r4-sup002-tools/docs/legacy-support-sla.md).
+the Tools [support matrix](https://github.com/GBeurier/nirs4all-tools/blob/main/docs/contracts/legacy-support-matrix.v1.json)
+and [support SLA](https://github.com/GBeurier/nirs4all-tools/blob/main/docs/legacy-support-sla.md).
 
 ## Public API examples
 
