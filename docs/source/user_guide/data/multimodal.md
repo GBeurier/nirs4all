@@ -567,11 +567,17 @@ or the generated content refuses the resume. Use a stable `storage` URI and
 recipe. A completed search refits the selected model on generated training
 views.
 
-The result records view manifests, but models fitted on generated features
-cannot yet be exported or replayed. Parallel generated-view trials, subprocess
-execution, and separately fitted DAG transform nodes remain outside this
-profile. Multimodal synthetic data in this example are test fixtures, not a new
-product generator.
+For one fitted `MultimodalRegressor` or `MultimodalClassifier`, `result.export()`
+now writes a prediction-only `.n4a` containing the selected REFIT model, its
+input schema and the verified generated-view manifest. Supply a **new explicit
+multimodal cohort** to `nirs4all.predict(archive, new_cohort)`; prediction does
+not call the training provider or fit a model. Its sources must match the
+training schema, including names, shapes, axes, units and feature names. The
+archive does not regenerate training data and cannot be used for retraining.
+Other generated-view estimator shapes still refuse export. Parallel
+generated-view trials, subprocess execution and separately fitted DAG transform
+nodes remain outside this profile. Multimodal synthetic data in this example
+are test fixtures, not a new product generator.
 
 ## Archive and scope
 

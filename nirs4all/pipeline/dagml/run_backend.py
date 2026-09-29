@@ -532,10 +532,15 @@ def run_via_dagml(
             if not isinstance(manifest, dict):
                 raise ValueError("generated DAG-ML run did not return a data-view manifest")
             result._dagml_generated_view_manifest = manifest
-            # These fitted objects have no replay contract for generated X.
-            # Clear them at the source so in-memory capabilities and the v4
-            # results directory report the same non-exportable state.
-            result._dagml_refit_artifacts = []
+            from .multimodal_contracts import generated_prediction_contract
+
+            artifacts = result._dagml_refit_artifacts
+            contract = generated_prediction_contract(artifacts[0]["estimator"]) if len(artifacts) == 1 else None
+            result._dagml_generated_prediction_contract = contract
+            if contract is None:
+                # v4 generated results remain predict-unavailable unless an
+                # exact fitted model and explicit input contract are captured.
+                result._dagml_refit_artifacts = []
             result._dagml_initial_full_refit_package = None
         if holdout_train_sample_ids is not None:
             for metadata in result.per_dataset.values():

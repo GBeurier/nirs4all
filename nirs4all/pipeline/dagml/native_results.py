@@ -58,9 +58,11 @@ if TYPE_CHECKING:
 # native dag-ml ScoreSet schema, which is owned by dag-ml and stored verbatim). v2 adds the model
 # ArtifactRef ``artifacts[]`` list + the live ``has_model_artifacts`` capability flag (P3 Slice 2c-i).
 # v3 adds ``stacking_replay`` metadata for native .n4a replay of branch stacking artifacts.
-# v4 is used only for runs with generated data views; the sidecar is mandatory.
+# v4 records generated views without a model; v5 adds one qualified,
+# prediction-only multimodal refit artifact bound to those views.
 MANIFEST_SCHEMA_VERSION = 3
 _GENERATED_VIEW_SCHEMA_VERSION = 4
+_GENERATED_PREDICT_SCHEMA_VERSION = 5
 
 _DEFAULT_RESULTS_ROOT = "nirs4all_results"
 _ENV_GATE = "N4A_NATIVE_RESULTS"
@@ -703,6 +705,14 @@ def write_native_results(
         raise ValueError("write_native_results requires a dag-ml ScoreSet (got None); the native writer is only called for a real dag-ml run.")
     generated_manifest = getattr(result, "_dagml_generated_view_manifest", None)
     generated_payload = _validated_generated_view_manifest(generated_manifest) if generated_manifest is not None else None
+    generated_predict_contract = getattr(result, "_dagml_generated_prediction_contract", None)
+    if generated_predict_contract is not None:
+        if generated_payload is None or len(result._dagml_refit_artifacts) != 1:  # noqa: SLF001
+            raise ValueError("generated prediction requires one captured refit artifact and a view manifest")
+        from .multimodal_contracts import generated_prediction_contract
+
+        if generated_prediction_contract(result._dagml_refit_artifacts[0]["estimator"]) != generated_predict_contract:  # noqa: SLF001
+            raise ValueError("generated prediction contract disagrees with the captured refit model")
     if generated_payload is not None and any(
         isinstance(metadata, dict)
         and any(key in metadata for key in _GENERATED_VIEW_FORBIDDEN_REPLAY_KEYS)
@@ -737,12 +747,11 @@ def write_native_results(
 
     # artifacts/ — joblib-serialize the captured fitted REFIT models (P3 Slice 2c-i) + their ArtifactRefs.
     # Only fitted REFIT models produce payloads; empty captures leave the capability flag false.
-    # A generated-view estimator cannot be replayed from this directory until
-    # prediction owns the same view recipe. Keep scores and view evidence, but
-    # do not expose a raw-X-loadable model artifact.
+    # v4 keeps the historical no-model state. v5 persists exactly one fitted
+    # multimodal model for prediction on an explicit, schema-matched cohort.
     artifact_refs = (
         _write_model_artifacts(run_dir, result._dagml_refit_artifacts)  # noqa: SLF001
-        if generated_payload is None else []
+        if generated_payload is None or generated_predict_contract is not None else []
     )
 
     initial_package = getattr(result, "_dagml_initial_full_refit_package", None)
@@ -761,13 +770,20 @@ def write_native_results(
         manifest["initial_full_refit_package_fingerprint"] = initial_package["package_fingerprint"]
     if generated_payload is not None:
         payload_bytes, fingerprint = generated_payload
-        manifest["schema_version"] = _GENERATED_VIEW_SCHEMA_VERSION
+        manifest["schema_version"] = (_GENERATED_PREDICT_SCHEMA_VERSION if generated_predict_contract is not None
+                                      else _GENERATED_VIEW_SCHEMA_VERSION)
         (run_dir / _GENERATED_VIEW_MANIFEST_FILE).write_bytes(payload_bytes)
         manifest["generated_view_manifest_ref"] = {
             "path": _GENERATED_VIEW_MANIFEST_FILE,
             "sha256": hashlib.sha256(payload_bytes).hexdigest(),
             "fingerprint": fingerprint,
         }
+        if generated_predict_contract is not None:
+            manifest["generated_model_replay"] = {
+                **generated_predict_contract,
+                "view_manifest_fingerprint": fingerprint,
+                "artifact_id": artifact_refs[0]["artifact_id"],
+            }
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
     return run_dir
@@ -804,10 +820,13 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
     generated_manifest = None
     generated_ref = manifest.get("generated_view_manifest_ref")
     generated_path = run_dir / _GENERATED_VIEW_MANIFEST_FILE
-    if manifest.get("schema_version") == _GENERATED_VIEW_SCHEMA_VERSION and generated_ref is None:
-        raise ValueError("native results v4 require a generated view manifest reference")
-    if generated_ref is not None and manifest.get("schema_version") != _GENERATED_VIEW_SCHEMA_VERSION:
-        raise ValueError("native results generated view manifest requires schema v4")
+    generated_version = manifest.get("schema_version")
+    if generated_version in (_GENERATED_VIEW_SCHEMA_VERSION, _GENERATED_PREDICT_SCHEMA_VERSION) and generated_ref is None:
+        raise ValueError("native generated results require a generated view manifest reference")
+    if generated_ref is not None and generated_version not in (_GENERATED_VIEW_SCHEMA_VERSION, _GENERATED_PREDICT_SCHEMA_VERSION):
+        raise ValueError("native results generated view manifest requires schema v4 or v5")
+    if generated_version != _GENERATED_PREDICT_SCHEMA_VERSION and "generated_model_replay" in manifest:
+        raise ValueError("native generated-model replay requires schema v5")
     if manifest.get("schema_version") == _GENERATED_VIEW_SCHEMA_VERSION:
         capabilities = manifest.get("capabilities")
         if (manifest.get("artifacts") != [] or not isinstance(capabilities, dict)
@@ -817,6 +836,33 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
                 or "initial_full_refit_package" in manifest.get("files", {})
                 or any(key in manifest for key in _GENERATED_VIEW_FORBIDDEN_REPLAY_KEYS)):
             raise ValueError("native results v4 cannot contain model replay metadata")
+    if generated_version == _GENERATED_PREDICT_SCHEMA_VERSION:
+        from .multimodal_contracts import generated_input_schema_sha256
+
+        capabilities = manifest.get("capabilities")
+        refs = manifest.get("artifacts")
+        contract = manifest.get("generated_model_replay")
+        if (not isinstance(capabilities, dict) or capabilities.get("has_model_artifacts") is not True
+                or not isinstance(refs, list) or len(refs) != 1 or not isinstance(refs[0], dict)
+                or not isinstance(contract, dict)
+                or set(contract) != {"schema_version", "mode", "source_order", "input_schema", "input_schema_sha256", "view_manifest_fingerprint", "artifact_id"}
+                or contract.get("schema_version") != 1 or contract.get("mode") != "explicit_cohort_predict_only"
+                or not isinstance(contract.get("input_schema"), dict) or not contract["input_schema"]
+                or not isinstance(contract.get("source_order"), list)
+                or not all(isinstance(name, str) and name for name in contract["source_order"])
+                or len(contract["source_order"]) != len(set(contract["source_order"]))
+                or set(contract["source_order"]) != set(contract["input_schema"])
+                or contract.get("artifact_id") != refs[0].get("artifact_id")
+                or not isinstance(generated_ref, dict)
+                or contract.get("view_manifest_fingerprint") != generated_ref.get("fingerprint")
+                or "initial_full_refit_package_fingerprint" in manifest
+                or "initial_full_refit_package" in manifest.get("files", {})):
+            raise ValueError("native results v5 has an invalid generated-model replay contract")
+        try:
+            if contract["input_schema_sha256"] != generated_input_schema_sha256(contract["input_schema"]):
+                raise ValueError("native results v5 generated input schema fingerprint mismatch")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("native results v5 generated input schema fingerprint mismatch") from exc
     if generated_ref is None:
         if os.path.lexists(generated_path):
             raise ValueError("native results contain an undeclared generated view manifest")
@@ -890,6 +936,14 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
     predictions.flush()
 
     artifacts = _rehydrate_artifacts(run_dir, manifest.get("artifacts", []))
+    if generated_version == _GENERATED_PREDICT_SCHEMA_VERSION:
+        from .multimodal_contracts import generated_prediction_contract
+
+        expected = dict(manifest["generated_model_replay"])
+        expected.pop("view_manifest_fingerprint")
+        expected.pop("artifact_id")
+        if generated_prediction_contract(artifacts[0]["estimator"]) != expected:
+            raise ValueError("native results v5 model disagrees with its generated prediction contract")
 
     initial_package = None
     initial_path = manifest.get("files", {}).get("initial_full_refit_package")

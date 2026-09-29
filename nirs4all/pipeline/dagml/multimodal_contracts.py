@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.metadata
+import json
 import platform
 from typing import Any
 
@@ -36,6 +38,38 @@ def validate_input_contract(estimator: Any, dataset: Any) -> None:
     for name in expected:
         if actual[name] != expected[name]:
             raise ValueError(f"multimodal input schema mismatch for source {name!r}: shape, axes, units, coordinates, dtype or feature names changed")
+
+
+def generated_prediction_contract(estimator: Any) -> dict[str, Any] | None:
+    """Qualify a captured generated-view model for explicit-cohort prediction."""
+    from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
+
+    model = getattr(estimator, "_model", estimator)
+    schema = getattr(estimator, "multimodal_input_schema", None)
+    names = getattr(estimator, "source_names", None)
+    if (not isinstance(model, (MultimodalRegressor, MultimodalClassifier))
+            or not isinstance(schema, dict) or not schema
+            or not isinstance(names, (list, tuple)) or set(names) != set(schema)
+            or len(names) != len(set(names))
+            or not all(isinstance(name, str) and name for name in names)):
+        return None
+    try:
+        schema_sha256 = generated_input_schema_sha256(schema)
+    except (TypeError, ValueError):
+        return None
+    return {
+        "schema_version": 1,
+        "mode": "explicit_cohort_predict_only",
+        "source_order": list(names),
+        "input_schema": copy.deepcopy(schema),
+        "input_schema_sha256": schema_sha256,
+    }
+
+
+def generated_input_schema_sha256(schema: dict[str, Any]) -> str:
+    """Hash the explicit prediction input schema before any model load."""
+    payload = json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def stacking_source_presence_contract(estimator: Any) -> dict[str, Any] | None:

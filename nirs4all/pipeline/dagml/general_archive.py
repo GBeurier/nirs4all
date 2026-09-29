@@ -21,6 +21,50 @@ if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult
 
 _MAX_INLINE_MODEL_BYTES = 512 * 1024 * 1024
+_GENERATED_VIEW_MEMBER = "dagml_generated_view_manifest.json"
+_MAX_GENERATED_VIEW_BYTES = 64 * 1024 * 1024
+
+
+def _validate_generated_archive_before_model(archive: zipfile.ZipFile, manifest: dict[str, Any]) -> None:
+    """Verify generated training provenance and predict-only scope before joblib."""
+    ref = manifest.get("dagml_generated_view_manifest_ref")
+    contract = manifest.get("dagml_generated_model_replay")
+    if ref is None and contract is None:
+        if _GENERATED_VIEW_MEMBER in archive.namelist():
+            raise ValueError("general archive has an undeclared generated-view manifest")
+        return
+    host = manifest.get("multimodal_host")
+    if (not isinstance(ref, dict) or set(ref) != {"path", "sha256", "fingerprint"}
+            or ref.get("path") != _GENERATED_VIEW_MEMBER
+            or not isinstance(contract, dict)
+            or set(contract) != {"schema_version", "mode", "source_order", "input_schema", "input_schema_sha256", "view_manifest_fingerprint", "artifact_id"}
+            or contract.get("schema_version") != 1 or contract.get("mode") != "explicit_cohort_predict_only"
+            or contract.get("view_manifest_fingerprint") != ref.get("fingerprint")
+            or not isinstance(contract.get("source_order"), list)
+            or not all(isinstance(name, str) and name for name in contract["source_order"])
+            or len(contract["source_order"]) != len(set(contract["source_order"]))
+            or not isinstance(contract.get("input_schema"), dict)
+            or set(contract["source_order"]) != set(contract["input_schema"])
+            or not isinstance(contract.get("artifact_id"), str) or not contract["artifact_id"]
+            or not isinstance(host, dict) or host.get("input_schema") != contract["input_schema"]
+            or "train_pipeline.json" in archive.namelist()):
+        raise ValueError("general archive has an invalid generated-model prediction contract")
+    if _GENERATED_VIEW_MEMBER not in archive.namelist() or archive.getinfo(_GENERATED_VIEW_MEMBER).file_size > _MAX_GENERATED_VIEW_BYTES:
+        raise ValueError("general archive generated-view manifest is missing or oversized")
+    from .multimodal_contracts import generated_input_schema_sha256
+
+    try:
+        if contract["input_schema_sha256"] != generated_input_schema_sha256(contract["input_schema"]):
+            raise ValueError("general archive generated input schema fingerprint mismatch")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("general archive generated input schema fingerprint mismatch") from exc
+    payload = archive.read(_GENERATED_VIEW_MEMBER)
+    if hashlib.sha256(payload).hexdigest() != ref["sha256"]:
+        raise ValueError("general archive generated-view manifest byte fingerprint mismatch")
+    from .native_results import _validate_generated_view_manifest_bytes
+
+    if _validate_generated_view_manifest_bytes(payload) != ref["fingerprint"]:
+        raise ValueError("general archive generated-view manifest TCV1 fingerprint mismatch")
 
 
 class _NamedOutputAdapter:
@@ -70,6 +114,17 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
     from .multimodal_contracts import validate_stacking_archive_contract
 
     validate_stacking_archive_contract(manifest, model)
+    if "dagml_generated_model_replay" in manifest:
+        from nirs4all.api.result import _DagmlExportedModel
+
+        from .multimodal_contracts import generated_prediction_contract
+
+        captured = model.estimator if isinstance(model, _DagmlExportedModel) else model
+        expected_contract = dict(manifest["dagml_generated_model_replay"])
+        expected_contract.pop("view_manifest_fingerprint")
+        expected_contract.pop("artifact_id")
+        if generated_prediction_contract(captured) != expected_contract:
+            raise ValueError("general archive model disagrees with its generated prediction contract")
     return {
         "artifact": {"artifact_id": member, "estimator": model, "y_transform": None, "content_fingerprint": fingerprint},
         "manifest": manifest, "archive_fingerprint": archive_fingerprint,
@@ -117,6 +172,7 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
         from .multimodal_contracts import validate_dependencies
 
         validate_dependencies(manifest)
+        _validate_generated_archive_before_model(archive, manifest)
         members = [name for name in names if name.startswith("artifacts/") and not name.endswith("/")]
         if len(members) != 1 or not members[0].endswith(".joblib"):
             raise ValueError("general archive requires exactly one captured host-model payload")

@@ -43,6 +43,8 @@ def captured_training_spec(source: Any, *, mode: str = "full", new_model: Any = 
         manifest = None if path.is_symlink() else general_archive_manifest(path)
         if manifest is None:
             return None
+        if "dagml_generated_model_replay" in manifest:
+            raise _unsupported("generated-view archives are prediction-only; retraining needs a new explicit provider run", mode)
         lineage = manifest.get("retrain_lineage")
         transfer_source = isinstance(lineage, dict) and lineage.get("training_contract") == "captured_preprocessing.transfer.v1"
         with zipfile.ZipFile(path) as archive:

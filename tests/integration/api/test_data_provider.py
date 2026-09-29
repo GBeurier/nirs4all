@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import pickle
+import shutil
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -204,7 +208,7 @@ def test_generated_views_fit_each_native_fold_and_persist_manifest(tmp_path: Pat
         assert result._dagml_refit_artifacts == []
         assert result.to_rt_result().manifest["capabilities"]["has_model_artifacts"] is False
         for compatibility in (None, "legacy-refit"):
-            with pytest.raises(Exception, match="generated data views have no replay contract"):
+            with pytest.raises(Exception, match="generated data views have no qualified model replay contract"):
                 result.export(tmp_path / "generated.n4a", compatibility=compatibility)
             with pytest.raises(Exception, match="generated data views have no replay contract"):
                 result.export_model(tmp_path / "generated.joblib", compatibility=compatibility)
@@ -212,6 +216,119 @@ def test_generated_views_fit_each_native_fold_and_persist_manifest(tmp_path: Pat
         assert not (tmp_path / "generated.joblib").exists()
     finally:
         result.close()
+
+
+def test_generated_multimodal_archive_predicts_without_provider_or_fit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A verified refit model predicts an explicit cohort in a clean process."""
+    base = _cohort(unequal_groups=True)
+    calls: list[str] = []
+
+    def generate(**_: Any) -> dict[str, Any]:
+        calls.append("plan")
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+        calls.append("view")
+        source = base.take(sample_ids).sources["nir"]
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            np.asarray(source.values) + 10.0 + float(seed % 7), sample_ids,
+            representation_id=source.representation_id, axis_units=source.axis_units,
+            axis_coordinates=source.axis_coordinates,
+        )}}
+
+    provider = DataProvider(generate, generate_view=generate_view,
+                            provider_id="qualification.view.archive", base=base, replace_sources=["nir"])
+    result = nirs4all.run(
+        [GroupKFold(3), {"model": _model()}], provider,
+        engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    prediction = _cohort(prediction=True)
+    captured = result._dagml_refit_artifacts[0]["estimator"]
+    expected = captured.predict([prediction.sources[name].values for name in captured.source_names])
+    native = read_native_results(result._dagml_results_dir)
+    assert native["manifest"]["schema_version"] == 5
+    assert native["manifest"]["generated_model_replay"]["mode"] == "explicit_cohort_predict_only"
+    assert len(native["artifacts"]) == 1
+    header_path = result._dagml_results_dir / "manifest.json"
+    clean_header = header_path.read_text()
+    changed_header = json.loads(clean_header)
+    changed_header["generated_model_replay"]["input_schema"]["nir"]["shape"][-1] = 7
+    header_path.write_text(json.dumps(changed_header))
+    import joblib
+
+    with monkeypatch.context() as patch:
+        patch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("unverified native model was deserialized"))
+        with pytest.raises(ValueError, match="generated input schema fingerprint mismatch"):
+            read_native_results(result._dagml_results_dir)
+    header_path.write_text(clean_header)
+    with pytest.raises(Exception, match="generated data views have no replay contract"):
+        result.export_model(tmp_path / "generated.joblib")
+    with pytest.raises(Exception, match="generated data views have no qualified model replay contract"):
+        result.export(tmp_path / "generated-legacy.n4a", compatibility="legacy-refit")
+    archive = result.export(tmp_path / "generated-multimodal.n4a")
+    with zipfile.ZipFile(archive) as bundle:
+        assert "train_pipeline.json" not in bundle.namelist()
+        assert "dagml_generated_view_manifest.json" in bundle.namelist()
+    with pytest.raises(Exception, match="prediction-only"):
+        nirs4all.retrain(archive, base, mode="full", verbose=0)
+    with pytest.raises(Exception, match="prediction-only"):
+        nirs4all.retrain(archive, base, mode="transfer", verbose=0)
+    calls_before_predict = list(calls)
+    result.close()
+    shutil.rmtree(tmp_path / "native")
+
+    clean = tmp_path / "cold-process"
+    clean.mkdir()
+    (clean / "inputs.pkl").write_bytes(pickle.dumps(prediction))
+    script = """
+import pickle, sys
+import numpy as np, nirs4all
+from nirs4all.operators.models.multimodal import MultimodalRegressor, TensorPCA
+from nirs4all.pipeline import PipelineRunner
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
+def forbidden(*args, **kwargs): raise AssertionError('archive prediction attempted fit or legacy run')
+for cls in (MultimodalRegressor, TensorPCA, Ridge, StandardScaler): cls.fit = forbidden
+PipelineRunner.run = forbidden
+with open('inputs.pkl', 'rb') as stream: cohort = pickle.load(stream)
+result = nirs4all.predict(sys.argv[1], cohort)
+assert result.metadata['training_performed'] is False
+assert result.metadata['phase'] == 'PREDICT'
+np.save('predictions.npy', result.y_pred)
+"""
+    env = dict(os.environ)
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(archive.resolve())], cwd=clean, env=env,
+        capture_output=True, text=True, timeout=90, check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    np.testing.assert_allclose(np.load(clean / "predictions.npy").reshape(-1), np.asarray(expected).reshape(-1))
+    assert calls == calls_before_predict
+
+    nir = prediction.sources["nir"]
+    invalid_sources = dict(prediction.sources)
+    invalid_sources["nir"] = TensorSource(
+        nir.values, nir.sample_ids, representation_id=nir.representation_id,
+        axis_units={"wavelength": "um"}, axis_coordinates=nir.axis_coordinates,
+    )
+    invalid = MultimodalDataset(invalid_sources, sample_ids=prediction.sample_ids,
+                                partitions=["predict"] * len(prediction))
+    with pytest.raises(Exception, match="input schema mismatch"):
+        nirs4all.predict(archive, invalid)
+
+    damaged = tmp_path / "damaged-generated.n4a"
+    with zipfile.ZipFile(archive) as source, zipfile.ZipFile(damaged, "w") as target:
+        for member in source.infolist():
+            payload = source.read(member.filename)
+            if member.filename == "dagml_generated_view_manifest.json":
+                payload += b" "
+            target.writestr(member, payload)
+    monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("unverified model was deserialized"))
+    from nirs4all.pipeline.dagml.general_archive import load_general_archive
+
+    with pytest.raises(ValueError, match="generated-view manifest byte fingerprint mismatch"):
+        load_general_archive(damaged)
 
 
 @pytest.mark.parametrize("splitter", [KFold(3), GroupKFold(3)])
@@ -287,7 +404,8 @@ def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(
                 assert set(names) == set(base.sources)
                 for name, block in zip(names, blocks, strict=True):
                     np.testing.assert_array_equal(block, nir if name == "nir" else expected.sources[name].values)
-        assert result._dagml_refit_artifacts == []
+        assert len(result._dagml_refit_artifacts) == 1
+        assert result._dagml_generated_prediction_contract["mode"] == "explicit_cohort_predict_only"
     finally:
         result.close()
 
@@ -361,7 +479,18 @@ def test_generated_classification_views_keep_stratified_folds(
         for partition, _fold, ids, values in views:
             calls = fitted if partition in {"fold_train", "full_train"} else predicted
             assert any(np.array_equal(call, values) for call in calls), f"No model call consumed the {partition} NIR view for {ids}"
-        assert result._dagml_refit_artifacts == []
+        assert len(result._dagml_refit_artifacts) == 1
+        assert result._dagml_generated_prediction_contract["mode"] == "explicit_cohort_predict_only"
+        prediction = _cohort(prediction=True)
+        artifact = result._dagml_refit_artifacts[0]
+        estimator = artifact["estimator"]
+        blocks = [prediction.sources[name].values for name in estimator.source_names]
+        encoded = estimator.predict(blocks)
+        expected = artifact["y_transform"].decode(np.asarray(encoded).reshape(-1, 1)).ravel()
+        archive = result.export(tmp_path / "generated-classifier.n4a")
+        replay = nirs4all.predict(archive, prediction)
+        np.testing.assert_array_equal(replay.y_pred, expected)
+        assert replay.metadata["training_performed"] is False
     finally:
         result.close()
 
@@ -475,8 +604,13 @@ def test_generated_hpo_views_resume_from_io_content_checkpoint(tmp_path: Path, m
         assert (_checkpoint(study)["native_checkpoint"]["trials"][1]["evidence"]["generated_view_manifest"]
                 == _checkpoint(tmp_path / "continuous-study")["native_checkpoint"]["trials"][1]["evidence"]["generated_view_manifest"])
         assert resumed._dagml_generated_view_manifest["views"]
-        with pytest.raises(Exception, match="generated data views have no replay contract"):
-            resumed.export(tmp_path / "generated-hpo.n4a")
+        archive = resumed.export(tmp_path / "generated-hpo.n4a")
+        prediction = _cohort(prediction=True)
+        captured = resumed._dagml_refit_artifacts[0]["estimator"]
+        expected = captured.predict([prediction.sources[name].values for name in captured.source_names])
+        replay = nirs4all.predict(archive, prediction)
+        np.testing.assert_allclose(replay.y_pred.reshape(-1), np.asarray(expected).reshape(-1))
+        assert replay.metadata["training_performed"] is False
     finally:
         resumed.close()
         continuous.close()

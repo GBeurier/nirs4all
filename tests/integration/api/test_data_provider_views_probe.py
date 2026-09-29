@@ -149,13 +149,13 @@ def test_native_probe_binds_generated_io_buffers_to_exact_handle_and_ids(monkeyp
 
     header["schema_version"] = 3
     header_path.write_text(json.dumps(header))
-    with pytest.raises(ValueError, match="requires schema v4"):
+    with pytest.raises(ValueError, match="requires schema v4 or v5"):
         read_native_results(run_dir)
     header["schema_version"] = 4
     manifest_path.unlink()
     header.pop("generated_view_manifest_ref")
     header_path.write_text(json.dumps(header))
-    with pytest.raises(ValueError, match="v4 require a generated view manifest reference"):
+    with pytest.raises(ValueError, match="generated results require a generated view manifest reference"):
         read_native_results(run_dir)
 
     with pytest.raises(ValueError, match="ordered IDs"):

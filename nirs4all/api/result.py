@@ -1591,6 +1591,7 @@ class RunResult:
     # Scheduler-selected generated views, validated by the native DAG-ML
     # binding before optional results persistence. A static run leaves it None.
     _dagml_generated_view_manifest: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_generated_prediction_contract: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_node_results: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _dagml_target_names: list[str] = field(default_factory=lambda: ["y"], repr=False)
 
@@ -2432,9 +2433,12 @@ class RunResult:
         # only through the explicit compatibility opt-in above.
         if self._is_dagml_engine():
             if self._dagml_generated_view_manifest is not None:
-                raise self._dagml_export_refusal(
-                    "export", "generated data views have no replay contract for prediction or retraining",
-                )
+                if (not legacy_refit_compatibility and source is None and chain_id is None and format == "n4a"
+                        and self._dagml_generated_prediction_contract is not None):
+                    native = self._dagml_native_export_bundle(output_path, format)
+                    if native is not None:
+                        return native
+                raise self._dagml_export_refusal("export", "generated data views have no qualified model replay contract")
             independent_sources = any(
                 dataset.get("output_topology") == "independent_by_source"
                 for dataset in self.per_dataset.values()
@@ -2761,6 +2765,16 @@ class RunResult:
         except Exception as exc:  # noqa: BLE001 -- default contract: ANY native-read failure → stable refusal
             logger.debug("native dag-ml .n4a export is unavailable: %s", exc)
             return None
+        generated_manifest = native.get("generated_view_manifest")
+        if generated_manifest is not None and (
+            native["manifest"].get("schema_version") != 5
+            or self._dagml_generated_prediction_contract is None
+            or native["manifest"].get("generated_model_replay", {}).get("input_schema")
+            != self._dagml_generated_prediction_contract.get("input_schema")
+            or len(artifacts) != 1
+            or independent_outputs or selected_source is not None
+        ):
+            return None
         if independent_outputs:
             indexed = _indexed_branch_artifacts(artifacts)
             if indexed is None or len(indexed) < 2:
@@ -2918,6 +2932,19 @@ class RunResult:
             multimodal_provenance = archive_metadata(artifact["estimator"])
             if multimodal_provenance and self._tuning_result is not None:
                 multimodal_provenance["multimodal_host"]["tuning"] = self._tuning_result.to_dict()
+            generated_provenance: dict[str, Any] = {}
+            generated_members: dict[str, bytes] = {}
+            if generated_manifest is not None:
+                member = "dagml_generated_view_manifest.json"
+                payload = json.dumps(generated_manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                generated_provenance = {
+                    "dagml_generated_view_manifest_ref": {
+                        "path": member, "sha256": hashlib.sha256(payload).hexdigest(),
+                        "fingerprint": generated_manifest["fingerprint"],
+                    },
+                    "dagml_generated_model_replay": native_manifest["generated_model_replay"],
+                }
+                generated_members[member] = payload
             return write_single_model_bundle(
                 model,
                 output_path,
@@ -2928,7 +2955,8 @@ class RunResult:
                     export_path="dagml_native",
                     artifact_count=1,
                     retrain_lineage=getattr(self, "_retrain_lineage", None),
-                ), **multimodal_provenance},
+                ), **multimodal_provenance, **generated_provenance},
+                extra_members=generated_members,
                 train_steps=train_steps,
             )
 
