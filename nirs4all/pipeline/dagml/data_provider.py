@@ -48,10 +48,13 @@ def prepare_data_provider(
         raise RuntimeError("The installed dag-ml binding lacks execute_data_provider; install a binding with data-provider PLAN support")
     recipe = dataset.recipe()
     if recipe["params"]["_io_assembly"].get("view_generation"):
-        from .generated_views import qualified_generated_model_pipeline
+        from .generated_views import qualified_generated_by_source_pipeline, qualified_generated_model_pipeline
+
+        model_shape = qualified_generated_model_pipeline(pipeline)
+        by_source_shape = qualified_generated_by_source_pipeline(pipeline)
 
         tuning_ok = tuning is None
-        if isinstance(tuning, dict) and qualified_generated_model_pipeline(pipeline) and len(pipeline) == 2:
+        if isinstance(tuning, dict) and model_shape and len(pipeline) == 2:
             from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
 
             from .tuning_contracts import SUPPORTED_TUNING_KEYS, parse_tuning_spec
@@ -70,7 +73,7 @@ def prepare_data_provider(
         # Preflight before PLAN: no unsupported pipeline may materialize the
         # eager cohort and then silently train against it instead of views.
         qualified = (
-            qualified_generated_model_pipeline(pipeline)
+            (model_shape or by_source_shape)
             and refit is True and tuning_ok and calibration is None
             and terminal_predict is None
             and save_artifacts is False and project is None and session is None
@@ -80,7 +83,8 @@ def prepare_data_provider(
             raise NotImplementedError(
                 "generate_view fold-view and training-content attestation is qualified only for "
                 "[KFold, GroupKFold, StratifiedKFold or StratifiedGroupKFold, "
-                "optional concrete X transformer, {'model': a concrete estimator}] "
+                "optional concrete X transformer, {'model': a concrete estimator}], or the existing "
+                "distinct by_source preprocessing + source concat + concrete model shape, "
                 "with refit=True, save_artifacts=False, and no calibration, project, session or workspace; "
                 "tuning requires one multimodal estimator with the supported n4m search profile and no separate transformer"
             )

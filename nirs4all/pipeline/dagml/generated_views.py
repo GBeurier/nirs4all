@@ -47,6 +47,36 @@ def qualified_generated_model_pipeline(pipeline: Any) -> bool:
     )
 
 
+def qualified_generated_by_source_pipeline(pipeline: Any) -> bool:
+    """Accept the existing distinct by-source preprocessing and concat shape."""
+    from .detect import _detect_by_source_distinct_preproc_concat
+
+    if not isinstance(pipeline, list) or len(pipeline) != 4:
+        return False
+    branch = pipeline[1]
+    if not isinstance(branch, dict) or set(branch) != {"branch"}:
+        return False
+    criterion = branch["branch"]
+    if not isinstance(criterion, dict) or set(criterion) != {"by_source", "steps"} or criterion["by_source"] is not True:
+        return False
+    source_steps = criterion["steps"]
+    if not isinstance(source_steps, dict) or len(source_steps) < 2:
+        return False
+    if not qualified_generated_model_pipeline([pipeline[0], pipeline[-1]]):
+        return False
+    if _detect_by_source_distinct_preproc_concat(pipeline, len(source_steps)) is None:
+        return False
+    return all(
+        isinstance(steps, list) and steps and all(
+            not isinstance(step, (type, dict, str))
+            and callable(getattr(step, "fit", None))
+            and callable(getattr(step, "transform", None))
+            for step in steps
+        )
+        for steps in source_steps.values()
+    )
+
+
 def _selector_fields(view: dict[str, Any]) -> dict[str, Any]:
     """Compare a native selector including absent optional fields as null."""
     return {name: view.get(name) for name in _SELECTOR_FIELDS}
