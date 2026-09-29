@@ -34,6 +34,21 @@ def test_manual_publish_is_opt_in_and_requires_preflight() -> None:
 
 def test_publication_still_depends_on_tested_tagged_distribution() -> None:
     jobs = _workflow()["jobs"]
+    preflight = next(step for step in jobs["release-preflight"]["steps"] if step.get("id") == "target")["run"]
+    assert 'if [[ "$GITHUB_SHA" != "$tag_sha" ]]' in preflight
+    for name in ("run-tests", "build-docs", "verify-examples"):
+        checkout = next(step for step in jobs[name]["steps"] if step.get("uses") == "actions/checkout@v6")
+        assert "needs.release-preflight.outputs.release_tag" in checkout["with"]["ref"]
+        assert any(
+            "EXPECTED_TAG_SHA" in step.get("env", {}) and
+            'test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"' in step.get("run", "")
+            for step in jobs[name]["steps"]
+        )
+    complete = next(step for step in jobs["run-tests"]["steps"] if step.get("name") == "Run every integration test before publication")
+    assert complete["if"] == "github.event_name == 'release' || inputs.publish_release"
+    assert "tests/integration \\" in complete["run"]
+    assert "-m 'not" not in complete["run"]
+    assert "--ignore" not in complete["run"]
     codecov = next(step for step in jobs["run-tests"]["steps"] if step.get("uses") == "codecov/codecov-action@v7")
     assert codecov["if"] == "github.event_name == 'workflow_dispatch' && !inputs.publish_release"
     assert codecov["continue-on-error"] == "true"
