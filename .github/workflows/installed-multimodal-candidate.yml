@@ -83,3 +83,13 @@ jobs:
         run: |
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/tests/qualification/installed_multimodal_provider.py"
+      - name: Qualify all native optimizer combinations in the isolated worker
+        shell: bash
+        env:
+          N4A_DAGML_INPROCESS: "0"
+          ENABLE_HPO_SUBPROCESS: "1"
+          N4A_FULL_HPO_MATRIX: "1"
+          N4A_SMOKE_ROOT: ${{ runner.temp }}/installed-provider-worker-matrix
+        run: |
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/tests/qualification/installed_multimodal_provider.py"
