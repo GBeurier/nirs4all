@@ -148,6 +148,17 @@ jobs:
             --junitxml=fast-dagml-pytest-report/junit.xml \
             --cov=nirs4all --cov-report=xml
 
+      - name: Qualify public provider with PyTorch DataLoader workers
+        env:
+          JAX_PLATFORMS: cpu
+          CUDA_VISIBLE_DEVICES: ''
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python examples/user/02_data_handling/U11_multimodal_data_provider.py \
+            --output "$RUNNER_TEMP/u11-provider-torch-workers" --torch-workers 2
+
       - name: Upload fast DAG-ML pytest report
         if: always()
         uses: actions/upload-artifact@v7
