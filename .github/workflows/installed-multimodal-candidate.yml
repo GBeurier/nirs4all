@@ -69,3 +69,8 @@ jobs:
         run: |
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/tests/qualification/installed_multimodal_provider.py"
+      - name: Qualify installed four-modality demo and fresh-process replay
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/tests/qualification/installed_multimodal_demo.py"
