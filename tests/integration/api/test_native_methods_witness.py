@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pytest
 from packaging.requirements import Requirement
+from packaging.version import Version
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
@@ -116,7 +117,7 @@ def test_installed_terminal_predict_is_callback_free_and_archives_without_a_rece
     assert set(requirements) == {"dag-ml", "nirs4all-methods"}
     for name, requirement in requirements.items():
         assert version(name) in requirement.specifier
-    assert dag_ml.version() == version("dag-ml")
+    assert Version(dag_ml.version()) == Version(version("dag-ml"))
     methods_abi = tuple(n4m.abi_version())
     assert methods_abi[0] == 2
     assert methods_abi >= (2, 6, 0)
