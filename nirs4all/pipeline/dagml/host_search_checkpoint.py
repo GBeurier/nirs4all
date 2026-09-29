@@ -15,12 +15,13 @@ from .tuning_contracts import DagMLTuningSpec, tcv1_sha256
 class HostSearchOptimizer:
     """Translate native ask/tell/fail events without owning evaluation or selection."""
 
-    def __init__(self, tuning: DagMLTuningSpec) -> None:
+    def __init__(self, tuning: DagMLTuningSpec, *, n_folds: int) -> None:
         self.tuning = tuning
         self.api = adapters._import_n4m_optimizer()
         space, self.slots = adapters._make_n4m_space(self.api, tuning.space)
         self.path = adapters._n4m_checkpoint_path(tuning)
         self.resume_checkpoint = None
+        self.pruned: set[int] = set()
         if tuning.resume:
             if self.path is None or not self.path.exists():
                 raise ValueError("multimodal resume requires an existing paired native checkpoint")
@@ -37,10 +38,17 @@ class HostSearchOptimizer:
                 raise
         else:
             adapters._reject_existing_n4m_checkpoint_without_resume(tuning, self.path)
-            self.optimizer = self.api.Optimizer(
-                space, sampler=adapters._n4m_enum(self.api.Sampler, adapters._n4m_sampler_name(tuning.sampler)),
-                direction=adapters._n4m_enum(self.api.Direction, tuning.direction), seed=tuning.seed or 0,
-            )
+            pruner = adapters._n4m_pruner(tuning, self.api)
+            options = {
+                "sampler": adapters._n4m_enum(self.api.Sampler, adapters._n4m_sampler_name(tuning.sampler)),
+                "direction": adapters._n4m_enum(self.api.Direction, tuning.direction),
+                "seed": tuning.seed or 0,
+            }
+            if pruner is not None:
+                options.update(pruner=pruner, n_startup_trials=10,
+                               max_resource=n_folds if tuning.pruner == "hyperband" else 0,
+                               reduction_factor=0)
+            self.optimizer = self.api.Optimizer(space, **options)
             adapters._enqueue_n4m_force_params(self.optimizer, tuning, adapters._slot_categorical_codecs(self.slots))
         # Parallel DAG-ML may have asked ahead of its contiguous terminal
         # checkpoint. Keep those RUNNING native trials so resume replays their
@@ -64,10 +72,12 @@ class HostSearchOptimizer:
         for record, trial in zip(records[:len(trials)], trials, strict=True):
             evidence = trial.get("evidence", trial)
             params = adapters._decode_n4m_record_params(record.params, self.slots)
-            complete = trial["state"] == "complete"
+            state = {"complete": "COMPLETE", "pruned": "PRUNED", "failed": "FAIL"}.get(trial["state"])
+            if state is None:
+                raise ValueError("native DAG checkpoint has an unsupported terminal state")
             if (record.id != evidence["trial_index"] or params != evidence["params"]
-                    or adapters._n4m_trial_state(record.status) != ("COMPLETE" if complete else "FAIL")
-                    or (complete and record.score != evidence["score"])):
+                    or adapters._n4m_trial_state(record.status) != state
+                    or (state == "COMPLETE" and record.score != evidence["score"])):
                 raise ValueError("native DAG and optimizer checkpoint histories disagree")
 
     def __call__(self, event: dict[str, Any]) -> Any:
@@ -81,11 +91,26 @@ class HostSearchOptimizer:
                 raise ValueError("native DAG and optimizer trial IDs disagree")
             self.pending[index] = trial
             return adapters._n4m_trial_params(trial, self.slots)
+        if event["operation"] == "report_intermediate":
+            if index in self.pruned:
+                raise ValueError("native optimizer received feedback after pruning")
+            should_prune = self.optimizer.tell_intermediate(index, event["step"], event["score"])
+            if should_prune:
+                self.pruned.add(index)
+            return should_prune
         trial = self.pending.pop(index)
         if event["operation"] == "tell":
+            if index in self.pruned:
+                raise ValueError("native optimizer cannot complete a pruned trial")
             self.optimizer.tell(trial.id, event["score"])
         elif event["operation"] == "fail":
+            if index in self.pruned:
+                raise ValueError("native optimizer cannot fail an already pruned trial")
             self.optimizer.tell_result(trial.id, self.api.TrialStatus.FAILED, error=str(event["error"])[:200])
+        elif event["operation"] == "pruned":
+            if index not in self.pruned:
+                raise ValueError("native optimizer did not prune this trial")
+            self.pruned.remove(index)
         else:
             raise ValueError("unexpected native optimizer event")
         return None

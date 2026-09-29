@@ -819,8 +819,8 @@ def _decode_categorical_params(params: Mapping[str, Any], categorical_codecs: Ma
 def _n4m_sampler_name(sampler: str | None) -> str:
     if sampler in {None, "auto", "tpe"}:
         return "tpe"
-    if sampler == "random":
-        return "random"
+    if sampler in {"random", "sobol", "lhs", "ternary", "ga", "pso", "cmaes", "gp_ei"}:
+        return sampler
     if sampler == "grid":
         return "grid"
     raise ValueError(f"n4m PipelineObjective adapter does not support sampler={sampler!r} yet")
