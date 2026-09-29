@@ -4,6 +4,10 @@ name: Installed multimodal candidate
 # IO/DAG-ML candidates, then runs the provider workflow outside source checkouts.
 # It never publishes packages.
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/installed-multimodal-candidate.yml
   workflow_dispatch:
     inputs:
       io_ref:
@@ -13,7 +17,11 @@ on:
       dag_ref:
         description: "DAG-ML commit to qualify"
         required: true
-        default: "27951318d503138db611894d291d6653a63ce957"
+        default: "b693d7f2f89b93bafb25ccac21b6e272450e0c9c"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -27,12 +35,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: GBeurier/nirs4all-io
-          ref: ${{ inputs.io_ref }}
+          ref: ${{ inputs.io_ref || 'e84eb3eda73629dddc1b7f8335f8481d142ea9ac' }}
           path: candidate-io
       - uses: actions/checkout@v7
         with:
           repository: GBeurier/dag-ml
-          ref: ${{ inputs.dag_ref }}
+          ref: ${{ inputs.dag_ref || 'b693d7f2f89b93bafb25ccac21b6e272450e0c9c' }}
           path: candidate-dag
       - uses: actions/setup-python@v7
         with:
@@ -46,6 +54,8 @@ jobs:
           cd candidate-io
           python -m maturin build --locked --release -m bindings/python/Cargo.toml --interpreter python --out ../dist
           cd ../candidate-dag
+          python scripts/prepare_python_candidate.py
+          python scripts/validate_release_metadata.py
           python -m maturin build --locked --release -m crates/dag-ml-py/Cargo.toml --interpreter python --out ../dist
       - name: Install candidate wheels with current native dependencies
         shell: bash
@@ -58,7 +68,7 @@ jobs:
           from importlib.metadata import version
           assert version("nirs4all") == "1.3.1.dev0"
           assert version("nirs4all-io") == "0.2.1.dev0"
-          assert version("dag-ml") == "0.3.30"
+          assert version("dag-ml") == "0.3.31.dev0"
           PY
       - name: Qualify installed CV, generated HPO, resume, archive and prediction
         shell: bash
