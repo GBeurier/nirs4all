@@ -90,11 +90,6 @@ def prepare_data_provider(
             )
         if random_state is not None and (type(random_state) is not int or not 0 <= random_state < 2**32):
             raise ValueError("generate_view requires a non-negative 32-bit integer random_state or None")
-        from .in_process_runner import in_process_enabled
-
-        if (not in_process_enabled() and isinstance(tuning, dict)
-                and tuning.get("progress_callback") is not None):
-            raise NotImplementedError("generate_view subprocess HPO cannot relay tuning.progress_callback")
         import importlib
         import inspect
 
