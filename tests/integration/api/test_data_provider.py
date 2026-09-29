@@ -1034,10 +1034,7 @@ def test_generated_by_source_subprocess_keeps_prediction_archive(tmp_path: Path,
         result.close()
 
 
-@pytest.mark.parametrize("option", ["tuning", "should_stop"])
-def test_generated_view_subprocess_refuses_untransported_control_before_plan(
-    option: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_generated_view_subprocess_refuses_hpo_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(**_: Any) -> Any:
         pytest.fail("Subprocess mode executed the provider")
 
@@ -1047,13 +1044,48 @@ def test_generated_view_subprocess_refuses_untransported_control_before_plan(
         base=base, replace_sources=["nir"],
     )
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
-    options = {"tuning": _tuning(tmp_path / "study")} if option == "tuning" else {"should_stop": lambda: False}
-    with pytest.raises(NotImplementedError, match="subprocess (HPO|execution does not support)"):
+    with pytest.raises(NotImplementedError, match="subprocess HPO"):
         nirs4all.run(
             [KFold(3), {"model": _model()}], provider,
             engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
-            results_path=tmp_path / "native", random_state=19, verbose=0, **options,
+            results_path=tmp_path / "native", random_state=19, verbose=0,
+            tuning=_tuning(tmp_path / "study"),
         )
+
+
+def test_generated_view_subprocess_cancels_running_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A parent cancellation terminates the child before it can publish a run."""
+    base = _cohort()
+    marker = tmp_path / "worker.pid"
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], **_: Any) -> dict[str, Any]:
+        import time
+
+        marker.write_text(str(os.getpid()), encoding="utf-8")
+        time.sleep(30)
+        source = base.take(sample_ids).sources["nir"]
+        return {"sample_ids": sample_ids, "sources": {"nir": source}}
+
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.subprocess-cancel",
+        base=base, replace_sources=["nir"],
+    )
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    with pytest.raises(DagRunCancelled, match="cancelled"):
+        nirs4all.run(
+            [KFold(3), {"model": _model()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "native", random_state=19, verbose=0,
+            should_stop=lambda: marker.exists(),
+        )
+    assert marker.exists()
+    if os.name == "posix":
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(marker.read_text(encoding="utf-8")), 0)
+    assert not (tmp_path / "native" / "manifest.json").exists()
 
 
 @pytest.mark.parametrize("engine", ["native", "legacy", "dual"])

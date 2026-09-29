@@ -13,6 +13,30 @@ import cloudpickle
 from .resources import current_execution_resources
 
 
+def _run_cancellable_worker(command: list[str]) -> subprocess.CompletedProcess[str]:
+    """Observe the parent cancellation token while the isolated child executes."""
+    from .cancellation import check_cancellation
+
+    check_cancellation()
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.1)
+                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                check_cancellation()
+    except BaseException:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+        raise
+
+
 def run_generated_subprocess(
     *,
     dsl: dict[str, Any],
@@ -73,7 +97,7 @@ def run_generated_subprocess(
             str(venv_python or sys.executable), "-m", "nirs4all.pipeline.dagml.generated_worker",
             str(request_path), str(response_path),
         ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        completed = _run_cancellable_worker(command)
         if completed.returncode != 0:
             raise RuntimeError(
                 f"generated DAG-ML worker failed with exit code {completed.returncode}:\n"
