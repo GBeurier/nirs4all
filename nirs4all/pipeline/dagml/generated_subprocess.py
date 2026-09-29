@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,7 +23,15 @@ def _run_cancellable_worker(command: list[str], should_stop: Any = None) -> subp
     check_cancellation()
     if should_stop is not None and should_stop():
         raise DagRunCancelled("DAG run cancelled by caller")
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Candidate-local HPO workers inherit this process group on POSIX. Keep
+    # them in the cancellation scope of the outer generated-view worker.
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=os.name == "posix",
+    )
     try:
         while True:
             try:
@@ -32,11 +43,31 @@ def _run_cancellable_worker(command: list[str], should_stop: Any = None) -> subp
                     raise DagRunCancelled("DAG run cancelled by caller") from None
     except BaseException:
         if process.poll() is None:
-            process.terminate()
+            if os.name == "posix":
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGTERM)
+            elif os.name == "nt":
+                # taskkill /T includes candidate grandchildren; terminate()
+                # alone only reaches the outer worker on Windows.
+                with contextlib.suppress(OSError):
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+            if process.poll() is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.terminate()
             try:
                 process.communicate(timeout=5)
             except subprocess.TimeoutExpired:
-                process.kill()
+                if os.name == "posix":
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    with contextlib.suppress(ProcessLookupError):
+                        process.kill()
                 process.communicate()
         raise
 

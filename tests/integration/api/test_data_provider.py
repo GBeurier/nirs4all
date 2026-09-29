@@ -6,6 +6,7 @@ import json
 import os
 import pickle
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -1177,23 +1178,131 @@ def test_generated_hpo_subprocess_rejects_progress_callback_before_plan(tmp_path
         )
 
 
-def test_generated_hpo_subprocess_rejects_parallel_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def forbidden(**_: Any) -> Any:
-        pytest.fail("Parallel subprocess mode executed the provider")
-
+def test_generated_hpo_parallel_subprocess_resumes_and_exports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The outer worker can coordinate concurrent candidate workers and replay."""
     base = _cohort()
+    markers = tmp_path / "candidate-pids"
+    markers.mkdir()
+
+    def provider() -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            (markers / str(os.getpid())).touch()
+            deadline = time.monotonic() + 15
+            while len(list(markers.iterdir())) < 2 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            if len(list(markers.iterdir())) < 2:
+                raise AssertionError("generated HPO candidates did not overlap")
+            source = base.take(sample_ids).sources["nir"]
+            return {
+                "sample_ids": sample_ids,
+                "sources": {
+                    "nir": TensorSource(
+                        np.asarray(source.values) + float(seed % 7),
+                        sample_ids,
+                        representation_id=source.representation_id,
+                        axis_units=source.axis_units,
+                        axis_coordinates=source.axis_coordinates,
+                    )
+                },
+            }
+
+        return DataProvider(
+            generate,
+            generate_view=generate_view,
+            provider_id="qualification.view.subprocess-parallel",
+            base=base,
+            replace_sources=["nir"],
+        )
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    study = tmp_path / "study"
+
+    def execute(resume: bool) -> Any:
+        return nirs4all.run(
+            [GroupKFold(3), {"model": _model()}],
+            provider(),
+            engine="dag-ml",
+            refit=True,
+            save_artifacts=False,
+            save_charts=False,
+            results_path=tmp_path / f"native-{resume}",
+            random_state=19,
+            verbose=0,
+            tuning={**_tuning(study), "n_trials": 3, "n_jobs": 2, "resume": resume},
+        )
+
+    first = execute(False)
+    resumed = execute(True)
+    try:
+        assert len(first.tuning_result.trials) == 3
+        assert [trial.to_dict() for trial in resumed.tuning_result.trials] == [trial.to_dict() for trial in first.tuning_result.trials]
+        assert resumed._dagml_generated_view_manifest == first._dagml_generated_view_manifest
+        child_pids = {path.name for path in markers.iterdir()}
+        assert len(child_pids) >= 2 and str(os.getpid()) not in child_pids
+        archive = resumed.export(tmp_path / "parallel-child.n4a")
+        prediction = _cohort(prediction=True)
+        fitted = resumed._dagml_refit_artifacts[0]["estimator"]
+        expected = fitted.predict([prediction.sources[name].values for name in fitted.source_names])
+        np.testing.assert_allclose(nirs4all.predict(archive, prediction).y_pred.reshape(-1), np.asarray(expected).reshape(-1))
+    finally:
+        first.close()
+        resumed.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group cancellation")
+def test_generated_hpo_parallel_subprocess_cancels_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cancelling the outer worker also signals its active candidate children."""
+    base = _cohort()
+    markers = tmp_path / "candidate-signals"
+    markers.mkdir()
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], **_: Any) -> dict[str, Any]:
+        pid = os.getpid()
+
+        def on_terminate(_number: int, _frame: Any) -> None:
+            (markers / f"terminated-{pid}").touch()
+            raise SystemExit(0)
+
+        signal.signal(signal.SIGTERM, on_terminate)
+        (markers / f"active-{pid}").touch()
+        time.sleep(30)
+        return {"sample_ids": sample_ids, "sources": {"nir": base.take(sample_ids).sources["nir"]}}
+
     provider = DataProvider(
-        forbidden, generate_view=forbidden, provider_id="qualification.view.subprocess-parallel-refused",
-        base=base, replace_sources=["nir"],
+        generate,
+        generate_view=generate_view,
+        provider_id="qualification.view.subprocess-parallel-cancel",
+        base=base,
+        replace_sources=["nir"],
     )
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
-    with pytest.raises(NotImplementedError, match="parallel HPO requires an in-process host"):
+    with pytest.raises(DagRunCancelled, match="cancelled"):
         nirs4all.run(
-            [KFold(3), {"model": _model()}], provider,
-            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
-            results_path=tmp_path / "native", random_state=19, verbose=0,
-            tuning={**_tuning(tmp_path / "study"), "n_jobs": 2},
+            [GroupKFold(3), {"model": _model()}],
+            provider,
+            engine="dag-ml",
+            refit=True,
+            save_artifacts=False,
+            save_charts=False,
+            results_path=tmp_path / "native",
+            random_state=19,
+            verbose=0,
+            tuning={**_tuning(tmp_path / "study"), "n_trials": 2, "n_jobs": 2},
+            should_stop=lambda: any(markers.glob("active-*")),
         )
+    active = {path.name.removeprefix("active-") for path in markers.glob("active-*")}
+    deadline = time.monotonic() + 5
+    while len(list(markers.glob("terminated-*"))) < len(active) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    terminated = {path.name.removeprefix("terminated-") for path in markers.glob("terminated-*")}
+    assert active and active <= terminated
+    assert not (tmp_path / "native" / "manifest.json").exists()
 
 
 def test_generated_hpo_parallel_rejects_old_binding_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
