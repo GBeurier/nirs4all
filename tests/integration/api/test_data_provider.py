@@ -1196,6 +1196,27 @@ def test_generated_hpo_subprocess_rejects_parallel_before_plan(tmp_path: Path, m
         )
 
 
+def test_generated_hpo_parallel_rejects_old_binding_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from dag_ml import _dag_ml as native
+
+    def forbidden(**_: Any) -> Any:
+        pytest.fail("An incompatible DAG-ML binding executed the provider")
+
+    monkeypatch.setattr(native, "host_hpo_parallel_generated_views_supported", lambda: False)
+    base = _cohort()
+    provider = DataProvider(
+        forbidden, generate_view=forbidden, provider_id="qualification.view.old-binding-refused",
+        base=base, replace_sources=["nir"],
+    )
+    with pytest.raises(NotImplementedError, match="candidate-local generated views"):
+        nirs4all.run(
+            [KFold(3), {"model": _model()}], provider,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "native", random_state=19, verbose=0,
+            tuning={**_tuning(tmp_path / "study"), "n_jobs": 2},
+        )
+
+
 def test_generated_hpo_subprocess_resumes_and_exports_from_child(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """HPO and its winning refit run in one child; the parent gets a usable result."""
     base = _cohort()

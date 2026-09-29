@@ -313,7 +313,8 @@ identity. Parallel checkpoints may contain proposals already opened for other
 candidates; `resume=True` reuses those proposals and verifies saved generated
 views before new evaluation. This setting does not enable parallelism in the
 general `PipelineObjective` tuning adapter. For generated views it requires the
-in-process DAG-ML host.
+in-process DAG-ML host and a binding that advertises candidate-local generated
+views; older installed bindings fail before the provider `PLAN`.
 
 For generated views with `N4A_DAGML_INPROCESS=0`, sequential HPO uses an isolated Python
 worker. Its progress events cannot call back into the parent, so

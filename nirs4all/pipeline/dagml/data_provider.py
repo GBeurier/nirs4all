@@ -112,6 +112,12 @@ def prepare_data_provider(
             hpo = getattr(native, "run_host_hpo_search_in_process", None)
             if not callable(hpo) or not {"view_callback_factory", "resume_view_validator"}.issubset(inspect.signature(hpo).parameters):
                 raise NotImplementedError("generate_view tuning requires a DAG-ML binding with checkpointed HPO view support")
+            if isinstance(tuning, dict) and tuning.get("n_jobs", 1) != 1:
+                capability = getattr(native, "host_hpo_parallel_generated_views_supported", None)
+                if not callable(capability) or capability() is not True:
+                    raise NotImplementedError(
+                        "generate_view parallel HPO requires a DAG-ML binding with candidate-local generated views"
+                    )
     cohorts: list[Any] = []
 
     def provide(task: dict[str, Any]) -> dict[str, Any]:
