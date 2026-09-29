@@ -1,8 +1,10 @@
 """Qualify an installed four-modality provider without importing source checkouts."""
 
 import os
+import sys
 from pathlib import Path
 
+import dag_ml
 import nirs4all_io
 import numpy as np
 from nirs4all_io import DataProvider, MultimodalDataset, TensorSource
@@ -15,9 +17,9 @@ import nirs4all
 from nirs4all.operators.models.multimodal import MultimodalRegressor, TensorPCA
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
 
-workspace = Path(__file__).resolve().parents[2]
-assert not Path(nirs4all.__file__).resolve().is_relative_to(workspace)
-assert not Path(nirs4all_io.__file__).resolve().is_relative_to(workspace)
+installed_prefix = Path(sys.prefix).resolve()
+for package in (nirs4all, nirs4all_io, dag_ml):
+    assert Path(package.__file__).resolve().is_relative_to(installed_prefix)
 root = Path(os.environ.get("N4A_SMOKE_ROOT", "/tmp/n4a-installed-provider-qualification"))
 
 
