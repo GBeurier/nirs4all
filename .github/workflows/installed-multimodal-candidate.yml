@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/installed-multimodal-candidate.yml
+      - tests/qualification/installed_multimodal_provider.py
   workflow_dispatch:
     inputs:
       io_ref:
@@ -17,7 +18,7 @@ on:
       dag_ref:
         description: "DAG-ML commit to qualify"
         required: true
-        default: "b693d7f2f89b93bafb25ccac21b6e272450e0c9c"
+        default: "233512eddeaba1d7fb3aa2c2980255f894cbe509"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,7 +41,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: GBeurier/dag-ml
-          ref: ${{ inputs.dag_ref || 'b693d7f2f89b93bafb25ccac21b6e272450e0c9c' }}
+          ref: ${{ inputs.dag_ref || '233512eddeaba1d7fb3aa2c2980255f894cbe509' }}
           path: candidate-dag
       - uses: actions/setup-python@v7
         with:
