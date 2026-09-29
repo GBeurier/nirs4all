@@ -792,9 +792,12 @@ def run(
             - Dict with arrays: ``{"X": X, "y": y, "metadata": meta}``
             - SpectroDataset instance
             - IO DataProvider: PLAN executes once before cross-validation.
-              A ``generate_view`` callback is supported only with
-              ``[KFold(...), {"model": estimator_instance}]``, ``refit=True``
-              and ``save_artifacts=False`` on the in-process DAG-ML engine.
+              A ``generate_view`` callback can then provide attested raw
+              train/validation/refit views for supported splitters and concrete
+              model or per-source branch shapes. This bounded DAG-ML profile
+              requires ``refit=True`` and ``save_artifacts=False``; it also
+              supports N4M random-search tuning and an isolated Python worker.
+              See the multimodal data guide for the exact supported shapes.
             - List of SpectroDataset instances (multi-dataset)
             - DatasetConfigs object (backward compatibility)
             - **List of datasets**: ``[dataset1, dataset2, ...]`` - each
