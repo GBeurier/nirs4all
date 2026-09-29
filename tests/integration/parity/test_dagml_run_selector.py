@@ -103,7 +103,7 @@ def test_run_dagml_supports_full_train_without_splitter(monkeypatch: pytest.Monk
         calls.append(pipeline)
         return sentinel
 
-    monkeypatch.setattr(run_backend, "preflight_dagml_backend", lambda _cli: None)
+    monkeypatch.setattr(run_backend, "preflight_dagml_backend", lambda _cli, **_kwargs: None)
     monkeypatch.setattr(full_train, "run_full_train", _full_train)
     result = nirs4all.run(
         [{"model": PLSRegression(n_components=2)}],
@@ -171,7 +171,7 @@ def test_dagml_run_rejects_unavailable_backend_by_default(monkeypatch: pytest.Mo
 
     monkeypatch.delenv("N4A_ENGINE", raising=False)
 
-    def _unavailable(_cli: str) -> None:
+    def _unavailable(_cli: str, **_kwargs: object) -> None:
         raise DagMlUnavailable("simulated: neither in-process extension nor dag-ml-cli")
 
     # The preflight runs at the top of run_via_dagml; patching it makes the dag-ml path declare the
@@ -195,7 +195,7 @@ def test_dagml_run_rejects_legacy_fallback_when_backend_unavailable(monkeypatch:
 
     monkeypatch.delenv("N4A_ENGINE", raising=False)
 
-    def _unavailable(_cli: str) -> None:
+    def _unavailable(_cli: str, **_kwargs: object) -> None:
         raise DagMlUnavailable("simulated: neither in-process extension nor dag-ml-cli")
 
     monkeypatch.setattr(run_backend, "preflight_dagml_backend", _unavailable)
