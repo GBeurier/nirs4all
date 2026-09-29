@@ -23,11 +23,16 @@ def _relay_worker_progress(directory: Path, callback: Callable[[dict[str, Any]],
     answer_path = directory / "progress.answer"
     if not event_path.is_file() or answer_path.exists():
         return
-    with event_path.open("rb") as stream:
-        event = cloudpickle.load(stream)  # noqa: S301 - private event from our child
+    try:
+        with event_path.open("rb") as stream:
+            event = cloudpickle.load(stream)  # noqa: S301 - private event from our child
+    except FileNotFoundError:
+        # The child can retire the preceding event after its answer is read.
+        return
     if not isinstance(event, dict):
         raise ValueError("generated HPO worker sent an invalid progress event")
-    decision = bool(callback(event))
+    response = callback(event)
+    decision = True if response is None else bool(response)
     temporary = directory / "progress.answer.tmp"
     with temporary.open("wb") as stream:
         cloudpickle.dump(decision, stream)

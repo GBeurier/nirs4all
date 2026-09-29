@@ -1201,9 +1201,8 @@ def test_generated_hpo_subprocess_relays_progress_and_resumes(tmp_path: Path, mo
     assert len(saved) == 1 and saved[0]["state"] == "complete"
     resumed_events: list[tuple[int, int]] = []
 
-    def continue_search(event: dict[str, Any]) -> bool:
+    def continue_search(event: dict[str, Any]) -> None:
         resumed_events.append((os.getpid(), len(event["checkpoint"]["trials"])))
-        return True
 
     resumed = nirs4all.run(
         [GroupKFold(3), {"model": _model()}], provider(),

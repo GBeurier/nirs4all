@@ -319,7 +319,8 @@ views; older installed bindings fail before the provider `PLAN`.
 For generated views with `N4A_DAGML_INPROCESS=0`, HPO uses an isolated Python
 worker. `tuning.progress_callback` runs in the calling process after each
 checkpoint event; returning `False` stops at the saved trial boundary, and
-`resume=True` continues from that checkpoint. The parent's `should_stop` may
+returning `True` or `None` continues. `resume=True` continues from that
+checkpoint. The parent's `should_stop` may
 terminate the worker during a trial; the last complete paired checkpoint
 remains available, and the interrupted trial may repeat on resume.
 
