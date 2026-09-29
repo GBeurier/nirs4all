@@ -1132,12 +1132,24 @@ def run(
 
                 if session is not None or calibration is not None:
                     raise ValueError("multimodal tuning currently requires a standalone run without calibration")
-                return cast(RunResult, run_multimodal_tuning(pipeline, dataset, tuning, run_options={
+                tuning_run_options = {
                     **runner_kwargs, "name": name, "verbose": verbose, "save_artifacts": save_artifacts,
                     "save_charts": save_charts, "plots_visible": plots_visible, "random_state": random_state,
                     "refit": refit, "cache": cache, "project": project, "report_naming": report_naming,
                     "results_path": results_path,
-                }))
+                }
+                if getattr(dataset, "_generated_view_store", None) is not None:
+                    from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
+
+                    if not in_process_enabled():
+                        from nirs4all.pipeline.dagml.generated_hpo_subprocess import run_generated_hpo_subprocess
+
+                        return cast(RunResult, run_generated_hpo_subprocess(
+                            pipeline, dataset, tuning, run_options=tuning_run_options,
+                        ))
+                return cast(RunResult, run_multimodal_tuning(
+                    pipeline, dataset, tuning, run_options=tuning_run_options,
+                ))
             return _run_single_estimator_tuning_subset(
                 pipeline,
                 dataset,

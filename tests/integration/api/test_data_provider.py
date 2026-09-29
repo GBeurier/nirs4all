@@ -1034,7 +1034,7 @@ def test_generated_by_source_subprocess_keeps_prediction_archive(tmp_path: Path,
         result.close()
 
 
-def test_generated_view_subprocess_refuses_hpo_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generated_hpo_subprocess_rejects_progress_callback_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(**_: Any) -> Any:
         pytest.fail("Subprocess mode executed the provider")
 
@@ -1044,13 +1044,160 @@ def test_generated_view_subprocess_refuses_hpo_before_plan(tmp_path: Path, monke
         base=base, replace_sources=["nir"],
     )
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
-    with pytest.raises(NotImplementedError, match="subprocess HPO"):
+    with pytest.raises(NotImplementedError, match="cannot relay tuning.progress_callback"):
         nirs4all.run(
             [KFold(3), {"model": _model()}], provider,
             engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
             results_path=tmp_path / "native", random_state=19, verbose=0,
-            tuning=_tuning(tmp_path / "study"),
+            tuning={**_tuning(tmp_path / "study"), "progress_callback": lambda _event: True},
         )
+
+
+def test_generated_hpo_subprocess_resumes_and_exports_from_child(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """HPO and its winning refit run in one child; the parent gets a usable result."""
+    base = _cohort()
+    marker = tmp_path / "hpo-pids.txt"
+    study = tmp_path / "hpo-study"
+
+    def provider() -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            with marker.open("a", encoding="utf-8") as stream:
+                stream.write(f"{os.getpid()}\n")
+            source = base.take(sample_ids).sources["nir"]
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                np.asarray(source.values) + float(seed % 7), sample_ids,
+                representation_id=source.representation_id, axis_units=source.axis_units,
+                axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(
+            generate, generate_view=generate_view, provider_id="qualification.view.hpo-subprocess",
+            base=base, replace_sources=["nir"],
+        )
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    tuning = {**_tuning(study), "n_trials": 2}
+
+    def run(resume: bool) -> Any:
+        return nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], provider(),
+            tuning={**tuning, "resume": resume}, engine="dag-ml", refit=True,
+            save_artifacts=False, save_charts=False, results_path=tmp_path / f"results-{resume}",
+            random_state=19, verbose=0,
+        )
+
+    first = run(False)
+    resumed = run(True)
+    try:
+        assert len(first.tuning_result.trials) == 2
+        assert [trial.to_dict() for trial in resumed.tuning_result.trials] == [
+            trial.to_dict() for trial in first.tuning_result.trials
+        ]
+        assert resumed._dagml_generated_view_manifest == first._dagml_generated_view_manifest
+        assert resumed._dagml_generated_view_manifest["views"]
+        child_pids = set(marker.read_text(encoding="utf-8").splitlines())
+        assert len(child_pids) == 2 and str(os.getpid()) not in child_pids
+        archive = resumed.export(tmp_path / "hpo-child.n4a")
+        prediction = _cohort(prediction=True)
+        captured = resumed._dagml_refit_artifacts[0]["estimator"]
+        expected = captured.predict([prediction.sources[name].values for name in captured.source_names])
+        np.testing.assert_allclose(nirs4all.predict(archive, prediction).y_pred.reshape(-1), np.asarray(expected).reshape(-1))
+    finally:
+        first.close()
+        resumed.close()
+
+
+def test_generated_hpo_subprocess_cancels_running_child(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base = _cohort()
+    marker = tmp_path / "hpo-worker.pid"
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], **_: Any) -> dict[str, Any]:
+        import time
+
+        marker.write_text(str(os.getpid()), encoding="utf-8")
+        time.sleep(30)
+        return {"sample_ids": sample_ids, "sources": {"nir": base.take(sample_ids).sources["nir"]}}
+
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.hpo-child-cancel",
+        base=base, replace_sources=["nir"],
+    )
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    with pytest.raises(DagRunCancelled, match="cancelled"):
+        nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], provider,
+            tuning={**_tuning(tmp_path / "study"), "n_trials": 2}, engine="dag-ml",
+            refit=True, save_artifacts=False, save_charts=False, results_path=tmp_path / "results",
+            random_state=19, verbose=0, should_stop=lambda: marker.exists(),
+        )
+    assert marker.exists()
+    if os.name == "posix":
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(marker.read_text(encoding="utf-8")), 0)
+    assert not (tmp_path / "results" / "manifest.json").exists()
+
+
+def test_generated_hpo_subprocess_resumes_after_parent_stops_at_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Killing a child after one terminal leaves the atomic paired checkpoint usable."""
+    base = _cohort()
+    study = tmp_path / "interrupted-study"
+    checkpoint = study / "multimodal.n4mopt.json"
+
+    def first_trial_saved() -> bool:
+        return checkpoint.exists() and len(_checkpoint(study)["native_checkpoint"]["trials"]) >= 1
+
+    def provider(*, pause_after_checkpoint: bool) -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            if pause_after_checkpoint and first_trial_saved():
+                import time
+
+                time.sleep(30)
+            source = base.take(sample_ids).sources["nir"]
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                np.asarray(source.values) + float(seed % 7), sample_ids,
+                representation_id=source.representation_id, axis_units=source.axis_units,
+                axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(
+            generate, generate_view=generate_view, provider_id="qualification.view.hpo-child-recovery",
+            base=base, replace_sources=["nir"],
+        )
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    tuning = {**_tuning(study), "n_trials": 2}
+    options = {
+        "engine": "dag-ml", "refit": True, "save_artifacts": False, "save_charts": False,
+        "random_state": 19, "verbose": 0,
+    }
+    with pytest.raises(DagRunCancelled, match="cancelled"):
+        nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], provider(pause_after_checkpoint=True),
+            tuning=tuning, results_path=tmp_path / "interrupted-results",
+            should_stop=first_trial_saved, **options,
+        )
+    first_trial = _checkpoint(study)["native_checkpoint"]["trials"]
+    assert len(first_trial) == 1
+    result = nirs4all.run(
+        [GroupKFold(3), {"model": _model()}], provider(pause_after_checkpoint=False),
+        tuning={**tuning, "resume": True}, results_path=tmp_path / "resumed-results", **options,
+    )
+    try:
+        assert len(result.tuning_result.trials) == 2
+        assert _checkpoint(study)["native_checkpoint"]["trials"][0] == first_trial[0]
+        assert result._dagml_generated_view_manifest["views"]
+        assert np.isfinite(result.tuning_best_value)
+    finally:
+        result.close()
 
 
 def test_generated_view_subprocess_cancels_running_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
