@@ -1125,7 +1125,7 @@ class RefittedN4MPipeline:
         transformed = self._transform_steps(self._steps, values)
         if self.task == "classification":
             predictions = np.asarray(self._model.predict(transformed), dtype=np.int64).reshape(values.shape[0])
-            return np.asarray(self.classes, dtype=str)[predictions]
+            return np.take(np.asarray(self.classes, dtype=str), predictions)
         return np.asarray(self._model.predict(transformed), dtype=np.float64).reshape(values.shape[0])
 
 
