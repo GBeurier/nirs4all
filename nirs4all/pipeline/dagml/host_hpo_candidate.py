@@ -13,6 +13,7 @@ from typing import Any, cast
 import cloudpickle
 
 from .resources import current_execution_resources
+from .worker_environment import scientific_worker_environment
 
 _PROVIDER_SNAPSHOT_LOCK = threading.RLock()
 
@@ -57,8 +58,9 @@ class HostHpoCandidate:
         self._log_stream = self._log_path.open("w+b")
         try:
             self._process = subprocess.Popen(
-                [sys.executable, "-m", "nirs4all.pipeline.dagml.host_hpo_candidate_worker", str(request_path)],
+                [sys.executable, "-P", "-s", "-B", "-m", "nirs4all.pipeline.dagml.host_hpo_candidate_worker", str(request_path)],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._log_stream,
+                env=scientific_worker_environment(),
             )
         except BaseException:
             self._log_stream.close()

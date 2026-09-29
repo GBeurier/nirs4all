@@ -1092,6 +1092,12 @@ def test_generated_view_subprocess_replays_native_manifest_and_refit(tmp_path: P
     direct = run(make_provider(direct_marker), "direct")
     worker_marker = tmp_path / "worker-pids.txt"
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    # The worker must resolve the same installed provider module as its parent,
+    # even when a user's PYTHONPATH shadows that module with an old release.
+    shadow = tmp_path / "shadow-site" / "nirs4all_io"
+    shadow.mkdir(parents=True)
+    (shadow / "__init__.py").write_text("# intentionally lacks provider.py\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(shadow.parent))
     monkeypatch.setattr("nirs4all.pipeline.dagml.run_backend._default_dagml_cli", lambda: tmp_path / "missing-cli")
     worker = run(make_provider(worker_marker), "worker")
     try:
@@ -1271,6 +1277,12 @@ def test_generated_hpo_parallel_subprocess_resumes_and_exports(tmp_path: Path, m
         )
 
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    # The outer HPO worker and its candidates must ignore a stale user import
+    # path just as the ordinary generated CV worker does.
+    shadow = tmp_path / "shadow-site" / "nirs4all_io"
+    shadow.mkdir(parents=True)
+    (shadow / "__init__.py").write_text("# intentionally lacks provider.py\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(shadow.parent))
     study = tmp_path / "study"
 
     def execute(resume: bool) -> Any:
