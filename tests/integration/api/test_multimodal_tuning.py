@@ -57,6 +57,104 @@ def _stop_after(count: int, events: list[dict[str, Any]]) -> Any:
     return callback
 
 
+@pytest.mark.parametrize("sampler", ["random", "sobol", "lhs", "ternary", "ga", "pso", "cmaes", "tpe", "gp_ei"])
+def test_native_sampler_runs_on_fixed_multimodal_dag(sampler: str, tmp_path: Path) -> None:
+    """Each portable Methods sampler must drive real DAG folds and winner refit."""
+    tuning = {
+        "engine": "n4m", "sampler": sampler, "seed": 19, "metric": "rmse", "n_trials": 2,
+        "space": {"model__alpha": (0.01, 1.0)},
+    }
+    result = _run(_cohort(), tuning, tmp_path / sampler)
+    try:
+        assert [trial.state for trial in result.tuning_result.trials] == ["COMPLETE", "COMPLETE"]
+        assert result.tuning_best_value == min(trial.value for trial in result.tuning_result.trials)
+        assert 0.01 <= result.tuning_best_params["model.alpha"] <= 1.0
+        assert len(result._dagml_refit_artifacts) == 1
+    finally:
+        result.close()
+
+
+def test_omitted_sampler_keeps_legacy_tpe_checkpoint_identity(tmp_path: Path) -> None:
+    """An omitted sampler must keep its historical TPE proposals across resume."""
+    cohort = _cohort()
+    study = tmp_path / "implicit-study"
+    controls = {
+        "engine": "n4m", "seed": 19, "metric": "rmse", "n_trials": 3,
+        "storage": study.as_uri(), "study_name": "multimodal",
+        "space": {"model__alpha": (0.01, 1.0)},
+    }
+    with pytest.raises(MultimodalTuningStopped):
+        _run(cohort, {**controls, "progress_callback": _stop_after(1, [])}, tmp_path / "stopped")
+    prefix = _checkpoint(study)["native_checkpoint"]["trials"]
+    resumed = _run(cohort, {**controls, "resume": True}, tmp_path / "resumed")
+    explicit = _run(cohort, {**controls, "sampler": "tpe", "storage": (tmp_path / "explicit-study").as_uri()},
+                    tmp_path / "explicit")
+    try:
+        assert _checkpoint(study)["native_checkpoint"]["trials"][:1] == prefix
+        assert [trial.params for trial in resumed.tuning_result.trials] == [
+            trial.params for trial in explicit.tuning_result.trials
+        ]
+        assert [trial.state for trial in resumed.tuning_result.trials] == ["COMPLETE"] * 3
+    finally:
+        resumed.close()
+        explicit.close()
+
+
+@pytest.mark.parametrize("pruner", ["median", "successive_halving", "asha", "hyperband", "racing"])
+def test_native_pruner_modes_run_fixed_multimodal_dag(pruner: str, tmp_path: Path) -> None:
+    """Every Methods pruning policy can drive the fixed DAG's fold feedback."""
+    result = _run(_cohort(), {
+        "engine": "n4m", "sampler": "random", "pruner": pruner,
+        "seed": 19, "metric": "rmse", "n_trials": 2,
+        "space": {"model__alpha": [0.01, 1.0]},
+    }, tmp_path / pruner)
+    try:
+        assert [trial.state for trial in result.tuning_result.trials] == ["COMPLETE", "COMPLETE"]
+        assert result.tuning_best_value == min(trial.value for trial in result.tuning_result.trials)
+    finally:
+        result.close()
+
+
+def test_native_pruned_multimodal_search_resumes_same_dag_and_refit(tmp_path: Path) -> None:
+    """A native prune must be terminal in both paired checkpoints and public results."""
+    cohort = _cohort()
+    study = tmp_path / "pruned-study"
+    tuning = {
+        "engine": "n4m", "sampler": "random", "pruner": "median", "seed": 19,
+        "metric": "rmse", "n_trials": 14, "storage": study.as_uri(),
+        "study_name": "multimodal", "space": {"model__alpha": [0.01, 100.0]},
+    }
+    with pytest.raises(MultimodalTuningStopped):
+        _run(cohort, {**tuning, "progress_callback": lambda event: len(event["checkpoint"]["trials"]) < 12},
+             tmp_path / "pruned-stopped")
+    prefix = _checkpoint(study)["native_checkpoint"]["trials"]
+    assert len(prefix) == 12
+    assert any(record["state"] == "pruned" for record in prefix)
+
+    resumed = _run(cohort, {**tuning, "resume": True}, tmp_path / "pruned-resumed")
+    continuous = _run(cohort, {**tuning, "storage": (tmp_path / "pruned-continuous-study").as_uri()},
+                      tmp_path / "pruned-continuous")
+    try:
+        assert [trial.to_dict() for trial in resumed.tuning_result.trials] == [
+            trial.to_dict() for trial in continuous.tuning_result.trials
+        ]
+        assert "PRUNED" in [trial.state for trial in resumed.tuning_result.trials]
+        assert _checkpoint(study)["native_checkpoint"]["trials"][:12] == prefix
+        assert resumed.tuning_best_params == continuous.tuning_best_params
+        assert resumed.tuning_best_value == continuous.tuning_best_value
+        prediction = _cohort(prediction=True)
+        fitted = resumed._dagml_refit_artifacts[0]["estimator"]
+        baseline = continuous._dagml_refit_artifacts[0]["estimator"]
+        np.testing.assert_allclose(
+            fitted.predict([prediction.sources[name].values for name in fitted.source_names]),
+            baseline.predict([prediction.sources[name].values for name in baseline.source_names]),
+            rtol=0, atol=0,
+        )
+    finally:
+        resumed.close()
+        continuous.close()
+
+
 @pytest.mark.parametrize("perturb_test_labels", [False, True])
 def test_stopped_search_resumes_native_history_identically_to_continuous_search(perturb_test_labels: bool, tmp_path: Path) -> None:
     cohort = _cohort(unequal_groups=True)

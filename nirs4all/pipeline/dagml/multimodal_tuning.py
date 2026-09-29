@@ -95,8 +95,15 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     spec = parse_tuning_spec(controls)
     if "direction" not in controls:
         spec = replace(spec, direction="maximize" if is_higher_better(spec.metric) else "minimize")
-    if spec.engine != "n4m" or spec.sampler not in {None, "random"} or spec.pruner not in {None, "none"}:
-        raise ValueError("durable multimodal tuning currently requires engine='n4m', sampler='random', without pruning")
+    if spec.engine != "n4m":
+        raise ValueError("durable multimodal tuning requires engine='n4m'")
+    sampler = spec.sampler or "tpe"
+    if sampler not in {"random", "sobol", "lhs", "ternary", "ga", "pso", "cmaes", "tpe", "gp_ei"}:
+        raise ValueError(f"durable multimodal tuning does not support sampler={sampler!r}")
+    if spec.pruner not in {None, "none", "median", "successive_halving", "asha", "hyperband", "racing"}:
+        raise ValueError(f"durable multimodal tuning does not support pruner={spec.pruner!r}")
+    if spec.n_jobs != 1 and (spec.sampler not in {None, "random"} or spec.pruner not in {None, "none"}):
+        raise ValueError("durable multimodal tuning requires n_jobs=1 for nonrandom samplers or pruning")
     supported_metrics = {"accuracy", "balanced_accuracy"} if classification else {"rmse", "mse", "mae", "r2"}
     if spec.metric not in supported_metrics:
         raise ValueError(f"multimodal {'classification' if classification else 'regression'} tuning requires one of {sorted(supported_metrics)}")
@@ -145,6 +152,11 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     for key in ("resume", "n_trials", "storage", "study_name"):
         descriptor.pop(key, None)
     descriptor["operator_rng"] = {"policy": "per_native_task_v1", "seed": operator_seed}
+    if spec.pruner not in {None, "none"}:
+        descriptor["n4m_options"] = {
+            "n_startup_trials": 10, "max_resource": len(folds) if spec.pruner == "hyperband" else 0,
+            "reduction_factor": 0,
+        }
     if generated_store is not None:
         descriptor["generated_view_mode"] = "checkpoint_manifest_v1"
     provider_evidence = getattr(cohort, "_data_provider_evidence", None)
@@ -163,6 +175,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     })
     request = {"target_node": target, "trial_budget": spec.n_trials, "metric": spec.metric,
                "direction": spec.direction, "optimizer_descriptor": descriptor, "fold_score_reduction": "mean"}
+    if spec.pruner not in {None, "none"}:
+        request["progressive_pruning"] = True
     if recipe is not None:
         request["parameter_bindings"] = recipe.bindings
 
@@ -218,7 +232,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             raise ValueError("generated HPO used the static fallback operator")
         return evaluate(task, model_store=store)
 
-    optimizer = HostSearchOptimizer(spec)
+    optimizer = HostSearchOptimizer(spec, n_folds=len(folds))
     stop_requested = False
 
     def checkpoint(event: dict[str, Any]) -> Any:
@@ -281,10 +295,11 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     records = evidence["checkpoint"]["trials"]
     trials = []
     for record in records:
-        complete = record["state"] == "complete"
+        state = {"complete": "COMPLETE", "pruned": "PRUNED", "failed": "FAIL"}[record["state"]]
+        complete = state == "COMPLETE"
         item = record.get("evidence", record)
         trials.append(TrialResult(number=item["trial_index"], params=item["params"],
-                                  value=item["score"] if complete else None, state="COMPLETE" if complete else "FAIL",
+                                  value=item["score"] if complete else None, state=state,
                                   diagnostics={"engine": "dag-ml", "test_used": False}))
     winner = next(item for item in evidence["trials"] if item["trial_index"] == evidence["selected_trial_index"])
     result._tuning_result = TuningResult(tuning=spec, best_params=evidence["selected_params"],

@@ -770,6 +770,63 @@ def test_generated_view_manifest_repeats_for_same_seed_and_changes_for_new_seed(
     assert first["fingerprint"] != changed["fingerprint"]
 
 
+def test_generated_hpo_views_support_native_sampler_and_pruning(tmp_path: Path) -> None:
+    """Generated fold views and a pruned trial must survive native HPO resume."""
+    base = _cohort(unequal_groups=True)
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+        source = base.take(sample_ids).sources["nir"]
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            np.asarray(source.values) + float(seed % 7), sample_ids,
+            representation_id=source.representation_id, axis_units=source.axis_units,
+            axis_coordinates=source.axis_coordinates,
+        )}}
+
+    def configured() -> DataProvider:
+        return DataProvider(
+            generate, generate_view=generate_view, provider_id="qualification.view.native-pruner",
+            base=base, replace_sources=["nir"],
+        )
+
+    tuning = {
+        "engine": "n4m", "sampler": "sobol", "pruner": "asha", "seed": 19,
+        "metric": "rmse", "n_trials": 3, "space": {"model__alpha": (0.01, 1.0)},
+        "storage": (tmp_path / "study").as_uri(), "study_name": "multimodal",
+    }
+
+    def execute(controls: dict[str, Any], output: str) -> Any:
+        return nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], configured(), tuning=controls,
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / output, random_state=19, verbose=0,
+        )
+
+    with pytest.raises(MultimodalTuningStopped):
+        execute({**tuning, "progress_callback": lambda event: len(event["checkpoint"]["trials"]) < 2},
+                "stopped")
+    prefix = _checkpoint(tmp_path / "study")["native_checkpoint"]["trials"]
+    assert len(prefix) == 2
+    result = execute({**tuning, "resume": True}, "native")
+    continuous = execute({**tuning, "storage": (tmp_path / "continuous-study").as_uri()}, "continuous")
+    try:
+        assert [trial.state for trial in result.tuning_result.trials] == ["COMPLETE", "COMPLETE", "PRUNED"]
+        assert [trial.to_dict() for trial in result.tuning_result.trials] == [
+            trial.to_dict() for trial in continuous.tuning_result.trials
+        ]
+        assert _checkpoint(tmp_path / "study")["native_checkpoint"]["trials"][:2] == prefix
+        assert result._dagml_generated_view_manifest["views"]
+        archive = result.export(tmp_path / "generated-pruned.n4a")
+        replay = nirs4all.predict(archive, _cohort(prediction=True))
+        assert len(replay.values) == 5
+        assert replay.metadata["training_performed"] is False
+    finally:
+        result.close()
+        continuous.close()
+
+
 def test_generated_hpo_views_resume_from_io_content_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The native HPO bridge must consume IO views and recheck them on resume."""
     base = _cohort()

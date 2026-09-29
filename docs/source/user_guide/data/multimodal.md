@@ -274,11 +274,15 @@ result.close()
 ```
 
 The durable profile covers one `MultimodalRegressor` or `MultimodalClassifier`,
-or a late-fusion pipeline as described below. Topology is fixed and
-proposals use random N4M search. Regression
+or a late-fusion pipeline as described below. Topology is fixed. Sequential
+N4M search accepts `random`, `sobol`, `lhs`, `ternary`, `ga`, `pso`, `cmaes`,
+`tpe`, and `gp_ei` samplers. An omitted sampler retains the historical `tpe`
+default. Regression
 supports complete or partially observed targets and native regression metrics;
 classification supports accuracy and balanced accuracy, defaulting to maximizing
-balanced accuracy. It rejects pruning and queued `force_params`.
+balanced accuracy. Sequential search accepts `median`, `successive_halving`,
+`asha`, `hyperband`, and `racing` pruning; pruned trials are recorded in both
+checkpoints and the public tuning result. It rejects queued `force_params`.
 Regression minimizes RMSE, MSE and MAE, and maximizes R² by default. An explicit
 `direction` overrides that default. Classification requires non-overlapping
 validation folds; repeated and overlapping holdouts are rejected before fitting
@@ -307,6 +311,8 @@ create a new search objective.
 
 For the native multimodal N4M random-search path, set `tuning.n_jobs=2` or
 another positive worker count to evaluate independent candidates concurrently.
+Specify `sampler="random"` for new parallel searches; explicit nonrandom
+samplers and pruning require `n_jobs=1`.
 Each candidate owns a Python process, its provider snapshot, fitted models and
 Python/NumPy RNG. `n_jobs=1` retains the existing sequential checkpoint
 identity. Parallel checkpoints may contain proposals already opened for other
@@ -592,7 +598,8 @@ encoders inside `MultimodalRegressor` or `MultimodalClassifier`. Ragged series
 can be replaced as long as their
 declared schema is retained. For `MultimodalRegressor` or `MultimodalClassifier`,
 the **model-only** profile
-also supports N4M random-search tuning (`engine="n4m"`, no pruning)
+also supports N4M tuning (`engine="n4m"`) with the sequential samplers and
+pruners described above, or parallel random search,
 with a paired native/optimizer checkpoint. The checkpoint contains a manifest
 of each completed trial's generated views. On resume, the provider regenerates
 and compares every saved view before another trial starts; changing the recipe

@@ -64,8 +64,12 @@ def prepare_data_provider(
             tuning_ok = (
                 isinstance(pipeline[1]["model"], (MultimodalRegressor, MultimodalClassifier))
                 and not (tuning.keys() - SUPPORTED_TUNING_KEYS - {"progress_callback"})
-                and spec.engine == "n4m" and spec.sampler in {None, "random"}
-                and spec.pruner in {None, "none"} and spec.force_params is None
+                and spec.engine == "n4m"
+                and spec.sampler in {None, "random", "sobol", "lhs", "ternary", "ga", "pso", "cmaes", "tpe", "gp_ei"}
+                and (spec.n_jobs == 1 or spec.sampler in {None, "random"})
+                and spec.pruner in {None, "none", "median", "successive_halving", "asha", "hyperband", "racing"}
+                and (spec.n_jobs == 1 or spec.pruner in {None, "none"})
+                and spec.force_params is None
                 and (spec.seed is None or 0 <= spec.seed < 2**32)
                 and (tuning.get("progress_callback") is None or callable(tuning["progress_callback"]))
             )
