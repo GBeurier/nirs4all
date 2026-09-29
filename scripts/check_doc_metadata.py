@@ -3,12 +3,13 @@
 
 Checks (all sourced from the repo, no hard-coded truth):
   1. VERSION — every ``version = {X}`` citation field and any ``Version: X`` header
-     in the checked doc set equals ``nirs4all.__version__`` (parsed from __init__.py).
+     in the checked doc set equals the latest published version in ``.zenodo.json``.
   2. LICENSE — first-contact pages must NOT state a *single* license that contradicts
      the dual-license statement in ``LICENSE``. The project is dual-licensed (default
      AGPL-3.0-or-later); the legitimate ``CeCILL`` token is NOT banned — only a
      "licensed under the CeCILL-2.1 License" *sole-license* phrasing is rejected.
-  3. RELEASE — ``.zenodo.json`` carries the package version and a non-empty title.
+  3. RELEASE — ``.zenodo.json`` carries the package version on a final release,
+     or an earlier published version during development, and a non-empty title.
   4. DOCKER — README invocations respect the image's exec-form ``python`` entrypoint.
 
 Exit 1 on any violation (suitable as a blocking CI gate). ``--list`` prints details.
@@ -44,6 +45,8 @@ VERSION_TOKEN = re.compile(
     r"\s*v?(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?)",
     re.IGNORECASE,
 )
+FINAL_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+DEV_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)\.dev\d+$")
 
 
 def package_version() -> str:
@@ -54,25 +57,34 @@ def package_version() -> str:
     return m.group(1)
 
 
-def check_release_metadata(ver: str, problems: list[str]) -> None:
-    """Validate machine-readable release metadata against the package."""
+def check_release_metadata(ver: str, problems: list[str]) -> str | None:
+    """Validate release metadata and return the published docs version."""
     rel = ".zenodo.json"
     try:
         metadata = json.loads((REPO / rel).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         problems.append(f"{rel}: cannot read valid JSON: {exc}")
-        return
+        return None
 
     if not isinstance(metadata, dict):
         problems.append(f"{rel}: top-level JSON value must be an object")
-        return
-    if metadata.get("version") != ver:
+        return None
+    release_ver = metadata.get("version")
+    release_match = FINAL_VERSION.fullmatch(release_ver) if isinstance(release_ver, str) else None
+    dev_match = DEV_VERSION.fullmatch(ver)
+    valid_dev_release = (
+        dev_match is not None
+        and release_match is not None
+        and tuple(map(int, release_match.groups())) < tuple(map(int, dev_match.groups()))
+    )
+    if (dev_match is not None and not valid_dev_release) or (dev_match is None and release_ver != ver):
         problems.append(
-            f"{rel}: version '{metadata.get('version')}' != package __version__ '{ver}'"
+            f"{rel}: version '{release_ver}' is not the package release or an earlier published version of '{ver}'"
         )
     title = metadata.get("title")
     if not isinstance(title, str) or not title.strip():
         problems.append(f"{rel}: title must be a non-empty string")
+    return release_ver if isinstance(release_ver, str) else None
 
 
 def check_docker_usage(problems: list[str]) -> None:
@@ -94,7 +106,7 @@ def main() -> int:
     ver = package_version()
     problems: list[str] = []
 
-    check_release_metadata(ver, problems)
+    docs_ver = check_release_metadata(ver, problems)
     check_docker_usage(problems)
 
     for rel in VERSION_FILES:
@@ -104,8 +116,8 @@ def main() -> int:
         for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             for m in VERSION_TOKEN.finditer(line):
                 found = m.group(1)
-                if found != ver:
-                    problems.append(f"{rel}:{i}: version '{found}' != package __version__ '{ver}'")
+                if docs_ver is not None and found != docs_ver:
+                    problems.append(f"{rel}:{i}: version '{found}' != published version '{docs_ver}'")
 
     for rel in LICENSE_FILES:
         p = REPO / rel
@@ -124,7 +136,8 @@ def main() -> int:
             print("  " + pr)
         return 1
     print(
-        f"metadata gate OK: release/docs version == {ver}; Docker usage and license wording valid."
+        f"metadata gate OK: published docs version == {docs_ver}; package version == {ver}; "
+        "Docker usage and license wording valid."
     )
     return 0
 
