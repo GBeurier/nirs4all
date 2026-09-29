@@ -87,6 +87,60 @@ def provider() -> DataProvider:
     return DataProvider(generate, generate_view=generate_view, provider_id="qualification.installed-wheel", base=base, replace_sources=["nir"])
 
 
+def qualify_run_scoped_xy() -> None:
+    """Exercise complete and partial X/y providers through the installed public API."""
+    base = cohort()
+    fixed = MultimodalDataset(
+        {"nir": base.sources["nir"]}, sample_ids=base.sample_ids,
+        groups=base.groups, partitions=base.partitions, name=base.name,
+    )
+    generators = (
+        DataProvider(lambda **_: base, provider_id="qualification.installed-xy-complete"),
+        DataProvider(
+            lambda **_: {
+                "sample_ids": list(base.sample_ids),
+                "sources": {name: source for name, source in base.sources.items() if name != "nir"},
+                "y": base.y,
+            },
+            provider_id="qualification.installed-xy-partial", base=fixed,
+        ),
+    )
+    scores = []
+    prior_mode = os.environ.get("N4A_DAGML_INPROCESS")
+    os.environ["N4A_DAGML_INPROCESS"] = "1"
+    try:
+        for label, candidate in zip(("complete", "partial"), generators, strict=True):
+            result = nirs4all.run(
+                [GroupKFold(3), {"model": model()}], candidate,
+                engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+                verbose=0, random_state=19, results_path=root / f"xy-{label}-results",
+            )
+            try:
+                assert set(candidate.cohort.sources) == set(base.sources)
+                np.testing.assert_array_equal(candidate.cohort.y, base.y)
+                assert candidate.cohort.sample_ids == base.sample_ids
+                np.testing.assert_array_equal(candidate.cohort.groups, base.groups)
+                np.testing.assert_array_equal(candidate.cohort.partitions, base.partitions)
+                assert np.isfinite(result.best_rmse)
+                archive = result.export(root / f"xy-{label}.n4a")
+                prediction = nirs4all.predict(archive, cohort(prediction=True))
+                assert prediction.metadata["training_performed"] is False
+                assert len(prediction.y_pred) == 5 and np.isfinite(prediction.y_pred).all()
+                scores.append(result.best_rmse)
+            finally:
+                result.close()
+    finally:
+        if prior_mode is None:
+            os.environ.pop("N4A_DAGML_INPROCESS", None)
+        else:
+            os.environ["N4A_DAGML_INPROCESS"] = prior_mode
+    np.testing.assert_allclose(scores[0], scores[1], rtol=0, atol=0)
+    print("INSTALLED_XY_ASSEMBLY_OK", scores)
+
+
+qualify_run_scoped_xy()
+
+
 trained = nirs4all.run(
     [GroupKFold(3), {"model": model()}],
     provider(),
