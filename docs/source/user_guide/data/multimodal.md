@@ -305,6 +305,12 @@ the search identity. Source presence is also fingerprinted. Hidden target/source
 values and held-out test data are excluded from search; modifying them does not
 create a new search objective.
 
+For generated views with `N4A_DAGML_INPROCESS=0`, HPO uses an isolated Python
+worker. Its progress events cannot call back into the parent, so
+`tuning.progress_callback` is refused before the provider's `PLAN`. The parent's
+`should_stop` may terminate the worker; the last complete paired checkpoint
+remains available to `resume=True`, which may repeat the interrupted trial.
+
 The host resets the Python/NumPy RNG for each native task using a stable seed
 derived from `run(random_state=...)`, otherwise the tuning seed, otherwise zero.
 This makes supported sklearn operators using the global RNG reproducible across
@@ -596,8 +602,13 @@ provider callbacks must be serializable by `cloudpickle`, and that interpreter
 must have the DAG-ML Python binding installed. This path does not use
 `dag-ml-cli`. The parent's `should_stop` callback can cancel the worker; no
 completed run or refit archive is published in that case. Generated-view
-tuning remains refused before `PLAN` in subprocess mode. Parallel generated-view trials and separate
-transform nodes on multiple raw sources remain outside this profile.
+**sequential HPO** also runs in a Python worker when `N4A_DAGML_INPROCESS=0`:
+the child owns its trial views, optimizer and selected refit, then returns a
+usable `RunResult` for archive export. A paired checkpoint can be resumed in a
+later worker. `tuning.progress_callback` is not supported in this mode; the
+callback is refused before `PLAN` rather than executed silently in the child.
+Parallel generated-view trials and separate transform nodes on multiple raw
+sources remain outside this profile.
 Multimodal synthetic data in this example are test fixtures, not a new product
 generator.
 

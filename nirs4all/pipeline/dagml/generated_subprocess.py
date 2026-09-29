@@ -13,11 +13,13 @@ import cloudpickle
 from .resources import current_execution_resources
 
 
-def _run_cancellable_worker(command: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_cancellable_worker(command: list[str], should_stop: Any = None) -> subprocess.CompletedProcess[str]:
     """Observe the parent cancellation token while the isolated child executes."""
-    from .cancellation import check_cancellation
+    from .cancellation import DagRunCancelled, check_cancellation
 
     check_cancellation()
+    if should_stop is not None and should_stop():
+        raise DagRunCancelled("DAG run cancelled by caller")
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         while True:
@@ -26,6 +28,8 @@ def _run_cancellable_worker(command: list[str]) -> subprocess.CompletedProcess[s
                 return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
             except subprocess.TimeoutExpired:
                 check_cancellation()
+                if should_stop is not None and should_stop():
+                    raise DagRunCancelled("DAG run cancelled by caller") from None
     except BaseException:
         if process.poll() is None:
             process.terminate()
