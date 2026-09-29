@@ -181,7 +181,8 @@ def test_generated_ragged_views_reach_each_grouped_model_call(tmp_path: Path, mo
                 and np.array_equal(actual.time_coordinates, expected.time_coordinates)
                 for actual in calls
             ), f"No model call consumed the {partition} ragged view for {ids}"
-        assert result._dagml_refit_artifacts == []
+        assert len(result._dagml_refit_artifacts) == 1
+        assert result._dagml_generated_prediction_contract["mode"] == "explicit_cohort_predict_only"
     finally:
         result.close()
 
