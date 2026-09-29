@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import zipfile
 from contextlib import ExitStack
 from pathlib import Path
@@ -214,7 +215,10 @@ def run_demo(output: Path, *, n_trials: int = 3, resume: bool = False, stop_afte
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path("multimodal_late_missing_demo"))
+    parser.add_argument(
+        "--output", type=Path,
+        default=Path(os.environ.get("NIRS4ALL_WORKSPACE", ".")) / "multimodal_late_missing_demo",
+    )
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--stop-after", type=int)
