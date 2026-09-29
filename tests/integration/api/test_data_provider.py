@@ -418,6 +418,56 @@ def test_generated_fitted_transform_refuses_multiple_raw_sources_before_fit(
         )
 
 
+def test_generated_transform_refuses_missing_native_receipt_before_fit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stripped transform receipt must never fall back to PLAN features."""
+    from functools import wraps
+
+    import dag_ml._dag_ml as native
+
+    complete = _cohort(unequal_groups=True)
+    base = MultimodalDataset(
+        {"nir": complete.sources["nir"]}, sample_ids=complete.sample_ids,
+        y=complete.y, groups=complete.groups, partitions=complete.partitions,
+    )
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], **_: Any) -> dict[str, Any]:
+        return {"sample_ids": sample_ids, "sources": {"nir": base.take(sample_ids).sources["nir"]}}
+
+    original_run = native.run_cv_refit_in_process
+    stripped: list[str] = []
+
+    @wraps(original_run)
+    def strip_transform_receipt(*args: Any) -> Any:
+        callback = args[3]
+
+        def tampered(task: dict[str, Any]) -> dict[str, Any]:
+            if task["node_plan"]["kind"] == "transform" and task["phase"] == "FIT_CV":
+                stripped.append(task["node_plan"]["node_id"])
+                task = {**task, "data_view_receipts": {}}
+            return callback(task)
+
+        return original_run(*(*args[:3], tampered, *args[4:]))
+
+    monkeypatch.setattr(native, "run_cv_refit_in_process", strip_transform_receipt)
+    monkeypatch.setattr(StandardScaler, "fit", lambda *a, **k: pytest.fail("transform fitted on unreceipted PLAN data"))
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.missing-transform-receipt",
+        base=base, replace_sources=["nir"],
+    )
+    with pytest.raises(Exception, match="generated model or transform task is missing native data-view receipts"):
+        nirs4all.run(
+            [GroupKFold(3), StandardScaler(), {"model": MultimodalRegressor({"nir": "passthrough"}, Ridge())}],
+            provider, engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "native", random_state=19, verbose=0,
+        )
+    assert stripped
+
+
 def test_generated_views_fit_distinct_by_source_chains_on_four_modalities(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
