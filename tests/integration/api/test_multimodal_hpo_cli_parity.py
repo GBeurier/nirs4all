@@ -28,7 +28,7 @@ from nirs4all.pipeline.dagml_bridge import controller_manifests
 from tests.integration.api.test_multimodal_dagml import _cohort, _model
 from tests.integration.parity._dagml_cli import dagml_cli_path
 
-_DAGML_ROOT = Path(__file__).resolve().parents[4] / "dag-ml"
+_DAGML_ROOT = dagml_cli_path().resolve().parents[2]
 _OPTIMIZER_ADAPTER = _DAGML_ROOT / "examples/adapters/hpo_n4m_optimizer.sh"
 
 
@@ -38,7 +38,8 @@ def _command(args: list[str], *, env: dict[str, str] | None = None) -> None:
 
 
 @pytest.mark.skipif(
-    not dagml_cli_path().exists() or not _OPTIMIZER_ADAPTER.exists(),
+    not os.environ.get("NIRS4ALL_REQUIRE_HPO_CLI_PARITY")
+    and (not dagml_cli_path().exists() or not _OPTIMIZER_ADAPTER.exists()),
     reason="the sibling DAG-ML CLI and optional N4M adapter are required",
 )
 def test_cli_n4m_and_public_python_score_same_four_source_dag(tmp_path: Path) -> None:
