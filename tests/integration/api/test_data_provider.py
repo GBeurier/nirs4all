@@ -1305,6 +1305,62 @@ def test_generated_hpo_parallel_subprocess_cancels_candidates(tmp_path: Path, mo
     assert not (tmp_path / "native" / "manifest.json").exists()
 
 
+def test_generated_hpo_parallel_subprocess_resumes_after_partial_batch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The child worker can be stopped after two trials and resumed in a new child."""
+    base = _cohort()
+    study = tmp_path / "parallel-study"
+    checkpoint = study / "multimodal.n4mopt.json"
+
+    def first_batch_saved() -> bool:
+        return checkpoint.exists() and len(_checkpoint(study)["native_checkpoint"]["trials"]) >= 2
+
+    def provider(*, pause_after_checkpoint: bool) -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            if pause_after_checkpoint and first_batch_saved():
+                time.sleep(30)
+            source = base.take(sample_ids).sources["nir"]
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                np.asarray(source.values) + float(seed % 7), sample_ids,
+                representation_id=source.representation_id, axis_units=source.axis_units,
+                axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(
+            generate, generate_view=generate_view,
+            provider_id="qualification.view.hpo-parallel-child-recovery",
+            base=base, replace_sources=["nir"],
+        )
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    tuning = {**_tuning(study), "n_trials": 3, "n_jobs": 2}
+    options = {
+        "engine": "dag-ml", "refit": True, "save_artifacts": False,
+        "save_charts": False, "random_state": 19, "verbose": 0,
+    }
+    with pytest.raises(DagRunCancelled, match="cancelled"):
+        nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], provider(pause_after_checkpoint=True),
+            tuning=tuning, results_path=tmp_path / "interrupted-results",
+            should_stop=first_batch_saved, **options,
+        )
+    first_batch = _checkpoint(study)["native_checkpoint"]["trials"]
+    assert len(first_batch) == 2
+    resumed = nirs4all.run(
+        [GroupKFold(3), {"model": _model()}], provider(pause_after_checkpoint=False),
+        tuning={**tuning, "resume": True}, results_path=tmp_path / "resumed-results",
+        **options,
+    )
+    try:
+        assert len(resumed.tuning_result.trials) == 3
+        assert _checkpoint(study)["native_checkpoint"]["trials"][:2] == first_batch
+        assert resumed._dagml_generated_view_manifest["views"]
+    finally:
+        resumed.close()
+
+
 def test_generated_hpo_parallel_rejects_old_binding_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from dag_ml import _dag_ml as native
 
