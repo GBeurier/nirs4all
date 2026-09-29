@@ -144,3 +144,17 @@ def test_preflight_raises_when_neither_present(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(in_process_runner, "_dagml_extension_loads", lambda: False)
     with pytest.raises(DagMlUnavailable, match="not available"):
         preflight_dagml_backend("/nonexistent/dag-ml-cli")
+
+
+def test_generated_preflight_never_falls_back_to_cli(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """The static CLI cannot supply generated-view callbacks or receipts."""
+    from nirs4all.pipeline.dagml.run_backend import preflight_dagml_backend
+
+    cli = tmp_path / "dag-ml-cli"
+    cli.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    monkeypatch.setattr(in_process_runner, "_dagml_extension_loads", lambda: False)
+    with pytest.raises(DagMlUnavailable, match="generated data views require"):
+        preflight_dagml_backend(str(cli), generated_views=True)
+    monkeypatch.setattr(in_process_runner, "_dagml_extension_loads", lambda: True)
+    preflight_dagml_backend("/nonexistent/dag-ml-cli", generated_views=True)

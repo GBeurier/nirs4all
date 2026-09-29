@@ -12,10 +12,12 @@ The returned ``{node_results, scores}`` carries the native ``ScoreSet`` (cross-f
 the REFIT final/test reports) — byte-identical to the subprocess ``bundle.scores`` — so the caller
 maps it into a ``RunResult`` with the SAME score-extraction (:func:`result._scores_to_run_result`).
 
-Parity contract: in-process scores == subprocess scores == legacy, for any pipeline the subprocess
+Parity contract: in-process scores == subprocess scores == legacy, for any pipeline the static subprocess
 path supports. The dataset / fold-children / sample-metadata are loaded with the EXACT same logic the
 subprocess adapter uses (:func:`process_adapter._build_handler`), so identity (and therefore the wire
 ids) match — the only divergence is that the materialization happens in THIS process, not a child.
+Generated-view campaigns can also run in an isolated Python worker through
+:mod:`.generated_subprocess`; the static CLI has no generated-view callback.
 """
 
 from __future__ import annotations
@@ -288,9 +290,9 @@ def run_cv_refit_bundle_router(
     refit: bool = True,
     refit_top_k: int = 1,
 ) -> dict[str, Any]:
-    """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
+    """Route CV/refit to the direct binding, static CLI, or generated Python worker.
 
-    Both branches return the SAME outcome shape — ``{returncode, stdout, results, scores}`` — so the
+    All branches return the SAME outcome shape — ``{returncode, stdout, results, scores}`` — so the
     ``_run_*`` call sites read ``outcome["scores"]`` uniformly (no ``bundle.json`` re-read). The in-process
     branch (the DEFAULT since the ADR-17 cutover — :func:`in_process_enabled`) drives
     :func:`run_cv_refit_bundle` here and gets ``scores`` directly from the bridge. The subprocess branch
@@ -312,13 +314,14 @@ def run_cv_refit_bundle_router(
     SAME kwargs to either path; the in-process branch ignores those subprocess-only inputs.
 
     ``dataset`` (the host's already-materialized ``SpectroDataset``, with ``fold_children`` for a
-    fold-local augmentation run) is consumed ONLY by the in-process branch — it builds the resolver from
-    that in-memory dataset, skipping the duplicate disk reload. The subprocess branch ignores it: the
-    adapter re-materializes from ``dataset_path`` / ``dataset_pickle`` (env channel) as before.
+    fold-local augmentation run) lets the direct binding build its resolver without reloading it.
+    The static CLI ignores it and re-materializes from ``dataset_path`` / ``dataset_pickle``;
+    the generated worker uses its view store but reloads the fixed PLAN dataset separately.
 
-    ``random_state`` seeds the subprocess host RNG as before. The in-process host RNG is already
-    seeded by ``run_via_dagml``; for generated views we additionally give this seed to DAG-ML's
-    control RNG, so native view keys and callback seeds bind to the requested run seed.
+    ``random_state`` seeds the static CLI adapter as before. The direct host is
+    seeded by ``run_via_dagml``; the generated worker seeds its own Python RNG
+    and passes the same seed to DAG-ML's control RNG. Generated views never use
+    the static CLI because it has no callback or receipt transport.
     """
     # A held-out test cohort is a separate native authority. FIT_CV may read it
     # through a non-fit companion view, but the ordinary training envelope and
@@ -356,8 +359,8 @@ def run_cv_refit_bundle_router(
                 metadata["nirs4all_pipeline_fold_set"] = fold_set
                 node["metadata"] = metadata
     view_store = getattr(dataset, "_generated_view_store", None)
-    if view_store is not None and not (in_process_enabled() and _dagml_extension_loads()):
-        raise NotImplementedError("generated data views require the DAG-ML in-process extension; subprocess execution is not qualified")
+    if view_store is not None and not _dagml_extension_loads():
+        raise NotImplementedError("generated data views require the DAG-ML Python binding")
     if in_process_enabled() and _dagml_extension_loads():
         return run_cv_refit_bundle(
             dsl=dsl,
@@ -373,6 +376,16 @@ def run_cv_refit_bundle_router(
             random_state=random_state,
             refit=refit,
             refit_top_k=refit_top_k,
+        )
+    if view_store is not None:
+        from .generated_subprocess import run_generated_subprocess
+
+        return run_generated_subprocess(
+            dsl=dsl, envelope=envelope, graph=graph, dataset=dataset,
+            dataset_path=dataset_path, dataset_pickle=dataset_pickle,
+            workdir=workdir, venv_python=venv_python,
+            selection_metric=selection_metric, sample_metadata=sample_metadata,
+            random_state=random_state, refit=refit, refit_top_k=refit_top_k,
         )
 
     # Subprocess branch (Mechanism A): either in-process was disabled or its extension did not load.

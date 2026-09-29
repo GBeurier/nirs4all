@@ -295,16 +295,18 @@ def _reject_unsupported_run_options(*, refit: Any, project: str | None, session:
         raise DagMlUnsupported(f"engine='dag-ml' does not yet honor the run() option {key!r}.")
 
 
-def preflight_dagml_backend(cli: str) -> None:
-    """Require the in-process extension or an explicitly available DAG CLI.
+def preflight_dagml_backend(cli: str, *, generated_views: bool = False) -> None:
+    """Require a Python binding for generated views, or either static DAG mechanism.
 
     Availability failure is reported to the caller before execution. It never
     changes the selected engine or retries with PipelineRunner.
     """
     from .in_process_runner import _dagml_extension_loads, in_process_enabled
 
-    if in_process_enabled() and _dagml_extension_loads():
+    if (in_process_enabled() or generated_views) and _dagml_extension_loads():
         return
+    if generated_views:
+        raise DagMlUnavailable("generated data views require a working DAG-ML Python binding in the execution environment")
     if Path(cli).exists():
         return
     raise DagMlUnavailable(
@@ -435,7 +437,7 @@ def run_via_dagml(
     # Fail before execution if neither DAG mechanism is installed. Ordinary
     # operator errors later propagate untouched; no execution is retried.
     cli = str(dagml_cli or _default_dagml_cli())
-    preflight_dagml_backend(cli)
+    preflight_dagml_backend(cli, generated_views=getattr(dataset, "_generated_view_store", None) is not None)
 
     from nirs4all.pipeline.config.component_serialization import deserialize_component
 
