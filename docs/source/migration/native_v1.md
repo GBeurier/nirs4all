@@ -50,6 +50,13 @@ means that unsupported content was preserved opaque and needs review; `20`
 means unsupported input or strict refusal. There is no native-to-legacy reverse
 conversion.
 
+`workspace convert` does not create a fitted predictor from historical result
+metadata or prediction arrays. Those outputs can be inspected after conversion,
+but they are not a model archive: `load_session()` expects a qualified `.n4a`
+bundle, and new-sample `predict()` requires a fitted model artifact. A conversion
+report showing preserved predictions must not be read as proof that prediction
+without retraining is available for that source profile.
+
 The authoritative read/write/migrate dispositions and retention window are in
 the Tools [support matrix](https://github.com/GBeurier/nirs4all-tools/blob/main/docs/contracts/legacy-support-matrix.v1.json)
 and [support SLA](https://github.com/GBeurier/nirs4all-tools/blob/main/docs/legacy-support-sla.md).
