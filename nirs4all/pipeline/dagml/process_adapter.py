@@ -178,7 +178,16 @@ def _build_handler() -> NodeHandler:
             sample_metadata = json.load(metadata_file)
     store: dict[int, Any] = {}
     def handle_task(task: dict[str, Any]) -> dict[str, Any]:
-        result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
+        if (os.environ.get("N4A_DAGML_HPO_MODE") == "1"
+                and str(task.get("variant_id", "")).startswith("host_hpo:trial:")):
+            from .multimodal_tuning import _evaluate_host_task
+
+            result = _evaluate_host_task(
+                task, resolver=resolver, nodes=nodes, graph=graph, model_store=store,
+                view_store=None, operator_seed=int(os.environ.get("N4A_RANDOM_STATE", "0")),
+            )
+        else:
+            result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
         _capture_vote_sidecar(task, store, os.environ.get("N4A_DAGML_RESULT_CAPTURE"))
         _capture_refit_sidecar(result, store, os.environ.get("N4A_DAGML_REFIT_ARTIFACT_DIR"))
         return result
