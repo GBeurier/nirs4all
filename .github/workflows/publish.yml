@@ -28,7 +28,8 @@ jobs:
       prerelease: ${{ steps.target.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v6
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+        with:
+          fetch-depth: 0
 
       - name: Verify manual publication target
         id: target
@@ -43,7 +44,14 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == 'release' ]]; then
+            git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            tag_sha=$(git rev-parse "$RELEASE_TAG^{commit}")
+            if [[ "$GITHUB_SHA" != "$tag_sha" ]]; then
+              echo '::error::Release event commit does not match its tag.'
+              exit 1
+            fi
             echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            echo "tag_sha=$tag_sha" >> "$GITHUB_OUTPUT"
             echo "docker_version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
             echo "prerelease=$RELEASE_PRERELEASE" >> "$GITHUB_OUTPUT"
             exit 0
@@ -83,16 +91,24 @@ jobs:
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "Verified published Release $INPUT_TAG at $tag_sha; PyPI version is absent."
 
-  # Run the fast source gate; exhaustive DAG-ML coverage runs weekly/on demand.
+  # Run the fast source gate, then all integration tests before publication.
   run-tests:
     needs: release-preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag) || github.ref }}
+
+      - name: Verify tested commit matches preflight
+        if: github.event_name == 'release' || inputs.publish_release
+        env:
+          EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"
 
       - name: Checkout pinned dag-ml CLI source
         uses: actions/checkout@v6
@@ -160,6 +176,22 @@ jobs:
             --junitxml=fast-dagml-pytest-report/junit.xml \
             --cov=nirs4all --cov-report=xml
 
+      - name: Run every integration test before publication
+        if: github.event_name == 'release' || inputs.publish_release
+        shell: bash
+        env:
+          N4A_ENGINE: dag-ml
+          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+          CUDA_VISIBLE_DEVICES: ''
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python -m pytest -q --timeout=300 -n 2 --dist worksteal \
+            tests/integration \
+            --junitxml=fast-dagml-pytest-report/full-integration.xml \
+            --cov=nirs4all --cov-append --cov-report=xml
+
       - name: Upload fast DAG-ML pytest report
         if: always()
         uses: actions/upload-artifact@v7
@@ -188,6 +220,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag) || github.ref }}
+
+      - name: Verify documented commit matches preflight
+        if: github.event_name == 'release' || inputs.publish_release
+        env:
+          EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -225,6 +265,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag) || github.ref }}
+
+      - name: Verify example source matches preflight
+        if: github.event_name == 'release' || inputs.publish_release
+        env:
+          EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
