@@ -1,7 +1,7 @@
 name: Installed multimodal candidate
 
-# A manual distribution gate: it builds the current nirs4all wheel and a pinned
-# IO candidate, then runs the provider workflow outside both source checkouts.
+# A manual distribution gate: it builds the current nirs4all wheel and pinned
+# IO/DAG-ML candidates, then runs the provider workflow outside source checkouts.
 # It never publishes packages.
 on:
   workflow_dispatch:
@@ -10,6 +10,10 @@ on:
         description: "nirs4all-io commit to qualify"
         required: true
         default: "e84eb3eda73629dddc1b7f8335f8481d142ea9ac"
+      dag_ref:
+        description: "DAG-ML commit to qualify"
+        required: true
+        default: "27951318d503138db611894d291d6653a63ce957"
 
 permissions:
   contents: read
@@ -25,6 +29,11 @@ jobs:
           repository: GBeurier/nirs4all-io
           ref: ${{ inputs.io_ref }}
           path: candidate-io
+      - uses: actions/checkout@v7
+        with:
+          repository: GBeurier/dag-ml
+          ref: ${{ inputs.dag_ref }}
+          path: candidate-dag
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
@@ -36,17 +45,20 @@ jobs:
           python -m build --wheel --outdir dist
           cd candidate-io
           python -m maturin build --locked --release -m bindings/python/Cargo.toml --interpreter python --out ../dist
+          cd ../candidate-dag
+          python -m maturin build --locked --release -m crates/dag-ml-py/Cargo.toml --interpreter python --out ../dist
       - name: Install candidate wheels with current native dependencies
         shell: bash
         run: |
-          python -m pip install "dag-ml==0.3.30" "dag-ml-data==0.2.12" \
+          python -m pip install "dag-ml-data==0.2.12" \
             "nirs4all-core==0.4.0" "nirs4all-methods==1.2.1" "pls4all==1.2.1" \
-            dist/nirs4all_io*.whl dist/nirs4all-*.whl
+            dist/dag_ml*.whl dist/nirs4all_io*.whl dist/nirs4all-*.whl
           python -m pip check
           python - <<'PY'
           from importlib.metadata import version
           assert version("nirs4all") == "1.3.1.dev0"
           assert version("nirs4all-io") == "0.2.1.dev0"
+          assert version("dag-ml") == "0.3.30"
           PY
       - name: Qualify installed CV, generated HPO, resume, archive and prediction
         shell: bash
