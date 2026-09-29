@@ -251,14 +251,23 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             return False
         return response
 
+    host_hpo_kwargs: dict[str, Any] = {
+        "resume_checkpoint": optimizer.resume_checkpoint,
+        "progress_callback": checkpoint,
+        "candidate_callback_factory": candidate_callback_factory if generated_store is not None or parallel_candidates else None,
+    }
+    if generated_store is not None:
+        # DAG-ML 0.3.30 has no generated-view arguments. Static tuning must
+        # continue to work with the published minimum dependency.
+        host_hpo_kwargs["view_callback_factory"] = view_callback_factory
+        host_hpo_kwargs["resume_view_validator"] = (
+            generated_store.recheck_record if optimizer.resume_checkpoint is not None else None
+        )
     try:
         evidence = native.run_host_hpo_search_in_process(
             dsl, envelope, controller_manifests(), request,
             fallback_evaluate, optimizer,
-            resume_checkpoint=optimizer.resume_checkpoint, progress_callback=checkpoint,
-            candidate_callback_factory=candidate_callback_factory if generated_store is not None or parallel_candidates else None,
-            view_callback_factory=view_callback_factory if generated_store is not None else None,
-            resume_view_validator=generated_store.recheck_record if generated_store is not None and optimizer.resume_checkpoint is not None else None,
+            **host_hpo_kwargs,
         )
     finally:
         try:
