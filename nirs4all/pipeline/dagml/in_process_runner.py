@@ -152,8 +152,8 @@ def run_cv_refit_bundle(
     y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     store: dict[int, Any] = {}
     def op_callback(task: dict[str, Any]) -> dict[str, Any]:
-        if view_store is not None and task["node_plan"]["kind"] in {"model", "tuner"} and not task.get("data_view_receipts"):
-            raise ValueError("generated model task is missing native data-view receipts")
+        if view_store is not None and task["node_plan"]["kind"] in {"model", "tuner", "transform"} and not task.get("data_view_receipts"):
+            raise ValueError("generated model or transform task is missing native data-view receipts")
         generated_views = view_store.bind_task(task) if view_store is not None and task.get("data_view_receipts") else None
         return run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata, generated_views)
 
