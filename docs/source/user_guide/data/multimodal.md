@@ -562,7 +562,13 @@ node. The node fits on the generated fold-train or full-train view; its fitted
 state is carried into that fold's model and, for a qualified multimodal refit,
 into the prediction archive. A shared transformer over multiple heterogeneous
 raw sources is refused before fitting; use source-specific encoders inside the
-multimodal model in that case. Ragged series can be replaced as long as their
+multimodal model in that case. The existing `by_source` branch with a distinct
+preprocessing list for each named source, followed by `{"merge": {"sources":
+"concat"}}` and a concrete model, also fits each source chain on its generated
+fold-train view. This branch uses one native model task to attest all input
+blocks. Its generated-view result is not yet exportable as a prediction archive;
+use source encoders inside `MultimodalRegressor` or `MultimodalClassifier` when
+archive prediction is required. Ragged series can be replaced as long as their
 declared schema is retained. For `MultimodalRegressor` or `MultimodalClassifier`,
 the **model-only** profile
 also supports sequential N4M random-search tuning (`engine="n4m"`, no pruning)

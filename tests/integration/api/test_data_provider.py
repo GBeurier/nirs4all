@@ -418,6 +418,64 @@ def test_generated_fitted_transform_refuses_multiple_raw_sources_before_fit(
         )
 
 
+def test_generated_views_fit_distinct_by_source_chains_on_four_modalities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing by_source transforms see generated fold rows, not the PLAN NIR."""
+    base = _cohort(unequal_groups=True)
+    views: list[tuple[str, np.ndarray]] = []
+    nir_fits: list[np.ndarray] = []
+    original_fit = StandardScaler.fit
+
+    def observe_fit(self: StandardScaler, X: Any, y: Any = None, **kwargs: Any) -> StandardScaler:
+        values = np.asarray(X)
+        if values.ndim == 2 and values.shape[1] == 6:
+            nir_fits.append(values.copy())
+        return original_fit(self, X, y, **kwargs)
+
+    def generate(**_: Any) -> dict[str, Any]:
+        return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+    def generate_view(*, sample_ids: list[str], context: dict[str, Any], **_: Any) -> dict[str, Any]:
+        source = base.take(sample_ids).sources["nir"]
+        values = np.asarray(source.values) + 30.0
+        views.append((context["_dag_ml_view"]["partition"], values.copy()))
+        return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+            values, sample_ids, representation_id=source.representation_id,
+            axis_units=source.axis_units, axis_coordinates=source.axis_coordinates,
+        )}}
+
+    monkeypatch.setattr(StandardScaler, "fit", observe_fit)
+    provider = DataProvider(
+        generate, generate_view=generate_view, provider_id="qualification.view.by-source-preproc",
+        base=base, replace_sources=["nir"],
+    )
+    source_steps = {name: [transformer] for name, transformer in _model().transformers.items()}
+    result = nirs4all.run(
+        [
+            GroupKFold(3),
+            {"branch": {"by_source": True, "steps": source_steps}},
+            {"merge": {"sources": "concat"}},
+            {"model": Ridge(alpha=0.2)},
+        ],
+        provider, engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "native", random_state=19, verbose=0,
+    )
+    try:
+        expected = [values for partition, values in views if partition in {"fold_train", "full_train"}]
+        assert len(expected) == len(nir_fits) == 4
+        for actual, generated in zip(nir_fits, expected, strict=True):
+            np.testing.assert_array_equal(actual, generated)
+        assert all(np.min(values) > 20.0 for values in nir_fits)
+        assert np.isfinite(result.best_rmse)
+        assert result._dagml_generated_view_manifest is not None
+        assert result._dagml_generated_prediction_contract is None
+        with pytest.raises(Exception, match="generated data views have no qualified model replay contract"):
+            result.export(tmp_path / "by-source.n4a")
+    finally:
+        result.close()
+
+
 @pytest.mark.parametrize("splitter", [KFold(3), GroupKFold(3)])
 def test_generated_nir_views_fit_with_fixed_image_series_and_metadata(
     splitter: KFold | GroupKFold, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
