@@ -51,7 +51,7 @@ def prepare_data_provider(
         from .generated_views import qualified_generated_model_pipeline
 
         tuning_ok = tuning is None
-        if isinstance(tuning, dict) and qualified_generated_model_pipeline(pipeline):
+        if isinstance(tuning, dict) and qualified_generated_model_pipeline(pipeline) and len(pipeline) == 2:
             from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
 
             from .tuning_contracts import SUPPORTED_TUNING_KEYS, parse_tuning_spec
@@ -79,9 +79,10 @@ def prepare_data_provider(
         if not qualified:
             raise NotImplementedError(
                 "generate_view fold-view and training-content attestation is qualified only for "
-                "[KFold, GroupKFold, StratifiedKFold or StratifiedGroupKFold, {'model': a concrete estimator}] "
+                "[KFold, GroupKFold, StratifiedKFold or StratifiedGroupKFold, "
+                "optional concrete X transformer, {'model': a concrete estimator}] "
                 "with refit=True, save_artifacts=False, and no calibration, project, session or workspace; "
-                "tuning requires one multimodal estimator with the supported n4m search profile"
+                "tuning requires one multimodal estimator with the supported n4m search profile and no separate transformer"
             )
         if random_state is not None and (type(random_state) is not int or not 0 <= random_state < 2**32):
             raise ValueError("generate_view requires a non-negative 32-bit integer random_state or None")

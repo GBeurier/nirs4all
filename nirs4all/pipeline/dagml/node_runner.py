@@ -1015,6 +1015,7 @@ def _run_fitted_transform_node(
     task: dict[str, Any], resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]], model_store: MutableMapping[Any, Any],
     sample_metadata: dict[str, dict[str, Any]] | None = None,
+    generated_views: GeneratedTaskViews | None = None,
 ) -> dict[str, Any]:
     """Fit one X operator on the scope chosen by its native data view."""
     if task["phase"] not in ("FIT_CV", "REFIT"):
@@ -1026,6 +1027,10 @@ def _run_fitted_transform_node(
     )
     if view is None:
         raise ValueError("fitted transform node has no native fit data view")
+    if generated_views is not None and (
+        resolver.is_multi_source() or view["partition"] not in ("fold_train", "full_train")
+    ):
+        raise ValueError("generated fitted transform requires one source and a native train view")
     if not (node_lookup(task["node_plan"]["node_id"]).get("metadata") or {}).get("nirs4all_fit_full_fold"):
         _filter_by_branch_view(view, sample_metadata)
     if view["partition"] == "all_observations":
@@ -1046,6 +1051,8 @@ def _run_fitted_transform_node(
             ids = resolver.expand_with_augmented_children(ids, task.get("fold_id") or "refit")
     if not ids:
         raise ValueError("fitted transform node received an empty fit cohort")
+    if generated_views is not None and resolver.expand_with_augmented_children(ids, task.get("fold_id") or "refit") != ids:
+        raise ValueError("generated fitted transform cannot consume augmented children")
 
     preceding = cast(_FittedXChain | None, _fitted_input_chain(task, model_store))
     if preceding is None and any(key.startswith("transform:") for key in task.get("input_handles", {})):
@@ -1075,6 +1082,12 @@ def _run_fitted_transform_node(
 
     def fit_transformer(transformer: Any, x_fit: Any) -> None:
         fit_with_views = getattr(transformer, "fit_with_views", None)
+        if generated_views is not None:
+            if callable(fit_with_views):
+                raise ValueError("generated fitted transform does not support all-observation fit_with_views")
+            generated_views.record_model_call(
+                "fit", "x", view["partition"], ids, x_fit, targets=y_fit,
+            )
         if callable(fit_with_views):
             fit_with_views(partitioned_views(x_fit))
         else:
@@ -1121,7 +1134,13 @@ def _run_fitted_transform_node(
                 )
         chain = _FittedXChain(source_steps=source_steps, source_widths=widths, feature_axes=next_axes)
     else:
-        x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
+        if generated_views is not None:
+            resolved = generated_views.feature_blocks("x", view["partition"], ids)
+            if len(resolved["blocks"]) != 1 or "source_masks" in resolved:
+                raise ValueError("generated fitted transform requires one complete source")
+            x_fit = np.asarray(resolved["blocks"][0])
+        else:
+            x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
         steps = list(preceding.steps) if preceding is not None else []
         channel_widths = None
         if (node_lookup(node_id).get("metadata") or {}).get("nirs4all_upstream_processing_channels"):
@@ -1152,7 +1171,10 @@ def _run_fitted_transform_node(
     handle = _stable_handle(f"{node_id}:{task['phase']}:{variant_label}:{fold_label}")
     model_store[handle] = chain
     _persist_fitted_x(handle, chain)
-    return _build_result(task, [], [], {})
+    result = _build_result(task, [], [], {})
+    if generated_views is not None:
+        result["consumed_data_views"] = generated_views.consumed_data_views()
+    return result
 
 
 def _ordered_finetune_params(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -1317,8 +1339,6 @@ def run_model_node(
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
         incoming_chain = _fitted_input_chain(task, model_store)
-        if generated_views is not None and incoming_chain is not None:
-            raise ValueError("generated data views do not yet support fitted data-edge chains")
         joined_chain = incoming_chain if isinstance(incoming_chain, _PredictionFeatureChain) else None
         multi_block = isinstance(estimator, _MultiBlockEstimator)
         source_concat = isinstance(estimator, _SourceConcatEstimator)
@@ -1348,8 +1368,6 @@ def run_model_node(
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
         fitted_chain = _fitted_input_chain(task, model_store)
-        if generated_views is not None and fitted_chain is not None:
-            raise ValueError("generated data views do not yet support fitted data-edge chains")
         joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
         if fitted_chain is None and any(
             (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
@@ -2220,10 +2238,10 @@ def run_node(
         # Native FoldTrain selectors set include_augmented even when the
         # qualified pipeline contains no augmentation operator. The IO store
         # checks that selector and materializes only its exact ordered IDs.
-        if kind not in ("model", "tuner") or node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
+        if kind not in ("model", "tuner", "transform") or node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             raise ValueError("generated data views do not yet support this controller kind")
     if kind == "transform" and task.get("data_views"):
-        return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata)
+        return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata, generated_views)
     if kind == "feature_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("merge_mode") == "concat":
         return _run_feature_join_node(task, model_store, node_lookup, edges)
     if kind == "prediction_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("prediction_feature_execution") == "native_oof_v1":

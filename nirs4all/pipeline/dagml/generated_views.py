@@ -27,18 +27,23 @@ _BINDING_IDENTITY_FIELDS = (
 
 
 def qualified_generated_model_pipeline(pipeline: Any) -> bool:
-    """Whether a pipeline has the sole currently qualified generated-view shape."""
+    """Whether a pipeline has a qualified generated-view model/transform shape."""
     from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold, StratifiedKFold
 
     return (
-        isinstance(pipeline, list) and len(pipeline) == 2
+        isinstance(pipeline, list) and len(pipeline) in (2, 3)
         and type(pipeline[0]) in (KFold, GroupKFold, StratifiedKFold, StratifiedGroupKFold)
         and (not getattr(pipeline[0], "shuffle", False)
              or type(getattr(pipeline[0], "random_state", None)) is int)
-        and type(pipeline[1]) is dict and set(pipeline[1]) == {"model"}
-        and not isinstance(pipeline[1]["model"], type)
-        and callable(getattr(pipeline[1]["model"], "fit", None))
-        and callable(getattr(pipeline[1]["model"], "predict", None))
+        and (len(pipeline) == 2 or (
+            not isinstance(pipeline[1], (type, dict, str))
+            and callable(getattr(pipeline[1], "fit", None))
+            and callable(getattr(pipeline[1], "transform", None))
+        ))
+        and type(pipeline[-1]) is dict and set(pipeline[-1]) == {"model"}
+        and not isinstance(pipeline[-1]["model"], type)
+        and callable(getattr(pipeline[-1]["model"], "fit", None))
+        and callable(getattr(pipeline[-1]["model"], "predict", None))
     )
 
 

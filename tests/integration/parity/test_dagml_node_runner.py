@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import StandardScaler
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.envelope import source_order
@@ -242,8 +243,14 @@ def test_generated_fit_cv_reads_explicit_train_and_validation_views(slice_fixtur
     with pytest.raises(ValueError, match="without bound IO views"):
         run_node(task, f["resolver"], f["node_lookup"], {})
     fitted_task = {**task, "input_handles": {"upstream": {"kind": "data", "handle": 123}}}
-    with pytest.raises(ValueError, match="fitted data-edge chains"):
-        run_node(fitted_task, f["resolver"], f["node_lookup"], {123: _FittedXChain()}, generated_views=views)
+    scaler = StandardScaler().fit(x_train)
+    transformed = run_node(
+        fitted_task, f["resolver"], f["node_lookup"], {123: _FittedXChain([scaler])}, generated_views=views,
+    )
+    scaled_model = PLSRegression(n_components=5).fit(scaler.transform(x_train), y_train)
+    scaled_expected = scaled_model.predict(scaler.transform(x_val))
+    scaled_block = next(block for block in transformed["predictions"] if block["partition"] == "validation")
+    assert np.allclose(np.asarray(scaled_block["values"], dtype=float).ravel(), np.asarray(scaled_expected).ravel(), atol=1e-9)
 
 
 def test_generated_by_source_refuses_missing_rows_without_policy(slice_fixture) -> None:

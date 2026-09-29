@@ -556,8 +556,15 @@ finally:
 The qualified profile also accepts exact `KFold`, `StratifiedKFold` and
 `StratifiedGroupKFold` splitters, with a single concrete estimator. A concrete
 sklearn `Pipeline` may learn preprocessing inside that estimator on generated
-training views. Ragged series can be replaced as long as their declared schema
-is retained. For `MultimodalRegressor` or `MultimodalClassifier`, this profile
+training views. With **one complete raw source**, one concrete sklearn-style
+transformer may instead sit between the splitter and model as a separate DAG
+node. The node fits on the generated fold-train or full-train view; its fitted
+state is carried into that fold's model and, for a qualified multimodal refit,
+into the prediction archive. A shared transformer over multiple heterogeneous
+raw sources is refused before fitting; use source-specific encoders inside the
+multimodal model in that case. Ragged series can be replaced as long as their
+declared schema is retained. For `MultimodalRegressor` or `MultimodalClassifier`,
+the **model-only** profile
 also supports sequential N4M random-search tuning (`engine="n4m"`, no pruning)
 with a paired native/optimizer checkpoint. The checkpoint contains a manifest
 of each completed trial's generated views. On resume, the provider regenerates
@@ -575,8 +582,8 @@ not call the training provider or fit a model. Its sources must match the
 training schema, including names, shapes, axes, units and feature names. The
 archive does not regenerate training data and cannot be used for retraining.
 Other generated-view estimator shapes still refuse export. Parallel
-generated-view trials, subprocess execution and separately fitted DAG transform
-nodes remain outside this profile. Multimodal synthetic data in this example
+generated-view trials, subprocess execution and separate transform nodes on
+multiple raw sources remain outside this profile. Multimodal synthetic data in this example
 are test fixtures, not a new product generator.
 
 ## Archive and scope

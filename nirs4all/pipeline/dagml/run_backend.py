@@ -1073,7 +1073,8 @@ def _dispatch_run(
                 or holdout_train_sample_ids is not None):
             raise NotImplementedError(
                 "generated data views currently require "
-                "[KFold, GroupKFold, StratifiedKFold or StratifiedGroupKFold, {'model': a concrete estimator}] with refit=True"
+                "[KFold, GroupKFold, StratifiedKFold or StratifiedGroupKFold, "
+                "optional concrete X transformer, {'model': a concrete estimator}] with refit=True"
             )
         return _run_concrete(
             pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
