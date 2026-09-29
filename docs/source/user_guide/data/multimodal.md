@@ -52,7 +52,7 @@ Each case directory contains `dataset.json`, `pipeline.json`,
 declaration and checkpoint when applicable. Reports preserve native scores,
 per-target metrics, observed target counts and twelve new predictions. The script
 reloads each archive with fitting forbidden and checks that predictions agree
-exactly. `examples/run.sh` includes U07 through U13; its plot switches have no
+exactly. `examples/run.sh` includes U07 through U14; its plot switches have no
 effect on these examples, which write artifacts to fresh temporary directories.
 
 ## Describe inputs
@@ -312,9 +312,10 @@ Python/NumPy RNG. `n_jobs=1` retains the existing sequential checkpoint
 identity. Parallel checkpoints may contain proposals already opened for other
 candidates; `resume=True` reuses those proposals and verifies saved generated
 views before new evaluation. This setting does not enable parallelism in the
-general `PipelineObjective` tuning adapter. For generated views it requires the
-in-process DAG-ML host and a binding that advertises candidate-local generated
-views; older installed bindings fail before the provider `PLAN`.
+general `PipelineObjective` tuning adapter. For generated views it requires a
+DAG-ML binding that advertises candidate-local generated views, whether the
+outer job runs in-process or in an isolated Python worker. Older installed
+bindings fail before the provider `PLAN`.
 
 For generated views with `N4A_DAGML_INPROCESS=0`, HPO uses an isolated Python
 worker. `tuning.progress_callback` runs in the calling process after each
@@ -623,12 +624,19 @@ export, and a paired checkpoint can be resumed in a later worker. The parent
 stops active candidate processes when `should_stop` cancels the worker.
 `tuning.progress_callback` is relayed to the calling process, including its
 stop decision; a callback exception propagates to the caller and stops the
-worker. The nested
-parallel worker path has been qualified on Linux; Windows and macOS are still
-to be tested. Separate transform nodes on multiple raw sources remain outside
-this profile.
+worker. The nested parallel worker path has been qualified from installed
+candidate wheels on Linux, Windows x64 and macOS ARM. This does not qualify
+Studio installers on those platforms. Separate transform nodes on multiple
+raw sources remain outside this profile.
 Multimodal synthetic data in this example are test fixtures, not a new product
 generator.
+
+For a complete runnable example of fold views, HPO and prediction-only replay:
+
+```bash
+python examples/user/02_data_handling/U14_multimodal_fold_provider.py --output /tmp/mm-fold-provider
+python examples/user/02_data_handling/U14_multimodal_fold_provider.py --output /tmp/mm-fold-provider-hpo --hpo --n-jobs 2 --worker
+```
 
 ## Archive and scope
 
