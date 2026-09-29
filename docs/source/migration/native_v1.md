@@ -56,6 +56,12 @@ but they are not a model archive: `load_session()` expects a qualified `.n4a`
 bundle, and new-sample `predict()` requires a fitted model artifact. A conversion
 report showing preserved predictions must not be read as proof that prediction
 without retraining is available for that source profile.
+Passing the converted workspace directory to `nirs4all.predict(model=..., ...)`
+now returns an explicit `converted_workspace_has_no_fitted_model` capability
+error for both the default DAG-ML engine and explicit legacy engine. Provide a
+separately qualified fitted `.n4a` archive, or retrain before predicting new
+samples. This refusal is qualified on the synthetic legacy save fixture; opaque
+preserved bundles need their own qualification.
 
 The authoritative read/write/migrate dispositions and retention window are in
 the Tools [support matrix](https://github.com/GBeurier/nirs4all-tools/blob/main/docs/contracts/legacy-support-matrix.v1.json)

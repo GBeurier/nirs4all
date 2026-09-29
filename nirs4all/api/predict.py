@@ -250,6 +250,24 @@ def predict(
     if output is not None and (not isinstance(output, str) or not output):
         raise ValueError("output= must be a nonempty named output string")
 
+    # Tools workspace conversion preserves results and pipeline metadata, but
+    # does not create a fitted predictor for new samples.  Identify this exact
+    # output shape before routing it as a legacy pipeline directory.
+    if isinstance(model, (str, Path)):
+        converted_workspace = Path(model)
+        if (
+            converted_workspace.is_dir()
+            and (converted_workspace / "migration-manifest.json").is_file()
+            and (converted_workspace / "store.sqlite").is_file()
+        ):
+            raise RtError(
+                "predict",
+                "unsupported_capability",
+                "a converted workspace does not expose a fitted model for new samples",
+                mitigation="supply a fitted .n4a archive or retrain a pipeline before predicting new samples",
+                unsupported_capability="converted_workspace_has_no_fitted_model",
+            )
+
     explicit_sample_ids = runner_kwargs.pop("sample_ids", None)
     methods_library_path = runner_kwargs.get("methods_library_path")
     if explicit_sample_ids is not None:
