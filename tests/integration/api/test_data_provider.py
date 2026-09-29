@@ -1159,22 +1159,76 @@ def test_generated_by_source_subprocess_keeps_prediction_archive(tmp_path: Path,
         result.close()
 
 
-def test_generated_hpo_subprocess_rejects_progress_callback_before_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def forbidden(**_: Any) -> Any:
-        pytest.fail("Subprocess mode executed the provider")
-
+def test_generated_hpo_subprocess_relays_progress_and_resumes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The caller owns callback state and can stop at a durable trial boundary."""
     base = _cohort()
-    provider = DataProvider(
-        forbidden, generate_view=forbidden, provider_id="qualification.view.subprocess-control-refused",
-        base=base, replace_sources=["nir"],
-    )
+
+    def provider() -> DataProvider:
+        def generate(**_: Any) -> dict[str, Any]:
+            return {"sample_ids": list(base.sample_ids), "sources": {"nir": base.sources["nir"]}}
+
+        def generate_view(*, sample_ids: list[str], seed: int, **_: Any) -> dict[str, Any]:
+            source = base.take(sample_ids).sources["nir"]
+            return {"sample_ids": sample_ids, "sources": {"nir": TensorSource(
+                np.asarray(source.values) + float(seed % 7), sample_ids,
+                representation_id=source.representation_id, axis_units=source.axis_units,
+                axis_coordinates=source.axis_coordinates,
+            )}}
+
+        return DataProvider(generate, generate_view=generate_view,
+                            provider_id="qualification.view.hpo-progress", base=base, replace_sources=["nir"])
+
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
-    with pytest.raises(NotImplementedError, match="cannot relay tuning.progress_callback"):
+    study = tmp_path / "study"
+    events: list[tuple[int, int]] = []
+
+    def progress(event: dict[str, Any]) -> bool:
+        count = len(event["checkpoint"]["trials"])
+        events.append((os.getpid(), count))
+        return count < 1
+
+    tuning = {**_tuning(study), "n_trials": 2}
+    with pytest.raises(MultimodalTuningStopped):
         nirs4all.run(
-            [KFold(3), {"model": _model()}], provider,
+            [GroupKFold(3), {"model": _model()}], provider(),
             engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
-            results_path=tmp_path / "native", random_state=19, verbose=0,
-            tuning={**_tuning(tmp_path / "study"), "progress_callback": lambda _event: True},
+            results_path=tmp_path / "stopped", random_state=19, verbose=0,
+            tuning={**tuning, "progress_callback": progress},
+        )
+    assert events and all(pid == os.getpid() for pid, _count in events)
+    assert events[-1][1] == 1
+    saved = _checkpoint(study)["native_checkpoint"]["trials"]
+    assert len(saved) == 1 and saved[0]["state"] == "complete"
+    resumed_events: list[tuple[int, int]] = []
+
+    def continue_search(event: dict[str, Any]) -> bool:
+        resumed_events.append((os.getpid(), len(event["checkpoint"]["trials"])))
+        return True
+
+    resumed = nirs4all.run(
+        [GroupKFold(3), {"model": _model()}], provider(),
+        engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+        results_path=tmp_path / "resumed", random_state=19, verbose=0,
+        tuning={**tuning, "resume": True, "progress_callback": continue_search},
+    )
+    try:
+        assert len(resumed.tuning_result.trials) == 2
+        assert resumed_events and all(pid == os.getpid() for pid, _count in resumed_events)
+        assert resumed_events[-1][1] == 2
+        assert _checkpoint(study)["native_checkpoint"]["trials"][0] == saved[0]
+    finally:
+        resumed.close()
+
+    def fail_progress(_event: dict[str, Any]) -> bool:
+        raise ValueError("caller rejected progress")
+
+    with pytest.raises(ValueError, match="caller rejected progress"):
+        nirs4all.run(
+            [GroupKFold(3), {"model": _model()}], provider(),
+            engine="dag-ml", refit=True, save_artifacts=False, save_charts=False,
+            results_path=tmp_path / "callback-error", random_state=19, verbose=0,
+            tuning={**tuning, "storage": (tmp_path / "callback-error-study").as_uri(),
+                    "progress_callback": fail_progress},
         )
 
 

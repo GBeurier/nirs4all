@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,27 @@ import cloudpickle
 from .resources import current_execution_resources
 
 
-def _run_cancellable_worker(command: list[str], should_stop: Any = None) -> subprocess.CompletedProcess[str]:
+def _relay_worker_progress(directory: Path, callback: Callable[[dict[str, Any]], Any]) -> None:
+    """Answer one checkpoint callback from a child through its private directory."""
+    event_path = directory / "progress.event"
+    answer_path = directory / "progress.answer"
+    if not event_path.is_file() or answer_path.exists():
+        return
+    with event_path.open("rb") as stream:
+        event = cloudpickle.load(stream)  # noqa: S301 - private event from our child
+    if not isinstance(event, dict):
+        raise ValueError("generated HPO worker sent an invalid progress event")
+    decision = bool(callback(event))
+    temporary = directory / "progress.answer.tmp"
+    with temporary.open("wb") as stream:
+        cloudpickle.dump(decision, stream)
+    os.replace(temporary, answer_path)
+
+
+def _run_cancellable_worker(
+    command: list[str], should_stop: Any = None, *,
+    progress_dir: Path | None = None, progress_callback: Callable[[dict[str, Any]], Any] | None = None,
+) -> subprocess.CompletedProcess[str]:
     """Observe the parent cancellation token while the isolated child executes."""
     from .cancellation import DagRunCancelled, check_cancellation
 
@@ -38,6 +59,8 @@ def _run_cancellable_worker(command: list[str], should_stop: Any = None) -> subp
                 stdout, stderr = process.communicate(timeout=0.1)
                 return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
             except subprocess.TimeoutExpired:
+                if progress_dir is not None and progress_callback is not None:
+                    _relay_worker_progress(progress_dir, progress_callback)
                 check_cancellation()
                 if should_stop is not None and should_stop():
                     raise DagRunCancelled("DAG run cancelled by caller") from None

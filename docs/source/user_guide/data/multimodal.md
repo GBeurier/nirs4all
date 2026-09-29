@@ -316,11 +316,12 @@ general `PipelineObjective` tuning adapter. For generated views it requires the
 in-process DAG-ML host and a binding that advertises candidate-local generated
 views; older installed bindings fail before the provider `PLAN`.
 
-For generated views with `N4A_DAGML_INPROCESS=0`, sequential HPO uses an isolated Python
-worker. Its progress events cannot call back into the parent, so
-`tuning.progress_callback` is refused before the provider's `PLAN`. The parent's
-`should_stop` may terminate the worker; the last complete paired checkpoint
-remains available to `resume=True`, which may repeat the interrupted trial.
+For generated views with `N4A_DAGML_INPROCESS=0`, HPO uses an isolated Python
+worker. `tuning.progress_callback` runs in the calling process after each
+checkpoint event; returning `False` stops at the saved trial boundary, and
+`resume=True` continues from that checkpoint. The parent's `should_stop` may
+terminate the worker during a trial; the last complete paired checkpoint
+remains available, and the interrupted trial may repeat on resume.
 
 The host resets the Python/NumPy RNG for each native task using a stable seed
 derived from `run(random_state=...)`, otherwise the tuning seed, otherwise zero.
@@ -619,8 +620,9 @@ owns its trial views, optimizer and selected refit; parallel candidates each
 run in a separate child process. It returns a usable `RunResult` for archive
 export, and a paired checkpoint can be resumed in a later worker. The parent
 stops active candidate processes when `should_stop` cancels the worker.
-`tuning.progress_callback` is not supported in this mode; the callback is
-refused before `PLAN` rather than executed silently in the child. The nested
+`tuning.progress_callback` is relayed to the calling process, including its
+stop decision; a callback exception propagates to the caller and stops the
+worker. The nested
 parallel worker path has been qualified on Linux; Windows and macOS are still
 to be tested. Separate transform nodes on multiple raw sources remain outside
 this profile.
