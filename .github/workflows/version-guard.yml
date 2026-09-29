@@ -1,8 +1,7 @@
 name: version-guard
 
-# Guardrail: the in-repo version must NEVER be ahead of the latest git tag.
-# Tag ahead of the manifest (a release in flight) is allowed; manifest ahead of
-# the tag (an un-tagged bump) is forbidden — that is the drift this blocks.
+# Guardrail: an untagged final version must never be ahead of the latest tag.
+# A .dev version may be ahead while the next release is still being developed.
 # Part of the nirs4all ecosystem version-sync guardrail.
 
 on:
@@ -107,6 +106,9 @@ jobs:
 
           latest_v, latest_t = max(cand, key=lambda x: x[0])
           print(f"manifest = {manifest}    latest tag = {latest_t} ({latest_v})")
+          if manifest > latest_v and manifest.is_devrelease:
+              print("::notice::version-guard: development version ahead of the latest tag is allowed before release")
+              sys.exit(0)
           if manifest > latest_v:
               print(
                   f"::error::version-guard: in-repo version {manifest} is AHEAD of the latest tag {latest_t}. "
