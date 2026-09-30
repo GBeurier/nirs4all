@@ -190,7 +190,12 @@ def test_parity_environment_dependencies_are_declared() -> None:
     assert "referencing" in project_dep_names
     assert "jsonschema" in project_dep_names
     assert str(project_deps["jsonschema"].specifier) == ">=4.18.0"
-    assert str(project_deps["dag-ml"].specifier) == "<0.4,>=0.3.30"
+    # Generated views require the 0.3.31 runtime interface; 0.3.30 is insufficient.
+    dagml_specifier = project_deps["dag-ml"].specifier
+    assert "0.3.31" in dagml_specifier
+    assert "0.3.32" in dagml_specifier
+    assert "0.3.30" not in dagml_specifier
+    assert "0.4.0" not in dagml_specifier
     assert str(project_deps["dag-ml-data"].specifier) == "<0.3,>=0.2.12"
     assert str(native_deps["nirs4all-core"].specifier) == "<0.5,>=0.4.0"
     assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.2.1"
