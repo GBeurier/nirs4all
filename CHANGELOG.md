@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-09-30
+
+### Fixed
+
+- Validate the transition extra's DuckDB/Parquet readers and minimum compatible
+  Tools version independently of the current patch release, fixing the stale
+  0.0.5 assertion that blocked the unpublished 1.3.1 candidate's CI.
+- Correct native model-local HPO documentation for n4m/Optuna pruning, training
+  controls, refit, phases and checkpoint recovery, and remove links to retired
+  feature branches.
+
 ## [1.3.1] — 2026-09-30
 
 ### Added

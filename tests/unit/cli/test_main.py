@@ -20,6 +20,7 @@ from unittest.mock import Mock, patch
 import jsonschema
 import numpy as np
 import pytest
+from packaging.requirements import Requirement
 
 
 def invoke_cli(args):
@@ -591,7 +592,10 @@ class TestCLISubcommandHelp:
 
         transition_deps = metadata["project"]["optional-dependencies"]["transition"]
 
-        assert "nirs4all-tools[duckdb,parquet]>=0.0.5" in transition_deps
+        tools_requirements = [Requirement(value) for value in transition_deps if Requirement(value).name == "nirs4all-tools"]
+        assert len(tools_requirements) == 1
+        assert tools_requirements[0].extras == {"duckdb", "parquet"}
+        assert "0.0.4" not in tools_requirements[0].specifier
 
 
 class TestCLIErrorHandling:
