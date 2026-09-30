@@ -1,6 +1,6 @@
 # Multimodal release readiness — updated 30 September 2026
 
-This is software qualification using synthetic test fixtures, not a real-corpus or paper result. The existing NIRS generator remains the product generator. No stable version has been bumped or published in this train.
+This is software qualification using synthetic test fixtures, not a real-corpus or paper result. The existing NIRS generator remains the product generator. Stable versions are now prepared and pushed (nirs4all 1.3.1, Tools 0.0.8, DAG-ML 0.3.32, IO 0.2.2); publication is not yet confirmed. Studio final pins must come from the published wheel bytes.
 
 The scientific source qualified below is nirs4all `22902524078669c99eb5b9070a0498c058fc3cc3`, with DAG-ML `9d7273a718aff7c1e511dc8708b13e7bfe8f5613` and IO `5a887788089568955e7011ad0036264dd3f6e979`. Later changes to this report are documentation only.
 
@@ -13,8 +13,8 @@ The scientific source qualified below is nirs4all `22902524078669c99eb5b9070a049
 | Real AutoGluon | **8/8 passed**, AutoGluon Tabular 1.6.3, with a JUnit gate refusing missing cases or skips | [Exact-source CI](https://github.com/GBeurier/nirs4all/actions/runs/36633344135): regression/classification, model/framework, in-process/subprocess and archive replay. |
 | sklearn/PyTorch provider | U11 passed locally with workers=0; **workers=2 passed in CI**; IO CPU adapter job **70/70 passed** | [nirs4all CI](https://github.com/GBeurier/nirs4all/actions/runs/36633344135), [IO CI](https://github.com/GBeurier/nirs4all-io/actions/runs/36627802834). WSL blocks the multiprocessing socket locally. |
 | Installed scientific provider | X/y assembly, CV/archive, HPO/archive, resume and **45 sampler/pruner compositions passed** from exact candidate wheels and packaged runtimes | The script rejects source-checkout imports; wheel hashes and native identities are checked on runners. |
-| Linux Studio installed application | **Passed**: exact DEB/runtime, installed four-source import → run → archive → replay, four predictions without fit, populated upgrade from public 0.14.0 | [Candidate `583cdd72`](https://github.com/GBeurier/nirs4all-studio/actions/runs/36643081259). Nonpublishing proof, not the final stable artifact. |
-| Windows x64 / macOS arm64 installed application | Exact packaged wheels/native identities and initial installed journeys passed; the final separate multimodal smoke failed to display the completed run within 5 seconds | API completion succeeded. Studio `8a1ffa77` allows 30 seconds for the renderer's 10-second refresh, retaining the visible UI assertion. [New candidate](https://github.com/GBeurier/nirs4all-studio/actions/runs/36649448536) must prove the correction. |
+| Linux Studio installed application | **Passed**: exact DEB/runtime, installed four-source import → run → archive → replay, four predictions without fit, populated upgrade from public 0.14.0 | [Candidate `8a1ffa77`](https://github.com/GBeurier/nirs4all-studio/actions/runs/36649448536). Nonpublishing proof, not the final stable artifact. |
+| Windows x64 / macOS arm64 installed application | **Passed**: exact packaged identities, installed journeys, 45 HPO compositions, visible four-source UI, archive/replay without fit and populated upgrade | [Candidate `8a1ffa77`](https://github.com/GBeurier/nirs4all-studio/actions/runs/36649448536) proves the renderer polling correction. Final stable installers still require their own qualification. |
 | CUDA hardware integration | One optional test remains unexecuted on this WSL | No usable CUDA device/NVML access. This train has CPU evidence; it must not claim a GPU qualification. |
 | macOS Intel | Optional for this train, as requested by the maintainer | No claim of qualification without that platform's own completed gate. |
 
@@ -22,9 +22,11 @@ The scientific source qualified below is nirs4all `22902524078669c99eb5b9070a049
 
 The maintainer has withdrawn Astra/Claude reviews from the current gate. No further review session is required or running.
 
-1. Confirm current Studio CI, including Windows Rust containment, and installed candidate journeys on Windows x64 and macOS arm64. The candidate remains nonpublishing while any required platform fails.
+1. Candidate gates are complete on all three required platforms. Current Studio CI, Windows Rust containment and E2E are green on `b431befb`; retain these gates for the final build.
 2. Align final DAG-ML, IO, nirs4all, Tools and Studio versions and immutable source/wheel/native identities. Build and validate the final distributions; candidate proofs do not automatically qualify changed release artifacts.
 3. Publish only after the applicable technical gates pass. Record the CPU scope and optional hardware/platform omissions explicitly.
 4. Keep newer Methods `main` (LVSE/GCU and optimizer bindings) in a separate qualification phase before raising Studio's native Methods pin, currently published 1.2.1/source `b8b942ae`.
+
+DAG-ML v0.3.31 and IO v0.2.1 were blocked before publication by stale ABI snapshot/WASM inventory metadata. Their tags remain unchanged; corrected patches are 0.3.32 and 0.2.2. External dependency versions, license expressions and C ABI header bytes are unchanged. CI jobs installing nirs4all from PyPI currently await those native distributions. Tools and nirs4all publishers require a published GitHub Release; creation is currently blocked by terminal access to `api.github.com`.
 
 Current planning is maintained in the workspace's consolidated backlog. Shared UI, licensed MATLAB and real-corpus/paper work are outside this release train.
