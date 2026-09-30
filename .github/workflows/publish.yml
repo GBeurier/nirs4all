@@ -114,7 +114,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: GBeurier/dag-ml
-          ref: 29907331d3f6befdcca5168be223cda7d668eece
+          ref: 46d4f00aa58b3687c9afff2e1a8ec78712fc7c3a
           path: dag-ml-cli-src
 
       - uses: dtolnay/rust-toolchain@stable

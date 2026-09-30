@@ -11,9 +11,9 @@ on:
 # exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
 
 env:
-  N4A_DAG_ML_REF: 9d7273a718aff7c1e511dc8708b13e7bfe8f5613
+  N4A_DAG_ML_REF: 46d4f00aa58b3687c9afff2e1a8ec78712fc7c3a
   N4A_DAG_ML_DATA_REF: 3f761473d1aa597a1ed76d9d8c60094f4053aab8
-  N4A_IO_REF: 5a887788089568955e7011ad0036264dd3f6e979
+  N4A_IO_REF: 6816c4b18b9281c34c1b8095fbce0cfbc7e1b224
   N4A_METHODS_REF: 858bec0a5dfd38b75c092f90fb7d890fd3b057d7
 
 jobs:
@@ -69,7 +69,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: GBeurier/dag-ml
-          ref: 9d7273a718aff7c1e511dc8708b13e7bfe8f5613
+          ref: 46d4f00aa58b3687c9afff2e1a8ec78712fc7c3a
           path: dag-ml-cli-src
 
       - name: Checkout qualified n4m source
