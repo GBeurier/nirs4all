@@ -272,8 +272,8 @@ operation-by-operation capability contract.
 | Runtime envelopes | `rt_run_request.v1`, `rt_result.v1`, `rt_error.v1` | Producers and consumers use the frozen JSON schemas; no product-specific reinterpretation. |
 | Studio product contract | Studio V1 HTTP/OpenAPI/WS snapshots | Rust is the sole control-plane owner; plugin-host responses cross bounded JSON stdio only. |
 
-The Methods [ABI reference](https://github.com/GBeurier/nirs4all-methods/blob/codex/r4-doc002-methods/docs/abi/reference.md)
-and the ecosystem [runtime schemas](https://github.com/GBeurier/nirs4all-ecosystem/tree/release/native-v1-candidate/docs/contracts/runtime)
+The Methods [ABI reference](https://github.com/GBeurier/nirs4all-methods/blob/main/docs/abi/reference.md)
+and the ecosystem [runtime schemas](https://github.com/GBeurier/nirs4all-ecosystem/tree/main/docs/contracts/runtime)
 are the lower-level authorities. This guide does not redefine them.
 
 ## Capability summary
@@ -283,7 +283,8 @@ are the lower-level authorities. This guide does not redefine them.
 | `run`, `predict`, `session`, save/load/export | Native for the qualified V1 matrix; general DAG-ML sessions and captured host archives support training and replay. Unsupported shapes refuse before significant work. |
 | Full retrain | DAG-ML for concrete archive specs and captured trainable winners (workspace prediction or archive); other modes remain under qualification. |
 | Transfer | DAG-ML for captured trainable host winners; the explicit historical Python-library plugin retains its separate preflight. |
-| Finetune, unavailable explain/generate shapes | Explicit refusal in the strict profile; no implicit legacy execution. |
+| Model-local `finetune_params`, `train_params`, `refit_params` | Public DAG-ML execution supports deterministic generation and scoped Optuna/n4m host search, with training/refit controls. The closed Archive V2 native profile has narrower capabilities; unsupported requests refuse before execution. See [pipeline keywords](../reference/pipeline_keywords.md#model-local-hpo-finetune-params). |
+| Continuing from trained weights, unavailable explain/generate shapes | Explicit refusal for unsupported requests; no implicit legacy execution. |
 | Existing Python workflow during rollback | Direct Python call with explicit `engine="legacy"`; never Studio/Web. |
 
 ## FAQ

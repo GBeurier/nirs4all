@@ -66,10 +66,13 @@ optimization**. It does not mean continuing from trained weights.
 }
 ```
 
-The legacy Python execution path supports the full adaptive form. For
-`run(engine="dag-ml")`, only the deterministic subset described below is native;
-adaptive n4m/Optuna controls remain a typed boundary and must not be assumed to
-run inside DAG-ML.
+`run(engine="dag-ml")` supports both deterministic generation and model-local
+adaptive search through the n4m or Optuna host adapter. DAG-ML owns the inner
+folds, training-only preprocessing, scoring, selection and terminal refit;
+the host optimizer supplies candidates. Each outer fold and refit has a
+separate training scope. Neither path implicitly selects legacy execution.
+This does not make continuing from trained weights or arbitrary full-graph
+structure search available.
 
 The W2 native integration now has an internal
 `nirs4all.pipeline.dagml.native_client` seam that can call the installed
@@ -121,8 +124,8 @@ Accepted native `model_params` forms are:
 - a per-parameter `{"_range_": [start, stop, step]}` list form;
 - a per-parameter `{"_log_range_": [start, stop, count]}` list form.
 
-`metric` selects the native DAG-ML selection metric. Public
-`run(engine="dag-ml")` currently accepts the metrics supported by both native
+For deterministic lowering, `metric` selects the native DAG-ML selection
+metric. This profile accepts the metrics supported by both native
 selection surfaces without implicit fallback: `rmse` for regression and
 `accuracy`/`balanced_accuracy` for classification. `direction` must agree with
 that metric's native objective (`rmse` minimizes;
@@ -131,23 +134,28 @@ the metric are rejected rather than silently inverted. Broader core/training
 metrics (`mse`, `mae`, `r2`) remain internal training-contract work until CLI
 and in-process public selection metric parity is closed. Adaptive keys such as
 `n_trials`, `sampler`, `pruner`, phases, and `engine="n4m"`/`"optuna"` are known
-model-local HPO controls. The DAG-ML host Optuna profile supports `n_trials`,
-`sampler` (including the `sample` alias), `single`/`grouped`/`individual`, `best`/`mean`, and
-trial-fit `train_params`; deterministic native lowering remains a separate
-grid/range profile. Pruning, parallel trials, phases, and persistent study
-storage remain outside the host profile.
+model-local HPO controls. The DAG-ML host Optuna and n4m profiles support
+`n_trials`, `sampler` (including the `sample` alias),
+`single`/`grouped`/`individual`, `best`/`mean`, and supported estimator controls
+in trial-fit `train_params`; deterministic lowering remains a separate
+grid/range profile. Both host adapters support native fold-score pruning.
+Optuna additionally supports `n_jobs`, phased budgets and durable
+`storage`/`study_name` with paired native checkpoints for `resume`.
+The n4m adapter preserves its sequential model-local contract even when
+`n_jobs` is supplied; it does not support these Optuna storage/resume keys.
+This model-local API is separate from the full multimodal `tuning` API.
 
 | `finetune_params` key | Lifecycle/effect | Optuna | n4m | DAG-ML |
 | --- | --- | --- | --- | --- |
-| `model_params` | Defines model-local candidate parameters; changing it changes candidates, selection and the final predictor, so existing calibration is stale. | Adaptive DSL supported. | Adaptive DSL supported. | Partial: plain JSON grids and `_range_`/`_log_range_` generator specs only. |
-| `metric` | Selects trial ranking/selection metric; invalidates calibration if the selected predictor changes. | Supported. | Supported. | Partial: public `rmse`, `accuracy`, `balanced_accuracy`. |
+| `model_params` | Defines model-local candidate parameters; changing it changes candidates, selection and the final predictor, so existing calibration is stale. | Adaptive DSL supported. | Adaptive DSL supported. | Deterministic grids/ranges or adaptive host Optuna/n4m search. |
+| `metric` | Selects trial ranking/selection metric; invalidates calibration if the selected predictor changes. | Supported. | Supported. | Deterministic: `rmse`, `accuracy`, `balanced_accuracy`; host search also supports `mse`, `mae`, `r2`. |
 | `direction` | Selects minimize/maximize objective; invalidates calibration if winner changes. | Supported. | Supported. | Partial: must agree with the native metric objective. |
-| `n_trials` | Sets adaptive trial budget and may change the winner. | Supported. | Supported. | Host Optuna profile only; deterministic generation uses the grid/range candidate set. |
-| `sampler` | Selects adaptive trial sequence and may change the winner. | Supported. | Partial: some names remap internally. | Host Optuna profile only. |
-| `pruner` | Selects adaptive pruning/early stopping and may change the winner. | Supported. | Partial: overlapping but not identical pruner vocabulary. | Unsupported. |
-| `approach` | Controls fold search strategy and may change trial ranking/winner. | Supported. | Partial. | Deterministic: `grouped`; host Optuna: `single`, `grouped`, or `individual` with a fresh training-only search per outer fold and refit. |
-| `eval_mode` | Aggregates trial scores and may change ranking/winner. | Partial. | Partial. | Deterministic: `mean`; host Optuna: `best` or `mean` for grouped search. |
-| `train_params` | Configures trial-fit kwargs, not terminal refit kwargs. | Supported. | Supported. | Host Optuna samples supported estimator fit controls; deterministic lowering rejects it. |
+| `n_trials` | Sets adaptive trial budget and may change the winner. | Supported. | Supported. | Host Optuna/n4m; deterministic generation uses the grid/range candidate set. |
+| `sampler` | Selects adaptive trial sequence and may change the winner. | Supported. | Partial: some names remap internally. | Host Optuna/n4m. |
+| `pruner` | Selects adaptive pruning/early stopping and may change the winner. | Supported. | Partial: overlapping but not identical pruner vocabulary. | Host Optuna/n4m use native fold-score feedback; deterministic lowering rejects it. |
+| `approach` | Controls fold search strategy and may change trial ranking/winner. | Supported. | Partial. | Deterministic: `grouped`; host Optuna/n4m: `single`, `grouped`, or `individual` with a fresh training-only search per outer fold and refit. |
+| `eval_mode` | Aggregates trial scores and may change ranking/winner. | Partial. | Partial. | Deterministic: `mean`; host Optuna/n4m: `best` or `mean` for grouped search. |
+| `train_params` | Configures trial-fit kwargs, not terminal refit kwargs. | Supported. | Supported. | Host Optuna/n4m sample supported estimator controls; deterministic lowering rejects it. |
 
 (execution-engine-versus-optimizer-engine)=
 ### Execution engine versus optimizer engine
@@ -161,7 +169,7 @@ The same token has two independent scopes:
   - `"dag-ml"` or `"grid"` request deterministic native DAG-ML generation over
     `model_params`.
 
-The planned `tuning["engine"]` will also select an HPO driver. It must never be
+The full-DAG `tuning["engine"]` also selects an HPO driver. It must never be
 used as an alias for `run.engine`. Likewise, `finetune_params["engine"] =
 "dag-ml"` does not switch the whole run to DAG-ML; it only declares that the
 model-local search space is deterministic and can be represented as native
@@ -177,10 +185,10 @@ partial because every broader shape remains fail-closed.
 
 New code, documentation, manifests, and Studio forms use:
 
-- `finetune_params.engine="dag-ml"`; the old spellings `"dagml"` and `"native"`
-  remain readable for the deterministic DAG-ML generation subset;
-- `finetune_params.engine="n4m"`; the old spellings `"methods"` and `"libn4m"`
-  remain readable during migration;
+- `finetune_params.engine="dag-ml"`; the old spelling `"dagml"`
+  remains readable for the deterministic DAG-ML generation subset;
+- `finetune_params.engine="n4m"`; the old spellings `"native"`, `"methods"`
+  and `"libn4m"` select the n4m host adapter during migration;
 - `sampler`; the old key `sample` remains readable during migration;
 - `eval_mode="mean"`; the old value `"avg"` remains readable during migration.
 
@@ -228,7 +236,7 @@ policies such as warm-starting from CV weights remain unsupported. The exact
 built-in `{"use_all_partitions": True}` PLSRegression no-op remains accepted.
 
 The deterministic DAG-ML HPO lowering still rejects
-`finetune_params.train_params`. The host Optuna profile samples supported
+`finetune_params.train_params`. The host Optuna/n4m profiles sample supported
 estimator fit controls inside each trial; the terminal fit still uses the
 step-level `train_params` and `refit_params`. Changes to these scopes can change the deployed predictor, so an
 earlier conformal calibration must be renewed.
