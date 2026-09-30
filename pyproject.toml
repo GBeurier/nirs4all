@@ -96,11 +96,11 @@ dependencies = [
 
     # DAG-ML owns execution for both general host and portable Methods profiles.
     # These runtimes are base dependencies; neither profile retries on legacy.
-    "dag-ml>=0.3.30,<0.4",
+    "dag-ml>=0.3.31,<0.4",
     "dag-ml-data>=0.2.12,<0.3",
     # Dataset inspection and Studio Playground loading call the native IO
     # bridge directly, so the published base wheel must close that runtime.
-    "nirs4all-io>=0.2.0,<0.3",
+    "nirs4all-io>=0.2.1,<0.3",
     # The default portable execution lane must work after a base installation.
     "nirs4all-core>=0.4.0,<0.5",
     "nirs4all-methods>=1.2.1,<2",
@@ -130,7 +130,7 @@ migration = ["duckdb>=1.0.0"]
 # workspaces without this dependency; install this extra to run
 # ``nirs4all workspace convert`` from the library CLI. The DuckDB/Parquet
 # readers are included so the extra supports real conversion.
-transition = ["nirs4all-tools[duckdb,parquet]>=0.0.5"]
+transition = ["nirs4all-tools[duckdb,parquet]>=0.0.8"]
 
 # Retained installation extra for existing native deployment commands. The
 # same native runtime dependencies are now included in a base installation.

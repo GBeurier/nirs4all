@@ -9,15 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-09-30
+
 ### Added
 
+- Bounded complete and partial providers selected by the native scheduler per
+  run/fold, with generated-view evidence, isolated parallel HPO workers,
+  cancellation, checkpoint continuation and archive replay without regenerating
+  data or fitting.
+- Public multimodal provider/tuning examples and installed qualifications for
+  45 native sampler/pruner compositions, four-source UI and portable replay.
 - Typed variable-length temporal sources in multimodal Python training and replay,
   with deterministic synthetic U12 qualification and schema validation.
 - A portable-output selection bridge for DAG-ML packages, including multi-output
   role pipelines.
 
+### Changed
+
+- Require DAG-ML 0.3.31 and IO 0.2.1 for the qualified generated-view APIs; the
+  optional transition extra requires Tools 0.0.8.
+
 ### Fixed
 
+- Refuse new predictions from converted workspaces without a fitted model with
+  `converted_workspace_has_no_fitted_model` for either engine.
 - Reject unsupported legacy prediction inputs with a clear error instead of
   silently coercing multimodal or ragged source blocks.
 
