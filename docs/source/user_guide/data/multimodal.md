@@ -299,9 +299,9 @@ retain both values and their native score evidence.
 These CV values participate in hyperparameter selection; use the independent
 test partition to evaluate the selected pipeline.
 
-### Training controls during global search (unreleased)
+### Training controls during global search (1.3.3)
 
-On development `main`, the direct multimodal model, each late-fusion branch
+Since version 1.3.3, the direct multimodal model, each late-fusion branch
 model and the meta-model can carry fixed `train_params` and `refit_params`:
 
 ```python
@@ -327,7 +327,7 @@ CV-weight warm starts remain unsupported. Combining global `tuning` with
 model-local `finetune_params` is refused explicitly; global search addresses
 the whole model or ensemble through `tuning.space`.
 
-This addition is not part of the immutable 1.3.2 release candidate.
+These controls require nirs4all 1.3.3 or newer.
 
 `tuning.progress_callback(event)` may return `False` between trials. Cancellation
 raises `MultimodalTuningStopped`; a model failure is checkpointed and its original

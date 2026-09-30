@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-09-30
+
 ### Added
 
 - Preserve fixed model `train_params` and `refit_params` in global multimodal
@@ -16,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   candidates, checkpoint identity and selected predictor export/replay. Invalid
   controls fail before fitting or opening a study; nested model-local HPO
   remains explicitly unsupported in this profile.
+
+### Fixed
+
+- Check the required DAG-ML generated-view interface and reject older or
+  incompatible minor versions in the parity environment gate, replacing
+  its obsolete 0.3.30 requirement while preserving requirements-file alignment.
 
 ## [1.3.2] — 2026-09-30
 
