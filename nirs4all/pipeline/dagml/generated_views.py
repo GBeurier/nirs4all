@@ -41,7 +41,8 @@ def qualified_generated_model_pipeline(pipeline: Any) -> bool:
             and callable(getattr(pipeline[1], "fit", None))
             and callable(getattr(pipeline[1], "transform", None))
         ))
-        and type(pipeline[-1]) is dict and set(pipeline[-1]) == {"model"}
+        and type(pipeline[-1]) is dict and "model" in pipeline[-1]
+        and set(pipeline[-1]) <= {"model", "train_params", "refit_params", "name"}
         and not isinstance(pipeline[-1]["model"], type)
         and callable(getattr(pipeline[-1]["model"], "fit", None))
         and callable(getattr(pipeline[-1]["model"], "predict", None))

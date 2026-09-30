@@ -1070,8 +1070,9 @@ def _dispatch_run(
 
         # DATA-PROV-01 qualifies one concrete model with an exact CV splitter.
         # Other shapes must not train against the eager PLAN cohort.
+        # Fixed training controls were validated above and generate no variants.
         if (not (qualified_generated_model_pipeline(pipeline) or qualified_generated_by_source_pipeline(pipeline))
-                or _generation_kind(pipeline) != "none" or not refit or refit_top_k != 1
+                or _training_loss_generation_kind(pipeline) != "none" or not refit or refit_top_k != 1
                 or holdout_train_sample_ids is not None):
             raise NotImplementedError(
                 "generated data views currently require "

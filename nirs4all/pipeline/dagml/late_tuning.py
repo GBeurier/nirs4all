@@ -59,8 +59,8 @@ def prepare_late_tuning(pipeline: list[Any], dataset: Any, paths: Any) -> LateFu
 
     def register(step: Any, prefix: str, node_id: str) -> None:
         if isinstance(step, dict):
-            if set(step) != {"model"}:
-                raise ValueError("whole-stack tuning requires plain model steps; put all searched controls in tuning.space")
+            if "model" not in step or set(step) - {"model", "train_params", "refit_params", "name"}:
+                raise ValueError("whole-stack tuning model steps accept only model, train_params, refit_params and name; use tuning.space instead of finetune_params")
             operator = step["model"]
         else:
             operator = step
