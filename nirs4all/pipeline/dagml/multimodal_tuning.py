@@ -26,6 +26,7 @@ from .node_runner import run_node
 from .public_normalization import normalize_model_steps
 from .resolver import MaterializationResolver
 from .steps import _split_pipeline
+from .training_controls import validate_training_control_declarations
 from .tuning_contracts import SUPPORTED_TUNING_KEYS, TrialResult, TuningResult, parse_tuning_spec, tcv1_sha256
 
 
@@ -75,11 +76,16 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     if not isinstance(pipeline, list):
         raise TypeError("multimodal tuning requires a pipeline list")
     pipeline = normalize_model_steps(pipeline)
+    validate_training_control_declarations(pipeline)
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise ValueError("multimodal tuning requires an explicit outer splitter")
-    model = (steps[0]["model"] if len(steps) == 1 and isinstance(steps[0], dict) and set(steps[0]) == {"model"}
-             and isinstance(steps[0]["model"], (MultimodalRegressor, MultimodalClassifier)) else None)
+    model_step = (steps[0] if len(steps) == 1 and isinstance(steps[0], dict)
+                  and isinstance(steps[0].get("model"), (MultimodalRegressor, MultimodalClassifier)) else None)
+    if model_step is not None and set(model_step) - {"model", "train_params", "refit_params", "name"}:
+        raise ValueError("multimodal tuning model steps accept only model, train_params, refit_params and name; use tuning.space instead of finetune_params")
+    model = model_step["model"] if model_step is not None else None
+    model_controls = {key: value for key, value in (model_step or {}).items() if key != "model"}
     generated_store = getattr(cohort, "_generated_view_store", None)
     if generated_store is not None and model is None:
         raise NotImplementedError("generated-view tuning requires one concrete multimodal model")
@@ -132,7 +138,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     envelope = build_envelope(dataset, identity, sample_ints=pool, group_by_sample=groups)
     native = importlib.import_module("dag_ml")
     if recipe is None:
-        dsl = assemble_cv_refit_dsl([{"model": clone(model)}], identity, envelope, folds, dsl_id="multimodal-hpo", n_splits=len(folds))
+        search_step = {"model": clone(model), **copy.deepcopy(model_controls)}
+        dsl = assemble_cv_refit_dsl([search_step], identity, envelope, folds, dsl_id="multimodal-hpo", n_splits=len(folds))
         if generated_store is not None:
             dsl["root_seed"] = operator_seed
         graph = json.loads(native.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
@@ -288,7 +295,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
 
     if recipe is None:
         selected = clone(model).set_params(**{key.replace(".", "__"): value for key, value in evidence["selected_params"].items()})
-        selected_pipeline = [splitter, {"model": selected}]
+        selected_pipeline = [splitter, {"model": selected, **copy.deepcopy(model_controls)}]
     else:
         selected_pipeline = recipe.selected_pipeline(evidence["selected_params"])
     # A completed-checkpoint replay performs no trial callbacks. Give final

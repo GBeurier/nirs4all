@@ -299,6 +299,36 @@ retain both values and their native score evidence.
 These CV values participate in hyperparameter selection; use the independent
 test partition to evaluate the selected pipeline.
 
+### Training controls during global search (unreleased)
+
+On development `main`, the direct multimodal model, each late-fusion branch
+model and the meta-model can carry fixed `train_params` and `refit_params`:
+
+```python
+model_step = {
+    "model": model,
+    "train_params": {"model__tol": 0.003},
+    "refit_params": {"model__alpha": 9.0},
+}
+```
+
+The example uses a `MultimodalRegressor` containing Ridge; ordinary Ridge branch
+and meta-model steps use `tol` and `alpha` directly. These are estimator
+parameter overrides, not arbitrary `fit()` arguments. Controls are validated
+before fitting or opening a study. Each trial and the winner's CV use
+`train_params`; terminal refit adds `refit_params`, which take precedence.
+The resulting fitted predictor and its archive preserve the refit behavior.
+The same contract applies to isolated parallel candidates.
+
+Fixed training controls take precedence over candidate parameters. To search a
+parameter, leave it out of `train_params` and declare it in `tuning.space`.
+Changing either control mapping invalidates checkpoint resume before any fit.
+CV-weight warm starts remain unsupported. Combining global `tuning` with
+model-local `finetune_params` is refused explicitly; global search addresses
+the whole model or ensemble through `tuning.space`.
+
+This addition is not part of the immutable 1.3.2 release candidate.
+
 `tuning.progress_callback(event)` may return `False` between trials. Cancellation
 raises `MultimodalTuningStopped`; a model failure is checkpointed and its original
 error propagates. `resume=True` continues from terminal history. A crash during
@@ -372,11 +402,12 @@ of the checkpoint identity; changing their routing refuses resume.
 
 The returned `RunResult` represents the selected **ensemble**. Its direct
 `export()` saves that ensemble even if an individual base model scores better.
-The profile requires complete targets, instantiated sklearn operators and plain
-model steps. Sources must be complete unless the regression branch policy below
-is explicit. Model-local `finetune_params`, `train_params`
-and `refit_params` are refused in this global search profile. Single-target
-classification and complete multi-target regression use the same graph.
+The profile requires complete targets and instantiated sklearn operators.
+Sources must be complete unless the regression branch policy below is explicit.
+Development `main` also accepts the fixed model training controls described
+above; model-local `finetune_params` remains refused in this global search
+profile. Single-target classification and complete multi-target regression use
+the same graph.
 
 The synthetic U10 example writes the recipe, cohort, checkpoint, report and
 archive, then predicts twelve new observations with fit forbidden:

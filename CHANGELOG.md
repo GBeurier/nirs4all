@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Preserve fixed model `train_params` and `refit_params` in global multimodal
+  N4M tuning, including late-fusion branches and meta-models, isolated parallel
+  candidates, checkpoint identity and selected predictor export/replay. Invalid
+  controls fail before fitting or opening a study; nested model-local HPO
+  remains explicitly unsupported in this profile.
+
 ## [1.3.2] — 2026-09-30
 
 ### Fixed
