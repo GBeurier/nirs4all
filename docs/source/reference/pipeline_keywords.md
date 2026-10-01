@@ -74,6 +74,17 @@ separate training scope. Neither path implicitly selects legacy execution.
 This does not make continuing from trained weights or arbitrary full-graph
 structure search available.
 
+Development `main` also composes local Optuna/n4m search with global multimodal
+`run(tuning=..., engine="dag-ml")` for a direct multimodal model or a `by_source`
+base model. Global and local parameter paths must be disjoint, including
+ancestor paths, forced parameters and local trial-training parameters. Each
+native outer task selects local parameters using raw training-only source
+buffers and fresh inner-fold preprocessing. Meta-model local search, generated
+views, augmentation, joins, incomplete source/target cohorts and all-observation
+fit policies remain refused in this composition. The narrower closed
+`engine="native"` contract is unchanged. See
+{doc}`nested multimodal search </user_guide/data/multimodal>` for an example.
+
 The W2 native integration now has an internal
 `nirs4all.pipeline.dagml.native_client` seam that can call the installed
 `dag_ml.execute_training()` and `dag_ml.replay_loaded_predictor_package()`

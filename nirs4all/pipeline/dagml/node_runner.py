@@ -24,6 +24,7 @@ unbound transforms use the legacy reconstructed chain at the model node.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 from collections.abc import Callable, MutableMapping
@@ -1093,7 +1094,9 @@ def _run_fitted_transform_node(
         else:
             transformer.fit(x_fit, y_fit)
 
-    if resolver.is_multi_source():
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if resolver.is_multi_source() or isinstance(getattr(resolver, "_dataset", None), MultimodalSpectroDataset):
         resolved = resolver.resolve_feature_blocks(
             ids, include_augmented=bool(view.get("include_augmented")), fold_label=task.get("fold_id") or "refit",
         )
@@ -1195,11 +1198,12 @@ def _resolve_finetune_best_params(
     node_id: str,
     variant_label: str,
     model: Any,
-    upstream: list[Any],
     resolver: MaterializationResolver,
     model_store: MutableMapping[Any, Any],
     task: dict[str, Any],
     train_ids: list[str],
+    node_lookup: Callable[[str], dict[str, Any]],
+    edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Tune only the native task's train scope, with separate evidence per fold."""
@@ -1207,15 +1211,40 @@ def _resolve_finetune_best_params(
     if not metadata.get("nirs4all_finetune_params"):
         return {}
     finetune_params = _ordered_finetune_params(metadata)
-    cache_key = ("nirs4all_finetune_best_params", node_id, variant_label, task["phase"], task.get("fold_id"), tuple(train_ids))
-    cached = model_store.get(cache_key)
-    if cached is not None:
-        return dict(cached)
-
-    from .host_finetune import run_scoped_finetune, scoped_inner_cv
+    from .host_finetune import _content_fingerprint, run_scoped_finetune, scoped_inner_cv
     from .training_controls import effective_training_controls
 
-    x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=False)["values"])
+    if resolver.expand_with_augmented_children(train_ids, task.get("fold_id") or "refit") != train_ids:
+        raise ValueError("Local HPO does not support augmented training views")
+    ancestor_ids = _upstream_x_chain(node_id, edges)
+    ancestor_nodes = [node_lookup(identifier) for identifier in ancestor_ids]
+    if any(node["kind"] != "transform" for node in ancestor_nodes):
+        raise ValueError("Local HPO requires a linear preprocessing recipe without feature or prediction joins")
+    if any((node.get("metadata") or {}).get("nirs4all_fit_on_all") for node in ancestor_nodes):
+        raise ValueError("Local HPO does not support preprocessing fitted on all observations")
+    source_index = _source_index(graph_node)
+    inner_nodes = ancestor_nodes
+    source_contract = (metadata.get("nirs4all_source_stacking") or {}).get("source")
+    if source_index is None and isinstance(source_contract, dict) and "column_start" in source_contract:
+        from sklearn.compose import ColumnTransformer
+
+        # Dense source stacking declares a column selector over the full
+        # outer matrix. The local dataset contains the bound raw source, so
+        # consume precisely that declared selector instead of selecting again.
+        if not ancestor_nodes:
+            raise ValueError("Local source HPO is missing its declared source selector")
+        selector = route_graph_node(ancestor_nodes[0], variant_overrides=_variant_overrides(task, ancestor_nodes[0]["id"]))
+        start = source_contract["column_start"]
+        columns = list(range(start, start + source_contract["column_count"]))
+        if (not isinstance(selector, ColumnTransformer) or selector.remainder != "drop" or len(selector.transformers) != 1
+                or selector.transformers[0][0] != "source" or selector.transformers[0][1] != "passthrough"
+                or list(selector.transformers[0][2]) != columns):
+            raise ValueError("Local source HPO requires the unchanged declared source selector")
+        source_index = int(source_contract["source_index"])
+        inner_nodes = ancestor_nodes[1:]
+    # Reconstruct declarations, never a fitted outer handle. Native inner
+    # transform tasks fit this recipe independently for each candidate/fold.
+    inner_upstream = [route_graph_node(node, variant_overrides=_variant_overrides(task, node["id"])) for node in inner_nodes]
     residual_targets = task.get("residual_targets")
     if isinstance(residual_targets, dict):
         by_sample = dict(zip(residual_targets["sample_ids"], residual_targets["values"], strict=True))
@@ -1224,11 +1253,71 @@ def _resolve_finetune_best_params(
         y_train = np.asarray([by_sample[sample_id] for sample_id in train_ids], dtype=float)
     else:
         y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
+    from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    scoped_dataset: SpectroDataset
+    inner_source_index = None
+    dataset = resolver._dataset  # noqa: SLF001 -- resolver owns the immutable source cohort
+    if isinstance(dataset, MultimodalSpectroDataset):
+        from nirs4all_io import MultimodalDataset
+
+        rows = [resolver._identity.to_int(identifier) for identifier in train_ids]  # noqa: SLF001
+        cohort = dataset.cohort.take([dataset.sample_ids[row] for row in rows])
+        if not cohort.target_mask.all() or any(not mask.all() for mask in cohort.source_presence().values()):
+            raise ValueError("Local HPO requires complete targets and current source coverage")
+        names = list(cohort.sources)
+        if source_index is not None:
+            names = [names[source_index]]
+            inner_source_index = 0
+        scoped_dataset = MultimodalSpectroDataset(MultimodalDataset(
+            {name: cohort.sources[name] for name in names}, sample_ids=cohort.sample_ids,
+            y=y_train, target_names=cohort.target_names, task_type=cohort.task_type,
+            groups=cohort.groups, partitions=["train"] * len(train_ids), name=cohort.name,
+        ))
+        data_fingerprint = scoped_dataset.content_hash()
+    else:
+        from .envelope import source_order
+
+        indexes = [source_index] if source_index is not None else list(range(dataset.features_sources()))
+        names = [source_order(dataset)[index] for index in indexes]
+        blocks = [np.asarray(resolver.resolve_source_block(train_ids, index, include_augmented=False)["values"]) for index in indexes]
+        headers = [dataset.headers(index) for index in indexes]
+        units = [dataset.header_unit(index) for index in indexes]
+        scoped_dataset = SpectroDataset(name="host_hpo_inner")
+        if dataset.task_type is not None:
+            scoped_dataset.set_task_type(dataset.task_type)
+        # The accessor preserves missing headers per source as well as real
+        # spectral units; its public annotation omits that supported None case.
+        scoped_dataset.add_samples(blocks, indexes={"partition": "train"}, headers=cast(list[list[str]], headers), header_unit=units)
+        scoped_dataset.add_targets(y_train)
+        inner_source_index = 0 if source_index is not None else None
+        data_fingerprint = hashlib.sha256(json.dumps([
+            {"source": name, "values": _content_fingerprint(block), "headers": axis, "unit": unit}
+            for name, block, axis, unit in zip(names, blocks, headers, units, strict=True)
+        ], sort_keys=True).encode()).hexdigest()
+    recipe_nodes = [*ancestor_nodes, graph_node, *([y_transform_node] if y_transform_node is not None else [])]
+    recipe_fingerprint = hashlib.sha256(json.dumps({
+        "nodes": [{**node, "metadata": {key: value for key, value in (node.get("metadata") or {}).items()
+                                        if key not in {"nirs4all_finetune_params", "nirs4all_finetune_model_param_order"}}}
+                  for node in recipe_nodes],
+        "overrides": {node["id"]: _variant_overrides(task, node["id"]) for node in recipe_nodes},
+        "variant": task.get("variant"),
+    }, sort_keys=True).encode()).hexdigest()
+    scope = {"node_id": node_id, "variant_id": variant_label, "phase": task["phase"], "fold_id": task.get("fold_id"),
+             "training_sample_ids": train_ids, "recipe_fingerprint": recipe_fingerprint,
+             "source_names": names, "data_content_fingerprint": data_fingerprint,
+             "target_content_fingerprint": _content_fingerprint(y_train),
+             "optimizer_fingerprint": hashlib.sha256(json.dumps(finetune_params, sort_keys=True).encode()).hexdigest()}
+    cache_key = ("nirs4all_finetune_best_params", hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest())
+    cached = model_store.get(cache_key)
+    if cached is not None:
+        return dict(cached)
     best_params, evidence = run_scoped_finetune(
-        model, upstream, x_train, y_train, finetune_params,
-        scope={"node_id": node_id, "variant_id": variant_label, "phase": task["phase"], "fold_id": task.get("fold_id"), "training_sample_ids": train_ids},
+        model, inner_upstream, None, y_train, finetune_params,
+        scope=scope, scoped_dataset=scoped_dataset, source_index=inner_source_index,
         task_type=resolver._dataset.task_type,  # noqa: SLF001 -- host resolver owns this dataset
-        y_transform=route_graph_node(y_transform_node) if y_transform_node is not None else None,
+        y_transform=route_graph_node(y_transform_node, variant_overrides=_variant_overrides(task, y_transform_node["id"])) if y_transform_node is not None else None,
         inner_cv=scoped_inner_cv(finetune_params, resolver, train_ids),
         training_controls={
             key: value
@@ -1369,6 +1458,8 @@ def run_model_node(
             apply_model_training_controls(clone(model), training_metadata, phase)
         fitted_chain = _fitted_input_chain(task, model_store)
         joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
+        if joined_chain is not None and training_metadata.get("nirs4all_finetune_params"):
+            raise ValueError("Local HPO requires a linear preprocessing recipe without feature or prediction joins")
         if fitted_chain is None and any(
             (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
             for upstream_id in _upstream_x_chain(node_id, edges)
@@ -1385,16 +1476,21 @@ def run_model_node(
         feature_axes = _feature_axes(task)
         if not (resolver.is_multi_source() and source_index is None) and fitted_chain is None:
             upstream = _coordinate_chain(upstream, feature_axes, source_index or 0)
+        elif fitted_chain is None:
+            source_contract = ((graph_node.get("metadata") or {}).get("nirs4all_source_stacking") or {}).get("source")
+            if isinstance(source_contract, dict) and "column_start" in source_contract:
+                upstream = _coordinate_chain(upstream, feature_axes, int(source_contract["source_index"]))
         best_params = _resolve_finetune_best_params(
             graph_node=graph_node,
             node_id=node_id,
             variant_label=variant_label,
             model=model,
-            upstream=upstream,
             resolver=resolver,
             model_store=model_store,
             task=task,
             train_ids=train_ids,
+            node_lookup=node_lookup,
+            edges=edges,
             y_transform_node=None if residual_mode else y_transform_node,
         )
         from .host_finetune import split_trial_fit_overrides

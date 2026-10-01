@@ -241,7 +241,7 @@ def test_resume_changed_training_controls_refused_before_fit(tmp_path: Path, mon
     ({"train_params": {"nonexistent_parameter": 1}}, "unrecognized training parameters"),
     ({"refit_params": {"warm_start": True}}, "warm.start"),
     ({"train_params": []}, "mapping"),
-    ({"finetune_params": {"n_trials": 2}}, "tuning.space"),
+    ({"finetune_params": {"n_trials": 2}}, "model_params|meta-model HPO"),
 ])
 def test_invalid_global_training_controls_refuse_before_study(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, late: bool, declaration: dict[str, Any], message: str) -> None:
     pipeline, cohort, space = _recipe(late)

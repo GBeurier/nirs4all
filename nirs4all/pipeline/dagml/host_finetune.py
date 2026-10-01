@@ -92,6 +92,36 @@ def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], d
     return model_params, fit_params
 
 
+def _estimator_proposal(model: Any, values: dict[str, Any]) -> dict[str, Any]:
+    """Restore optimizer groups as real sklearn paths, preserving dict parameters."""
+    from .framework_estimator import DagMLFrameworkEstimator
+    from .torch_estimator import DagMLTorchEstimator
+
+    if not hasattr(model, "get_params"):
+        return values
+    available = model.get_params(deep=True)
+    result: dict[str, Any] = {}
+
+    def visit(path: str, value: Any) -> None:
+        if isinstance(value, dict) and any(key.startswith(f"{path}__") for key in available):
+            for key, child in value.items():
+                visit(f"{path}__{key}", child)
+        else:
+            owner_path, _, _ = path.rpartition("__")
+            owner = available.get(owner_path) if owner_path else model
+            # These adapters route unconfigured arguments to their factory.
+            # get_params() lists only arguments already supplied to it.
+            if path not in available and not isinstance(owner, (DagMLFrameworkEstimator, DagMLTorchEstimator)):
+                raise ValueError(f"Host HPO parameter {path!r} is not supported by {type(model).__name__}")
+            if path in result:
+                raise ValueError(f"Host HPO parameter {path!r} has conflicting proposals")
+            result[path] = value
+
+    for key, value in values.items():
+        visit(key, value)
+    return result
+
+
 def is_host_finetune(config: dict[str, Any]) -> bool:
     """Choose the host optimizer before execution, never after native failure."""
     engine = str(config.get("engine", "")).lower()
@@ -224,10 +254,11 @@ def scoped_inner_cv(config: dict[str, Any], resolver: Any, train_ids: list[str])
 
 
 def run_scoped_finetune(
-    model: Any, upstream: list[Any], x: np.ndarray, y: np.ndarray,
+    model: Any, upstream: list[Any], x: np.ndarray | None, y: np.ndarray,
     config: dict[str, Any], *, scope: dict[str, Any], task_type: Any,
     y_transform: Any = None, inner_cv: dict[str, Any] | None = None,
     training_controls: dict[str, Any] | None = None,
+    scoped_dataset: Any = None, source_index: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Tune raw rows from one outer-training scope; no external targets enter.
 
@@ -240,10 +271,10 @@ def run_scoped_finetune(
     from sklearn.model_selection import ShuffleSplit
 
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.dagml_bridge import controller_manifests
+    from nirs4all.pipeline.dagml_bridge import _canonical_branch_step, controller_manifests, pipeline_to_dsl
 
-    from .cli_runner import assemble_cv_refit_dsl
-    from .envelope import build_envelope
+    from .cli_runner import data_bindings_for_fitted_x_chain, split_invocation_for
+    from .envelope import build_envelope, source_ids
     from .identity import mint_identity
     from .node_runner import run_node
     from .resolver import MaterializationResolver
@@ -255,16 +286,23 @@ def run_scoped_finetune(
     if metric not in {"rmse", "mse", "mae", "r2", "accuracy", "balanced_accuracy"}:
         raise ValueError(f"DAG host finetuning metric {metric!r} is not supported by native scoring")
     direction = params.setdefault("direction", "maximize" if metric in {"r2", "accuracy", "balanced_accuracy"} else "minimize")
-    dataset = SpectroDataset(name="host_hpo_inner")
-    if task_type is not None:
-        dataset.set_task_type(task_type)
-    dataset.add_samples(np.asarray(x), indexes={"partition": "train"})
-    dataset.add_targets(np.asarray(y))
+    if scoped_dataset is None:
+        dataset = SpectroDataset(name="host_hpo_inner")
+        if task_type is not None:
+            dataset.set_task_type(task_type)
+        dataset.add_samples(np.asarray(x), indexes={"partition": "train"})
+        dataset.add_targets(np.asarray(y))
+    else:
+        if not isinstance(scoped_dataset, SpectroDataset):
+            raise TypeError("Local HPO requires a source-aware training-scope dataset")
+        dataset = scoped_dataset
+        if dataset.num_samples != len(y) or len(dataset.index_column("sample", {"partition": "train"})) != len(y):
+            raise ValueError("Local HPO scoped dataset must contain only the native task's training rows")
     identity = mint_identity(dataset)
     pool = dataset.index_column("sample", {"partition": "train"})
     # Historical single search uses a deterministic 80/20 training-only holdout.
     splitter = ShuffleSplit(1, test_size=0.2, random_state=42 if engine == "n4m" else seed)
-    folds = inner_cv["folds"] if inner_cv is not None else [(train.tolist(), val.tolist()) for train, val in splitter.split(x, y)]
+    folds = inner_cv["folds"] if inner_cv is not None else [(train.tolist(), val.tolist()) for train, val in splitter.split(np.arange(len(y)), y)]
     pipeline = [*upstream]
     if y_transform is not None:
         pipeline.append({"y_processing": clone(y_transform)})
@@ -273,12 +311,26 @@ def run_scoped_finetune(
         model_step["train_params"] = training_controls
     pipeline.append(model_step)
     envelope = build_envelope(dataset, identity, sample_ints=pool, group_by_sample=inner_cv["group_by_sample"] if inner_cv is not None else None)
-    envelope["data_content_fingerprint"] = _content_fingerprint(x)
+    envelope["data_content_fingerprint"] = (sha256(json.dumps({
+        "buffers": dataset.content_hash(), "axes": envelope.get("_host_feature_axes", {}),
+    }, sort_keys=True).encode()).hexdigest() if scoped_dataset is not None else _content_fingerprint(cast(np.ndarray, x)))
     envelope["target_content_fingerprint"] = _content_fingerprint(y)
-    dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="nirs4all-host-hpo", n_splits=len(folds))
+    native_sources = source_ids(dataset)
+    binding_source = native_sources[source_index] if source_index is not None else native_sources[0]
+    dsl = pipeline_to_dsl(pipeline, "nirs4all-host-hpo")
+    # The declared upstream role is authoritative: an encoder may live in a
+    # models namespace, where a bare compat alias would infer the wrong kind.
+    # Keep the public model/y-processing lowering and its training metadata.
+    for index in range(len(upstream)):
+        dsl["pipeline"][index] = _canonical_branch_step(dsl["pipeline"][index], f"inner_transform{index}")
+    dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+    if source_index is not None:
+        for step in dsl["pipeline"]:
+            step.setdefault("metadata", {})["source_index"] = source_index
     graph = json.loads(dag_ml.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
     nodes = {node["id"]: node for node in graph["nodes"]}
     target = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
+    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, target, envelope, source_id=binding_source, force=bool(upstream))
     target_transform = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     resolver = MaterializationResolver(dataset, identity)
     store: dict[Any, Any] = {}
@@ -316,7 +368,11 @@ def run_scoped_finetune(
             # Every outer fold and REFIT owns a separate training universe. A
             # shared Optuna study would mix candidates evaluated on different
             # rows, so suffix the requested name with a stable scope identity.
-            scope_key = sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()[:16]
+            # Keep the same study when its scientific binding changes: the
+            # native checkpoint must reject that change, rather than silently
+            # opening another study. Budget/resume switches are not identities.
+            study_scope = {key: scope[key] for key in ("node_id", "variant_id", "phase", "fold_id", "training_sample_ids") if key in scope}
+            scope_key = sha256(json.dumps(study_scope, sort_keys=True).encode()).hexdigest()[:16]
             study_params["study_name"] = f"{params['study_name']}:scope:{scope_key}"
         study = manager._create_study(study_params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
         saved_checkpoint = study.user_attrs.get(_NATIVE_CHECKPOINT_ATTR)
@@ -396,8 +452,9 @@ def run_scoped_finetune(
                     raise ValueError("Native DAG and n4m optimizer trial IDs disagree")
                 values, train_params = manager._resolve(trial, slots, static_model, static_train, flat_heads)  # noqa: SLF001
             pending[index] = trial
+            values = _estimator_proposal(model, values)
             if train_params:
-                available = model.get_params(deep=False) if hasattr(model, "get_params") else {}
+                available = model.get_params(deep=True) if hasattr(model, "get_params") else {}
                 unknown = sorted(set(train_params) - set(available))
                 if unknown:
                     raise ValueError(f"Host HPO training controls are not supported by {type(model).__name__}: {unknown}")

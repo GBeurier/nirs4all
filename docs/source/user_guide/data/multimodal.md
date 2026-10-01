@@ -323,11 +323,63 @@ The same contract applies to isolated parallel candidates.
 Fixed training controls take precedence over candidate parameters. To search a
 parameter, leave it out of `train_params` and declare it in `tuning.space`.
 Changing either control mapping invalidates checkpoint resume before any fit.
-CV-weight warm starts remain unsupported. Combining global `tuning` with
-model-local `finetune_params` is refused explicitly; global search addresses
-the whole model or ensemble through `tuning.space`.
+CV-weight warm starts remain unsupported. The fixed controls above are available
+in nirs4all 1.3.3 or newer.
 
-These controls require nirs4all 1.3.3 or newer.
+### Nested local search (development main)
+
+Model-local `finetune_params` can be nested within global search for a direct
+multimodal model or a `by_source` base model. The local engine must select the
+Optuna or n4m host search profile. The global engine still selects n4m and
+addresses the whole model or ensemble through `tuning.space`.
+
+For example, let global search choose an image encoder dimension while local
+search chooses the direct model's Ridge regularization:
+
+```python
+result = nirs4all.run(
+    [GroupKFold(3), {
+        "model": multimodal_model,
+        "finetune_params": {
+            "engine": "n4m", "sampler": "random", "seed": 19,
+            "approach": "grouped", "eval_mode": "mean", "n_trials": 3,
+            "model_params": {"model__alpha": [0.1, 1.0, 10.0]},
+        },
+        "train_params": {"model__tol": 0.003},
+        "refit_params": {"model__alpha": 9.0},
+    }],
+    cohort,
+    tuning={"engine": "n4m", "sampler": "random", "seed": 19,
+            "n_trials": 3, "space": {"transformers__image__n_components": [1, 2]}},
+    engine="dag-ml", refit=True, save_charts=False,
+)
+```
+
+Every global candidate and native outer training scope receives its own local
+search. Grouped local search clones the real splitter policy inside that
+training scope, including group constraints. Native inner tasks fit fresh
+encoder/preprocessing declarations on inner training rows only; an already
+fitted outer encoder is never reused to select local parameters. Direct
+models retain named raw source blocks, while base models consume only their
+declared source. Terminal refit performs a separate training-only local search;
+the step's fixed train/refit controls retain their documented precedence.
+
+A parameter must have one search owner. Overlapping global paths and local
+model, trial-training or forced parameters refuse before an optimizer opens;
+dotted and sklearn double-underscore paths name the same parameter. Changing
+the local configuration, upstream recipe, splitter, controls or training
+content invalidates global resume. Export retains the fitted selected
+predictor and its evidence; archive prediction performs no HPO or fit.
+
+Meta-model local HPO remains refused because searching an already computed OOF
+matrix would expose inner selection targets. This nested profile also refuses
+generated views, augmentation, feature/prediction joins and all-observation
+preprocessing policies, incomplete sources/targets and missing-source policies.
+The closed `engine="native"` profile and CV-weight warm starts keep their
+separate capability restrictions.
+
+This nested composition is available on development `main`; it is not part of
+the published 1.3.3 fixed-control qualification.
 
 `tuning.progress_callback(event)` may return `False` between trials. Cancellation
 raises `MultimodalTuningStopped`; a model failure is checkpointed and its original
@@ -405,8 +457,8 @@ The returned `RunResult` represents the selected **ensemble**. Its direct
 The profile requires complete targets and instantiated sklearn operators.
 Sources must be complete unless the regression branch policy below is explicit.
 Development `main` also accepts the fixed model training controls described
-above; model-local `finetune_params` remains refused in this global search
-profile. Single-target classification and complete multi-target regression use
+above; base-model local `finetune_params` may be nested in this global search
+profile. Meta-model local HPO remains refused. Single-target classification and complete multi-target regression use
 the same graph.
 
 The synthetic U10 example writes the recipe, cohort, checkpoint, report and
