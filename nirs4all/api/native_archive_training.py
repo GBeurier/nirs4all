@@ -1,11 +1,12 @@
 """Callback-free Methods training that closes directly into Core Archive V2.
 
-This module is intentionally limited to the portable V1 minimum: explicit raw
-arrays, one KFold-like splitter and one sklearn ``PLSRegression`` declaration.
+This module accepts explicit raw arrays, one KFold-like splitter and one sklearn
+``PLSRegression`` declaration. The explicit PLS RolePipeline profile also runs
+independent native searches within the declared outer folds and at final REFIT.
 Single- and multi-target regression are supported when target identities are
 explicit.
 DAG-ML owns scheduling and archive-member assembly, Methods owns fit/predict and
-N4MM bytes, and Core alone writes and validates the ``.n4a`` container.
+portable RAW bytes, and Core alone writes and validates the ``.n4a`` container.
 """
 
 from __future__ import annotations
@@ -109,6 +110,20 @@ class NativeMethodsArchiveRunResult(RunResult):
     def tuning_best_params(self) -> dict[str, Any]:
         """Return the DAG-selected native Methods parameters without Python HPO."""
 
+        fold_state = self._fold_hpo_state()
+        if fold_state is not None:
+            winner = fold_state["refit_scope"].get("winner_params")
+            operation = fold_state.get("base_plan", {}).get("campaign", {}).get("metadata", {}).get("methods_hpo_operation", {})
+            paths = operation.get("parameter_paths")
+            if (
+                not isinstance(winner, Mapping) or not isinstance(paths, Mapping) or not winner or set(winner) != set(paths)
+                or any(name != path for name, path in paths.items())
+                or set(winner) - {"n_components", "scale"}
+                or ("scale" in winner and type(winner["scale"]) is not bool)
+                or ("n_components" in winner and (type(winner["n_components"]) is not int or not 1 <= winner["n_components"] <= 3))
+            ):
+                raise NativeArchiveTrainingError("native fold HPO outcome omitted typed REFIT winner parameters")
+            return {f"model.{name}": value for name, value in winner.items()}
         state = self._native_outcome.get("methods_hpo_resume_state")
         if not isinstance(state, Mapping):
             fallback: dict[str, Any] = super().tuning_best_params
@@ -176,9 +191,10 @@ class NativeMethodsArchiveRunResult(RunResult):
 
     @property
     def tuning_best_value(self) -> float | None:
-        """Return the scheduler-checked native Methods incumbent score."""
+        """Return native HPO's best score; fold mode reports REFIT inner OOF."""
 
-        state = self._native_outcome.get("methods_hpo_resume_state")
+        fold_state = self._fold_hpo_state()
+        state = fold_state["refit_scope"].get("resume_state") if fold_state is not None else self._native_outcome.get("methods_hpo_resume_state")
         if not isinstance(state, Mapping):
             fallback: float | None = super().tuning_best_value
             return fallback
@@ -188,13 +204,51 @@ class NativeMethodsArchiveRunResult(RunResult):
             raise NativeArchiveTrainingError("native Methods HPO outcome omitted a finite incumbent score")
         return float(score)
 
+    def _fold_hpo_state(self) -> Mapping[str, Any] | None:
+        """Read the separate native ledger without conflating campaign HPO."""
+
+        from nirs4all.pipeline.dagml.native_pls_phase_controls import NATIVE_PLS_PHASE_PROFILE
+
+        state = self._native_outcome.get("methods_hpo_fold_state")
+        if state is None:
+            return None
+        base = state.get("base_plan") if isinstance(state, Mapping) else None
+        campaign = base.get("campaign") if isinstance(base, Mapping) else None
+        metadata = campaign.get("metadata") if isinstance(campaign, Mapping) else None
+        operation = metadata.get("methods_hpo_operation") if isinstance(metadata, Mapping) else None
+        if (
+            not isinstance(state, Mapping) or state.get("schema_version") != 1
+            or not isinstance(state.get("refit_scope"), Mapping)
+            or not isinstance(state.get("outer_scopes"), list) or not state["outer_scopes"]
+            or self._native_outcome.get("methods_hpo_resume_state") is not None
+            or state.get("selected_variant_id") != self._native_outcome.get("selected_variant_id")
+            or not isinstance(state["refit_scope"].get("resume_state"), Mapping)
+            or not isinstance(operation, Mapping) or operation.get("schema_version") != 3 or operation.get("scope") != "fold"
+            or operation.get("native_profile") != NATIVE_PLS_PHASE_PROFILE
+        ):
+            raise NativeArchiveTrainingError("native fold HPO outcome omitted its separate scoped study ledger")
+        return state
+
+    @property
+    def tuning_scope_results(self) -> dict[str, Any]:
+        """Return outer/REFIT native study evidence as an independent snapshot.
+
+        Empty for campaign HPO. The REFIT inner score differs from the public
+        outer-CV score; effective saved parameters can include refit overrides.
+        """
+
+        state = self._fold_hpo_state()
+        if state is None:
+            return {}
+        return copy.deepcopy({"outer_scopes": state["outer_scopes"], "refit_scope": state["refit_scope"]})
+
     @property
     def tuning_resume_package(self) -> dict[str, Any] | None:
         """Return the immutable Package V2 snapshot accepted for HPO resume."""
 
         execution_bundle = self._native_package.get("execution_bundle")
-        if not isinstance(execution_bundle, Mapping) or not isinstance(
-            execution_bundle.get("methods_hpo_resume_state"), Mapping
+        if not isinstance(execution_bundle, Mapping) or not any(
+            isinstance(execution_bundle.get(name), Mapping) for name in ("methods_hpo_resume_state", "methods_hpo_fold_state")
         ):
             return None
         package = json.loads(self._native_package_json)
@@ -357,6 +411,12 @@ def run_native_methods_archive(
         metadata=dataset.get("metadata"),
         require_explicit_sample_ids=True,
     )
+    fold_plan = None
+    if phase_profile is not None and phase_profile.hpo_scope == "fold":
+        from nirs4all.pipeline.dagml.native_pls_fold_hpo import prepare_native_pls_fold_plan
+
+        fold_plan = prepare_native_pls_fold_plan(phase_profile, identity, n_features=features.shape[1], split_groups=dataset.get("groups"))
+        portable_pipeline = fold_plan.pipeline
     if native_session is not None:
         native_session._prepare_native_run()
     dag_ml, core = _require_archive_runtime()
@@ -374,7 +434,7 @@ def run_native_methods_archive(
     if phase_profile is not None:
         from nirs4all.pipeline.dagml.native_pls_phase_controls import attach_native_pls_phase_controls
 
-        contracts = attach_native_pls_phase_controls(contracts, phase_profile, dag_ml)
+        contracts = attach_native_pls_phase_controls(contracts, phase_profile, dag_ml, fold_plan=fold_plan)
     elif hpo is not None:
         contracts = _attach_portable_methods_hpo(contracts, hpo)
     prepared = contracts.to_prepared()
