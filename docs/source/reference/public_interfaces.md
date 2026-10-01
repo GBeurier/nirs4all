@@ -19,6 +19,8 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.studio_scientific_job_v1(...)` | Bounded scientific-library callable for Studio's Rust-owned CPython stdio host | Closed, already-resolved JSON value | Bounded JSON-native scientific summary |
 | `nirs4all.studio_scientific_job_v2(...)` | General scientific callable with library workspace persistence | Canonical pipeline/dataset and Rust-authorized workspace | Bounded summary, run IDs and native result paths |
 | `nirs4all.predict(...)` | Predict from a stored chain or exported bundle | `chain_id` or model bundle + data | `PredictResult` |
+| `nirs4all.run_host_hpo_search(...)` | Run native HPO with an explicitly supplied host optimizer and controller | DSL, signed envelope, manifests, HPO request and callbacks | Native trial evidence, selection and checkpoint dictionary |
+| `nirs4all.execute_training(...)` | Execute a signed native DAG request with an explicitly supplied controller | Named envelopes, relations, training influence and callbacks | Native DAG-ML `TrainingResult` DTO |
 | `nirs4all.write_portable_predictor_archive_v2(...)` | Transport captured portable Package V2 artifacts into Core `.n4a` | Native training outcome, package and archive identity | Archive identity and SHA-256 |
 | `nirs4all.read_portable_predictor_archive_v2(...)` | Validate storage and native portable payload semantics | Core Archive V2 path | DAG-ML `PortablePredictorPackage` |
 | `nirs4all.replay_portable_predictor_archive_v2(...)` | Replay a signed current cohort through explicitly trusted controller callbacks | Core archive, signed request/envelopes, trust manifests and read-only callbacks | Native DAG-ML replay outcome |
@@ -125,6 +127,17 @@ routed into that lane. The numeric projection transport does not establish
 the canonical U07 N-D encoders, its interlanguage controllers or other HPO
 profiles. The deterministic five-model test capture and its provenance live
 under `tests/fixtures/portable_role_pipeline/`.
+
+The public `run_host_hpo_search` and `execute_training` entry points also expose
+the native scheduling path for caller-supplied Python, R and Octave controllers.
+They lazily load DAG-ML and preserve its arguments, advanced callbacks, native
+errors and result objects. HPO executes FIT_CV trials and does not REFIT;
+`execute_training` runs the signed request's CV, SELECT and optional REFIT.
+Capture a portable package while the native `TrainingResult` is attached, then
+call `detach()` after export. These functions do not lower a high-level pipeline
+or implement numerical models. The runnable
+{doc}`/user_guide/data/octave_multimodal` example calls both SDK functions before
+capturing all five models and replaying the archive in a fresh Octave process.
 
 ## Train from Config Files
 

@@ -77,6 +77,7 @@ The User Path provides a complete introduction to nirs4all, from your first pipe
 | U12_multimodal_ragged_series.py | Train and replay a synthetic multimodal cohort with variable-length temporal series | ★★★☆☆ |
 | U13_multimodal_late_missing_sources.py | Train and tune late fusion with absent series, then replay without refitting | ★★★☆☆ |
 | U14_multimodal_fold_provider.py | Generate NIR views per native fold, optionally tune in parallel, then export and replay without regeneration | ★★★☆☆ |
+| U15_octave_multimodal_archive.py | Tune four numeric sources in real Octave through the public SDK, save five models and replay in a new process | ★★★☆☆ |
 
 ### 03_preprocessing/ - Preprocessing
 

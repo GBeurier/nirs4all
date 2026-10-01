@@ -68,6 +68,7 @@ from .calibrate import (
     predict_calibrated,
     save_workspace_calibrated_result,
 )
+from .dagml_training import execute_training, run_host_hpo_search
 from .explain import explain
 
 # Synthetic data generation
@@ -186,6 +187,8 @@ from .tuning import (
 __all__ = [
     # Module-level API functions
     "run",
+    "execute_training",
+    "run_host_hpo_search",
     "fit_native_pipeline",
     "inspect_portable_predictor_archive_v2",
     "read_portable_predictor_archive_v2",
