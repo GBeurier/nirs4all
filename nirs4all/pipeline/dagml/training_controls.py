@@ -2,8 +2,8 @@
 
 These are estimator set_params overrides, not arbitrary fit keyword arguments.
 The historical controller ignored unknown keys; the general DAG host diagnoses
-them instead. CV-weight warm starts and specialized controller policies require
-their own owners and are not emulated by setting a similarly named parameter.
+them instead. Explicit SGD CV-weight requests use a separate run-scoped transfer
+owner; setting an estimator's warm_start parameter alone cannot transfer weights.
 """
 
 from __future__ import annotations
@@ -14,14 +14,40 @@ from typing import Any
 
 from nirs4all.core.logging import get_logger
 
+from .cv_weight_transfer import WarmStartRequest, parse_warm_start_request, validate_sgd_profile
 from .operator_parameters import decode_constructor_value, encode_constructor_value
 
 logger = get_logger(__name__)
 
 
+def _requests_cv_weight_transfer(value: Any, seen: set[int] | None = None) -> bool:
+    if isinstance(value, (list, Mapping)):
+        if seen is None:
+            seen = set()
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+    if isinstance(value, list):
+        return any(_requests_cv_weight_transfer(child, seen) for child in value)
+    if isinstance(value, Mapping):
+        refit = value.get("refit_params")
+        if isinstance(refit, Mapping) and refit.get("warm_start") is True:
+            return True
+        return any(_requests_cv_weight_transfer(child, seen) for key, child in value.items()
+                   if key not in {"params", "train_params", "refit_params", "finetune_params"})
+    return False
+
+
 def validate_training_control_declarations(value: Any) -> None:
     """Validate configuration shape before public dispatch, without fitting."""
     if isinstance(value, list):
+        if _requests_cv_weight_transfer(value):
+            for step in value:
+                if isinstance(step, Mapping) and "model" in step:
+                    continue
+                if callable(getattr(step, "split", None)) and callable(getattr(step, "get_n_splits", None)):
+                    continue
+                raise NotImplementedError("refit_params.warm_start CV-weight transfer requires a flat numeric model/splitter recipe without preprocessing, augmentation or branches")
         for step in value:
             validate_training_control_declarations(step)
     elif isinstance(value, dict):
@@ -33,6 +59,8 @@ def validate_training_control_declarations(value: Any) -> None:
                 metadata[f"nirs4all_{key}"] = encode_training_controls(value[key], name=key)
         model = value.get("model")
         if metadata:
+            if _requests_cv_weight_transfer(value) and value.get("finetune_params") is not None:
+                raise NotImplementedError("CV-weight transfer does not support model-local finetune_params")
             from sklearn.base import clone
 
             from .autogluon_estimator import autogluon_step_estimator
@@ -80,13 +108,55 @@ def effective_training_controls(metadata: Mapping[str, Any], phase: str) -> dict
     return controls
 
 
+def cv_weight_transfer_request(metadata: Mapping[str, Any]) -> WarmStartRequest | None:
+    """Decode the explicit REFIT request without treating it as a fit keyword."""
+    refit = decode_constructor_value(dict(metadata.get("nirs4all_refit_params") or {}))
+    train = decode_constructor_value(dict(metadata.get("nirs4all_train_params") or {}))
+    return parse_warm_start_request(refit, train_params=train)
+
+
+def validate_cv_weight_transfer_graph(graph: Mapping[str, Any], resolver: Any) -> None:
+    """Refuse unsupported representation/lifecycle recipes before any callback fit."""
+    requested = [node for node in graph.get("nodes", [])
+                 if cv_weight_transfer_request(node.get("metadata") or {}) is not None]
+    if not requested:
+        return
+    dataset = resolver._dataset
+    if dataset.features_sources() != 1 or dataset.is_classification:
+        raise NotImplementedError("CV-weight transfer requires one numeric feature source and a regression target")
+    if (getattr(dataset, "_generated_view_store", None) is not None
+            or resolver._augmented_observation_ids or resolver._fold_children or resolver._fold_feature_views):
+        raise NotImplementedError("CV-weight transfer does not support augmentation or generated/fold-modified feature representations")
+    if any(node.get("kind") in {"transform", "y_transform", "feature_join", "prediction_join"}
+           for node in graph.get("nodes", [])):
+        raise NotImplementedError("CV-weight transfer does not support feature/target preprocessing, joins or meta-model representations")
+    from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _RESIDUAL_LEARNER_CONTROLLER_ID
+
+    for node in requested:
+        metadata = node.get("metadata") or {}
+        if (node.get("kind") != "model"
+                or node.get("controller_id") in {_META_MODEL_CONTROLLER_ID, _RESIDUAL_LEARNER_CONTROLLER_ID}
+                or metadata.get("nirs4all_finetune_params") is not None
+                or metadata.get("source_index") is not None
+                or metadata.get("source_concat_preprocessing") is not None):
+            raise NotImplementedError("CV-weight transfer requires a plain model without local tuning, source branches, residuals or meta-models")
+
+
 def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase: str) -> dict[str, Any]:
     """Apply recognized estimator overrides after candidate selection, before fit."""
     from nirs4all.controllers.models.pipeline_cv import is_aom_estimator
 
     from .operator_routing import _coerce_one
 
+    refit = metadata.get("nirs4all_refit_params") or {}
+    if refit.get("warm_start") or "warm_start_fold" in refit:
+        from sklearn.linear_model import SGDRegressor
+
+        if type(model) is not SGDRegressor:
+            raise NotImplementedError("refit warm-start requires captured CV-weight transfer for the closed SGDRegressor profile; a fresh estimator is not equivalent")
+    transfer = cv_weight_transfer_request(metadata)
     controls = effective_training_controls(metadata, phase)
+    controls.pop("warm_start_fold", None)
     explicit_verbose = "verbose" in controls
     verbose = controls.pop("verbose", 0)
     if type(verbose) is not int or verbose < 0:
@@ -109,9 +179,6 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
             if nested_name == "fit" and explicit_verbose:
                 merged["verbose"] = verbose
             controls[estimator_name] = merged
-    refit = metadata.get("nirs4all_refit_params") or {}
-    if phase == "REFIT" and (refit.get("warm_start") or "warm_start_fold" in refit):
-        raise NotImplementedError("refit warm-start requires captured CV-weight transfer; a fresh estimator is not equivalent")
     pipeline_fold_policy = controls.pop("use_pipeline_folds_for_aom", "auto")
     if pipeline_fold_policy != "auto" and not is_aom_estimator(model):
         raise ValueError("train/refit_params.use_pipeline_folds_for_aom requires an AOM estimator")
@@ -131,6 +198,8 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
         raise ValueError(f"unrecognized training parameters for {type(model).__name__}: {unknown}; these would have been ignored by the historical sklearn controller")
     if controls:
         model.set_params(**{key: _coerce_one(value, defaults.get(key)) for key, value in controls.items()})
+    if transfer is not None:
+        validate_sgd_profile(model, phase=phase)
     return {"schema": "nirs4all.model-training-controls.v1", "phase": phase,
             "model_params": encode_training_controls(controls, name="effective model parameters"),
             "pipeline_fold_policy_for_aom": pipeline_fold_policy, "verbose": verbose}

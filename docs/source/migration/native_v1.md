@@ -156,9 +156,12 @@ data, and the transform is retained in exported `.n4a` predictors. This
 step-local replacement is equivalent to filling the input at that point in the
 pipeline; other preprocessing modifiers still require separate qualification.
 Simple CV/full-training, export/replay, HPO, and native nested stacking controls
-are qualified. Specialized GPU reset, fit-influence/AOM policies, CV-weight
-warm starts, and the old by-source prediction-stacking route require separate
-scientific validation and are not claimed supported by this restoration.
+are qualified. A closed [SGD CV-weight initialization profile](../user_guide/models/cv_weight_warm_start.md)
+supports an explicitly named native fold and compatible full-train REFIT through
+public sklearn coefficient/intercept initializers. It resets optimization
+counters and does not enable general estimator or deep-learning warm starts.
+Specialized GPU reset, fit-influence/AOM policies, and the old by-source
+prediction-stacking route still require separate scientific validation.
 
 General model-local `finetune_params` with `approach="single"`, `"grouped"`,
 or `"individual"` can use the

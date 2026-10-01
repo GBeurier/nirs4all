@@ -23,11 +23,11 @@ from .host_finetune import attach_host_finetune_splitter
 from .host_search_checkpoint import HostSearchOptimizer
 from .identity import mint_identity
 from .late_tuning import prepare_late_tuning, validate_nested_local_finetune
-from .node_runner import run_node
+from .node_runner import clear_cv_weight_transfers, run_node
 from .public_normalization import normalize_model_steps
 from .resolver import MaterializationResolver
 from .steps import _split_pipeline
-from .training_controls import validate_training_control_declarations
+from .training_controls import validate_cv_weight_transfer_graph, validate_training_control_declarations
 from .tuning_contracts import SUPPORTED_TUNING_KEYS, TrialResult, TuningResult, parse_tuning_spec, tcv1_sha256
 
 
@@ -46,18 +46,24 @@ def _evaluate_host_task(
     """Apply the same per-task seed and native task mapping in either host process."""
     from nirs4all.pipeline.runner import init_global_random_state
 
-    task_seed = int(tcv1_sha256({
-        "seed": operator_seed, "variant": task.get("variant_id"), "fold": task.get("fold_id"),
-        "node": task["node_plan"]["node_id"], "phase": task["phase"],
-    })[:8], 16)
-    init_global_random_state(task_seed)
-    host_task = copy.deepcopy(task)
-    for choice in (host_task.get("variant") or {}).get("choices", {}).values():
-        for override in choice.get("param_overrides", []):
-            override["params"] = {key.replace(".", "__"): value for key, value in override.get("params", {}).items()}
-    generated_views = view_store.bind_task(host_task) if view_store is not None else None
-    return run_node(host_task, resolver, nodes.__getitem__, model_store, graph.get("edges", []), None,
-                    generated_views=generated_views)
+    try:
+        task_seed = int(tcv1_sha256({
+            "seed": operator_seed, "variant": task.get("variant_id"), "fold": task.get("fold_id"),
+            "node": task["node_plan"]["node_id"], "phase": task["phase"],
+        })[:8], 16)
+        init_global_random_state(task_seed)
+        host_task = copy.deepcopy(task)
+        for choice in (host_task.get("variant") or {}).get("choices", {}).values():
+            for override in choice.get("param_overrides", []):
+                override["params"] = {key.replace(".", "__"): value for key, value in override.get("params", {}).items()}
+        validate_cv_weight_transfer_graph(graph, resolver)
+        generated_views = view_store.bind_task(host_task) if view_store is not None else None
+        return run_node(host_task, resolver, nodes.__getitem__, model_store, graph.get("edges", []), None,
+                        generated_views=generated_views)
+    finally:
+        # Search callbacks are CV-only. Candidate snapshots cannot initialize a
+        # later trial or the selected run, which captures its own native CV fold.
+        clear_cv_weight_transfers(model_store)
 
 
 def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_options: dict[str, Any]) -> Any:

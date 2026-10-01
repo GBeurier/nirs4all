@@ -32,9 +32,10 @@ from typing import Any
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .identity import mint_identity
-from .node_runner import run_node
+from .node_runner import clear_cv_weight_transfers, run_node
 from .resolver import MaterializationResolver
 from .resources import current_execution_resources
+from .training_controls import validate_cv_weight_transfer_graph
 
 
 def in_process_enabled() -> bool:
@@ -149,10 +150,11 @@ def run_cv_refit_bundle(
     # The op_callback IS process_adapter._build_handler's lambda — the SAME run_node over the SAME
     # resolver/nodes/edges/y_transform/store, so operators execute identically to the subprocess.
     resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children, fold_feature_views)
+    validate_cv_weight_transfer_graph(graph, resolver)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
     y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
-    store: dict[int, Any] = {}
+    store: dict[Any, Any] = {}
     def op_callback(task: dict[str, Any]) -> dict[str, Any]:
         if view_store is not None and task["node_plan"]["kind"] in {"model", "tuner", "transform"} and not task.get("data_view_receipts"):
             raise ValueError("generated model or transform task is missing native data-view receipts")
@@ -166,9 +168,10 @@ def run_cv_refit_bundle(
     )
     if view_store is not None:
         bridge_args += (view_store, random_state if random_state is not None else 0)
-    payload = json.loads(
-        dag_ml_ext.run_cv_refit_in_process(*bridge_args)
-    )
+    try:
+        payload = json.loads(dag_ml_ext.run_cv_refit_in_process(*bridge_args))
+    finally:
+        clear_cv_weight_transfers(store)
     if view_store is not None:
         manifest = payload.get("generated_view_manifest")
         if not isinstance(manifest, dict):

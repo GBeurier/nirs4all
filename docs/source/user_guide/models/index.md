@@ -10,6 +10,7 @@ hyperparameter_tuning
 native_tuning_conformal
 native_pls_phase_controls
 native_pls_fold_hpo
+cv_weight_warm_start
 aom_models
 deep_learning
 tabpfn_nirs
