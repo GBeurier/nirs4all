@@ -82,6 +82,33 @@ def read_portable_predictor_archive_v2(path: str | Path) -> Any:
     return package
 
 
+def inspect_portable_predictor_archive_v2(
+    path: str | Path, *, methods_library_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Inspect saved parameters of the closed native PLS phase profile.
+
+    Core validates the container, DAG-ML validates package/RAW bindings, and
+    Methods imports each fitted state and checks its native parameters. No fit
+    or prediction runs. Other controller profiles are explicitly refused.
+
+    Returns:
+        The native profile, archive path, a ``models`` list with validated
+        ``steps`` and effective REFIT ``model_params``, and
+        ``training_performed=False``.
+    """
+
+    from nirs4all.pipeline.dagml.core_archive_replay import _resolve_methods_library_identity
+    from nirs4all.pipeline.dagml.native_pls_phase_controls import NATIVE_PLS_PHASE_PROFILE
+    from nirs4all.pipeline.dagml.native_pls_phase_replay import read_native_pls_phase_archive
+
+    library_path, _ = _resolve_methods_library_identity(methods_library_path)
+    _, models = read_native_pls_phase_archive(path, methods_library_path=library_path)
+    return {
+        "native_profile": NATIVE_PLS_PHASE_PROFILE, "archive_path": str(path),
+        "models": models, "training_performed": False,
+    }
+
+
 def replay_portable_predictor_archive_v2(
     path: str | Path,
     request: Any,
@@ -134,6 +161,7 @@ def replay_portable_predictor_archive_v2(
 
 
 __all__ = [
+    "inspect_portable_predictor_archive_v2",
     "read_portable_predictor_archive_v2",
     "replay_portable_predictor_archive_v2",
     "write_portable_predictor_archive_v2",

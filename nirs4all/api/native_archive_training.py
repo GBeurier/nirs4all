@@ -107,7 +107,7 @@ class NativeMethodsArchiveRunResult(RunResult):
 
     @property
     def tuning_best_params(self) -> dict[str, Any]:
-        """Return the native Methods incumbent without consulting Python HPO."""
+        """Return the DAG-selected native Methods parameters without Python HPO."""
 
         state = self._native_outcome.get("methods_hpo_resume_state")
         if not isinstance(state, Mapping):
@@ -118,13 +118,51 @@ class NativeMethodsArchiveRunResult(RunResult):
         if not isinstance(incumbent, Mapping) or not isinstance(terminals, Sequence):
             raise NativeArchiveTrainingError("native Methods HPO outcome omitted incumbent evidence")
         trial_id = incumbent.get("trial_id")
+        plan = self._native_outcome.get("effective_plan", {})
+        campaign = plan.get("campaign", {}) if isinstance(plan, Mapping) else {}
+        metadata = campaign.get("metadata", {}) if isinstance(campaign, Mapping) else {}
+        operation = metadata.get("methods_hpo_operation", {}) if isinstance(metadata, Mapping) else {}
+        phase_search = isinstance(operation, Mapping) and operation.get("schema_version") == 2
+        selected_variant = self._native_outcome.get("selected_variant_id")
         for terminal in terminals:
             if not isinstance(terminal, Mapping) or not isinstance(terminal.get("trial"), Mapping):
                 continue
             trial = terminal["trial"]
-            if trial.get("id") != trial_id:
+            if phase_search:
+                if not isinstance(selected_variant, str) or not selected_variant or terminal.get("variant_id") != selected_variant:
+                    continue
+            elif trial.get("id") != trial_id:
                 continue
             parameters = trial.get("parameters")
+            if phase_search and isinstance(operation, Mapping):
+                from nirs4all.pipeline.dagml.native_pls_phase_controls import NATIVE_PLS_PHASE_PROFILE
+
+                paths = operation.get("parameter_paths")
+                if (
+                    operation.get("native_profile") != NATIVE_PLS_PHASE_PROFILE
+                    or not isinstance(paths, Mapping) or not paths or set(paths) - {"n_components", "scale"}
+                    or any(name != path for name, path in paths.items())
+                    or not isinstance(parameters, Mapping) or set(parameters) != set(paths)
+                ):
+                    break
+                projected: dict[str, Any] = {}
+                for name, parameter in parameters.items():
+                    if not isinstance(parameter, Mapping) or parameter.get("active") is not True:
+                        break
+                    value = parameter.get("value")
+                    if name == "n_components" and parameter.get("integer") is True:
+                        if isinstance(value, (int, float)) and not isinstance(value, bool) and np.isfinite(value) and float(value).is_integer() and 1 <= value <= 3:
+                            projected["model.n_components"] = int(value)
+                            continue
+                    elif name == "scale" and parameter.get("native_kind") == "categorical" and parameter.get("category_type") == "boolean":
+                        index = parameter.get("category_index")
+                        if type(index) is int and index in (0, 1):
+                            projected["model.scale"] = index == 1
+                            continue
+                    break
+                else:
+                    return projected
+                break
             if not isinstance(parameters, Mapping) or set(parameters) != {"n_components"}:
                 break
             parameter = parameters["n_components"]
@@ -244,6 +282,7 @@ def run_native_methods_archive(
     results_path: Any = None,
     session: Any = None,
     runner_kwargs: Mapping[str, Any] | None = None,
+    native_profile: str | None = None,
 ) -> NativeMethodsArchiveRunResult:
     """Run the frozen portable Methods subset without ``PipelineRunner``."""
 
@@ -291,12 +330,24 @@ def run_native_methods_archive(
         raise TypeError("engine='native' random_state must be a non-negative integer or None")
 
     seed = 12345 if random_state is None else random_state
-    portable_pipeline, hpo = _extract_portable_methods_hpo(
-        pipeline,
-        seed=seed,
-    )
+    phase_profile = None
+    if native_profile is None:
+        portable_pipeline, hpo = _extract_portable_methods_hpo(pipeline, seed=seed)
+    else:
+        from nirs4all.pipeline.dagml.native_pls_phase_controls import (
+            NATIVE_PLS_PHASE_PROFILE,
+            normalize_native_pls_phase_controls,
+        )
+
+        if native_profile != NATIVE_PLS_PHASE_PROFILE:
+            raise ValueError(f"unsupported native_profile: {native_profile!r}")
+        if session is not None:
+            raise ValueError("native PLS phase controls require a standalone run")
+        phase_profile = normalize_native_pls_phase_controls(pipeline, seed=seed)
+        portable_pipeline, hpo = phase_profile.pipeline, phase_profile.hpo
     features, targets, sample_ids, target_names = _normalize_training_arrays(dataset)
-    if hpo is not None and features.shape[1] < 3:
+    searches_components = phase_profile is None or any(axis["name"] == "n_components" for axis in phase_profile.search_axes)
+    if hpo is not None and searches_components and features.shape[1] < 3:
         raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 evaluates n_components=1..3 and therefore requires X to contain at least 3 features")
     identity = normalize_fit_identity(
         features,
@@ -318,8 +369,13 @@ def run_native_methods_archive(
         seed=seed,
         portable_methods=True,
         target_names=target_names,
+        native_role_profile=phase_profile.base_params if phase_profile is not None else None,
     )
-    if hpo is not None:
+    if phase_profile is not None:
+        from nirs4all.pipeline.dagml.native_pls_phase_controls import attach_native_pls_phase_controls
+
+        contracts = attach_native_pls_phase_controls(contracts, phase_profile, dag_ml)
+    elif hpo is not None:
         contracts = _attach_portable_methods_hpo(contracts, hpo)
     prepared = contracts.to_prepared()
     requirement_keys = sorted(prepared.data_envelopes)

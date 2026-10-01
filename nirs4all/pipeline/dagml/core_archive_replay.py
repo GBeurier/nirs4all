@@ -164,6 +164,17 @@ def predict_core_methods_archive_v2(
                     "Core Archive V2 Session is bound to a different libn4m identity"
                 )
 
+    from .native_pls_phase_replay import is_native_pls_phase_package, predict_native_pls_phase_archive
+
+    if is_native_pls_phase_package(validation.package):
+        try:
+            return predict_native_pls_phase_archive(
+                candidate, data, methods_library_path=validation.methods_library_path,
+                outcome_id=outcome_id, run_id=run_id,
+            )
+        except Exception as error:
+            raise CoreArchiveReplayError("Core/DAG-ML/Methods native PLS phase archive replay failed") from error
+
     X, sample_ids = _normalize_dataset(data)
     target_names = tuple(_single_binding(validation.package)["target_names"])
     predict = getattr(validation.core, "predict_methods_archive_v2_matrix", None)
@@ -231,6 +242,17 @@ def validate_core_methods_archive_v2(
     except Exception as error:
         raise CoreArchiveReplayError("nirs4all-core refused Archive V2 validation") from error
     package = _decode_package(package_bytes)
+    from .native_pls_phase_replay import is_native_pls_phase_package, read_native_pls_phase_archive
+
+    if is_native_pls_phase_package(package):
+        try:
+            loaded, models = read_native_pls_phase_archive(archive_path, methods_library_path=library_path)
+        except Exception as error:
+            raise CoreArchiveReplayError("Core/DAG-ML/Methods refused native PLS phase archive inspection") from error
+        return CoreArchiveValidation(
+            core=core, package=loaded.to_dict(), predictors=tuple(models),
+            methods_library_path=library_path, methods_library_sha256=library_sha256,
+        )
     try:
         raw_predictors = inspect_predictors(
             str(Path(archive_path)),

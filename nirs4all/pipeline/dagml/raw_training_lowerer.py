@@ -179,6 +179,7 @@ def lower_raw_array_training_contracts(
     methods_hpo_operation: Mapping[str, Any] | None = None,
     portable_methods: bool | None = None,
     target_names: Sequence[str] | None = None,
+    native_role_profile: Mapping[str, Any] | None = None,
 ) -> DagMLTrainingRequestContracts:
     """Lower a linear raw-array pipeline into executable DAG-ML contracts."""
 
@@ -190,6 +191,8 @@ def lower_raw_array_training_contracts(
         portable_methods_stacking = _portable_methods_stacking(steps)
         if portable_methods_stacking is None:
             portable_methods_pls_params = _portable_methods_pls_params(steps)
+    if native_role_profile is not None and (not use_portable_methods or portable_methods_stacking is not None):
+        raise ValueError("native PLS phase controls require the single portable Methods model lane")
     selection_metric = finetune_overrides.get("selection_metric", selection_metric)
     selection_objective = finetune_overrides.get("selection_objective", selection_objective)
     dataset = raw_arrays_to_spectro_dataset(X, y, identity_frame=identity_frame)
@@ -226,10 +229,25 @@ def lower_raw_array_training_contracts(
             assert portable_methods_pls_params is not None
             _lower_portable_methods_pls_dsl(dsl, portable_methods_pls_params)
             manifests = [_portable_methods_pls_manifest()]
+            if native_role_profile is not None:
+                helper = getattr(dag_ml, "methods_pls_role_pipeline_contract", None)
+                if not callable(helper):
+                    raise RuntimeError("installed dag-ml lacks the native PLS phase controller contract")
+                native_contract = helper(dict(native_role_profile))
+                dsl["pipeline"][0].update(
+                    model="N4mRolePipeline", params=copy.deepcopy(dict(native_role_profile)),
+                    metadata={"controller_id": native_contract["manifest"]["controller_id"]},
+                )
+                manifests = [dict(native_contract["manifest"])]
     artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests)
     graph = artifact.graph.to_dict()
     if use_portable_methods:
-        if portable_methods_stacking is None:
+        if native_role_profile is not None:
+            model_nodes = [node for node in graph["nodes"] if node.get("kind") == "model"]
+            if len(model_nodes) != 1:
+                raise ValueError("native PLS phase graph requires exactly one model node")
+            model_nodes[0]["operator"] = copy.deepcopy(native_contract["operator"])
+        elif portable_methods_stacking is None:
             _mark_portable_methods_pls_graph(graph)
         else:
             _mark_portable_methods_stacking_graph(graph, portable_methods_stacking)

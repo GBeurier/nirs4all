@@ -157,6 +157,7 @@ if TYPE_CHECKING:
         get_robustness_summary_schema,
         get_tuning_space_schema,
         get_tuning_summary_schema,
+        inspect_portable_predictor_archive_v2,
         inspect_tuning_space,
         keyword_registry_json,
         keyword_registry_schema_json,
@@ -315,6 +316,7 @@ _LAZY_EXPORTS = {
     'load_workspace_robustness_report': ('.api', 'load_workspace_robustness_report'),
     'load_workspace_tuning_result': ('.api', 'load_workspace_tuning_result'),
     'predict_calibrated': ('.api', 'predict_calibrated'),
+    'inspect_portable_predictor_archive_v2': ('.api', 'inspect_portable_predictor_archive_v2'),
     'read_portable_predictor_archive_v2': ('.api', 'read_portable_predictor_archive_v2'),
     'replay_portable_predictor_archive_v2': ('.api', 'replay_portable_predictor_archive_v2'),
     'robustness_from_workspace_prediction': ('.api', 'robustness_from_workspace_prediction'),
@@ -369,6 +371,7 @@ __all__ = [
     # Module-level API (primary interface)
     "run",
     "fit_native_pipeline",
+    "inspect_portable_predictor_archive_v2",
     "read_portable_predictor_archive_v2",
     "replay_portable_predictor_archive_v2",
     "write_portable_predictor_archive_v2",
