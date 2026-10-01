@@ -40,6 +40,20 @@ _CAPABILITIES = ["control_frames_v1", "node_task_json_v1", "node_result_json_v1"
 NodeHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
 
+class _ClosingNodeHandler:
+    """Delegate task execution and retain an explicit worker cleanup callback."""
+
+    def __init__(self, handle: NodeHandler, close: Callable[[], None]) -> None:
+        self._handle = handle
+        self._close = close
+
+    def __call__(self, task: dict[str, Any]) -> dict[str, Any]:
+        return self._handle(task)
+
+    def close(self) -> None:
+        self._close()
+
+
 def describe() -> dict[str, Any]:
     """The coordinator handshake description (modes + capabilities advertised)."""
     return {
@@ -91,36 +105,44 @@ def _classifying_handler(handle: NodeHandler, capture_path: str | None) -> NodeH
                     _emit(capture_file, frame)
             raise
 
+    close = getattr(handle, "close", None)
+    if callable(close):
+        return _ClosingNodeHandler(wrapped, close)
     return wrapped
 
 
 def run_jsonl_loop(infile: IO[str], outfile: _Writer, handle: NodeHandler) -> None:
     """Drive the control-frame loop: ``init``/``close`` acks, ``task`` results, bare one-shot tasks."""
-    for raw in infile:
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError as exc:
-            _emit(outfile, _error("invalid_json", str(exc)))
-            continue
-        frame_type = payload.get("type") if isinstance(payload, dict) else None
-        if frame_type is None:  # bare one-shot task
-            _emit(outfile, handle(payload))
-        elif frame_type == "init":
-            _emit(outfile, {"type": "ack", "schema_version": _FRAME_SCHEMA_VERSION, "status": "initialized"})
-        elif frame_type == "task":
-            task = payload.get("task")
-            if not isinstance(task, dict):
-                _emit(outfile, _error("invalid_task_frame", "task frame is missing object field `task`"))
+    try:
+        for raw in infile:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                _emit(outfile, _error("invalid_json", str(exc)))
+                continue
+            frame_type = payload.get("type") if isinstance(payload, dict) else None
+            if frame_type is None:  # bare one-shot task
+                _emit(outfile, handle(payload))
+            elif frame_type == "init":
+                _emit(outfile, {"type": "ack", "schema_version": _FRAME_SCHEMA_VERSION, "status": "initialized"})
+            elif frame_type == "task":
+                task = payload.get("task")
+                if not isinstance(task, dict):
+                    _emit(outfile, _error("invalid_task_frame", "task frame is missing object field `task`"))
+                else:
+                    _emit(outfile, {"type": "result", "schema_version": _FRAME_SCHEMA_VERSION, "result": handle(task)})
+            elif frame_type == "close":
+                _emit(outfile, {"type": "ack", "schema_version": _FRAME_SCHEMA_VERSION, "status": "closed"})
+                return
             else:
-                _emit(outfile, {"type": "result", "schema_version": _FRAME_SCHEMA_VERSION, "result": handle(task)})
-        elif frame_type == "close":
-            _emit(outfile, {"type": "ack", "schema_version": _FRAME_SCHEMA_VERSION, "status": "closed"})
-            return
-        else:
-            _emit(outfile, _error("unsupported_frame", f"unsupported frame type `{frame_type}`"))
+                _emit(outfile, _error("unsupported_frame", f"unsupported frame type `{frame_type}`"))
+    finally:
+        close = getattr(handle, "close", None)
+        if callable(close):
+            close()
 
 
 def _build_handler() -> NodeHandler:
@@ -144,8 +166,9 @@ def _build_handler() -> NodeHandler:
     from nirs4all.data.config import DatasetConfigs
 
     from .identity import mint_identity
-    from .node_runner import run_node
+    from .node_runner import clear_cv_weight_transfers, run_node
     from .resolver import MaterializationResolver
+    from .training_controls import validate_cv_weight_transfer_graph
 
     fold_children: dict[str, dict[int, list[int]]] | None = None
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None
@@ -164,6 +187,7 @@ def _build_handler() -> NodeHandler:
     resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children, fold_feature_views)
     with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as graph_file:
         graph = json.load(graph_file)
+    validate_cv_weight_transfer_graph(graph, resolver)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
     # Linear-pipeline y_processing: a single floating y_transform node applies to the model.
@@ -176,7 +200,7 @@ def _build_handler() -> NodeHandler:
     if meta_path:
         with open(meta_path, encoding="utf-8") as metadata_file:
             sample_metadata = json.load(metadata_file)
-    store: dict[int, Any] = {}
+    store: dict[Any, Any] = {}
     def handle_task(task: dict[str, Any]) -> dict[str, Any]:
         if (os.environ.get("N4A_DAGML_HPO_MODE") == "1"
                 and str(task.get("variant_id", "")).startswith("host_hpo:trial:")):
@@ -192,7 +216,7 @@ def _build_handler() -> NodeHandler:
         _capture_refit_sidecar(result, store, os.environ.get("N4A_DAGML_REFIT_ARTIFACT_DIR"))
         return result
 
-    return handle_task
+    return _ClosingNodeHandler(handle_task, lambda: clear_cv_weight_transfers(store))
 
 
 def _capture_refit_sidecar(result: dict[str, Any], store: dict[int, Any], directory: str | None) -> None:

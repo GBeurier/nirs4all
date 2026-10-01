@@ -39,6 +39,7 @@ from sklearn.utils.metaestimators import available_if
 
 from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _RESIDUAL_LEARNER_CONTROLLER_ID
 
+from .cv_weight_transfer import CVWeightTransferStore, TransferIdentity, TransferInputContract, WarmStartRequest, validate_transfer_input
 from .generated_views import GeneratedTaskViews
 from .operator_routing import route_graph_node
 
@@ -46,6 +47,71 @@ if TYPE_CHECKING:
     from .resolver import MaterializationResolver
 
 _PREDICTION_PARTITION = {"FIT_CV": "validation", "REFIT": "final", "PREDICT": "final", "EXPLAIN": "final"}
+_CV_WEIGHT_TRANSFER_STORE_KEY = ("cv_weight_transfer_store",)
+
+
+def clear_cv_weight_transfers(model_store: MutableMapping[Any, Any]) -> None:
+    """Dispose run/candidate snapshots without removing persisted REFIT artifacts."""
+    store = model_store.pop(_CV_WEIGHT_TRANSFER_STORE_KEY, None)
+    if store is not None:
+        store.close()
+
+
+def _cv_weight_transfer_store(model_store: MutableMapping[Any, Any], identity: TransferIdentity) -> CVWeightTransferStore:
+    store = model_store.get(_CV_WEIGHT_TRANSFER_STORE_KEY)
+    if store is None:
+        store = CVWeightTransferStore(identity.run_id)
+        model_store[_CV_WEIGHT_TRANSFER_STORE_KEY] = store
+    if not isinstance(store, CVWeightTransferStore) or store.run_id != identity.run_id:
+        raise ValueError("CV-weight transfer store belongs to another run or candidate")
+    return store
+
+
+def _cv_weight_transfer_task_request(
+    task: dict[str, Any], resolver: MaterializationResolver, graph_node: dict[str, Any],
+    model_store: MutableMapping[Any, Any], edges: list[dict[str, Any]] | None,
+    y_transform_node: dict[str, Any] | None, generated_views: GeneratedTaskViews | None,
+) -> WarmStartRequest | None:
+    """Refuse unsupported task representations before any model or local HPO fit."""
+    if task["phase"] == "PREDICT":
+        return None
+    from .training_controls import cv_weight_transfer_request
+
+    metadata = graph_node.get("metadata") or {}
+    request = cv_weight_transfer_request(metadata)
+    if request is None:
+        return None
+    node_plan = task["node_plan"]
+    if task["phase"] not in {"FIT_CV", "REFIT"}:
+        raise NotImplementedError("CV-weight transfer supports native FIT_CV and REFIT tasks only")
+    if (node_plan["kind"] != "model"
+            or node_plan["controller_id"] in {_META_MODEL_CONTROLLER_ID, _RESIDUAL_LEARNER_CONTROLLER_ID}
+            or metadata.get("nirs4all_finetune_params") is not None
+            or _source_index(graph_node) is not None
+            or _source_concat_chains(graph_node) is not None
+            or _branch_selector(task) is not None):
+        raise NotImplementedError("CV-weight transfer requires a plain model without local tuning, source branches, residuals or meta-models")
+    if (resolver.is_multi_source() or resolver._dataset.is_classification
+            or generated_views is not None or getattr(resolver._dataset, "_generated_view_store", None) is not None
+            or resolver._augmented_observation_ids or resolver._fold_children or resolver._fold_feature_views
+            or y_transform_node is not None or _upstream_x_chain(node_plan["node_id"], edges)
+            or _fitted_input_chain(task, model_store) is not None):
+        raise NotImplementedError("CV-weight transfer requires an unchanged single numeric source and regression target without preprocessing or augmentation")
+    return request
+
+
+def _cv_weight_input_contract(
+    task: dict[str, Any], resolver: MaterializationResolver, X: np.ndarray, y: np.ndarray, target_block: dict[str, Any],
+) -> TransferInputContract:
+    from .envelope import source_order
+
+    axes = _feature_axes(task)
+    headers = axes[0] if axes and axes[0] is not None else resolver._dataset.headers(0)
+    feature_names = tuple(str(name) for name in headers) if headers is not None else tuple(f"feature_{index}" for index in range(X.shape[1]))
+    targets = target_block.get("target_names") or (["y"] if y.ndim == 1 or y.shape[1] == 1 else [f"y{index}" for index in range(y.shape[1])])
+    contract = TransferInputContract(tuple(source_order(resolver._dataset)), feature_names, tuple(targets), X.dtype.str, y.dtype.str)
+    validate_transfer_input(X, y, contract)
+    return contract
 
 
 class _DagmlSelectedFoldEstimator:
@@ -1381,6 +1447,7 @@ def run_model_node(
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
+    transfer_request = _cv_weight_transfer_task_request(task, resolver, graph_node, model_store, edges, y_transform_node, generated_views)
     if generated_views is not None and (graph_node.get("metadata") or {}).get("nirs4all_finetune_params"):
         raise ValueError("generated data views do not yet support branch-local finetune_params")
     proba_output = (graph_node.get("metadata") or {}).get("nirs4all_prediction_output") == "proba"
@@ -1677,6 +1744,18 @@ def run_model_node(
             y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
         if target_mask is not None:
             fit_options["target_mask"] = np.asarray(target_mask, dtype=bool).reshape(y_fit.shape)
+        transfer_provenance = None
+        if transfer_request is not None:
+            # This closed profile has no wrapper or fitted representation. Only
+            # public weights from the explicitly named native fold are retained.
+            if estimator is not model or fit_ids != train_ids or fit_options:
+                raise NotImplementedError("CV-weight transfer requires the unchanged plain estimator and complete native training rows")
+            transfer_contract = _cv_weight_input_contract(task, resolver, x_train, y_fit, target_block)
+            transfer_identity = TransferIdentity(task["run_id"], node_id, controller_id, variant_label)
+            transfer_store = _cv_weight_transfer_store(model_store, transfer_identity)
+            if phase == "REFIT":
+                transfer_options, transfer_provenance = transfer_store.prepare_refit(transfer_request, transfer_identity, model, transfer_contract)
+                fit_options.update(transfer_options)
         apply_pipeline_folds_to_model(model, training_metadata, phase, fit_ids)
         if generated_views is not None:
             generated_views.record_model_call(
@@ -1684,6 +1763,11 @@ def run_model_node(
             )
         with _gpu_device_scope(task, estimator):
             estimator.fit(x_train, y_fit, **fit_options)
+        if transfer_request is not None:
+            if phase == "FIT_CV":
+                transfer_store.capture(transfer_request, transfer_identity, task["fold_id"], model, transfer_contract)
+            else:
+                estimator._nirs4all_cv_weight_transfer = transfer_provenance
         from .multimodal_contracts import bind_input_contract
 
         bind_input_contract(estimator, resolver._dataset, source_index)
@@ -2335,6 +2419,8 @@ def run_node(
     check_cancellation()
     node_plan = task["node_plan"]
     kind = node_plan["kind"]
+    if kind in ("model", "tuner"):
+        _cv_weight_transfer_task_request(task, resolver, node_lookup(node_plan["node_id"]), model_store, edges, y_transform_node, generated_views)
     if task.get("data_view_receipts") and generated_views is None:
         raise ValueError("native task has generated view receipts without bound IO views")
     if generated_views is not None:
