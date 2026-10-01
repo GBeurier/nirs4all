@@ -19,9 +19,10 @@ from nirs4all.pipeline.dagml_bridge import controller_manifests
 from .cli_runner import assemble_cv_refit_dsl
 from .envelope import build_envelope
 from .folds import _build_folds, _split_group_grain
+from .host_finetune import attach_host_finetune_splitter
 from .host_search_checkpoint import HostSearchOptimizer
 from .identity import mint_identity
-from .late_tuning import prepare_late_tuning
+from .late_tuning import prepare_late_tuning, validate_nested_local_finetune
 from .node_runner import run_node
 from .public_normalization import normalize_model_steps
 from .resolver import MaterializationResolver
@@ -82,8 +83,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise ValueError("multimodal tuning requires an explicit outer splitter")
     model_step = (steps[0] if len(steps) == 1 and isinstance(steps[0], dict)
                   and isinstance(steps[0].get("model"), (MultimodalRegressor, MultimodalClassifier)) else None)
-    if model_step is not None and set(model_step) - {"model", "train_params", "refit_params", "name"}:
-        raise ValueError("multimodal tuning model steps accept only model, train_params, refit_params and name; use tuning.space instead of finetune_params")
+    if model_step is not None and set(model_step) - {"model", "train_params", "refit_params", "finetune_params", "name"}:
+        raise ValueError("multimodal tuning model steps accept only model, train_params, refit_params, finetune_params and name")
     model = model_step["model"] if model_step is not None else None
     model_controls = {key: value for key, value in (model_step or {}).items() if key != "model"}
     generated_store = getattr(cohort, "_generated_view_store", None)
@@ -115,6 +116,15 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise ValueError(f"multimodal {'classification' if classification else 'regression'} tuning requires one of {sorted(supported_metrics)}")
     if spec.force_params is not None:
         raise ValueError("durable multimodal tuning does not yet support queued force_params")
+    local_params = validate_nested_local_finetune(model_step, spec.space) if model_step is not None else None
+    if local_params is not None:
+        assert model is not None
+        if generated_store is not None:
+            raise ValueError("generated data views do not support nested local finetune_params")
+        if (not cohort.target_mask.all() or any(not mask.all() for mask in cohort.source_presence().values())
+                or model.missing_source_policy != "error"):
+            raise ValueError("nested local HPO requires complete targets and sources with missing_source_policy='error'")
+        model_controls["finetune_params"] = local_params
     parallel_candidates = spec.n_jobs != 1
     from nirs4all.pipeline.runner import init_global_random_state
 
@@ -139,6 +149,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     native = importlib.import_module("dag_ml")
     if recipe is None:
         search_step = {"model": clone(model), **copy.deepcopy(model_controls)}
+        search_step = attach_host_finetune_splitter([splitter, search_step])[1]
         dsl = assemble_cv_refit_dsl([search_step], identity, envelope, folds, dsl_id="multimodal-hpo", n_splits=len(folds))
         if generated_store is not None:
             dsl["root_seed"] = operator_seed
@@ -159,6 +170,10 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     for key in ("resume", "n_trials", "storage", "study_name"):
         descriptor.pop(key, None)
     descriptor["operator_rng"] = {"policy": "per_native_task_v1", "seed": operator_seed}
+    if local_params is not None or (recipe is not None and recipe.has_local_finetune):
+        descriptor["nested_local_hpo"] = {
+            "profile": "raw_source_recipe_inner_cv_v1", "graph_fingerprint": tcv1_sha256(graph),
+        }
     if spec.pruner not in {None, "none"}:
         descriptor["n4m_options"] = {
             "n_startup_trials": 10, "max_resource": len(folds) if spec.pruner == "hyperband" else 0,

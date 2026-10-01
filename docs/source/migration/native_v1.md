@@ -176,6 +176,18 @@ target transforms are fitted inside each inner training split. This fixes the
 earlier global-preprocessing/global-parameter leakage, so selected parameters
 and CV values need not equal that historical implementation.
 
+Development `main` supports the same scoped host search inside global
+multimodal tuning for direct models and source-bound base models. A local
+subcampaign reconstructs unfitted upstream declarations with the current
+global candidate parameters; it never uses an outer fitted transform to
+select local parameters. Direct source blocks and branch source bindings stay
+typed and identity-aligned. Overlapping global/local parameter owners refuse
+before opening an optimizer, and global checkpoints bind the local search
+configuration and graph recipe. Meta-model local HPO remains refused: selecting
+parameters from a precomputed OOF matrix would leak inner selection targets.
+This development feature does not expand the closed portable native profiles
+or enable CV-weight warm starts.
+
 Trial counts, seeds, the installed optimizer's sampler grammar and verbosity
 are honored. Its historical Grid-to-TPE conversion for noncategorical ranges
 remains visible; provenance records the effective sampler. General exports
