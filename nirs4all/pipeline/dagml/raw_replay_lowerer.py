@@ -72,6 +72,7 @@ class RawArrayMethodsReplayCompiler:
     dagml_module: str = "dag_ml"
     fallback: Any = None
     methods_library_path: str | None = None
+    native_profile: str | None = None
 
     def compile_replay(
         self,
@@ -100,8 +101,8 @@ class RawArrayMethodsReplayCompiler:
             raise RawArrayMethodsReplayError("current X contains a non-finite value")
 
         package = _package_document(self.package)
-        _require_native_methods_package(package)
-        method_artifact_ids = _native_methods_refit_artifact_ids(package)
+        _require_native_methods_package(package, native_profile=self.native_profile)
+        method_artifact_ids = _native_methods_refit_artifact_ids(package, native_profile=self.native_profile)
         bundle = _object(package, "execution_bundle")
         requirements = _requirements(bundle)
         binding = _single_output_binding(package)
@@ -144,6 +145,8 @@ class RawArrayMethodsReplayCompiler:
             for key in requirements
         }
         if self.methods_library_path is None:
+            if self.native_profile is not None:
+                raise RawArrayMethodsReplayError("native PLS phase replay requires an explicit Methods library; callbacks are refused")
             # Compatibility tests and pre-published bindings may still use the
             # old explicit hydration callback.  The public fit path always
             # supplies a library path and therefore never takes this branch.
@@ -337,7 +340,7 @@ def validate_native_methods_refit_package_v3(package: Any) -> dict[str, Any]:
     return document
 
 
-def _require_native_methods_package(package: Mapping[str, Any]) -> None:
+def _require_native_methods_package(package: Mapping[str, Any], *, native_profile: str | None = None) -> None:
     if package.get("schema_version") != 2:
         raise RawArrayMethodsReplayError("raw-array Methods replay requires Package V2")
     bundle = _object(package, "execution_bundle")
@@ -352,14 +355,14 @@ def _require_native_methods_package(package: Mapping[str, Any]) -> None:
         for artifact_id, payload in raw.items()
         if isinstance(artifact_id, str) and isinstance(payload, (str, list, bytes, bytearray))
     }
-    artifact_ids = _native_methods_refit_artifact_ids(package)
+    artifact_ids = _native_methods_refit_artifact_ids(package, native_profile=native_profile)
     if not set(artifact_ids).issubset(raw_ids):
         raise RawArrayMethodsReplayError(
             "Package V2 N4MM refit artifacts must each have a matching durable raw payload"
         )
 
 
-def _native_methods_refit_artifact_ids(package: Mapping[str, Any]) -> list[str]:
+def _native_methods_refit_artifact_ids(package: Mapping[str, Any], *, native_profile: str | None = None) -> list[str]:
     """Return the complete portable Methods refit set, refusing mixed backends.
 
     A linear PLS package has one N4MM.  A native stacking graph has one per
@@ -369,17 +372,25 @@ def _native_methods_refit_artifact_ids(package: Mapping[str, Any]) -> list[str]:
     """
 
     bundle = _object(package, "execution_bundle")
-    return _native_methods_refit_artifact_ids_from_bundle(bundle, package_label="Package V2")
+    return _native_methods_refit_artifact_ids_from_bundle(bundle, package_label="Package V2", native_profile=native_profile)
 
 
 def _native_methods_refit_artifact_ids_from_bundle(
-    bundle: Mapping[str, Any], *, package_label: str
+    bundle: Mapping[str, Any], *, package_label: str, native_profile: str | None = None
 ) -> list[str]:
     """Validate one complete raw-Methods refit artifact set from a package bundle."""
 
     artifacts = bundle.get("refit_artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         raise RawArrayMethodsReplayError(f"{package_label} has no refit artifact list")
+    expected_kind = "n4m_model"
+    expected_controller = None
+    if native_profile is not None:
+        from .native_pls_phase_controls import NATIVE_PLS_PHASE_CONTROLLER, NATIVE_PLS_PHASE_PROFILE
+
+        if native_profile != NATIVE_PLS_PHASE_PROFILE or len(artifacts) != 1:
+            raise RawArrayMethodsReplayError("native PLS phase replay requires its exact profile and one refit artifact")
+        expected_kind, expected_controller = "methods_role_pipeline", NATIVE_PLS_PHASE_CONTROLLER
     artifact_ids: list[str] = []
     for record in artifacts:
         if not isinstance(record, Mapping):
@@ -388,13 +399,15 @@ def _native_methods_refit_artifact_ids_from_bundle(
         artifact_id = artifact.get("id", record.get("artifact_id"))
         backend = artifact.get("backend")
         if (
-            artifact.get("kind") != "n4m_model"
+            artifact.get("kind") != expected_kind
+            or (expected_controller is not None and artifact.get("controller_id") != expected_controller)
             or not isinstance(artifact_id, str)
             or not artifact_id
             or (backend is not None and backend != "raw")
         ):
             raise RawArrayMethodsReplayError(
                 "raw-array Methods replay requires only raw n4m_model refit artifacts"
+                if native_profile is None else "native PLS phase replay requires only raw methods_role_pipeline refit artifacts from its controller"
             )
         artifact_ids.append(artifact_id)
     if len(artifact_ids) != len(set(artifact_ids)):

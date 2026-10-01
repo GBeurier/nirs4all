@@ -77,6 +77,7 @@ from .native_result import NativeMethodsRunResult
 from .native_session import NativeMethodsSession
 from .native_training import fit_native_pipeline
 from .portable_archive import (
+    inspect_portable_predictor_archive_v2,
     read_portable_predictor_archive_v2,
     replay_portable_predictor_archive_v2,
     write_portable_predictor_archive_v2,
@@ -186,6 +187,7 @@ __all__ = [
     # Module-level API functions
     "run",
     "fit_native_pipeline",
+    "inspect_portable_predictor_archive_v2",
     "read_portable_predictor_archive_v2",
     "replay_portable_predictor_archive_v2",
     "write_portable_predictor_archive_v2",

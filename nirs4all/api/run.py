@@ -762,6 +762,7 @@ def run(
     project: str | None = _RUN_DEFAULT_NONE,
     report_naming: str = _RUN_DEFAULT_NAMING,
     engine: str | None = None,
+    native_profile: str | None = None,
     tuning: Any | None = None,
     calibration: Any | None = None,
     terminal_predict: Mapping[str, Any] | None = None,
@@ -863,6 +864,12 @@ def run(
             and returns the native result. Every other dual shape fails closed before execution.
             Native engine overrides remain available through ``$N4A_ENGINE``; legacy rollback always
             requires the explicit public ``engine="legacy"`` selector.
+
+        native_profile: Explicit closed native profile. ``"n4m.pls_role_pipeline.v1"``
+            supports PLS ``scale`` and ``n_components`` controls for train/REFIT,
+            and the model step's native ``finetune_params``. Requires an explicit
+            standalone ``engine="native"`` run. Omitting it preserves the
+            historical portable PLS and general DAG profiles.
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -1020,6 +1027,29 @@ def run(
     if isinstance(session, Session):
         public_keys = {"verbose", "save_artifacts", "save_charts", "plots_visible", "random_state", "refit", "cache", "project", "report_naming", "engine", "tuning", "calibration", "results_path"}
         runner_kwargs = {**{key: value for key, value in session._runner_kwargs.items() if key not in public_keys}, **runner_kwargs}
+
+    if native_profile is not None:
+        from nirs4all.pipeline.dagml.native_pls_phase_controls import NATIVE_PLS_PHASE_PROFILE
+
+        if native_profile != NATIVE_PLS_PHASE_PROFILE:
+            raise ValueError(f"unsupported native_profile: {native_profile!r}")
+        if engine != "native":
+            raise ValueError("native_profile requires explicit engine='native'")
+        if allow_fallback or session is not None:
+            raise ValueError("native_profile requires a standalone native run without fallback")
+        if save_charts is not None and type(save_charts) is not bool:
+            raise TypeError("save_charts must be a bool or None")
+        if tuning is not None or calibration is not None or terminal_predict is not None:
+            raise NotImplementedError("native PLS phase controls use the model's finetune_params; run-level tuning/calibration/terminal_predict are unsupported")
+        from .native_archive_training import run_native_methods_archive
+
+        return run_native_methods_archive(
+            pipeline, dataset, name=name, verbose=verbose,
+            save_artifacts=save_artifacts, save_charts=False if save_charts is None else save_charts,
+            plots_visible=plots_visible, random_state=random_state, refit=refit,
+            cache=cache, project=project, report_naming=report_naming,
+            results_path=results_path, runner_kwargs=runner_kwargs, native_profile=native_profile,
+        )
 
     selected_engine = select_run_engine(
         engine, pipeline, dataset, allow_fallback=allow_fallback, session=session,

@@ -8,6 +8,7 @@ This section covers model training, comparison, and optimization in NIRS4ALL.
 training
 hyperparameter_tuning
 native_tuning_conformal
+native_pls_phase_controls
 aom_models
 deep_learning
 tabpfn_nirs
