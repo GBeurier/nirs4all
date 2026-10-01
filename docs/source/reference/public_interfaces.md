@@ -19,6 +19,9 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.studio_scientific_job_v1(...)` | Bounded scientific-library callable for Studio's Rust-owned CPython stdio host | Closed, already-resolved JSON value | Bounded JSON-native scientific summary |
 | `nirs4all.studio_scientific_job_v2(...)` | General scientific callable with library workspace persistence | Canonical pipeline/dataset and Rust-authorized workspace | Bounded summary, run IDs and native result paths |
 | `nirs4all.predict(...)` | Predict from a stored chain or exported bundle | `chain_id` or model bundle + data | `PredictResult` |
+| `nirs4all.write_portable_predictor_archive_v2(...)` | Transport captured portable Package V2 artifacts into Core `.n4a` | Native training outcome, package and archive identity | Archive identity and SHA-256 |
+| `nirs4all.read_portable_predictor_archive_v2(...)` | Validate storage and native portable payload semantics | Core Archive V2 path | DAG-ML `PortablePredictorPackage` |
+| `nirs4all.replay_portable_predictor_archive_v2(...)` | Replay a signed current cohort through explicitly trusted controller callbacks | Core archive, signed request/envelopes, trust manifests and read-only callbacks | Native DAG-ML replay outcome |
 | `nirs4all.calibrate(...)` | Fit split-conformal intervals from explicit calibration evidence | Replayed calibration predictions or selected calibration cohort + prediction ids | `CalibratedRunResult` or `PredictResult` |
 | `nirs4all.CONFORMAL_CALIBRATION_METHODS` / `CONFORMAL_CALIBRATION_UNITS` | Discover conformal method and exchangeability-unit vocabularies | None | Tuples aligned with runtime validation and registry schema |
 | `nirs4all.CONFORMAL_MULTI_TARGET_POLICIES` / `CONFORMAL_EXECUTABLE_MULTI_TARGET_POLICIES` | Discover reserved and currently executable multi-target policies | None | Tuples aligned with runtime validation and registry schema |
@@ -66,6 +69,62 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.load_session(...)` | Load an exported `.n4a` bundle for prediction | Bundle path | `Session` |
 | `nirs4all.generate(...)` | Generate synthetic NIRS data | Synthetic parameters | `SpectroDataset` or arrays |
 | `result.export(...)` | Export a trained pipeline bundle | Output path | `.n4a` path |
+
+## Explicit portable RolePipeline archive transport
+
+The three portable archive functions preserve the complete captured Package V2,
+including a four-source numeric projection graph with five RAW
+`methods_role_pipeline` artifacts: four branches and the OOF-trained meta-model.
+The storage profile is `dagml_methods_role_pipeline_raw_sha256`; payloads remain
+at their relative `artifacts/<sha256>.json` paths. Core validates the bounded
+archive container and exact member inventory. DAG-ML validates package/outcome
+links, controller contracts, artifact fingerprints and the complete union of
+RAW payloads. The SDK delegates both layers and supplies no ZIP reader, model
+deserializer or numerical implementation.
+
+Use the captured native outcome and package produced by DAG-ML CV/SELECT/REFIT:
+
+```python
+import nirs4all
+
+reference = nirs4all.write_portable_predictor_archive_v2(
+    "five_models.n4a",
+    archive_id="archive:five-models",
+    outcome=captured_outcome,
+    package=captured_package,
+)
+package = nirs4all.read_portable_predictor_archive_v2("five_models.n4a")
+replayed = nirs4all.replay_portable_predictor_archive_v2(
+    "five_models.n4a",
+    signed_predict_request,
+    current_source_envelopes,
+    trusted_controller_manifests,
+    controller.predict_callback,
+    outcome_id="outcome:heldout",
+    run_id="run:heldout",
+    artifact_callback=controller.artifact_callback,
+)
+```
+
+`signed_predict_request` and `current_source_envelopes` are the native DAG-ML
+contracts for the new, explicitly identified, target-free cohort. The trusted
+manifests are supplied by the caller, independently of archive contents.
+DAG-ML verifies them before callbacks. A read-only Methods controller hydrates
+the saved RolePipeline N4ME states, predicts from the named numeric source rows
+and releases every state, including when prediction fails. Before calling
+Methods prediction, the controller must compare the saved feature names and
+their order with features independently resolved from current sources and
+upstream prediction inputs. Replay does not fit or request targets. Matching
+Core and DAG-ML wheels providing the portable payload reader/validator and
+trusted callback replay are required.
+
+This is an explicit callback profile. Existing `nirs4all.predict`,
+`load_session` and native N4MM APIs keep their separately qualified closed
+PLS/Ridge contracts; RolePipeline bytes are not converted to N4MM or silently
+routed into that lane. The numeric projection transport does not establish
+the canonical U07 N-D encoders, its interlanguage controllers or other HPO
+profiles. The deterministic five-model test capture and its provenance live
+under `tests/fixtures/portable_role_pipeline/`.
 
 ## Train from Config Files
 
