@@ -169,6 +169,8 @@ if TYPE_CHECKING:
         load_workspace_robustness_report,
         load_workspace_tuning_result,
         predict_calibrated,
+        read_portable_predictor_archive_v2,
+        replay_portable_predictor_archive_v2,
         robustness_from_workspace_prediction,
         robustness_summary_schema_json,
         save_workspace_calibrated_result,
@@ -180,6 +182,7 @@ if TYPE_CHECKING:
         tune_single_estimator,
         tuning_space_schema_json,
         tuning_summary_schema_json,
+        write_portable_predictor_archive_v2,
     )
     from .api.calibrate import calibrate as calibrate
     from .api.explain import explain as explain
@@ -312,6 +315,8 @@ _LAZY_EXPORTS = {
     'load_workspace_robustness_report': ('.api', 'load_workspace_robustness_report'),
     'load_workspace_tuning_result': ('.api', 'load_workspace_tuning_result'),
     'predict_calibrated': ('.api', 'predict_calibrated'),
+    'read_portable_predictor_archive_v2': ('.api', 'read_portable_predictor_archive_v2'),
+    'replay_portable_predictor_archive_v2': ('.api', 'replay_portable_predictor_archive_v2'),
     'robustness_from_workspace_prediction': ('.api', 'robustness_from_workspace_prediction'),
     'robustness_summary_schema_json': ('.api', 'robustness_summary_schema_json'),
     'save_workspace_calibrated_result': ('.api', 'save_workspace_calibrated_result'),
@@ -323,6 +328,7 @@ _LAZY_EXPORTS = {
     'tune_single_estimator': ('.api', 'tune_single_estimator'),
     'tuning_space_schema_json': ('.api', 'tuning_space_schema_json'),
     'tuning_summary_schema_json': ('.api', 'tuning_summary_schema_json'),
+    'write_portable_predictor_archive_v2': ('.api', 'write_portable_predictor_archive_v2'),
     'calibrate': ('.api', 'calibrate'),
     'explain': ('.api', 'explain'),
     'generate': ('.api', 'generate'),
@@ -363,6 +369,9 @@ __all__ = [
     # Module-level API (primary interface)
     "run",
     "fit_native_pipeline",
+    "read_portable_predictor_archive_v2",
+    "replay_portable_predictor_archive_v2",
+    "write_portable_predictor_archive_v2",
     "NativeMethodsRunResult",
     "NativeMethodsRefitResult",
     "NativeMethodsSession",
