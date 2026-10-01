@@ -1096,7 +1096,10 @@ def _run_fitted_transform_node(
 
     from nirs4all.data.multimodal import MultimodalSpectroDataset
 
-    if resolver.is_multi_source() or isinstance(getattr(resolver, "_dataset", None), MultimodalSpectroDataset):
+    # Generated single-source tasks must read their validated native view below.
+    if resolver.is_multi_source() or (
+        generated_views is None and isinstance(getattr(resolver, "_dataset", None), MultimodalSpectroDataset)
+    ):
         resolved = resolver.resolve_feature_blocks(
             ids, include_augmented=bool(view.get("include_augmented")), fold_label=task.get("fold_id") or "refit",
         )
