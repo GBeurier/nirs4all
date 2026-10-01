@@ -12,6 +12,7 @@ aggregation
 heterogeneous_repetitions
 heterogeneous_repetitions_tutorial
 multimodal
+octave_multimodal
 sample_filtering
 ```
 
