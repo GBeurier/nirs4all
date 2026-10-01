@@ -30,6 +30,7 @@ class NativePlsPhaseControls:
     refit_params: dict[str, Any]
     hpo: Any
     search_axes: tuple[dict[str, Any], ...]
+    hpo_scope: str = "campaign"
 
 
 def _phase_values(value: Any, label: str) -> dict[str, Any]:
@@ -107,11 +108,19 @@ def normalize_native_pls_phase_controls(pipeline: Any, *, seed: int) -> NativePl
     refit = _phase_values(terminal.get("refit_params", {}), "refit_params")
 
     hpo = None
+    hpo_scope = "campaign"
     axes: list[dict[str, Any]] = []
     if "finetune_params" in terminal:
         options = terminal["finetune_params"]
         if not isinstance(options, Mapping):
             raise TypeError("native PLS finetune_params must be a mapping")
+        hpo_scope = options.get("scope", "campaign")
+        if not isinstance(hpo_scope, str) or hpo_scope not in ("campaign", "fold"):
+            raise ValueError("native PLS finetune_params.scope must be 'campaign' or 'fold'")
+        if hpo_scope == "fold":
+            from .native_pls_fold_hpo import validate_fold_splitter
+
+            validate_fold_splitter(splitter)
         space = options.get("model_params")
         if not isinstance(space, Mapping) or not space or set(space) - {"n_components", "scale"}:
             raise ValueError("native PLS search supports only n_components and/or scale")
@@ -129,16 +138,23 @@ def normalize_native_pls_phase_controls(pipeline: Any, *, seed: int) -> NativePl
         # Optimizer options and complete-package resume retain the existing
         # native validator. Only the explicitly versioned space is different.
         validation_options = {**dict(options), "model_params": {"n_components": ["int", 1, 3, 1]}}
+        validation_options.pop("scope", None)
+        resume = validation_options.pop("resume_package", None) if hpo_scope == "fold" else None
         _, hpo = _extract_portable_methods_hpo(
             [splitter, *steps[:-1], {"model": canonical_model, "finetune_params": validation_options}], seed=seed,
         )
+        if hpo_scope == "fold":
+            from .native_pls_fold_hpo import normalize_fold_resume_package
+
+            assert hpo is not None  # The validated terminal declares finetune_params.
+            hpo = replace(hpo, resume_package_json=normalize_fold_resume_package(resume))
     return NativePlsPhaseControls(
         pipeline=[splitter, *canonical_steps], base_params=copy.deepcopy(base_params),
-        train_params=train, refit_params=refit, hpo=hpo, search_axes=tuple(axes),
+        train_params=train, refit_params=refit, hpo=hpo, search_axes=tuple(axes), hpo_scope=hpo_scope,
     )
 
 
-def attach_native_pls_phase_controls(contracts: Any, profile: NativePlsPhaseControls, dag_ml: Any) -> Any:
+def attach_native_pls_phase_controls(contracts: Any, profile: NativePlsPhaseControls, dag_ml: Any, *, fold_plan: Any = None) -> Any:
     """Bind the closed profile and phase patches before native request signing."""
 
     helper = getattr(dag_ml, "methods_pls_role_pipeline_contract", None)
@@ -184,6 +200,19 @@ def attach_native_pls_phase_controls(contracts: Any, profile: NativePlsPhaseCont
             "trials": hpo.trials, "target_node_id": target["id"],
             "parameter_paths": {axis["name"]: axis["name"] for axis in profile.search_axes},
         }
+        if profile.hpo_scope == "fold":
+            if fold_plan is None:
+                raise ValueError("native fold HPO requires identity-bound outer and inner folds")
+            split = campaign.get("split_invocation")
+            if not isinstance(split, dict) or split.get("fold_set") is None:
+                raise ValueError("native fold HPO requires a materialized outer FoldSet")
+            split["fold_set"] = copy.deepcopy(fold_plan.outer_fold_set)
+            operation.update(
+                schema_version=3, scope="fold", operation_id="hpo:nirs4all.native.pls_fold",
+                inner_fold_sets=copy.deepcopy(fold_plan.inner_fold_sets),
+                refit_inner_fold_set=copy.deepcopy(fold_plan.refit_inner_fold_set),
+            )
+            operation["study"]["study_id"] = "study:nirs4all.native.pls_fold"
         if hpo.resume_package_json is not None:
             operation["resume_package_json"] = hpo.resume_package_json
         campaign.setdefault("metadata", {})["methods_hpo_operation"] = operation
