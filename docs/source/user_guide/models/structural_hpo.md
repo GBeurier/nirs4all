@@ -233,9 +233,68 @@ the native `Optimizer.configuration_matches()` capability in both the Methods
 binding and library; an older installation is refused explicitly. The native
 checkpoint bytes and existing fixed-topology checkpoint format stay unchanged.
 
-## Current limits
+## Typed modality alternatives and weighted early fusion
 
-This profile requires `engine="dag-ml"`, tuning engine `n4m`, minimizing RMSE,
+Typed NIR, image, series and mixed-metadata inputs can use a separate structural
+profile with the existing `MultimodalRegressor`. Declare an ordered subset of
+encoders for each alternative; the native catalogue selects a complete
+early-fusion Ridge recipe and tunes its `model__alpha`.
+
+```python
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import GroupKFold
+from sklearn.preprocessing import StandardScaler
+from nirs4all.operators.models.multimodal import MultimodalRegressor, TensorPCA
+
+pipeline = [GroupKFold(3), {"model": {"_or_": [
+    MultimodalRegressor(
+        transformers={"nir": StandardScaler()},
+        model=Ridge(), backend="methods",
+    ),
+    MultimodalRegressor(
+        transformers={
+            "image": TensorPCA(n_components=2, random_state=17),
+            "nir": StandardScaler(),
+        },
+        source_weights={"image": 0.5, "nir": 1.0},
+        model=Ridge(), backend="methods",
+    ),
+]}}]
+tuning = {
+    "engine": "n4m", "sampler": "random", "seed": 17,
+    "n_trials": 8, "metric": "rmse", "direction": "minimize",
+    "space": {"model__alpha": {
+        "type": "float", "low": 0.01, "high": 10.0, "log": True,
+    }},
+}
+```
+
+Pass the complete aligned four-source typed cohort to
+`nirs4all.run(..., engine="dag-ml", refit=True)`. Encoder insertion order defines
+fusion order. Omitted encoders never fit; a selected encoder with weight zero
+still fits. Weights are finite, nonnegative declarations, default to one, and
+may only name selected sources. Modality choices and weights remain fixed within
+each declared alternative; this profile's numeric search space contains only
+`model__alpha`.
+
+The profile uses the existing U07 encoder families: NIR `StandardScaler`, image
+and series `TensorPCA`, and the supported mixed-metadata `ColumnTransformer`.
+It requires `GroupKFold(3)`, complete fixed-shape sources, one regression target,
+sequential execution and winner REFIT. PCA component counts must fit the raw
+source width and every training fold. Matching native Methods and DAG-ML support
+is required; Python supplies declarations and raw buffers rather than computing
+candidate fits or enumerating the native recipe catalogue.
+
+The signed catalogue and resume contract retain all four raw source schemas and
+their content, including held-out rows and excluded sources. The exported winner
+also requires the complete original raw input contract when predicting new
+cohorts. Its saved selected encoders and Ridge state replay without FIT or HPO.
+`U20_structural_hpo_typed_modalities.py` demonstrates these declarations and
+workspace-independent archive replay using U07's deterministic test fixture.
+
+## Dense profile limits
+
+The dense profile above requires `engine="dag-ml"`, tuning engine `n4m`, minimizing RMSE,
 and winner REFIT. Sequential execution supports existing native samplers and
 pruning. Parallel execution requires explicit `sampler="random"` without a
 pruner; each candidate runs in an isolated Python process. The existing

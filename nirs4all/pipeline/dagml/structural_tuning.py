@@ -88,6 +88,11 @@ def validate_structural_profile(pipeline: Any) -> tuple[list[Any], Any]:
     if not isinstance(pipeline, list):
         raise TypeError("structural tuning requires a pipeline list")
     steps, splitter = _split_pipeline(pipeline)
+    from .structural_multimodal import is_methods_model_choice, validate_typed_profile
+
+    if is_methods_model_choice(steps):
+        validate_typed_profile(steps, splitter)
+        return steps, splitter
     if (not isinstance(splitter, DagMlSplitStep) or type(_splitter_operator(splitter)) is not GroupKFold
             or not isinstance(splitter.group_by, str) or not splitter.group_by):
         raise ValueError("structural tuning requires an explicit GroupKFold split with group_by metadata")
@@ -194,6 +199,10 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
     if not callable(getattr(native, "prepare_host_hpo_structural_catalogue", None)):
         raise ImportError("installed DAG-ML lacks native structural HPO preparation; install the matching structural build")
     dataset = _materialize_dataset(dataset_input)
+    from .structural_multimodal import is_methods_model_choice, prepare_typed_structure
+
+    if is_methods_model_choice(steps):
+        return prepare_typed_structure(steps, splitter, dataset, spec, run_options, native)
     source_selections = len(steps) == 3
     n_sources = dataset.features_sources()
     if source_selections:
@@ -285,6 +294,7 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
     resolver = MaterializationResolver(dataset, prepared["identity"])
     stores: dict[int, dict[Any, Any]] = {}
     workers: dict[int, Any] = {}
+    methods_controllers: dict[int, Any] = {}
     proposals: dict[int, dict[str, Any]] = {}
     resources = current_execution_resources()
     optimizer = HostSearchOptimizer(spec, n_folds=len(prepared["folds"]), structural_catalogue=prepared["catalogue"])
@@ -303,6 +313,9 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
         worker = workers.pop(index, None)
         if worker is not None:
             worker.close()
+        controller = methods_controllers.pop(index, None)
+        if controller is not None:
+            controller.close()
         proposals.pop(index, None)
 
     def propose(event: dict[str, Any]) -> Any:
@@ -314,7 +327,7 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
         return response
 
     def candidate_callback_factory(index: int) -> Any:
-        if index in stores or index in workers:
+        if index in stores or index in workers or index in methods_controllers:
             raise ValueError("structural HPO reused a candidate callback namespace")
         proposal = proposals[index]
         selector = prepared["catalogue"]["selector_path"]
@@ -333,6 +346,22 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
                     or task["node_plan"]["node_id"] not in nodes):
                 raise ValueError("candidate task native trial, recipe or node disagrees with the structural catalogue")
 
+        if prepared.get("methods_typed"):
+            from .envelope import source_ids
+            from .methods_multimodal import controller_for_graph
+
+            controller = controller_for_graph(graph, dataset.cohort, allow_fit=True, binding_source_ids=source_ids(dataset))
+            methods_controllers[index] = controller
+
+            def typed(task: dict[str, Any]) -> dict[str, Any]:
+                check_task(task)
+                token = bind_execution_resources(resources)
+                try:
+                    return cast(dict[str, Any], controller.operator(task))
+                finally:
+                    reset_execution_resources(token)
+
+            return typed
         if spec.n_jobs != 1:
             from .host_hpo_candidate import HostHpoCandidate
 
@@ -376,7 +405,7 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
             checkpoint_fingerprint = fingerprint
             optimizer_progress = False
         count = len(event["checkpoint"]["trials"])
-        for index in list(stores.keys() | workers.keys()):
+        for index in list(stores.keys() | workers.keys() | methods_controllers.keys()):
             if index < count:
                 release_candidate(index)
         response = progress(copy.deepcopy(event)) if progress is not None else True
@@ -399,7 +428,7 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
     finally:
         try:
             with ExitStack() as cleanup:
-                for index in list(stores.keys() | workers.keys()):
+                for index in list(stores.keys() | workers.keys() | methods_controllers.keys()):
                     cleanup.callback(release_candidate, index)
         finally:
             optimizer.close()
@@ -424,8 +453,9 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
     result.structural_tuning_evidence = copy.deepcopy(evidence)
     result.structural_tuning_search_request = copy.deepcopy({key: prepared[key] for key in ("dsl", "envelope", "request")})
     result.structural_tuning_search_request["controller_manifests"] = copy.deepcopy(prepared["manifests"])
-    for artifact in result._dagml_refit_artifacts:
-        artifact["estimator"].structural_tuning_evidence = copy.deepcopy(evidence)
+    if not prepared.get("methods_typed"):
+        for artifact in result._dagml_refit_artifacts:
+            artifact["estimator"].structural_tuning_evidence = copy.deepcopy(evidence)
     return result
 
 
@@ -434,6 +464,10 @@ def _train_selected_structure(
     dataset_input: Any, run_options: dict[str, Any],
 ) -> Any:
     """Execute the signed native winner with the ordinary host artifact capture."""
+    if prepared.get("methods_typed"):
+        from .structural_multimodal import train_selected_typed_structure
+
+        return train_selected_typed_structure(prepared, evidence, run_options)
     from .in_process_runner import _capture_refit_artifacts
     from .native_results import write_native_results
     from .raw_training_lowerer import _array_content_fingerprint, _core_relation_fingerprint, _data_contracts_from_campaign, _output_request_for_node, _training_influence_manifest

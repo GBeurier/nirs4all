@@ -44,26 +44,53 @@ def _finite_nonnegative(value: Any, name: str) -> float:
     return result
 
 
-def recipe_from_estimator(model: MultimodalRegressor) -> dict[str, Any]:
+def recipe_from_estimator(model: MultimodalRegressor, *, allow_source_selection: bool = False) -> dict[str, Any]:
     """Translate the supported sklearn declarations without fitting them."""
     if type(model) is not MultimodalRegressor or model.backend != "methods":
         raise ValueError("native multimodal execution requires MultimodalRegressor(backend='methods')")
     if model.fusion != "early" or model.target_policy != "complete" or model.missing_source_policy != "error":
         raise ValueError("Methods multimodal profile requires early fusion, complete targets and complete sources")
-    if not isinstance(model.transformers, Mapping) or tuple(model.transformers) != SOURCE_ORDER:
+    if not allow_source_selection and (not isinstance(model.transformers, Mapping) or tuple(model.transformers) != SOURCE_ORDER):
         raise ValueError(f"Methods multimodal profile requires source order {SOURCE_ORDER}")
-    scaler = model.transformers["nir"]
-    if type(scaler) is not StandardScaler or not scaler.with_mean or not scaler.with_std:
-        raise ValueError("nir requires StandardScaler(with_mean=True, with_std=True)")
-    encoders: dict[str, Any] = {"nir": {"kind": "standard_scaler", "with_mean": True, "with_std": True}}
+    if not isinstance(model.transformers, Mapping) or not model.transformers or set(model.transformers) - set(SOURCE_ORDER):
+        raise ValueError(f"Methods multimodal profile requires a nonempty ordered subset of {SOURCE_ORDER}")
+    selected = tuple(model.transformers)
+    encoders: dict[str, Any] = {}
+    if "nir" in selected:
+        scaler = model.transformers["nir"]
+        if type(scaler) is not StandardScaler or not scaler.with_mean or not scaler.with_std:
+            raise ValueError("nir requires StandardScaler(with_mean=True, with_std=True)")
+        encoders["nir"] = {"kind": "standard_scaler", "with_mean": True, "with_std": True}
     for name in ("image", "series"):
+        if name not in selected:
+            continue
         encoder = model.transformers[name]
         if (type(encoder) is not TensorPCA or type(encoder.n_components) is not int
                 or encoder.n_components < 1 or encoder.whiten is not False
                 or type(encoder.random_state) is not int or not 0 <= encoder.random_state <= 2**32 - 1):
             raise ValueError(f"{name} requires TensorPCA with positive integer n_components, whiten=False and integer random_state")
         encoders[name] = {"kind": "tensor_pca", "n_components": encoder.n_components, "whiten": False, "random_state": encoder.random_state}
-    mixed = model.transformers["metadata"]
+    if "metadata" in selected:
+        encoders["metadata"] = _metadata_encoder_recipe(model.transformers["metadata"])
+    ridge = model.model
+    if (type(ridge) is not Ridge or ridge.fit_intercept is not True or ridge.positive is not False
+            or ridge.solver != "auto" or ridge.max_iter is not None or ridge.random_state is not None
+            or ridge.tol != 1e-4):
+        raise ValueError("Methods multimodal profile requires ordinary Ridge(alpha=..., fit_intercept=True, solver='auto')")
+    weights = {} if model.source_weights is None else model.source_weights
+    if not isinstance(weights, Mapping) or set(weights) - set(selected):
+        raise ValueError("source_weights must name only selected sources")
+    return {
+        "schema_version": 1, "fusion": "early", "source_order": list(selected), "encoders": encoders,
+        "source_weights": {name: _finite_nonnegative(weights.get(name, 1.0), f"source_weights.{name}") for name in selected},
+        "model": {"method_id": "models.regularized.ridge", "params": {
+            "alpha": _finite_nonnegative(ridge.alpha, "Ridge.alpha"), "center_x": True, "center_y": True, "scale_x": False,
+        }},
+    }
+
+
+def _metadata_encoder_recipe(mixed: Any) -> dict[str, Any]:
+    """Keep the existing mixed-column encoder declaration for selected metadata."""
     if (type(mixed) is not ColumnTransformer or mixed.remainder != "drop"
             or mixed.transformer_weights is not None or mixed.n_jobs is not None
             or len(mixed.transformers) != 2):
@@ -82,24 +109,9 @@ def recipe_from_estimator(model: MultimodalRegressor) -> dict[str, Any]:
             or np.dtype(category_params["dtype"]) != np.dtype("float64")
             or category_params.get("feature_name_combiner", "concat") != "concat"):
         raise ValueError("metadata requires learned categories, float64 dense one-hot, drop=None and handle_unknown='ignore'")
-    encoders["metadata"] = {
+    return {
         "kind": "column_transformer", "numeric_columns": [0], "categorical_columns": [1],
         "with_mean": True, "with_std": True, "handle_unknown": "ignore", "sparse_output": False, "drop": None,
-    }
-    ridge = model.model
-    if (type(ridge) is not Ridge or ridge.fit_intercept is not True or ridge.positive is not False
-            or ridge.solver != "auto" or ridge.max_iter is not None or ridge.random_state is not None
-            or ridge.tol != 1e-4):
-        raise ValueError("Methods multimodal profile requires ordinary Ridge(alpha=..., fit_intercept=True, solver='auto')")
-    weights = model.source_weights or {}
-    if not isinstance(weights, Mapping) or set(weights) - set(SOURCE_ORDER):
-        raise ValueError("source_weights must name only declared sources")
-    return {
-        "schema_version": 1, "fusion": "early", "source_order": list(SOURCE_ORDER), "encoders": encoders,
-        "source_weights": {name: _finite_nonnegative(weights.get(name, 1.0), f"source_weights.{name}") for name in SOURCE_ORDER},
-        "model": {"method_id": "models.regularized.ridge", "params": {
-            "alpha": _finite_nonnegative(ridge.alpha, "Ridge.alpha"), "center_x": True, "center_y": True, "scale_x": False,
-        }},
     }
 
 
@@ -162,7 +174,7 @@ def methods_model_in_pipeline(pipeline: Any) -> MultimodalRegressor | None:
     return visit(pipeline)
 
 
-def validate_training_profile(pipeline: Any, cohort: Any, *, refit: bool) -> tuple[list[Any], Any, MultimodalRegressor]:
+def validate_training_profile(pipeline: Any, cohort: Any, *, refit: bool, allow_source_selection: bool = False) -> tuple[list[Any], Any, MultimodalRegressor]:
     """Refuse unsupported campaigns before either grid or global HPO fits."""
     from sklearn.model_selection import GroupKFold
 
@@ -171,7 +183,7 @@ def validate_training_profile(pipeline: Any, cohort: Any, *, refit: bool) -> tup
     model = methods_model_in_pipeline(pipeline)
     if not isinstance(model, MultimodalRegressor):
         raise ValueError("Methods multimodal backend was not declared")
-    recipe_from_estimator(model)
+    recipe_from_estimator(model, allow_source_selection=allow_source_selection)
     source_schemas_from_cohort(cohort)
     steps, splitter = _split_pipeline(pipeline)
     if (len(steps) != 1 or not isinstance(steps[0], dict) or steps[0].get("model") is not model
@@ -199,10 +211,11 @@ def validate_training_profile(pipeline: Any, cohort: Any, *, refit: bool) -> tup
 
 def fit_declared_methods_model(model: MultimodalRegressor, blocks: list[Any], y: Any, *, source_schemas: Any) -> None:
     """Fit a native candidate and replace the previous predictor only on success."""
-    recipe = recipe_from_estimator(model)
+    recipe = recipe_from_estimator(model, allow_source_selection=True)
     if source_schemas is None:
         raise ValueError("Methods fit requires explicit IO-derived source_schemas; public run() supplies them")
-    values = model._validate_blocks(blocks, SOURCE_ORDER)
+    selected = tuple(recipe["source_order"])
+    values = model._validate_blocks(blocks, selected)
     targets = np.asarray(y)
     if targets.ndim not in (1, 2) or (targets.ndim == 2 and targets.shape[1] != 1):
         raise ValueError("Methods multimodal profile supports exactly one numeric target")
@@ -212,14 +225,15 @@ def fit_declared_methods_model(model: MultimodalRegressor, blocks: list[Any], y:
     if not callable(pipeline_type):
         raise ImportError("installed nirs4all-methods lacks MultimodalPipeline; install the matching native encoder build")
     previous = getattr(model, "native_pipeline_", None)
-    native = pipeline_type(recipe, source_schemas)
+    selected_schemas = {name: source_schemas[name] for name in selected}
+    native = pipeline_type(recipe, selected_schemas)
     try:
-        native.fit(dict(zip(SOURCE_ORDER, values, strict=True)), targets)
+        native.fit(dict(zip(selected, values, strict=True)), targets)
         fitted = {
             "native_pipeline_": native,
-            "source_schemas_": copy.deepcopy(source_schemas),
-            "source_names_": SOURCE_ORDER,
-            "input_shapes_": {name: tuple(np.shape(block)[1:]) for name, block in zip(SOURCE_ORDER, values, strict=True)},
+            "source_schemas_": copy.deepcopy(selected_schemas),
+            "source_names_": selected,
+            "input_shapes_": {name: tuple(np.shape(block)[1:]) for name, block in zip(selected, values, strict=True)},
             "target_ndim_": targets.ndim,
             "n_outputs_": 1,
         }
@@ -327,6 +341,9 @@ class MethodsMultimodalRunResult(RunResult):
 
     methods_multimodal_tuning_evidence: dict[str, Any]
     methods_multimodal_search_request: dict[str, Any]
+    _dagml_graph: dict[str, Any]
+    structural_tuning_training_request: dict[str, Any]
+    structural_tuning_training_outcome: dict[str, Any]
 
     def __init__(self, projected: RunResult, *, outcome: Any, package: Any, audit: Any, request: Any, training_inputs: Any) -> None:
         super().__init__(predictions=projected.predictions, per_dataset=projected.per_dataset)
@@ -374,7 +391,6 @@ def run_methods_multimodal(pipeline: Any, spectro: Any, *, name: str, random_sta
     from .identity import mint_identity
     from .raw_training_lowerer import _array_content_fingerprint, _core_relation_fingerprint, _data_contracts_from_campaign, _output_request_for_node, _training_influence_manifest
     from .resources import current_execution_resources
-    from .result import _scores_to_run_result
     from .training_contracts import DagMLTrainingRequestSpec, assemble_training_request
 
     if not isinstance(spectro, MultimodalSpectroDataset):
@@ -418,8 +434,23 @@ def run_methods_multimodal(pipeline: Any, spectro: Any, *, name: str, random_sta
         gpu_devices=resources.gpu_devices, selection_required_metric_level="sample", selection_evaluation_scope="oof",
     ))
     influence = _training_influence_manifest(graph, campaign, folds, identity, group_by_sample=groups, selection_metric="rmse")
+    return execute_methods_training(
+        spectro=spectro, identity=identity, envelope=envelope, request=request, data_envelopes=data_envelopes,
+        influence=influence, output=output, name=name, binding_source_ids=declaration["dsl"]["data_bindings"][0]["source_ids"],
+    )
+
+
+def execute_methods_training(*, spectro: Any, identity: Any, envelope: dict[str, Any], request: dict[str, Any],
+                             data_envelopes: dict[str, Any], influence: dict[str, Any], output: dict[str, Any],
+                             name: str, binding_source_ids: list[str]) -> MethodsMultimodalRunResult:
+    """Capture the same complete portable winner for fixed and structural campaigns."""
+    from .result import _scores_to_run_result
+
+    native = importlib.import_module("dag_ml")
+    graph = request["graph"]
+    cohort = spectro.cohort
     controller = controller_for_graph(graph, cohort, allow_fit=True,
-                                      binding_source_ids=declaration["dsl"]["data_bindings"][0]["source_ids"])
+                                      binding_source_ids=binding_source_ids)
     frames = []
     training = None
 
