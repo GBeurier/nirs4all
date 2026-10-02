@@ -15,6 +15,8 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
+from nirs4all.operators.transforms.nirs import SavitzkyGolay
+from nirs4all.operators.transforms.scalers import StandardNormalVariate
 from nirs4all.pipeline.dagml_bridge import controller_manifests, lower_structural_hpo_pipeline
 
 from . import tuning_adapters
@@ -43,6 +45,43 @@ def is_structural_tuning_pipeline(pipeline: Any) -> bool:
     ) for step in pipeline)
 
 
+def _validate_preprocessing_alternatives(alternatives: Any, *, n_features: int | None = None) -> None:
+    """Check declared chains without expanding native recipes or fitting operators."""
+    if not isinstance(alternatives, list) or len(alternatives) < 2 or sum(item is None for item in alternatives) != 1:
+        raise ValueError("structural preprocessing alternatives require exactly one None and at least one nonempty operator branch")
+    for alternative in alternatives:
+        if alternative is None:
+            continue
+        chain = alternative if isinstance(alternative, list) else [alternative]
+        if not chain:
+            raise ValueError("structural preprocessing chains must be nonempty flat lists of supported operators")
+        for operator in chain:
+            if type(operator) is StandardScaler:
+                if any(type(operator.get_params()[key]) is not bool for key in ("copy", "with_mean", "with_std")):
+                    raise ValueError("StandardScaler constructor controls must be booleans")
+            elif type(operator) is StandardNormalVariate:
+                if (type(operator.axis) is not int or operator.axis != 1
+                        or type(operator.ddof) is not int or operator.ddof < 0
+                        or any(type(operator.get_params()[key]) is not bool for key in ("copy", "with_mean", "with_std"))
+                        or operator.copy is not True):
+                    raise ValueError("structural StandardNormalVariate requires axis=1, nonnegative integer ddof, boolean controls and copy=True")
+                if n_features is not None and operator.with_std and operator.ddof >= n_features:
+                    raise ValueError("structural StandardNormalVariate ddof must be smaller than the feature width when with_std=True")
+            elif type(operator) is SavitzkyGolay:
+                if (type(operator.window_length) is not int or operator.window_length < 1
+                        or type(operator.polyorder) is not int or not 0 <= operator.polyorder < operator.window_length
+                        or type(operator.deriv) is not int or operator.deriv < 0
+                        or isinstance(operator.delta, bool) or not isinstance(operator.delta, (int, float))
+                        or not math.isfinite(operator.delta) or operator.delta == 0
+                        or operator.copy is not True):
+                    raise ValueError("structural SavitzkyGolay requires a positive integer window_length, integer polyorder in [0, window_length), "
+                                     "nonnegative integer deriv, finite nonzero delta and copy=True")
+                if n_features is not None and operator.window_length > n_features:
+                    raise ValueError("structural SavitzkyGolay window_length must not exceed the training feature width")
+            else:
+                raise ValueError("structural preprocessing supports only StandardScaler, StandardNormalVariate and SavitzkyGolay instances in flat chains")
+
+
 def validate_structural_profile(pipeline: Any) -> tuple[list[Any], Any]:
     """Validate the existing DSL shape before any native handles or callbacks."""
     if not isinstance(pipeline, list):
@@ -52,14 +91,8 @@ def validate_structural_profile(pipeline: Any) -> tuple[list[Any], Any]:
             or not isinstance(splitter.group_by, str) or not splitter.group_by):
         raise ValueError("structural tuning requires an explicit GroupKFold split with group_by metadata")
     if len(steps) != 2 or not isinstance(steps[0], dict) or set(steps[0]) != {"_or_"}:
-        raise ValueError("structural tuning requires optional StandardScaler preprocessing followed by model choices")
-    scalers = steps[0]["_or_"]
-    if (not isinstance(scalers, list) or len(scalers) != 2
-            or sum(item is None for item in scalers) != 1 or sum(type(item) is StandardScaler for item in scalers) != 1):
-        raise ValueError("structural preprocessing alternatives must be exactly None and StandardScaler")
-    scaler = next(item for item in scalers if item is not None)
-    if any(type(scaler.get_params()[key]) is not bool for key in ("copy", "with_mean", "with_std")):
-        raise ValueError("StandardScaler constructor controls must be booleans")
+        raise ValueError("structural tuning requires preprocessing alternatives followed by model choices")
+    _validate_preprocessing_alternatives(steps[0]["_or_"])
     if not isinstance(steps[1], dict) or set(steps[1]) != {"model"}:
         raise ValueError("structural tuning does not support model fit controls or additional steps")
     choices = steps[1]["model"]
@@ -162,6 +195,7 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
     y = _pool_targets(dataset, pool)
     if x.ndim != 2 or not x.shape[0] or not x.shape[1] or y.ndim != 1 or len(y) != len(x) or not np.isfinite(x).all() or not np.isfinite(y).all():
         raise ValueError("structural tuning requires finite dense training X and one complete finite target")
+    _validate_preprocessing_alternatives(steps[0]["_or_"], n_features=x.shape[1])
     folds = _build_folds(splitter, dataset, pool, set())
     if not folds or any(not train or not validation for train, validation in folds):
         raise ValueError("structural tuning requires nonempty train and validation rows in every fold")

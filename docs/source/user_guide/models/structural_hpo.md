@@ -1,9 +1,9 @@
-# Search optional scaling and Ridge versus PLS
+# Search preprocessing chains and Ridge versus PLS
 
 Use the existing pipeline alternatives with `run(tuning=...)` to search both
-the recipe and the parameter active for its model. This first structural
-profile supports one dense source, one regression target, optional
-`StandardScaler`, and `Ridge` versus `PLSRegression(scale=False)`. Declare
+the recipe and the parameter active for its model. This structural profile
+supports one dense source, one regression target, fixed preprocessing
+alternatives, and `Ridge` versus `PLSRegression(scale=False)`. Declare
 `GroupKFold` and the metadata column that identifies groups. All trials use
 the same training cohort and folds; external test targets do not select a
 recipe.
@@ -47,10 +47,61 @@ The complete runnable example is
 training and test data, exports the selected predictor, removes the training
 workspace, and predicts again from the archive.
 
+## Fixed ordered preprocessing chains
+
+Declare exactly one `None` alternative for raw features and at least one
+nonempty preprocessing branch. Each branch can be a single operator instance
+or a flat ordered list of instances. The allowed operators are
+`StandardScaler`, `SNV` (the `StandardNormalVariate` alias) and
+`SavitzkyGolay`. Chains can contain more than two operators, including repeated
+operators with distinct constructor settings. Nested lists, nested generators,
+model steps and `None` inside a chain are refused.
+
+```python
+from nirs4all.operators.transforms import SNV, SavitzkyGolay
+
+pipeline[0] = {
+    "_or_": [
+        None,
+        StandardScaler(),
+        [SNV(), SavitzkyGolay(window_length=5, polyorder=2)],
+    ],
+}
+tuning["n_trials"] = 12
+```
+
+These declarations describe six native recipes: three preprocessing branches
+paired with the two model choices. The SNV and Savitzky-Golay operators remain
+one ordered branch; their order and every constructor parameter belong to its
+native recipe identity. Changing either changes the bound catalogue. The SDK
+does not enumerate the Cartesian product in Python. A trial budget does not
+guarantee that a random sampler visits every declared recipe.
+
+`examples/user/04_models/U18_structural_hpo_preprocessing_chains.py` runs this
+search on U17's deterministic 48-row fixture, with 36 training rows, 12 external
+test rows and three grouped CV folds. It exports the selected fitted chain,
+removes the training workspace and verifies archive prediction.
+
+Constructor settings are fixed for the search; only the two model parameters
+below are tuning axes. All supported preprocessing operators preserve the
+feature width. Their additional profile constraints are checked before any
+candidate is fitted:
+
+| Operator | Constructor requirements |
+| --- | --- |
+| `StandardScaler` | `copy`, `with_mean` and `with_std` must be booleans. |
+| `SNV` / `StandardNormalVariate` | `axis=1`, a nonnegative integer `ddof`, boolean `with_mean` and `with_std`, and `copy=True`. When `with_std=True`, `ddof` must be smaller than the feature width. |
+| `SavitzkyGolay` | Positive integer `window_length` no larger than the feature width; integer `polyorder` between zero and `window_length - 1`; nonnegative integer `deriv`; finite, nonzero `delta`; and `copy=True`. |
+
+Savitzky-Golay accepts even windows, negative `delta`, and derivative orders
+greater than `polyorder` according to the existing transform's semantics.
+These constructor values are strictly serialized as finite JSON values.
+
 ## Recipe and parameter identity
 
-The declarations describe four recipes: raw or scaled features, followed by
-Ridge or PLS. DAG-ML expands the existing Cartesian generator, assigns native
+The optional-scaling declarations above describe four recipes: raw or scaled
+features, followed by Ridge or PLS. The chain example adds two more recipes.
+DAG-ML expands the existing Cartesian generator, assigns native
 recipe identities and validates the ordered catalogue. The SDK does not
 enumerate and schedule four independent Python pipelines.
 
@@ -68,9 +119,11 @@ binding, actual trial identities, scores and selected parameters. Its
 space or use `force_params`. Inactive placeholder values remain in the native
 optimizer history for compatibility and never become fit arguments.
 
-Every candidate owns its fitted transforms and cache. Nothing learned by one
-recipe initializes another recipe. Native score reports determine the winner;
-native winner resolution produces the exact pruned graph for CV and REFIT.
+Every candidate owns its fitted transforms and cache. Each chain executes in
+the declared order, fitting transforms only on that fold's training rows.
+Nothing learned by one recipe initializes another recipe. Native score reports
+determine the winner; native winner resolution produces the exact pruned graph
+for CV and REFIT.
 The final archive contains the fitted selected predictor, including its
 preprocessing. Archive prediction performs no fit or optimizer search.
 
@@ -123,8 +176,8 @@ pruning. Parallel execution requires explicit `sampler="random"` without a
 pruner; each candidate runs in an isolated Python process. The existing
 execution resource controls apply to both trials and final training.
 
-Other transformers or models, additional pipeline steps, multi-source or
-multi-target data, generated or augmented views, fit controls, calibration,
+Other transformers or models, additional steps outside the declared branches,
+multi-source or multi-target data, generated or augmented views, fit controls, calibration,
 `force_params`, custom `run(cache=...)`, and training through a session are
 refused. Use the result's existing `.export()` method for the winner archive.
 An older DAG-ML build without the native catalogue and winner helpers fails

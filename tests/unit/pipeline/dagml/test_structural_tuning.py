@@ -16,6 +16,7 @@ from sklearn.model_selection import GroupKFold, KFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.operators.transforms import SNV, SavitzkyGolay
 from nirs4all.pipeline.dagml import structural_tuning as structural
 from nirs4all.pipeline.dagml import tuning_adapters as adapters
 from nirs4all.pipeline.dagml.host_search_checkpoint import HostSearchOptimizer
@@ -468,3 +469,93 @@ def test_expected_native_options_keep_pruning_contract_and_exclude_total_budget(
     owner.api = SimpleNamespace(Sampler=SimpleNamespace(RANDOM="random"), Direction=SimpleNamespace(MINIMIZE="minimize"),
                                 Pruner=SimpleNamespace(MEDIAN="median", ASHA="asha", RACING="racing", HYPERBAND="hyperband"))
     assert owner._optimizer_options(n_folds=3) == {"sampler": "random", "direction": "minimize", "seed": 17, **expected}
+
+
+@pytest.mark.parametrize("branches", [
+    [None, SNV()],
+    [None, SavitzkyGolay(window_length=4, polyorder=2)],
+    [None, SavitzkyGolay(window_length=5, polyorder=2, deriv=3, delta=-0.5)],
+    [None, StandardScaler(), [SNV(), SavitzkyGolay(window_length=5, polyorder=2)]],
+    [StandardScaler(copy=False), None, [StandardScaler(with_mean=False), SNV(ddof=1), SavitzkyGolay(window_length=3, polyorder=1)]],
+    [None, [SavitzkyGolay(window_length=3, polyorder=1), SavitzkyGolay(window_length=5, polyorder=2), SNV(with_mean=False)]],
+])
+def test_preprocessing_chains_preserve_order_distinct_nodes_and_every_constructor(branches: list[Any]) -> None:
+    pipeline = _pipeline()
+    pipeline[1]["_or_"] = branches
+    declarations = copy.deepcopy(branches)
+    steps, _ = validate_structural_profile(pipeline)
+    generator = lower_structural_hpo_pipeline(steps)["pipeline"][0]
+    assert generator["kind"] == "generator" and generator["mode"] == "cartesian"
+    assert len(generator["stages"]) == 2
+    lowered = generator["stages"][0]["branches"]
+    assert len(lowered) == len(declarations)
+    for declaration, branch in zip(declarations, lowered, strict=True):
+        operators = [] if declaration is None else declaration if isinstance(declaration, list) else [declaration]
+        assert len(branch["steps"]) == len(operators)
+        assert len({step["id"] for step in branch["steps"]}) == len(operators)
+        for operator, step in zip(operators, branch["steps"], strict=True):
+            assert step["kind"] == "transform"
+            assert step["operator"]["class"].endswith(type(operator).__name__)
+            assert step["params"] == operator.get_params(deep=False)
+    assert all(not hasattr(operator, "n_features_in_") for branch in branches if branch is not None
+               for operator in (branch if isinstance(branch, list) else [branch]))
+    assert "entries" not in generator and "variant_id" not in generator
+
+
+@pytest.mark.parametrize("branch", [
+    [], [SNV(), [StandardScaler()]], [SNV(), None], [SNV(), {"preprocessing": StandardScaler()}],
+    [SNV(), Ridge()], SNV, SavitzkyGolay, MinMaxScaler(),
+    SNV(axis=0), SNV(axis=True), SNV(ddof=-1), SNV(ddof=0.5), SNV(ddof=True),
+    SNV(copy=False), SNV(with_mean=1), SNV(with_std=0),
+    SavitzkyGolay(window_length=0, polyorder=0), SavitzkyGolay(window_length=5.0, polyorder=2),  # type: ignore[arg-type]
+    SavitzkyGolay(window_length=True, polyorder=0), SavitzkyGolay(window_length=5, polyorder=-1),
+    SavitzkyGolay(window_length=5, polyorder=5), SavitzkyGolay(window_length=5, polyorder=2.0),  # type: ignore[arg-type]
+    SavitzkyGolay(window_length=5, polyorder=2, deriv=-1), SavitzkyGolay(window_length=5, polyorder=2, deriv=True),
+    SavitzkyGolay(window_length=5, polyorder=2, delta=0), SavitzkyGolay(window_length=5, polyorder=2, delta=True),
+    SavitzkyGolay(window_length=5, polyorder=2, delta=float("nan")), SavitzkyGolay(window_length=5, polyorder=2, delta=float("inf")),
+    SavitzkyGolay(window_length=5, polyorder=2, copy=False),
+])
+def test_invalid_preprocessing_chain_refuses_before_native_import_or_fit(branch: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("invalid preprocessing declaration reached native preparation or FIT")
+
+    pipeline = _pipeline()
+    pipeline[1]["_or_"] = [None, branch]
+    monkeypatch.setattr(structural.importlib, "import_module", forbidden)
+    for operator in (StandardScaler, SNV, SavitzkyGolay, Ridge, PLSRegression):
+        monkeypatch.setattr(operator, "fit", forbidden)
+    with pytest.raises(ValueError, match="(?i)(structural|scaler|normalvariate|savitzkygolay|preprocessing|chains)"):
+        _prepare_structure(pipeline, object(), {"engine": "n4m", "space": {"model.alpha": [0.1], "model.n_components": [2]}}, {})
+
+
+@pytest.mark.parametrize("branches", [[None], [None, None, SNV()], [SNV(), StandardScaler()], (None, SNV())])
+def test_raw_alternative_must_be_present_exactly_once(branches: Any) -> None:
+    pipeline = _pipeline()
+    pipeline[1]["_or_"] = branches
+    with pytest.raises(ValueError, match="exactly one None"):
+        validate_structural_profile(pipeline)
+
+
+@pytest.mark.parametrize("operator,match", [
+    (SNV(ddof=6), "ddof.*feature width"),
+    (SavitzkyGolay(window_length=7, polyorder=2), "window_length.*feature width"),
+])
+def test_preprocessing_width_refuses_before_native_compile_or_fit(operator: Any, match: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    import dag_ml
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("invalid feature width reached native catalogue compilation or FIT")
+
+    dataset = SpectroDataset("chain-width-contract")
+    dataset.add_samples(np.arange(108, dtype=np.float32).reshape(18, 6), {"partition": "train"})
+    dataset.add_targets(np.arange(18, dtype=float))
+    dataset.add_metadata(np.repeat(["a", "b", "c"], 6)[:, None], headers=["batch"])
+    dataset.set_task_type("regression")
+    pipeline = _pipeline()
+    pipeline[1]["_or_"] = [None, [StandardScaler(), operator]]
+    monkeypatch.setattr(dag_ml, "compile_pipeline_dsl_artifact_with_controllers", forbidden)
+    monkeypatch.setattr(dag_ml, "prepare_host_hpo_structural_catalogue", forbidden)
+    for cls in (StandardScaler, SNV, SavitzkyGolay, Ridge, PLSRegression):
+        monkeypatch.setattr(cls, "fit", forbidden)
+    with pytest.raises(ValueError, match=match):
+        _prepare_structure(pipeline, dataset, {"engine": "n4m", "space": {"model.alpha": [0.1], "model.n_components": [2]}}, {})
