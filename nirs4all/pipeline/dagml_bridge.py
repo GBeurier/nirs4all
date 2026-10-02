@@ -613,6 +613,47 @@ def _canonical_branch_step(dsl_step: dict[str, Any], step_id: str) -> dict[str, 
     return {"kind": "transform", "id": step_id, "operator": {"class": dsl_step["class"]}, "params": dict(dsl_step.get("params", {}))}
 
 
+def lower_structural_hpo_pipeline(steps: list[Any], dsl_id: str = "nirs4all-structural-hpo") -> dict[str, Any]:
+    """Lower declared preprocessing/model choices without enumerating recipes.
+
+    The closed public profile is validated by ``structural_tuning``. Its two
+    existing ``_or_`` sites become the stages of the existing native Cartesian
+    generator. An empty preprocessing branch represents the declared ``None``;
+    it never becomes a fitted identity transformer. Native generation owns the
+    complete sequences, their labels, node identities and recipe catalogue.
+    """
+    if len(steps) != 2 or not isinstance(steps[0], dict) or set(steps[0]) != {"_or_"}:
+        raise ValueError("structural tuning requires preprocessing _or_ followed by model _or_")
+    if not isinstance(steps[1], dict) or set(steps[1]) != {"model"}:
+        raise ValueError("structural tuning requires one declared model choice step")
+    models = steps[1]["model"]
+    if not isinstance(models, dict) or set(models) != {"_or_"}:
+        raise ValueError("structural tuning requires model={'_or_': [...]} alternatives")
+    stages = []
+    for stage_index, choices in enumerate((steps[0]["_or_"], models["_or_"])):
+        if not isinstance(choices, list) or not choices:
+            raise ValueError("structural tuning alternatives must be nonempty lists")
+        branches = []
+        for option_index, operator in enumerate(choices):
+            # These are the existing constrained lowerer's structural node IDs.
+            # They identify declaration sites; native VariantPlan/content labels
+            # identify recipes, independently of legacy names or host enumeration.
+            branch_id = f"s{stage_index}op{option_index}"
+            if operator is None:
+                if stage_index != 0:
+                    raise ValueError("a structural model choice cannot be None")
+                branch_steps = []
+            elif stage_index == 0:
+                branch_steps = _operator_option_step(operator, branch_id)["steps"]
+            else:
+                branch_steps = [_canonical_branch_step(_step_to_dsl({"model": operator}), f"m:{branch_id}")]
+            if operator is not None:
+                branch_steps[0]["params"] = _canonical_label_params(operator)
+            branches.append({"id": branch_id, "steps": branch_steps})
+        stages.append({"id": f"stage{stage_index}", "branches": branches})
+    return {"id": dsl_id, "pipeline": [{"kind": "generator", "id": "generator:preproc", "mode": "cartesian", "stages": stages}]}
+
+
 def operator_choice_variant_label(choice: Any, downstream_steps: list[Any]) -> str:
     """The AUTHORITATIVE ``variant_label`` (hex sha256) for ONE bare-operator ``_or_`` choice + its tail.
 

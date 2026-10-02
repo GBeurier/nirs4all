@@ -7,6 +7,7 @@ This section covers model training, comparison, and optimization in NIRS4ALL.
 
 training
 hyperparameter_tuning
+structural_hpo
 native_tuning_conformal
 native_pls_phase_controls
 native_pls_fold_hpo

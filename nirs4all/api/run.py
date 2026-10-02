@@ -1158,6 +1158,17 @@ def run(
     if tuning is not None:
         tuning = _coerce_public_tuning_payload(tuning)
         if selected_engine == "dag-ml":
+            from nirs4all.pipeline.dagml.structural_tuning import is_structural_tuning_pipeline, run_structural_tuning
+
+            if is_structural_tuning_pipeline(pipeline):
+                if calibration is not None:
+                    raise ValueError("structural tuning does not support calibration")
+                return cast(RunResult, run_structural_tuning(pipeline, dataset, tuning, run_options={
+                    **runner_kwargs, "name": name, "verbose": verbose, "save_artifacts": save_artifacts,
+                    "save_charts": save_charts, "plots_visible": plots_visible, "random_state": random_state,
+                    "refit": refit, "cache": cache, "project": project, "report_naming": report_naming,
+                    "results_path": results_path, "session": session,
+                }))
             import nirs4all_io
 
             if isinstance(dataset, getattr(nirs4all_io, "MultimodalDataset", ())):
