@@ -445,6 +445,11 @@ def run_via_dagml(
     # canonical serialization. Resolve operators before splitter/shape checks;
     # a serialized KFold must not accidentally enter the no-splitter route.
     pipeline = deserialize_component(pipeline)
+    from .methods_multimodal import methods_model_in_pipeline
+
+    if (methods_model_in_pipeline(pipeline) is not None
+            and (results_path is not None or session is not None or venv_python is not None)):
+        raise ValueError("Methods multimodal uses public result.export('.n4a') in the current native Python runtime; results_path, session and venv_python are unsupported")
 
     # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
@@ -563,7 +568,10 @@ def run_via_dagml(
                     for metadata in view.per_dataset.values():
                         metadata[key] = copy.deepcopy(relation)
         check_cancellation()
-        if generated_view_store is None:
+        from .methods_multimodal import MethodsMultimodalRunResult
+
+        methods_multimodal = isinstance(result, MethodsMultimodalRunResult)
+        if generated_view_store is None and not methods_multimodal:
             _attach_export_spec(result, pipeline, dataset, name, random_state)
         workspace_path = None
         if save_artifacts or project is not None or "workspace_path" in effective_runner_kwargs or (requested_charts and save_charts):
@@ -582,7 +590,10 @@ def run_via_dagml(
             )
             for metadata in result.per_dataset.values():
                 metadata["chart_reports"] = chart_paths
-        if save_artifacts and result._dagml_score_set is not None and not native_results_enabled(results_path):
+        if methods_multimodal and save_artifacts:
+            assert workspace_path is not None
+            result.export(workspace_path / "native_results" / "methods_multimodal.n4a")
+        elif save_artifacts and result._dagml_score_set is not None and not native_results_enabled(results_path):
             assert workspace_path is not None
             result._dagml_results_dir = write_native_results(result, result._dagml_score_set, workspace_path / "native_results")
         # Explicit native output remains independent of the workspace option.
@@ -998,6 +1009,13 @@ def _dispatch_run(
     ignores it (the parent is already seeded in :func:`run_via_dagml`).
     """
     from nirs4all.core import detect_task_type
+
+    from .methods_multimodal import methods_model_in_pipeline, run_methods_multimodal
+
+    if methods_model_in_pipeline(pipeline) is not None:
+        if refit_top_k != 1 or holdout_train_sample_ids is not None:
+            raise ValueError("Methods multimodal profile supports one full REFIT and explicit IO train/test partitions")
+        return run_methods_multimodal(pipeline, spectro, name=name, random_state=random_state, refit=refit)
 
     pipeline, finetune_overrides = _lower_public_finetune_params(pipeline)
     refit_params_noop = _is_supported_native_refit_params_noop(pipeline)
