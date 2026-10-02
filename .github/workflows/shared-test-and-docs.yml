@@ -37,15 +37,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Checkout pinned dag-ml CLI source
-        uses: actions/checkout@v6
-        with:
-          repository: GBeurier/dag-ml
-          ref: 46d4f00aa58b3687c9afff2e1a8ec78712fc7c3a
-          path: dag-ml-cli-src
-
-      - uses: dtolnay/rust-toolchain@stable
-
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
@@ -69,8 +60,8 @@ jobs:
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
 
-      - name: Build pinned dag-ml CLI for parity tests
-        run: cargo build -p dag-ml-cli --manifest-path dag-ml-cli-src/Cargo.toml
+      - name: Build qualified Methods and DAG candidate runtime
+        uses: ./.github/actions/candidate-native
 
       - name: Gate real library usability
         timeout-minutes: 5
@@ -80,7 +71,6 @@ jobs:
         shell: bash
         env:
           N4A_ENGINE: dag-ml
-          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
         run: python scripts/ci/run_full_dagml_pytest.py --no-timeouts --report-dir dagml-pytest-report tests/
 
       - name: Upload DAG-ML pytest report

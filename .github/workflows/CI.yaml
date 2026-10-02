@@ -11,10 +11,10 @@ on:
 # exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
 
 env:
-  N4A_DAG_ML_REF: 46d4f00aa58b3687c9afff2e1a8ec78712fc7c3a
+  N4A_DAG_ML_REF: ab5f5f4d8b3485e03f5841699ec5729c93f41716
   N4A_DAG_ML_DATA_REF: 3f761473d1aa597a1ed76d9d8c60094f4053aab8
   N4A_IO_REF: 6816c4b18b9281c34c1b8095fbce0cfbc7e1b224
-  N4A_METHODS_REF: 858bec0a5dfd38b75c092f90fb7d890fd3b057d7
+  N4A_METHODS_REF: d72c9084c4e12ed6869c8c72fb48b808c000b9ad
 
 jobs:
   lint:
@@ -69,7 +69,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: GBeurier/dag-ml
-          ref: 46d4f00aa58b3687c9afff2e1a8ec78712fc7c3a
+          ref: ${{ env.N4A_DAG_ML_REF }}
           path: dag-ml-cli-src
 
       - name: Checkout qualified n4m source
@@ -135,7 +135,7 @@ jobs:
           OPENBLAS_NUM_THREADS: '1'
           MKL_NUM_THREADS: '1'
         run: |
-          python -c 'import n4m; from n4m.compose.preprocessing import NativePreprocessingPipeline; from n4m.estimators.regression.sparse import GroupSparsePLS; from n4m.augmentation import run_native; from n4m.roles import NativeEstimator; assert n4m.abi_version() == (2, 15, 0); assert "nirs4all-methods-src" in n4m.__file__; print(n4m.__file__, n4m.abi_version())'
+          python -c 'import n4m; from n4m.compose.preprocessing import NativePreprocessingPipeline; from n4m.estimators.regression.sparse import GroupSparsePLS; from n4m.augmentation import run_native; from n4m.roles import NativeEstimator; assert n4m.abi_version() == (2, 16, 0); assert "nirs4all-methods-src" in n4m.__file__; print(n4m.__file__, n4m.abi_version())'
           mkdir -p fast-dagml-pytest-report
           python -m pytest -q --timeout=300 -n 2 --dist worksteal \
             -m 'not slow and not gpu and not stress' \
