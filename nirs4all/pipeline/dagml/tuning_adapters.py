@@ -679,7 +679,9 @@ def _suggest_typed_range(
     raise ValueError(f"unsupported range type {ptype!r} for tuning.space path {path!r}")
 
 
-def _make_n4m_space(api: Any, space_spec: Mapping[str, Any]) -> tuple[Any, list[tuple[str, str, _CategoricalCodec | None]]]:
+def _make_n4m_space(
+    api: Any, space_spec: Mapping[str, Any], *, structural_catalogue: Mapping[str, Any] | None = None,
+) -> tuple[Any, list[tuple[str, str, _CategoricalCodec | None]]]:
     space = api.SearchSpace()
     slots: list[tuple[str, str, _CategoricalCodec | None]] = []
     categorical_codecs = _categorical_codecs(space_spec)
@@ -714,6 +716,20 @@ def _make_n4m_space(api: Any, space_spec: Mapping[str, Any]) -> tuple[Any, list[
                 slots.append((path, _slot_kind(inferred), None))
                 continue
         raise ValueError(f"unsupported n4m tuning.space spec for {path!r}: {spec!r}")
+    if structural_catalogue is not None:
+        selector = structural_catalogue["selector_path"]
+        entries = structural_catalogue["entries"]
+        recipe_ids = [entry["recipe_id"] for entry in entries]
+        if selector in space_spec or len(set(recipe_ids)) != len(recipe_ids):
+            raise ValueError("structural selector or native recipe identities collide")
+        space.add_categorical(selector, recipe_ids)
+        slots.append((selector, "categorical", None))
+        for path in sorted(space_spec):
+            active_recipes = [entry["recipe_id"] for entry in entries if path in entry["parameter_bindings"]]
+            if not active_recipes:
+                raise ValueError(f"structural tuning path {path!r} is inactive for every recipe")
+            for recipe_id in active_recipes:
+                space.add_constraint(api.ConstraintKind.CONDITION_IN, [path, selector], ["", recipe_id])
     return space, slots
 
 
@@ -736,9 +752,13 @@ def _slot_kind(ptype: str) -> str:
     raise ValueError(f"unsupported n4m range type {ptype!r}")
 
 
-def _n4m_trial_params(trial: Any, slots: list[tuple[str, str, _CategoricalCodec | None]]) -> dict[str, Any]:
+def _n4m_trial_params(
+    trial: Any, slots: list[tuple[str, str, _CategoricalCodec | None]], *, active_only: bool = False,
+) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for path, kind, codec in slots:
+        if active_only and not trial.is_active(path):
+            continue
         if kind == "int":
             params[path] = trial.get_int(path)
         elif kind == "float":
@@ -1053,6 +1073,27 @@ def _decode_n4m_record_params(
     for path, value in params.items():
         codec = codecs.get(str(path))
         decoded[str(path)] = codec.decode(value) if codec is not None else value
+    return decoded
+
+
+def _n4m_active_record_params(record: Any, slots: list[tuple[str, str, _CategoricalCodec | None]]) -> dict[str, Any]:
+    """Decode effective values using native activity, retaining owning trace bytes.
+
+    Rich native records retain inactive placeholder values. They are evidence
+    about the optimizer trace, never effective estimator parameters.
+    """
+    expected = {path for path, _kind, _codec in slots}
+    if set(record.params) != expected or set(record.param_details) != expected:
+        raise ValueError("structural optimizer trace keys do not match the native search space")
+    if any(type(record.param_details[path].active) is not bool for path in expected):
+        raise ValueError("structural optimizer activity must be attested native booleans")
+    decoded: dict[str, Any] = {}
+    for path in expected:
+        if record.param_details[path].active:
+            try:
+                decoded.update(_decode_n4m_record_params({path: record.params[path]}, slots))
+            except KeyError as exc:
+                raise ValueError(f"structural optimizer value outside the declared search domain: {path}") from exc
     return decoded
 
 

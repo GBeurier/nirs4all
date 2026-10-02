@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import math
 import os
 import tempfile
 from pathlib import Path
@@ -15,10 +17,12 @@ from .tuning_contracts import DagMLTuningSpec, tcv1_sha256
 class HostSearchOptimizer:
     """Translate native ask/tell/fail events without owning evaluation or selection."""
 
-    def __init__(self, tuning: DagMLTuningSpec, *, n_folds: int) -> None:
+    def __init__(self, tuning: DagMLTuningSpec, *, n_folds: int, structural_catalogue: dict[str, Any] | None = None) -> None:
         self.tuning = tuning
+        self.structural_catalogue = copy.deepcopy(structural_catalogue)
         self.api = adapters._import_n4m_optimizer()
-        space, self.slots = adapters._make_n4m_space(self.api, tuning.space)
+        space, self.slots = (adapters._make_n4m_space(self.api, tuning.space) if self.structural_catalogue is None
+                            else adapters._make_n4m_space(self.api, tuning.space, structural_catalogue=self.structural_catalogue))
         self.path = adapters._n4m_checkpoint_path(tuning)
         self.resume_checkpoint = None
         self.pruned: set[int] = set()
@@ -26,29 +30,29 @@ class HostSearchOptimizer:
             if self.path is None or not self.path.exists():
                 raise ValueError("multimodal resume requires an existing paired native checkpoint")
             payload = json.loads(self.path.read_text())
-            pair = {key: payload[key] for key in ("checkpoint_fingerprint", "native_checkpoint") if key in payload}
+            pair = self._pair_preimage(payload)
             if "native_checkpoint" not in pair or payload.get("pair_fingerprint") != tcv1_sha256(pair):
                 raise ValueError("multimodal paired checkpoint fingerprint mismatch")
+            saved_structure = payload.get("structural_binding")
+            if self.structural_catalogue is None:
+                if saved_structure is not None:
+                    raise ValueError("structural checkpoint cannot resume through a fixed-topology search")
+            elif not isinstance(saved_structure, dict) or saved_structure.get("catalogue") != self.structural_catalogue:
+                raise ValueError("structural checkpoint catalogue or activation contract mismatch")
             self.optimizer = adapters._load_n4m_optimizer_checkpoint(self.api, tuning, self.path)
             self.resume_checkpoint = payload["native_checkpoint"]
             try:
+                if self.structural_catalogue is not None:
+                    self._validate_native_configuration(space, n_folds=n_folds)
+                if self.structural_catalogue is not None and saved_structure != self._structural_binding():
+                    raise ValueError("structural checkpoint native activation masks disagree")
                 self._validate_history(self.resume_checkpoint)
-            except Exception:
+            except BaseException:
                 self.optimizer.close()
                 raise
         else:
             adapters._reject_existing_n4m_checkpoint_without_resume(tuning, self.path)
-            pruner = adapters._n4m_pruner(tuning, self.api)
-            options = {
-                "sampler": adapters._n4m_enum(self.api.Sampler, adapters._n4m_sampler_name(tuning.sampler)),
-                "direction": adapters._n4m_enum(self.api.Direction, tuning.direction),
-                "seed": tuning.seed or 0,
-            }
-            if pruner is not None:
-                options.update(pruner=pruner, n_startup_trials=10,
-                               max_resource=n_folds if tuning.pruner == "hyperband" else 0,
-                               reduction_factor=0)
-            self.optimizer = self.api.Optimizer(space, **options)
+            self.optimizer = self.api.Optimizer(space, **self._optimizer_options(n_folds=n_folds))
             adapters._enqueue_n4m_force_params(self.optimizer, tuning, adapters._slot_categorical_codecs(self.slots))
         # Parallel DAG-ML may have asked ahead of its contiguous terminal
         # checkpoint. Keep those RUNNING native trials so resume replays their
@@ -61,6 +65,37 @@ class HostSearchOptimizer:
             if self.resume_checkpoint is not None else {}
         )
 
+    def _optimizer_options(self, *, n_folds: int) -> dict[str, Any]:
+        options = {
+            "sampler": adapters._n4m_enum(self.api.Sampler, adapters._n4m_sampler_name(self.tuning.sampler)),
+            "direction": adapters._n4m_enum(self.api.Direction, self.tuning.direction),
+            "seed": self.tuning.seed or 0,
+        }
+        pruner = adapters._n4m_pruner(self.tuning, self.api)
+        if pruner is not None:
+            options.update(pruner=pruner, n_startup_trials=10,
+                           max_resource=n_folds if self.tuning.pruner == "hyperband" else 0,
+                           reduction_factor=0)
+        return options
+
+    def _validate_native_configuration(self, space: Any, *, n_folds: int) -> None:
+        """Compare immutable native configuration before reading or asking trials.
+
+        Methods compares its own ordered space, constraints and normalized
+        options. No host parsing of N4MOPT or inference from observed history
+        can attest an as-yet unseen recipe. The total trial budget is a DAG
+        control, not a native optimizer option, and may increase on resume.
+        """
+        matches = getattr(self.optimizer, "configuration_matches", None)
+        if not callable(matches):
+            raise ValueError("structural resume requires native Optimizer.configuration_matches(...); upgrade n4m bindings and library")
+        expected = self.api.Optimizer(space, **self._optimizer_options(n_folds=n_folds))
+        try:
+            if matches(expected) is not True:
+                raise ValueError("native optimizer checkpoint space or options contract mismatch")
+        finally:
+            expected.close()
+
     def _validate_history(self, checkpoint: dict[str, Any]) -> None:
         records = self.optimizer.get_trials()
         trials = checkpoint["trials"]
@@ -71,7 +106,7 @@ class HostSearchOptimizer:
             raise ValueError("native DAG and optimizer checkpoint has non-running pending trials")
         for record, trial in zip(records[:len(trials)], trials, strict=True):
             evidence = trial.get("evidence", trial)
-            params = adapters._decode_n4m_record_params(record.params, self.slots)
+            params = self._record_params(record)
             state = {"complete": "COMPLETE", "pruned": "PRUNED", "failed": "FAIL"}.get(trial["state"])
             if state is None:
                 raise ValueError("native DAG checkpoint has an unsupported terminal state")
@@ -85,12 +120,15 @@ class HostSearchOptimizer:
         if event["operation"] == "ask":
             trial = self.pending.get(index)
             if trial is not None:
-                return adapters._decode_n4m_record_params(trial.params, self.slots)
+                return self._record_params(trial)
             trial = self.optimizer.ask()
             if trial.id != index:
                 raise ValueError("native DAG and optimizer trial IDs disagree")
             self.pending[index] = trial
-            return adapters._n4m_trial_params(trial, self.slots)
+            params = (adapters._n4m_trial_params(trial, self.slots) if self.structural_catalogue is None
+                      else adapters._n4m_trial_params(trial, self.slots, active_only=True))
+            self._validate_structural_params(params)
+            return params
         if event["operation"] == "report_intermediate":
             if index in self.pruned:
                 raise ValueError("native optimizer received feedback after pruning")
@@ -123,9 +161,9 @@ class HostSearchOptimizer:
             return
         payload = adapters._n4m_checkpoint_manifest(self.tuning, self.optimizer.save())
         payload["native_checkpoint"] = native
-        payload["pair_fingerprint"] = tcv1_sha256({
-            "checkpoint_fingerprint": payload["checkpoint_fingerprint"], "native_checkpoint": native,
-        })
+        if self.structural_catalogue is not None:
+            payload["structural_binding"] = self._structural_binding()
+        payload["pair_fingerprint"] = tcv1_sha256(self._pair_preimage(payload))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:
@@ -139,6 +177,51 @@ class HostSearchOptimizer:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+
+    def _pair_preimage(self, payload: dict[str, Any]) -> dict[str, Any]:
+        keys = ["checkpoint_fingerprint", "native_checkpoint"]
+        if "structural_binding" in payload:
+            keys.append("structural_binding")
+        return {key: payload[key] for key in keys if key in payload}
+
+    def _record_params(self, record: Any) -> dict[str, Any]:
+        params = (adapters._n4m_active_record_params(record, self.slots) if self.structural_catalogue is not None
+                  else adapters._decode_n4m_record_params(record.params, self.slots))
+        self._validate_structural_params(params)
+        return params
+
+    def _validate_structural_params(self, params: dict[str, Any]) -> None:
+        if self.structural_catalogue is None:
+            return
+        selector = self.structural_catalogue["selector_path"]
+        recipe = next((entry for entry in self.structural_catalogue["entries"] if entry["recipe_id"] == params.get(selector)), None)
+        if recipe is None or set(params) != {selector, *recipe["parameter_bindings"]}:
+            raise ValueError("structural proposal recipe or active parameter mask mismatch")
+        slots = {path: (kind, codec) for path, kind, codec in self.slots}
+        for path in recipe["parameter_bindings"]:
+            value = params[path]
+            kind, codec = slots[path]
+            valid = (type(value) is int if path == "model.n_components"
+                     else not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value))
+            if codec is not None:
+                choices = codec.decoder.values() if codec.decoder is not None else codec.choices
+                valid = valid and value in choices
+            else:
+                declaration = self.tuning.space[path]
+                # Native float step=0 is continuous, whereas the shared range
+                # validator represents that same contract with step=None.
+                if isinstance(declaration, dict) and kind == "float" and declaration.get("step") == 0:
+                    declaration = {**declaration, "step": None}
+                valid = valid and adapters._optuna_resume_value_matches_space_spec(value, declaration)
+            if not valid:
+                raise ValueError(f"structural proposal value is outside the declared search domain: {path}")
+
+    def _structural_binding(self) -> dict[str, Any]:
+        masks = []
+        for record in self.optimizer.get_trials():
+            params = self._record_params(record)
+            masks.append({"trial_index": record.id, "active_paths": sorted(params)})
+        return {"catalogue": self.structural_catalogue, "activation_masks": masks}
 
     def close(self) -> None:
         self.optimizer.close()
