@@ -41,7 +41,14 @@ def _sources(cohort: MultimodalDataset, names: list[str]) -> MultimodalDataset:
     )
 
 
-def _pipeline(case: str, seed: int) -> tuple[list[Any], dict[str, Any]]:
+def _pipeline(case: str, seed: int, *, backend: str = "sklearn") -> tuple[list[Any], dict[str, Any]]:
+    if backend == "methods":
+        if case != "early":
+            raise ValueError("The Methods qualification covers the complete four-source early-fusion profile")
+        pipeline = make_pipeline(backend="methods")
+        for name in ("image", "series"):
+            pipeline[-1]["model"].transformers[name].set_params(random_state=seed)
+        return pipeline, {"candidates": 8, "search": "native_grid", "space": pipeline[-1]["_grid_"]}
     base = make_pipeline()[-1]["model"]
     transformers = {name: clone(transformer) for name, transformer in base.transformers.items()}
     for transformer in transformers.values():
@@ -107,10 +114,10 @@ def _predictions(result: Any, cohort: MultimodalDataset, case: str, seed: int) -
     return records
 
 
-def _qualify(case: str, seed: int, cohort: MultimodalDataset, output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _qualify(case: str, seed: int, cohort: MultimodalDataset, output: Path, *, backend: str = "sklearn") -> tuple[dict[str, Any], list[dict[str, Any]]]:
     names = [case] if case in cohort.sources else list(cohort.sources)
     data = _sources(cohort, names)
-    pipeline, budget = _pipeline(case, seed)
+    pipeline, budget = _pipeline(case, seed, backend=backend)
     directory = output / f"seed-{seed}" / case
     directory.mkdir(parents=True, exist_ok=True)
     tracemalloc.start()
@@ -136,7 +143,7 @@ def _qualify(case: str, seed: int, cohort: MultimodalDataset, output: Path) -> t
         np.testing.assert_allclose(metrics["cv_rmse"], selected.cv_best_score, rtol=1e-9, atol=1e-9)
         np.testing.assert_allclose(metrics["test_rmse"], selected.best_rmse, rtol=1e-9, atol=1e-9)
         summary = {
-            "seed": seed, "case": case, "sources": names, "engine": result.execution_engine,
+            "seed": seed, "case": case, "sources": names, "engine": result.execution_engine, "backend": backend,
             "budget": budget, **metrics, "elapsed_seconds": time.perf_counter() - started,
             "python_peak_bytes": tracemalloc.get_traced_memory()[1], "archive_bytes": archive.stat().st_size,
             "archive": str(archive.relative_to(output)), "replay_matches_test_predictions": True,
@@ -153,6 +160,7 @@ def _qualify(case: str, seed: int, cohort: MultimodalDataset, output: Path) -> t
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("multimodal_qualification"))
+    parser.add_argument("--backend", choices=("sklearn", "methods"), default="sklearn")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -161,8 +169,8 @@ def main() -> None:
         cohort = make_cohort(seed)
         cohorts[str(seed)] = {**_split_evidence(cohort), "schema": cohort.schema_descriptors(),
                               "raw_shapes": {name: list(source.values.shape) for name, source in cohort.sources.items()}}
-        for case in CASES:
-            summary, rows = _qualify(case, seed, cohort, output)
+        for case in (("early",) if args.backend == "methods" else CASES):
+            summary, rows = _qualify(case, seed, cohort, output, backend=args.backend)
             summaries.append(summary)
             predictions.extend(rows)
             print(f"seed={seed} {case}: CV RMSE={summary['cv_rmse']:.5f}, test RMSE={summary['test_rmse']:.5f}", flush=True)
@@ -170,7 +178,8 @@ def main() -> None:
         "fixture": "deterministic synthetic software qualification; no claim of scientific superiority",
         "seeds": list(SEEDS), "selection": "native grid, minimum pooled OOF RMSE; test excluded from selection",
         "measurement": "elapsed run+export+test replay; tracemalloc Python peak bytes, not process RSS or all native allocations",
-        "budget_note": "two candidates per unimodal/early/intermediate case; late has one fixed recipe and nested GroupKFold(2)",
+        "budget_note": ("eight canonical alpha/image-weight/image-component candidates, full four-source Methods early fusion" if args.backend == "methods"
+                        else "two candidates per unimodal/early/intermediate case; late has one fixed recipe and nested GroupKFold(2)"),
         "target_unit": "synthetic arbitrary units", "cohorts": cohorts, "runs": summaries,
         "versions": {name: importlib.metadata.version(name) for name in ("nirs4all", "nirs4all-io", "dag-ml", "numpy", "scikit-learn")},
     }

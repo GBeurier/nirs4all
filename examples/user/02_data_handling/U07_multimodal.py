@@ -70,7 +70,7 @@ def make_cohort(seed: int = 17, *, prediction: bool = False) -> MultimodalDatase
     )
 
 
-def make_pipeline() -> list:
+def make_pipeline(*, backend: str = "sklearn") -> list:
     """Tune an encoder, fusion weight and regressor with the same grouped folds."""
     model = MultimodalRegressor(
         transformers={
@@ -83,6 +83,7 @@ def make_pipeline() -> list:
             ]),
         },
         model=Ridge(alpha=1.0),
+        backend=backend,
     )
     return [GroupKFold(3), {"model": model, "_grid_": {
         "model__alpha": [0.1, 1.0],
@@ -96,6 +97,7 @@ def main() -> None:
     default_output = Path(os.environ["NIRS4ALL_WORKSPACE"]) / "multimodal_demo" if "NIRS4ALL_WORKSPACE" in os.environ else Path("multimodal_demo")
     parser.add_argument("--output", type=Path, default=default_output)
     parser.add_argument("--search", choices=("random", "grid"), default="random")
+    parser.add_argument("--backend", choices=("sklearn", "methods"), default="sklearn", help="Select the native complete encoder/Ridge pipeline explicitly")
     parser.add_argument("--resume", action="store_true", help="Continue the native random search checkpoint")
     parser.add_argument("--stop-after", type=int, help="Stop between trials; resume with the same output directory")
     parser.add_argument("--replay", type=Path, help="Predict new raw inputs using this archive, without training")
@@ -112,7 +114,7 @@ def main() -> None:
         return
     if args.search == "grid" and (args.resume or args.stop_after is not None):
         parser.error("--resume and --stop-after apply to --search random")
-    pipeline = make_pipeline()
+    pipeline = make_pipeline(backend=args.backend)
     tuning: dict[str, Any] | None = None
     if args.search == "random":
         space = pipeline[-1].pop("_grid_")
@@ -151,7 +153,7 @@ def main() -> None:
             "cv_rmse": float(result.cv_best_score), "test_rmse": float(result.best_rmse),
             "archive": archive.name, "new_predictions": np.asarray(prediction.y_pred).tolist(),
             "training_performed_on_reload": prediction.metadata.get("training_performed"),
-            "search": args.search, "trial_budget": 8,
+            "search": args.search, "trial_budget": 8, "backend": args.backend,
             "tuning": result.tuning_result.to_dict() if result.tuning_result is not None else None,
             "elapsed_seconds": timer.perf_counter() - started,
             "python_peak_bytes": tracemalloc.get_traced_memory()[1], "archive_bytes": archive.stat().st_size,

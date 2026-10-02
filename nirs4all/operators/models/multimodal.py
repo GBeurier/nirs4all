@@ -6,7 +6,7 @@ to ``fit``. Raw tensors reach their source transformer without flattening.
 """
 
 from collections.abc import Mapping
-from typing import Any, Self
+from typing import Any, Self, cast
 
 import numpy as np
 from scipy import sparse
@@ -309,6 +309,13 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
     each encoded block. All learned components are cloned and fitted on the
     supplied rows only. Nested sklearn parameters remain configurable.
 
+    ``backend='sklearn'`` is the default. ``backend='methods'`` supports the
+    closed four-source NIR/image/series/mixed-metadata early-fusion Ridge recipe
+    and delegates all learned encoders and predictor state to Methods. Direct
+    fit requires explicit IO-derived ``source_schemas``; public ``run`` supplies
+    them. Use portable ``result.export`` and public archive ``predict`` for
+    replay, and ``close`` to release a directly fitted native predictor.
+
     Targets may be one-dimensional or contain multiple output columns when
     supported by the underlying regressor. Target dimensions and prediction
     shapes are preserved; the wrapper never flattens multi-output targets.
@@ -339,12 +346,28 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
         source_weights: Mapping[str, float] | None = None,
         target_policy: str = "complete",
         missing_source_policy: str = "error",
+        backend: str = "sklearn",
     ):
         super().__init__(transformers, model, fusion=fusion, source_weights=source_weights, missing_source_policy=missing_source_policy)
         self.target_policy = target_policy
+        self.backend = backend
 
-    def fit(self, X: list[Any], y: Any, *, target_mask: Any = None, source_masks: Mapping[str, Any] | None = None) -> Self:
+    def fit(self, X: list[Any], y: Any, *, target_mask: Any = None, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> Self:
         """Fit joint or target-specific chains using only observed target cells."""
+        if self.backend not in {"sklearn", "methods"}:
+            raise ValueError("backend must be 'sklearn' or 'methods'.")
+        if self.backend == "methods":
+            from nirs4all.pipeline.dagml.methods_multimodal import fit_declared_methods_model
+
+            targets = np.asarray(y)
+            if target_mask is not None and (np.asarray(target_mask).dtype.kind != "b"
+                                            or np.shape(target_mask) != targets.shape or not np.asarray(target_mask).all()):
+                raise ValueError("Methods multimodal requires a complete boolean target mask")
+            self._validate_source_masks(source_masks, tuple(self.transformers), len(targets), "error", fitting=True)
+            fit_declared_methods_model(self, X, y, source_schemas=source_schemas)
+            return self
+        if source_schemas is not None:
+            raise ValueError("source_schemas is only supported by backend='methods'")
         if not isinstance(self.target_policy, str) or self.target_policy not in {"complete", "per_target"}:
             raise ValueError("target_policy must be 'complete' or 'per_target'.")
         if y is None:
@@ -398,8 +421,18 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
         self.n_outputs_ = matrix.shape[1]
         return self
 
-    def predict(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None) -> np.ndarray:
+    def predict(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> np.ndarray:
         """Predict every fitted target, retaining the original target rank."""
+        if self.backend == "methods":
+            check_is_fitted(self, ["native_pipeline_", "source_schemas_"])
+            blocks = self._validate_blocks(X, self.source_names_, self.input_shapes_)
+            self._validate_source_masks(source_masks, self.source_names_, len(blocks[0]), "error", fitting=False)
+            prediction = np.asarray(self.native_pipeline_.predict(dict(zip(self.source_names_, blocks, strict=True)), source_schemas=source_schemas))
+            return prediction.reshape(-1) if self.target_ndim_ == 1 else prediction.reshape(-1, 1)
+        if self.backend != "sklearn":
+            raise ValueError("backend must be 'sklearn' or 'methods'.")
+        if source_schemas is not None:
+            raise ValueError("source_schemas is only supported by backend='methods'")
         if not hasattr(self, "target_models_"):
             return super().predict(X, source_masks=source_masks)
         blocks = self._validate_blocks(X, self.source_names_, self.input_shapes_)
@@ -412,6 +445,22 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
             columns.append(prediction.reshape(rows))
         values = np.column_stack(columns)
         return values[:, 0] if self.target_ndim_ == 1 else values
+
+    def close(self) -> None:
+        """Release a directly fitted Methods predictor; harmless before fitting."""
+        native = self.__dict__.pop("native_pipeline_", None)
+        if native is not None:
+            native.close()
+
+    def __getstate__(self) -> dict[str, Any]:
+        if self.backend == "methods" and "native_pipeline_" in self.__dict__:
+            raise TypeError("learned Methods multimodal state uses a portable N4MF archive, not pickle/joblib")
+        return cast(dict[str, Any], super().__getstate__())
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        # Previously captured sklearn predictors predate the additive keyword.
+        # Their absent backend is the historical sklearn default.
+        super().__setstate__({"backend": "sklearn", **state})
 
     def __sklearn_tags__(self) -> Any:
         from sklearn.utils import get_tags

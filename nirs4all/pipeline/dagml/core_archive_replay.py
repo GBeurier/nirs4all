@@ -164,7 +164,12 @@ def predict_core_methods_archive_v2(
                     "Core Archive V2 Session is bound to a different libn4m identity"
                 )
 
+    from .methods_multimodal import is_methods_multimodal_package, predict_methods_multimodal_archive
     from .native_pls_phase_replay import is_native_pls_phase_package, predict_native_pls_phase_archive
+
+    if is_methods_multimodal_package(validation.package):
+        return predict_methods_multimodal_archive(candidate, data, methods_library_path=validation.methods_library_path,
+                                                  outcome_id=outcome_id, run_id=run_id)
 
     if is_native_pls_phase_package(validation.package):
         try:
@@ -242,6 +247,14 @@ def validate_core_methods_archive_v2(
     except Exception as error:
         raise CoreArchiveReplayError("nirs4all-core refused Archive V2 validation") from error
     package = _decode_package(package_bytes)
+    from .methods_multimodal import PROFILE, is_methods_multimodal_package
+
+    if is_methods_multimodal_package(package):
+        from nirs4all.api.portable_archive import read_portable_predictor_archive_v2
+
+        loaded = read_portable_predictor_archive_v2(archive_path)
+        return CoreArchiveValidation(core=core, package=loaded.to_dict(), predictors=({"native_profile": PROFILE},),
+                                     methods_library_path=library_path, methods_library_sha256=library_sha256)
     from .native_pls_phase_replay import is_native_pls_phase_package, read_native_pls_phase_archive
 
     if is_native_pls_phase_package(package):

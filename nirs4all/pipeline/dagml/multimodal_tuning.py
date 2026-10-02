@@ -28,7 +28,7 @@ from .public_normalization import normalize_model_steps
 from .resolver import MaterializationResolver
 from .steps import _split_pipeline
 from .training_controls import validate_cv_weight_transfer_graph, validate_training_control_declarations
-from .tuning_contracts import SUPPORTED_TUNING_KEYS, TrialResult, TuningResult, parse_tuning_spec, tcv1_sha256
+from .tuning_contracts import SUPPORTED_TUNING_KEYS, TrialResult, TuningResult, normalize_parameter_path, parse_tuning_spec, tcv1_sha256
 
 
 class MultimodalTuningStopped(RuntimeError):
@@ -93,7 +93,24 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise ValueError("multimodal tuning model steps accept only model, train_params, refit_params, finetune_params and name")
     model = model_step["model"] if model_step is not None else None
     model_controls = {key: value for key, value in (model_step or {}).items() if key != "model"}
+    methods_backend = isinstance(model, MultimodalRegressor) and model.backend == "methods"
+    if methods_backend:
+        from .methods_multimodal import TUNABLE_KEYS, validate_training_profile
+
+        validate_training_profile(pipeline, cohort, refit=run_options.get("refit", True) is True)
+        allowed_paths = {normalize_parameter_path(key)[0] for key in TUNABLE_KEYS}
+        if (set(model_controls) - {"name"}
+                or any(normalize_parameter_path(key)[0] not in allowed_paths for key in tuning.get("space", {}))):
+            raise ValueError("Methods multimodal global tuning accepts only alpha, image weight and image components without fit controls")
+        if tuning.get("n_jobs", 1) != 1:
+            raise ValueError("Methods multimodal global tuning currently requires n_jobs=1")
+        if run_options.get("results_path") is not None or run_options.get("session") is not None:
+            raise ValueError("Methods multimodal uses public result.export('.n4a') and does not support native results directories or sessions")
+        if not callable(getattr(importlib.import_module("n4m"), "MultimodalPipeline", None)):
+            raise ImportError("installed nirs4all-methods lacks MultimodalPipeline; install the matching native encoder build")
     generated_store = getattr(cohort, "_generated_view_store", None)
+    if methods_backend and generated_store is not None:
+        raise ValueError("Methods multimodal tuning requires fixed complete sources")
     if generated_store is not None and model is None:
         raise NotImplementedError("generated-view tuning requires one concrete multimodal model")
     # Only training rows enter either the native search contract or callbacks.
@@ -159,7 +176,18 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         dsl = assemble_cv_refit_dsl([search_step], identity, envelope, folds, dsl_id="multimodal-hpo", n_splits=len(folds))
         if generated_store is not None:
             dsl["root_seed"] = operator_seed
-        graph = json.loads(native.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
+        if methods_backend:
+            from .methods_multimodal import bind_methods_dsl
+
+            if not isinstance(model, MultimodalRegressor):
+                raise ValueError("Methods multimodal tuning requires a MultimodalRegressor")
+            declaration = bind_methods_dsl(dsl, model, dataset.cohort)
+            dsl = declaration["dsl"]
+            manifests = [declaration["manifest"]]
+            graph = native.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests).graph.to_dict()
+        else:
+            graph = json.loads(native.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
+            manifests = controller_manifests()
         target = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
     else:
         from .run_paths import _assemble_stacking_dsl
@@ -169,6 +197,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             task_type="classification" if classification else "regression", random_state=operator_seed, group_by_sample=groups, source_layout=recipe.layout,
         )
         target = "merge:stack"
+        manifests = controller_manifests()
     nodes = {node["id"]: node for node in graph["nodes"]}
     resolver = MaterializationResolver(dataset, identity)
     store: dict[Any, Any] = {}
@@ -207,6 +236,13 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         request["progressive_pruning"] = True
     if recipe is not None:
         request["parameter_bindings"] = recipe.bindings
+    elif methods_backend:
+        # Keep optimizer/checkpoint paths in their public canonical dotted form.
+        # Native HPO maps them to the exact closed operator keys before PLAN/FIT.
+        request["parameter_bindings"] = {
+            path: {"node_id": target, "param_path": path.replace(".", "__")}
+            for path in spec.space
+        }
 
     def evaluate(task: dict[str, Any], *, model_store: dict[Any, Any], view_store: Any = None) -> dict[str, Any]:
         # Native task identity reproduces unseeded operators across resume.
@@ -217,6 +253,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
 
     trial_view_stores: dict[int, Any] = {}
     candidate_processes: dict[int, Any] = {}
+    methods_controller: Any = None
 
     def candidate_process(index: int) -> Any:
         worker = candidate_processes.get(index)
@@ -256,19 +293,30 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         return evaluate_candidate
 
     def fallback_evaluate(task: dict[str, Any]) -> dict[str, Any]:
+        nonlocal methods_controller
         if generated_store is not None:
             raise ValueError("generated HPO used the static fallback operator")
+        if methods_backend:
+            from .methods_multimodal import controller_for_graph
+
+            if methods_controller is None:
+                methods_controller = controller_for_graph(graph, dataset.cohort, allow_fit=True,
+                                                           binding_source_ids=dsl["data_bindings"][0]["source_ids"])
+            return cast(dict[str, Any], methods_controller.operator(task))
         return evaluate(task, model_store=store)
 
     optimizer = HostSearchOptimizer(spec, n_folds=len(folds))
     stop_requested = False
 
     def checkpoint(event: dict[str, Any]) -> Any:
-        nonlocal stop_requested
+        nonlocal stop_requested, methods_controller
         if event["operation"] == "prepare_terminal":
             # The optimizer is still RUNNING here; publish only after tell/fail.
             return True
         optimizer.checkpoint(event)
+        if methods_controller is not None:
+            methods_controller.close()
+            methods_controller = None
         terminal_count = len(event["checkpoint"]["trials"])
         for index in list(candidate_processes):
             if index < terminal_count:
@@ -293,7 +341,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         )
     try:
         evidence = native.run_host_hpo_search_in_process(
-            dsl, envelope, controller_manifests(), request,
+            dsl, envelope, manifests, request,
             fallback_evaluate, optimizer,
             **host_hpo_kwargs,
         )
@@ -302,7 +350,11 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             for worker in candidate_processes.values():
                 worker.close()
         finally:
-            optimizer.close()
+            try:
+                if methods_controller is not None:
+                    methods_controller.close()
+            finally:
+                optimizer.close()
     if evidence["status"] == "cancelled":
         if stop_requested:
             raise DagRunCancelled("DAG multimodal search cancelled by caller; checkpoint saved for resume=True")
@@ -341,6 +393,13 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     winner = next(item for item in evidence["trials"] if item["trial_index"] == evidence["selected_trial_index"])
     result._tuning_result = TuningResult(tuning=spec, best_params=evidence["selected_params"],
                                         best_value=winner["score"], trials=tuple(trials), optimizer="n4m")
+    if methods_backend:
+        from .methods_multimodal import MethodsMultimodalRunResult
+
+        if not isinstance(result, MethodsMultimodalRunResult):
+            raise RuntimeError("Methods multimodal selected training returned a different result profile")
+        result.methods_multimodal_tuning_evidence = copy.deepcopy(evidence)
+        result.methods_multimodal_search_request = copy.deepcopy({"dsl": dsl, "envelope": envelope, "controller_manifests": manifests, "request": request})
     for artifact in result._dagml_refit_artifacts:
         artifact["estimator"].multimodal_tuning_evidence = evidence
     return result
