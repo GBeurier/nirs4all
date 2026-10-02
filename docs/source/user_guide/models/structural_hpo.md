@@ -1,9 +1,10 @@
-# Search preprocessing chains and Ridge versus PLS
+# Search source subsets, preprocessing chains and Ridge versus PLS
 
 Use the existing pipeline alternatives with `run(tuning=...)` to search both
 the recipe and the parameter active for its model. This structural profile
-supports one dense source, one regression target, fixed preprocessing
-alternatives, and `Ridge` versus `PLSRegression(scale=False)`. Declare
+supports dense features, one regression target, fixed preprocessing
+alternatives, and `Ridge` versus `PLSRegression(scale=False)`. For multiple
+aligned dense sources, also declare the ordered source subsets to concatenate. Declare
 `GroupKFold` and the metadata column that identifies groups. All trials use
 the same training cohort and folds; external test targets do not select a
 recipe.
@@ -97,6 +98,69 @@ Savitzky-Golay accepts even windows, negative `delta`, and derivative orders
 greater than `polyorder` according to the existing transform's semantics.
 These constructor values are strictly serialized as finite JSON values.
 
+## Ordered source subsets before preprocessing
+
+For an ordinary multi-source `SpectroDataset`, prepend a source-choice stage
+using the existing explicit source-merge syntax:
+
+```python
+pipeline.insert(0, {
+    "_or_": [
+        {"merge": {"sources": {"strategy": "concat", "sources": [0]}}},
+        {"merge": {"sources": {"strategy": "concat", "sources": [0, 2]}}},
+        {"merge": {"sources": {"strategy": "concat", "sources": [2, 0]}}},
+    ],
+})
+```
+
+The first choice selects source zero. The second concatenates source zero
+then source two; the third keeps the reverse order. Numeric indices and their
+`source_<index>` aliases are accepted. Each explicit selection must be a
+nonempty list without repeated sources. The input sources must be complete,
+aligned two-dimensional numeric blocks with shared samples and targets.
+Images, ragged series, missing-source masks, and source-local learned adapters
+are outside this structural profile. Typed `MultimodalDataset` cohorts and their
+`MultimodalSpectroDataset` adapters are refused here; their axis, unit and schema
+contracts require the separate typed multimodal execution path.
+
+Each source subset is followed by the entire selected preprocessing chain,
+then the chosen model. For example, SNV runs across the selected concatenated
+features, and StandardScaler learns statistics from that fold's training
+rows. Preprocessing is not fitted separately on each original block. Every
+declared source subset must have enough features for the SG window, SNV
+`ddof`, and every proposed PLS component count. These constraints are checked
+before catalogue creation or FIT.
+
+With raw/scaled preprocessing and Ridge/PLS, the three source choices above
+declare twelve recipes in one native Cartesian generator. An existing
+sklearn `ColumnTransformer` selects concrete ordered columns; its constructor,
+the complete original source layout, source choice, and subsequent operator
+order belong to the signed native catalogue. Source subset selection adds no
+public numeric tuning axis. Random sampling can revisit recipes without
+covering every alternative.
+
+`examples/user/04_models/U19_structural_hpo_source_subsets.py` demonstrates
+this workflow using three deterministic fixture blocks of widths 6, 3 and 4,
+grouped CV, winner REFIT, and archive replay after removing the workspace.
+These blocks are test data, not a new multimodal dataset generator.
+
+The winner archive retains the selected projection and the original complete
+input layout. Predict with matching raw source blocks, or with their full
+ordered concatenation. Include all original source columns, even those the
+winner drops; do not preselect the winner's subset yourself. Changed block
+counts and block widths are refused before projection or estimator prediction.
+When a dataset exposes `source_name(index)`, source names and order are checked
+as well. Anonymous blocks of equal width have no independent identity: an
+exchange of these blocks cannot be detected. Preserve their original order.
+A single flat matrix must also have the complete original width and column
+order; it carries no separate source names or block-boundary information.
+
+Changing a deliberately unused source does not affect candidate scores or
+winner predictions. Its raw values still belong to the complete signed input
+identity, so changing them invalidates an existing checkpoint. This protects
+resume even when a source appears only in an unvisited recipe or is dropped
+by every declared choice.
+
 ## Recipe and parameter identity
 
 The optional-scaling declarations above describe four recipes: raw or scaled
@@ -152,8 +216,9 @@ result = nirs4all.run(pipeline, dataset, engine="dag-ml", tuning=tuning,
 
 Returning `False` from the progress callback stops after a durable terminal
 trial. `n_trials` is the total budget, including resumed trials. Keep the
-pipeline order, constructor settings, parameter axes, groups, folds, training
-values, targets, objective and seeds unchanged. Catalogue and native activity
+pipeline order, constructor settings, source choices and complete input layout,
+parameter axes, groups, folds, training values, targets, objective and seeds
+unchanged. Catalogue and native activity
 masks are bound to the checkpoint. An incompatible or altered pair is refused
 before fitting, without overwriting its bytes. A fixed-topology checkpoint
 cannot become a structural checkpoint. Extending the trial budget is allowed.
@@ -177,7 +242,8 @@ pruner; each candidate runs in an isolated Python process. The existing
 execution resource controls apply to both trials and final training.
 
 Other transformers or models, additional steps outside the declared branches,
-multi-source or multi-target data, generated or augmented views, fit controls, calibration,
+multi-target data, non-dense or incomplete source blocks, source selection without
+the explicit source-choice stage, generated or augmented views, fit controls, calibration,
 `force_params`, custom `run(cache=...)`, and training through a session are
 refused. Use the result's existing `.export()` method for the winner archive.
 An older DAG-ML build without the native catalogue and winner helpers fails

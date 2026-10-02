@@ -7,7 +7,7 @@ import hashlib
 import importlib.metadata
 import json
 import platform
-from typing import Any
+from typing import Any, cast
 
 from nirs4all.data.multimodal import MultimodalSpectroDataset
 
@@ -25,8 +25,45 @@ def bind_input_contract(estimator: Any, dataset: Any, source_index: int | None =
             estimator.multimodal_source_name = dataset.source_names[source_index]
 
 
+def bind_dense_concat_input_contract(estimator: Any, source_layout: dict[str, Any]) -> None:
+    """Retain the original dense source layout with a fitted source projection."""
+    estimator.dense_concat_input_layout = copy.deepcopy(source_layout)
+
+
+def _validate_dense_concat_input_contract(estimator: Any, dataset: Any) -> None:
+    """Accept either the declared raw blocks or their full ordered flat buffer."""
+    layout = getattr(estimator, "dense_concat_input_layout", None)
+    if layout is None:
+        return
+    if not isinstance(layout, dict) or layout.get("kind") != "by_source_concat":
+        raise ValueError("invalid captured dense source input layout")
+    blocks = layout.get("blocks")
+    names = layout.get("source_order")
+    if not isinstance(blocks, list) or not blocks or not isinstance(names, list) or len(names) != len(blocks):
+        raise ValueError("invalid captured dense source input layout")
+    raw_widths = [block.get("column_count") if isinstance(block, dict) else None for block in blocks]
+    if any(type(width) is not int or width < 1 for width in raw_widths):
+        raise ValueError("invalid captured dense source input widths")
+    widths = cast(list[int], raw_widths)
+    count = dataset.features_sources()
+    actual_widths = dataset.num_features
+    actual_widths = actual_widths if isinstance(actual_widths, list) else [actual_widths]
+    # A flat matrix cannot express separate source boundaries; its columns must
+    # already follow the complete original order retained in the archive.
+    expected_widths = [sum(widths)] if count == 1 else widths
+    if actual_widths != expected_widths or count != len(expected_widths):
+        raise ValueError("dense source input layout mismatch: source counts or widths changed")
+    if any(dataset.features_processings(index) != ["raw"] for index in range(count)):
+        raise ValueError("dense source input layout requires raw features only")
+    if count > 1:
+        actual_names = [dataset.source_name(index) if hasattr(dataset, "source_name") else f"source_{index}" for index in range(count)]
+        if actual_names != names:
+            raise ValueError("dense source input layout mismatch: source names or order changed")
+
+
 def validate_input_contract(estimator: Any, dataset: Any) -> None:
     """Reject shape, axis, unit or feature-schema drift before prediction."""
+    _validate_dense_concat_input_contract(estimator, dataset)
     expected = getattr(estimator, "multimodal_input_schema", None)
     if expected is None:
         return
