@@ -618,9 +618,11 @@ def lower_structural_hpo_pipeline(steps: list[Any], dsl_id: str = "nirs4all-stru
 
     The closed public profile is validated by ``structural_tuning``. Its two
     existing ``_or_`` sites become the stages of the existing native Cartesian
-    generator. An empty preprocessing branch represents the declared ``None``;
-    it never becomes a fitted identity transformer. Native generation owns the
-    complete sequences, their labels, node identities and recipe catalogue.
+    generator. Each fixed preprocessing chain remains one ordered branch, with
+    the constructor parameters of every operator retained independently. An
+    empty preprocessing branch represents the declared ``None``; it never
+    becomes a fitted identity transformer. Native generation owns the complete
+    sequences, their labels, node identities and recipe catalogue.
     """
     if len(steps) != 2 or not isinstance(steps[0], dict) or set(steps[0]) != {"_or_"}:
         raise ValueError("structural tuning requires preprocessing _or_ followed by model _or_")
@@ -642,12 +644,18 @@ def lower_structural_hpo_pipeline(steps: list[Any], dsl_id: str = "nirs4all-stru
             if operator is None:
                 if stage_index != 0:
                     raise ValueError("a structural model choice cannot be None")
-                branch_steps = []
+                branch_steps: list[dict[str, Any]] = []
             elif stage_index == 0:
-                branch_steps = _operator_option_step(operator, branch_id)["steps"]
+                branch_steps = []
+                for transform_index, transform in enumerate(_operator_choice_operators(operator)):
+                    # Preserve existing single-operator IDs; additional chain
+                    # positions get distinct IDs even for repeated operators.
+                    transform_id = branch_id if transform_index == 0 else f"{branch_id}:{transform_index}"
+                    transform_step = _operator_option_step(transform, transform_id)["steps"][0]
+                    transform_step["params"] = _canonical_label_params(transform)
+                    branch_steps.append(transform_step)
             else:
                 branch_steps = [_canonical_branch_step(_step_to_dsl({"model": operator}), f"m:{branch_id}")]
-            if operator is not None:
                 branch_steps[0]["params"] = _canonical_label_params(operator)
             branches.append({"id": branch_id, "steps": branch_steps})
         stages.append({"id": f"stage{stage_index}", "branches": branches})
