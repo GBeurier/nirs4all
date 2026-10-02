@@ -1162,10 +1162,13 @@ def _run_fitted_transform_node(
 
     from nirs4all.data.multimodal import MultimodalSpectroDataset
 
+    # Source-subset recipes explicitly operate on the signed full concatenated
+    # input. Ordinary multi-source transforms retain their per-source chains.
+    dense_concat = (node_lookup(node_id).get("metadata") or {}).get("nirs4all_structural_dense_concat") is True
     # Generated single-source tasks must read their validated native view below.
-    if resolver.is_multi_source() or (
+    if not dense_concat and (resolver.is_multi_source() or (
         generated_views is None and isinstance(getattr(resolver, "_dataset", None), MultimodalSpectroDataset)
-    ):
+    )):
         resolved = resolver.resolve_feature_blocks(
             ids, include_augmented=bool(view.get("include_augmented")), fold_label=task.get("fold_id") or "refit",
         )

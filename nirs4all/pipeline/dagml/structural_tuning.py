@@ -1,4 +1,4 @@
-"""Closed mono-source structural HPO through native DAG generation and N4M."""
+"""Closed dense structural HPO through native DAG generation and N4M."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from .multimodal_tuning import _evaluate_host_task
 from .node_runner import clear_cv_weight_transfers
 from .resolver import MaterializationResolver
 from .steps import DagMlSplitStep, _split_pipeline
+from .structural_sources import validate_source_selection_alternatives
 from .tuning_contracts import SUPPORTED_TUNING_KEYS, DagMLTuningSpec, TrialResult, TuningResult, parse_tuning_spec, tcv1_sha256
 
 _PARAMETER_PATHS = {"model.alpha": "alpha", "model.n_components": "n_components"}
@@ -90,12 +91,18 @@ def validate_structural_profile(pipeline: Any) -> tuple[list[Any], Any]:
     if (not isinstance(splitter, DagMlSplitStep) or type(_splitter_operator(splitter)) is not GroupKFold
             or not isinstance(splitter.group_by, str) or not splitter.group_by):
         raise ValueError("structural tuning requires an explicit GroupKFold split with group_by metadata")
-    if len(steps) != 2 or not isinstance(steps[0], dict) or set(steps[0]) != {"_or_"}:
+    source_selections = len(steps) == 3
+    body = steps[1:] if source_selections else steps
+    if len(body) != 2 or not isinstance(body[0], dict) or set(body[0]) != {"_or_"}:
         raise ValueError("structural tuning requires preprocessing alternatives followed by model choices")
-    _validate_preprocessing_alternatives(steps[0]["_or_"])
-    if not isinstance(steps[1], dict) or set(steps[1]) != {"model"}:
+    if source_selections:
+        if not isinstance(steps[0], dict) or set(steps[0]) != {"_or_"}:
+            raise ValueError("structural source selection requires a first _or_ site of explicit source-concat merges")
+        validate_source_selection_alternatives(steps[0]["_or_"])
+    _validate_preprocessing_alternatives(body[0]["_or_"])
+    if not isinstance(body[1], dict) or set(body[1]) != {"model"}:
         raise ValueError("structural tuning does not support model fit controls or additional steps")
-    choices = steps[1]["model"]
+    choices = body[1]["model"]
     models = choices.get("_or_") if isinstance(choices, dict) and set(choices) == {"_or_"} else None
     if (not isinstance(models, list) or len(models) != 2
             or sum(type(item) is Ridge for item in models) != 1 or sum(type(item) is PLSRegression for item in models) != 1):
@@ -108,7 +115,9 @@ def validate_structural_profile(pipeline: Any) -> tuple[list[Any], Any]:
         raise ValueError("structural Ridge requires copy_X=True, positive=False and a deterministic dense solver")
     # Strict serialization checks constructor values, including finite numbers,
     # using the same lowering as ordinary native operator execution.
-    lower_structural_hpo_pipeline(steps)
+    # Source columns are dataset-dependent; validate their declaration now and
+    # strictly lower the unchanged operator body before materialization.
+    lower_structural_hpo_pipeline(body)
     return steps, splitter
 
 
@@ -185,7 +194,17 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
     if not callable(getattr(native, "prepare_host_hpo_structural_catalogue", None)):
         raise ImportError("installed DAG-ML lacks native structural HPO preparation; install the matching structural build")
     dataset = _materialize_dataset(dataset_input)
-    if dataset.features_sources() != 1 or dataset.features_processings(0) != ["raw"] or not dataset.is_regression:
+    source_selections = len(steps) == 3
+    n_sources = dataset.features_sources()
+    if source_selections:
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        if isinstance(dataset, MultimodalSpectroDataset) or getattr(dataset, "_generated_view_store", None) is not None:
+            raise ValueError("structural source selection supports dense raw SpectroDataset blocks only; typed multimodal sources and generated views are unsupported")
+        if (n_sources < 2 or any(dataset.features_processings(index) != ["raw"] for index in range(n_sources))
+                or not dataset.is_regression):
+            raise ValueError("structural source selection requires at least two dense raw sources and regression targets")
+    elif n_sources != 1 or dataset.features_processings(0) != ["raw"] or not dataset.is_regression:
         raise ValueError("structural tuning requires one dense raw source and regression targets")
     identity = mint_identity(dataset)
     if any(sample.augmented for sample in identity.identities) or getattr(dataset, "_generated_view_store", None) is not None:
@@ -195,11 +214,23 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
     y = _pool_targets(dataset, pool)
     if x.ndim != 2 or not x.shape[0] or not x.shape[1] or y.ndim != 1 or len(y) != len(x) or not np.isfinite(x).all() or not np.isfinite(y).all():
         raise ValueError("structural tuning requires finite dense training X and one complete finite target")
-    _validate_preprocessing_alternatives(steps[0]["_or_"], n_features=x.shape[1])
+    min_features = x.shape[1]
+    if source_selections:
+        blocks = dataset.x_rows(pool, layout="2d", concat_source=False)
+        if (not isinstance(blocks, list) or len(blocks) != n_sources
+                or any(np.ndim(block) != 2 or np.shape(block)[0] != len(pool) or not np.shape(block)[1] for block in blocks)):
+            raise ValueError("structural source selection requires aligned, nonempty two-dimensional dense source blocks")
+        widths = [int(np.shape(block)[1]) for block in blocks]
+        if sum(widths) != x.shape[1]:
+            raise ValueError("structural source widths disagree with the complete concatenated input")
+        selections = validate_source_selection_alternatives(steps[0]["_or_"], source_widths=widths)
+        min_features = min(sum(widths[index] for index in selection) for selection in selections)
+    preproc = steps[1] if source_selections else steps[0]
+    _validate_preprocessing_alternatives(preproc["_or_"], n_features=min_features)
     folds = _build_folds(splitter, dataset, pool, set())
     if not folds or any(not train or not validation for train, validation in folds):
         raise ValueError("structural tuning requires nonempty train and validation rows in every fold")
-    _validate_numeric_space(spec, min(x.shape[1], *(len(train) for train, _validation in folds)))
+    _validate_numeric_space(spec, min(min_features, *(len(train) for train, _validation in folds)))
     groups = _split_group_grain(splitter, dataset, pool)
     if groups is None:
         raise ValueError("structural tuning requires complete declared sample groups")
@@ -209,7 +240,7 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
         operator_seed = spec.seed if spec.seed is not None else 0
     if type(operator_seed) is not int or not 0 <= operator_seed <= (1 << 64) - 1:
         raise ValueError("structural operator seed must be an unsigned 64-bit integer")
-    dsl = lower_structural_hpo_pipeline(steps)
+    dsl = lower_structural_hpo_pipeline(steps, source_layout=envelope["plan"].get("source_layout") if source_selections else None)
     dsl["root_seed"] = operator_seed
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds), shuffle=False)
     manifests = controller_manifests()
@@ -233,9 +264,12 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
                "fold_score_reduction": "mean", "structural_catalogue": catalogue}
     if spec.pruner not in {None, "none"}:
         request["progressive_pruning"] = True
-    return {"spec": spec, "dataset": dataset, "identity": identity, "folds": folds, "envelope": envelope,
-            "dsl": dsl, "manifests": manifests, "graph": graph, "catalogue": catalogue, "request": request,
-            "operator_seed": operator_seed, "splitter": splitter, "steps": steps, "pool": pool, "groups": groups}
+    prepared = {"spec": spec, "dataset": dataset, "identity": identity, "folds": folds, "envelope": envelope,
+                "dsl": dsl, "manifests": manifests, "graph": graph, "catalogue": catalogue, "request": request,
+                "operator_seed": operator_seed, "splitter": splitter, "steps": steps, "pool": pool, "groups": groups}
+    if source_selections:
+        prepared["source_layout"] = copy.deepcopy(envelope["plan"]["source_layout"])
+    return prepared
 
 
 def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, run_options: dict[str, Any]) -> Any:
@@ -462,6 +496,10 @@ def _train_selected_structure(
         captures = _capture_refit_artifacts(frames, store)
         if len(captures) != 1:
             raise RuntimeError("structural winner must produce exactly one fitted REFIT predictor")
+        if "source_layout" in prepared:
+            from .multimodal_contracts import bind_dense_concat_input_contract
+
+            bind_dense_concat_input_contract(captures[0]["estimator"], prepared["source_layout"])
         captures[0]["estimator"].structural_tuning_evidence = copy.deepcopy(evidence)
         for average in document.get("oof_averages", []):
             frames.append({"aggregated_predictions": [average["predictions"]], "regression_targets": [average["y_true"]]})
