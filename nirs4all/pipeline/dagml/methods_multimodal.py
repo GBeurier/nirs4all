@@ -316,6 +316,22 @@ def controller_for_graph(graph: Mapping[str, Any], cohort: Any, *, allow_fit: bo
     from .envelope import source_ids
 
     models = [node for node in graph["nodes"] if node["kind"] == "model"]
+    if any(node["operator"].get("type") == "N4mRolePipeline" for node in models):
+        from dag_ml.multimodal_topology import MethodsTopologyController
+
+        schemas = source_schemas_from_cohort(cohort)
+        current_source_ids = tuple(source_ids(MultimodalSpectroDataset(cohort)))
+        if binding_source_ids is not None and tuple(binding_source_ids) != current_source_ids:
+            raise ValueError("current source order differs from the signed native topology binding")
+        raw_nodes = [node for node in models if node["operator"].get("type") == "N4mMultimodalPipeline"]
+        if not raw_nodes or any(node["operator"].get("source_schemas") != schemas for node in raw_nodes):
+            raise ValueError("Methods topology raw source schemas differ from the signed declarations")
+        return MethodsTopologyController(
+            operators={node["id"]: node["operator"] for node in models}, sources=controller_sources(cohort, schemas),
+            targets={"sample_ids": list(cohort.sample_ids), "values": cohort.y} if allow_fit else None,
+            target_names=tuple(cohort.target_names) if allow_fit else ("y",), allow_fit=allow_fit,
+            source_ids=current_source_ids, node_params=node_params, edges=graph["edges"],
+        )
     if len(models) != 1 or len(graph["nodes"]) != 1:
         raise ValueError("Methods multimodal profile requires exactly one native model node")
     controller_id = _controller_id_for_node(models[0], allow_fit=allow_fit, binding_controller_id=binding_controller_id)
@@ -525,7 +541,10 @@ def predict_methods_multimodal_archive(path: str | Path, data: Any, *, methods_l
     plan = document["effective_plan"]
     graph = plan["graph_plan"]["graph"]
     model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
-    if len(model_nodes) != 1 or model_nodes[0]["operator"].get("source_schemas") != schemas:
+    raw_nodes = [node for node in model_nodes if node["operator"].get("type") == "N4mMultimodalPipeline"]
+    topology = any(node["operator"].get("type") == "N4mRolePipeline" for node in model_nodes)
+    if (not raw_nodes or any(node["operator"].get("source_schemas") != schemas for node in raw_nodes)
+            or (not topology and len(model_nodes) != 1)):
         raise ValueError("current source schema differs from the signed archived Methods multimodal declaration")
     bindings = document["output_bindings"]
     if len(bindings) != 1 or bindings[0]["target_names"] != ["y"]:
@@ -553,21 +572,30 @@ def predict_methods_multimodal_archive(path: str | Path, data: Any, *, methods_l
         "request_fingerprint": "0" * 64,
     })
     params = {key: node.get("params", {}) for key, node in plan["node_plans"].items()}
-    selected = plan["node_plans"][model_nodes[0]["id"]]
+    selected = plan["node_plans"][raw_nodes[0]["id"]]
     if len(selected["data_bindings"]) != 1:
         raise ValueError("Methods multimodal replay requires one signed raw data binding")
+    if topology:
+        for node in model_nodes:
+            node_plan = plan["node_plans"][node["id"]]
+            expected_owner = ("controller:methods.python.multimodal" if node in raw_nodes else "controller:methods.python.regression")
+            if node_plan["controller_id"] != expected_owner or node.get("metadata", {}).get("controller_id") != expected_owner:
+                raise ValueError("Methods topology replay requires each exact signed native producer owner")
+            if node in raw_nodes and (len(node_plan["data_bindings"]) != 1
+                                      or node_plan["data_bindings"][0]["source_ids"] != selected["data_bindings"][0]["source_ids"]):
+                raise ValueError("Methods topology replay requires the complete shared signed raw source binding")
     controller = controller_for_graph(graph, cohort, allow_fit=False, node_params=params,
                                       binding_source_ids=selected["data_bindings"][0]["source_ids"],
                                       binding_controller_id=selected["controller_id"])
     try:
         outcome = native.replay_loaded_predictor_package(
             package, request, envelopes, {}, controller.operator, outcome_id=outcome_id, run_id=run_id,
-            artifact_callback=controller.artifact, trusted_controller_manifests=[controller.manifest],
+            artifact_callback=controller.artifact, trusted_controller_manifests=getattr(controller, "manifests", [controller.manifest]),
         )
         evidence = outcome.to_dict()
         physical_ids = tuple(next(iter(envelopes.values()))["predict_cohort"]["physical_sample_ids"])
         values = _decode_prediction(evidence, physical_ids, target_names=("y",))
-        producer = model_nodes[0]["id"]
+        producer = bindings[0]["node_id"]
         alignment = native.align_named_source_rows({
             "sample_ids": list(cohort.sample_ids), "required_source_ids": [producer],
             "sources": [{"source_id": producer, "sample_ids": list(physical_ids)}],

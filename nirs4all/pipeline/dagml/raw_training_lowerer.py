@@ -878,6 +878,7 @@ def _training_influence_manifest(
     selection_metric: str,
 ) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
+    oof_consumers = {edge["target"]["node_id"] for edge in graph.get("edges", []) if edge.get("contract", {}).get("requires_oof") is True}
     for node in graph.get("nodes", []):
         kind = node.get("kind")
         if kind not in {"transform", "y_transform", "model"}:
@@ -886,7 +887,7 @@ def _training_influence_manifest(
             controller_id = node.get("metadata", {}).get("controller_id")
             influence_kind = (
                 "trained_meta_aggregation"
-                if controller_id == "controller:methods.ridge"
+                if node["id"] in oof_consumers or controller_id == "controller:methods.ridge"
                 else "model_fit"
             )
         else:

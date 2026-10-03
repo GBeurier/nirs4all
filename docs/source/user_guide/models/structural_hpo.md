@@ -292,6 +292,83 @@ cohorts. Its saved selected encoders and Ridge state replay without FIT or HPO.
 `U20_structural_hpo_typed_modalities.py` demonstrates these declarations and
 workspace-independent archive replay using U07's deterministic test fixture.
 
+## Early versus learned late fusion
+
+Declare alternative sequences with the existing `_or_` syntax. An early
+sequence contains one Methods `MultimodalRegressor`. A learned late sequence
+contains two to four named branches, a prediction merge, and an ordinary Ridge
+meta-model. Each branch contains one Methods `MultimodalRegressor` selecting
+exactly the source named by that branch.
+
+```python
+# early_model selects ordered NIR/image encoders, while nir_model and
+# image_model select exactly their own single raw source. All use
+# MultimodalRegressor(..., backend="methods") with the U07 encoder families.
+pipeline = [GroupKFold(3), {"_or_": [
+    [{"model": early_model}],
+    [
+        {"branch": {
+            "nir": [{"model": nir_model}],
+            "image": [{"model": image_model}],
+        }},
+        {"merge": "predictions"},
+        {"model": Ridge(alpha=1.0)},
+    ],
+]}]
+tuning = {
+    "engine": "n4m", "sampler": "random", "seed": 17,
+    "n_trials": 8, "metric": "rmse", "direction": "minimize", "n_jobs": 1,
+    "space": {
+        "early.alpha": [0.1, 1.0, 10.0],
+        "late.nir.alpha": [0.1, 1.0, 10.0],
+        "late.image.alpha": [0.1, 1.0, 10.0],
+        "late.meta.alpha": [0.1, 1.0, 10.0],
+    },
+}
+```
+
+Declare exactly the alpha axes used by the alternative sequences. Early alpha
+is active only for early recipes. Each `late.<source>.alpha` is active only
+when that source has a late branch, and `late.meta.alpha` only for late recipes.
+The corresponding double-underscore spellings normalize to the same dotted
+paths. Encoder constructors, source subsets, branch order and source weights
+remain explicit declarations. The native catalogue chooses the topology and
+Methods proposes only its active numeric parameters.
+
+For late fusion, DAG-ML declares grouped two-fold inner OOF inside every
+outer training fold. Each encoder and branch predictor learns only from that
+inner training scope. The meta-model learns from those inner held-out
+predictions, then predicts the outer validation cohort through branch
+predictors refitted on the outer training rows. Winner REFIT uses its own
+grouped inner OOF on the complete training cohort before fitting the terminal
+meta-model and complete branch predictors. External test targets never train
+the meta-model or select the recipe.
+
+The SDK turns named branches into an ordered native list. That order also
+defines the meta-model prediction columns and belongs to the signed topology.
+PCA components must fit every actual native inner training scope, outer training
+scope and full REFIT scope; the native catalogue checks these bounds before
+model callbacks. This profile requires complete four-source U07 inputs, one
+regression target named `y`, deterministic `GroupKFold(3)`, `refit=True`,
+`n_jobs=1`, and no pruner. Ordinary sklearn Ridge in the public meta declaration
+lowers to a native Methods Ridge; Python does not fit a sklearn meta-model.
+
+Stop/resume retains the complete topology, conditional axes, groups, targets,
+raw schemas and all raw values, including excluded sources and test rows.
+The winner archive contains precisely its selected branch encoder/predictor
+states and native meta-model state. Held-out REFIT predictions retain their
+Test partition. With a train-only cohort, meta-model REFIT captures artifacts
+without inventing a final training score. It replays a new complete raw cohort
+without FIT, HPO or the training workspace. Always provide all four original
+raw sources, even for an excluded modality.
+
+`examples/user/04_models/U21_structural_hpo_early_late.py` searches early fusion,
+late fusion with two, three and four branches, and reversed two-branch order
+on the existing U07 fixture. It exports the selected winner, deletes training
+state, and verifies archive replay. This phase qualifies the native Python
+path; it does not extend classification, missing or ragged inputs, deep
+learning, or the R/Octave/WASM replay matrix for these mixed-state topologies.
+
 ## Dense profile limits
 
 The dense profile above requires `engine="dag-ml"`, tuning engine `n4m`, minimizing RMSE,
