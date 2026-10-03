@@ -11,10 +11,10 @@ on:
 # exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
 
 env:
-  N4A_DAG_ML_REF: ab5f5f4d8b3485e03f5841699ec5729c93f41716
+  N4A_DAG_ML_REF: bdd89abcccf98eec558390fd4d8187b525b6f9af
   N4A_DAG_ML_DATA_REF: 3f761473d1aa597a1ed76d9d8c60094f4053aab8
   N4A_IO_REF: 6816c4b18b9281c34c1b8095fbce0cfbc7e1b224
-  N4A_METHODS_REF: d72c9084c4e12ed6869c8c72fb48b808c000b9ad
+  N4A_METHODS_REF: d5a63020a0912d645b06a65c5e0b322b0c3931b5
 
 jobs:
   lint:
@@ -135,7 +135,25 @@ jobs:
           OPENBLAS_NUM_THREADS: '1'
           MKL_NUM_THREADS: '1'
         run: |
-          python -c 'import n4m; from n4m.compose.preprocessing import NativePreprocessingPipeline; from n4m.estimators.regression.sparse import GroupSparsePLS; from n4m.augmentation import run_native; from n4m.roles import NativeEstimator; assert n4m.abi_version() == (2, 16, 0); assert "nirs4all-methods-src" in n4m.__file__; print(n4m.__file__, n4m.abi_version())'
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import dag_ml
+          import dag_ml.multimodal_topology as topology_controller
+          import n4m
+          from n4m.compose.preprocessing import NativePreprocessingPipeline
+          from n4m.estimators.regression.sparse import GroupSparsePLS
+          from n4m.augmentation import run_native
+          from n4m.roles import NativeEstimator, RolePipeline
+
+          assert n4m.abi_version() == (2, 16, 0)
+          assert "nirs4all-methods-src" in n4m.__file__
+          assert callable(RolePipeline.close)
+          assert callable(dag_ml.prepare_host_hpo_topology_catalogue)
+          source = Path(os.environ['GITHUB_WORKSPACE']) / 'dag-ml-cli-src/crates/dag-ml-py/python/dag_ml/multimodal_topology.py'
+          assert Path(topology_controller.__file__).read_bytes() == source.read_bytes()
+          print(n4m.__file__, n4m.abi_version())
+          PY
           mkdir -p fast-dagml-pytest-report
           python -m pytest -q --timeout=300 -n 2 --dist worksteal \
             -m 'not slow and not gpu and not stress' \

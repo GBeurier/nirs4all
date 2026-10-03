@@ -46,14 +46,34 @@ def test_resolve_engine_default_is_native(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_runtime_dagml_cli_discovery_matches_parity_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Discovery order is shared regardless of where the SDK is installed."""
+    from nirs4all.pipeline.dagml import run_backend
     from nirs4all.pipeline.dagml.run_backend import _default_dagml_cli
 
+    from . import _dagml_cli
+
+    workspace = tmp_path / "workspace"
+    monkeypatch.setattr(run_backend, "__file__", str(workspace / "nirs4all/nirs4all/pipeline/dagml/run_backend.py"))
+    monkeypatch.setattr(_dagml_cli, "__file__", str(workspace / "nirs4all/tests/integration/parity/_dagml_cli.py"))
     monkeypatch.delenv("N4A_DAGML_CLI", raising=False)
-    assert _default_dagml_cli() == dagml_cli_path()
+    candidates = [
+        workspace / "dag-ml/target/debug/dag-ml-cli",
+        workspace / "dag-ml/target/release/dag-ml-cli",
+        workspace / "RC-v1-dagml/target/debug/dag-ml-cli",
+        workspace / "RC-v1-dagml/target/release/dag-ml-cli",
+    ]
+    assert _default_dagml_cli() == dagml_cli_path() == candidates[0]
+    # Add lower-priority candidates first: current builds must supersede RC,
+    # and debug must supersede release within each checkout.
+    for candidate in reversed(candidates):
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.touch()
+        assert _default_dagml_cli() == dagml_cli_path() == candidate
 
     override = tmp_path / "dag-ml-cli"
+    assert not override.exists()
     monkeypatch.setenv("N4A_DAGML_CLI", str(override))
-    assert _default_dagml_cli() == override
+    assert _default_dagml_cli() == dagml_cli_path() == override
 
 
 def test_default_general_run_dispatches_to_dagml(monkeypatch: pytest.MonkeyPatch) -> None:

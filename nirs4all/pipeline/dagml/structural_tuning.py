@@ -89,7 +89,11 @@ def validate_structural_profile(pipeline: Any) -> tuple[list[Any], Any]:
         raise TypeError("structural tuning requires a pipeline list")
     steps, splitter = _split_pipeline(pipeline)
     from .structural_multimodal import is_methods_model_choice, validate_typed_profile
+    from .structural_topology import declared_topologies, is_topology_choice
 
+    if is_topology_choice(steps):
+        declared_topologies(steps, splitter)
+        return steps, splitter
     if is_methods_model_choice(steps):
         validate_typed_profile(steps, splitter)
         return steps, splitter
@@ -200,7 +204,10 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
         raise ImportError("installed DAG-ML lacks native structural HPO preparation; install the matching structural build")
     dataset = _materialize_dataset(dataset_input)
     from .structural_multimodal import is_methods_model_choice, prepare_typed_structure
+    from .structural_topology import is_topology_choice, prepare_topology_structure
 
+    if is_topology_choice(steps):
+        return prepare_topology_structure(steps, splitter, dataset, spec, run_options, native)
     if is_methods_model_choice(steps):
         return prepare_typed_structure(steps, splitter, dataset, spec, run_options, native)
     source_selections = len(steps) == 3
@@ -464,6 +471,10 @@ def _train_selected_structure(
     dataset_input: Any, run_options: dict[str, Any],
 ) -> Any:
     """Execute the signed native winner with the ordinary host artifact capture."""
+    if prepared.get("methods_topology"):
+        from .structural_topology import train_selected_topology
+
+        return train_selected_topology(prepared, evidence, run_options)
     if prepared.get("methods_typed"):
         from .structural_multimodal import train_selected_typed_structure
 

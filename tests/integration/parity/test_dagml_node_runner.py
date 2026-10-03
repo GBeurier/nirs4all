@@ -37,10 +37,9 @@ pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; br
 
 def test_finetune_best_params_are_cached_only_within_exact_native_scope(monkeypatch) -> None:
     """A cached tuning result cannot cross a fold or become the REFIT tuning."""
-    from types import SimpleNamespace
-
     from sklearn.ensemble import RandomForestRegressor
 
+    from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.dagml import host_finetune
 
     calls: list[dict] = []
@@ -49,8 +48,18 @@ def test_finetune_best_params_are_cached_only_within_exact_native_scope(monkeypa
         calls.append(kwargs)
         return {"n_estimators": 23}, {"scope": kwargs["scope"]}
 
+    dataset = SpectroDataset(name="native_scope_fixture")
+    dataset.add_samples(np.arange(12, dtype=np.float32).reshape(4, 3), indexes={"partition": "train"})
+    dataset.add_targets(np.array([0.0, 1.0, 0.0, 1.0]))
+    dataset.set_task_type("regression")
+
     class FakeResolver:
-        _dataset = SimpleNamespace(task_type="regression")
+        _dataset = dataset
+
+        def expand_with_augmented_children(self, ids, fold_id):
+            assert ids == ["s0", "s1", "s2", "s3"]
+            assert fold_id in {"fold0", "fold1", "refit"}
+            return ids
 
         def partition_wire_ids(self, partition):
             pytest.fail("tuning requested the global train partition")
@@ -59,12 +68,18 @@ def test_finetune_best_params_are_cached_only_within_exact_native_scope(monkeypa
             assert ids == ["s0", "s1", "s2", "s3"]
             return {"values": np.arange(12, dtype=np.float32).reshape(4, 3)}
 
+        def resolve_source_block(self, ids, source_index, include_augmented=True):
+            assert source_index == 0 and include_augmented is False
+            return self.resolve_features(ids, include_augmented=include_augmented)
+
         def resolve_targets(self, ids):
             assert ids == ["s0", "s1", "s2", "s3"]
             return {"values": np.array([0.0, 1.0, 0.0, 1.0])}
 
     monkeypatch.setattr(host_finetune, "run_scoped_finetune", fake_search)
     graph_node = {
+        "id": "model0",
+        "kind": "model",
         "metadata": {
             "nirs4all_finetune_params": {
                 "approach": "single",
@@ -80,7 +95,8 @@ def test_finetune_best_params_are_cached_only_within_exact_native_scope(monkeypa
         node_id="model0",
         variant_label="base",
         model=RandomForestRegressor(random_state=42),
-        upstream=[],
+        node_lookup=lambda node_id: graph_node,
+        edges=[],
         resolver=FakeResolver(),
         model_store=store,
         task={"phase": "FIT_CV", "fold_id": "fold0"},
@@ -91,7 +107,8 @@ def test_finetune_best_params_are_cached_only_within_exact_native_scope(monkeypa
         node_id="model0",
         variant_label="base",
         model=RandomForestRegressor(random_state=42),
-        upstream=[],
+        node_lookup=lambda node_id: graph_node,
+        edges=[],
         resolver=FakeResolver(),
         model_store=store,
         task={"phase": "FIT_CV", "fold_id": "fold0"},
@@ -101,12 +118,20 @@ def test_finetune_best_params_are_cached_only_within_exact_native_scope(monkeypa
     assert len(calls) == 1
     _resolve_finetune_best_params(
         graph_node=graph_node, node_id="model0", variant_label="base",
-        model=RandomForestRegressor(random_state=42), upstream=[], resolver=FakeResolver(), model_store=store,
+        model=RandomForestRegressor(random_state=42), node_lookup=lambda node_id: graph_node, edges=[], resolver=FakeResolver(), model_store=store,
         task={"phase": "REFIT", "fold_id": None}, train_ids=["s0", "s1", "s2", "s3"],
     )
     assert len(calls) == 2
     assert calls[0]["scope"]["phase"] == "FIT_CV"
     assert calls[1]["scope"]["phase"] == "REFIT"
+    _resolve_finetune_best_params(
+        graph_node=graph_node, node_id="model0", variant_label="base",
+        model=RandomForestRegressor(random_state=42), node_lookup=lambda node_id: graph_node, edges=[], resolver=FakeResolver(), model_store=store,
+        task={"phase": "FIT_CV", "fold_id": "fold1"}, train_ids=["s0", "s1", "s2", "s3"],
+    )
+    assert len(calls) == 3
+    assert [call["scope"]["fold_id"] for call in calls] == ["fold0", None, "fold1"]
+    assert all(call["scope"]["training_sample_ids"] == ["s0", "s1", "s2", "s3"] for call in calls)
 
 
 def _require_methods_snv_available() -> None:
