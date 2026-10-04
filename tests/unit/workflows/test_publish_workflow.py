@@ -1,9 +1,14 @@
 """Contract tests for the release publication workflow."""
 
+import json
+import os
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[3] / ".github/workflows/publish.yml"
@@ -114,6 +119,13 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
         assert "tests/integration/api/" in serialized
         assert "test_marker_audit.py" in serialized
         assert "run_full_dagml_pytest.py" not in serialized
+        installed_steps = [
+            index for index, step in enumerate(job["steps"])
+            if step.get("uses", "").endswith("/.github/actions/prepare-installed-example")
+        ]
+        first_pytest = next(index for index, step in enumerate(job["steps"]) if "python -m pytest" in step.get("run", ""))
+        assert len(installed_steps) == 1 and installed_steps[0] < first_pytest
+        assert "if" not in job["steps"][installed_steps[0]]
 
     exhaustive = _load_named_workflow("shared-test-and-docs.yml")["jobs"]["run-tests"]
     exhaustive_serialized = yaml.safe_dump(exhaustive)
@@ -136,3 +148,62 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
         assert "strategy" not in job
         serialized = yaml.safe_dump(job)
         assert "run_ci_examples.sh -c all -j 2 -k" in serialized
+
+
+@pytest.mark.parametrize("changed_science", [False, True])
+def test_release_example_harness_refuses_scientific_source_changes(tmp_path: Path, changed_science: bool) -> None:
+    """Recovery can update orchestration, while the scientific tag stays exact."""
+    workflow = _load_workflow()
+    steps = workflow["jobs"]["verify-examples"]["steps"]
+    checkout = next(step for step in steps if step.get("name") == "Checkout current release orchestration separately")
+    assert checkout["with"] == {"ref": "${{ github.sha }}", "path": ".release-ci-harness"}
+    guard = next(step for step in steps if step.get("name") == "Require identical scientific sources before using corrected CI harness")
+    script = guard["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    root = tmp_path / "tag"
+    harness = root / ".release-ci-harness"
+    files = {
+        "nirs4all/__init__.py": "qualified package\n",
+        "examples/user/U01.py": "user example\n",
+        "examples/developer/D01.py": "developer example\n",
+        "examples/reference/R01.py": "reference example\n",
+        "pyproject.toml": "qualified metadata\n",
+        "requirements-examples.txt": "qualified dependencies\n",
+        ".github/actions/candidate-native/action.yml": "qualified native sources\n",
+        "examples/ci_example_launcher.py": "original launcher\n",
+        "examples/run_ci_examples.sh": "original runner\n",
+    }
+
+    def commit(directory: Path, contents: dict[str, str]) -> str:
+        for name, value in contents.items():
+            path = directory / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(value)
+        subprocess.run(["git", "init", "--quiet", str(directory)], check=True)
+        subprocess.run(["git", "-C", str(directory), "add", "."], check=True)
+        subprocess.run([
+            "git", "-C", str(directory), "-c", "user.name=CI fixture", "-c", "user.email=ci@example.invalid",
+            "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture",
+        ], check=True)
+        return subprocess.check_output(["git", "-C", str(directory), "rev-parse", "HEAD"], text=True).strip()
+
+    tag = commit(root, files)
+    corrected = {**files, "examples/ci_example_launcher.py": "corrected launcher\n"}
+    if changed_science:
+        corrected["nirs4all/__init__.py"] = "unqualified scientific change\n"
+    head = commit(harness, corrected)
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", script], cwd=root,
+        env={**os.environ, "WORKFLOW_SOURCE_SHA": head}, capture_output=True, text=True, check=False,
+    )
+    assert (root / "nirs4all/__init__.py").read_text() == files["nirs4all/__init__.py"]
+    if changed_science:
+        assert result.returncode != 0
+        assert "Scientific/release input differs from immutable tag: nirs4all" in result.stderr
+        assert (root / "examples/ci_example_launcher.py").read_text() == files["examples/ci_example_launcher.py"]
+        assert not (root / "release-ci-source-proof.json").exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert (root / "examples/ci_example_launcher.py").read_text() == corrected["examples/ci_example_launcher.py"]
+        proof = json.loads((root / "release-ci-source-proof.json").read_text())
+        assert proof["tag_commit"] == tag and proof["workflow_commit"] == head
+        assert len(proof["identical_scientific_inputs"]) == 7

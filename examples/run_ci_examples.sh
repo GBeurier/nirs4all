@@ -290,7 +290,30 @@ run_example_worker() {
     startTime=$(date +%s)
     start_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     exitCode=0
-    if is_resource_exclusive_example "$example"; then
+    if [ "$example" = "user/02_data_handling/U15_octave_multimodal_archive.py" ]; then
+        {
+            if [ -z "${NIRS4ALL_CI_U15_DAG_ROOT:-}" ] || \
+               [ -z "${NIRS4ALL_CI_U15_OCTAVE:-}" ] || \
+               [ -z "${NIRS4ALL_CI_U15_NODE_CAPTURE:-}" ]; then
+                echo "Error: U15 requires the prepared DAG checkout, real Octave runtime and Node capture."
+                exitCode=2
+            else
+                local u15_args=(--dag-ml-root "$NIRS4ALL_CI_U15_DAG_ROOT" --octave "$NIRS4ALL_CI_U15_OCTAVE")
+                NIRS4ALL_EXAMPLE_FAST="$FAST_MODE" NIRS4ALL_WORKSPACE="$workspace_dir" \
+                    "$PYTHON_BIN" "$LAUNCHER" "$example" "${u15_args[@]}" \
+                    --workdir "$workspace_dir/u15-train" train \
+                    --node-capture "$NIRS4ALL_CI_U15_NODE_CAPTURE" || exitCode=$?
+                if [ "$exitCode" -eq 0 ]; then
+                    # A second interpreter proves replay does not reuse the training worker.
+                    NIRS4ALL_EXAMPLE_FAST="$FAST_MODE" NIRS4ALL_WORKSPACE="$workspace_dir" \
+                        "$PYTHON_BIN" "$LAUNCHER" "$example" "${u15_args[@]}" \
+                        --workdir "$workspace_dir/u15-predict" predict \
+                        --archive "$workspace_dir/u15-train/five-octave-models.n4a" \
+                        --replay-inputs "$workspace_dir/u15-train/heldout-replay.json" || exitCode=$?
+                fi
+            fi
+        } > "$output_file" 2>&1
+    elif is_resource_exclusive_example "$example"; then
         CUDA_VISIBLE_DEVICES="${NIRS4ALL_CI_CUDA_VISIBLE_DEVICES:-0}" \
         XLA_PYTHON_CLIENT_PREALLOCATE=false \
         TF_FORCE_GPU_ALLOW_GROWTH=true \

@@ -11,10 +11,10 @@ on:
 # exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
 
 env:
-  N4A_DAG_ML_REF: bdd89abcccf98eec558390fd4d8187b525b6f9af
+  N4A_DAG_ML_REF: 867f3576592ec390e2a16ced53cc027c022cde27
   N4A_DAG_ML_DATA_REF: 3f761473d1aa597a1ed76d9d8c60094f4053aab8
-  N4A_IO_REF: 6816c4b18b9281c34c1b8095fbce0cfbc7e1b224
-  N4A_METHODS_REF: d5a63020a0912d645b06a65c5e0b322b0c3931b5
+  N4A_IO_REF: b3baefc6ae69f036e4475e24ff1b971adf5b968e
+  N4A_METHODS_REF: dcc570b3647f77cf0428dd346078f442ed5cd032
 
 jobs:
   lint:
@@ -119,6 +119,9 @@ jobs:
           cmake --build --preset dev-release --target n4m_c --parallel 2
         working-directory: nirs4all-methods-src
 
+      - name: Prepare installed SDK for mandatory cold replay tests
+        uses: ./.github/actions/prepare-installed-example
+
       - name: Gate real library usability
         timeout-minutes: 5
         uses: ./.github/actions/library-usability
@@ -212,4 +215,6 @@ jobs:
           path: |
             fast-dagml-pytest-report/
             coverage.xml
+            ${{ runner.temp }}/nirs4all-installed-example/*.json
+            ${{ runner.temp }}/nirs4all-installed-example/*.log
           if-no-files-found: warn
