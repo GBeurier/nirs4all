@@ -263,8 +263,11 @@ def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
     original_pr_run = PipelineRunner.run
 
     def fast_run(pipeline: Any, dataset: Any, **kwargs: Any) -> Any:
-        pipeline = _optimize_pipeline_spec(pipeline)
-        dataset = _optimize_dataset_spec(dataset)
+        # An explicit tuning spec binds axes to this exact graph and cohort.
+        # Trimming alternatives or model steps invalidates those bindings.
+        if kwargs.get("tuning") is None:
+            pipeline = _optimize_pipeline_spec(pipeline)
+            dataset = _optimize_dataset_spec(dataset)
 
         # Qualification runs can force an explicit backend without editing all
         # examples. Explicit per-example choices still win (notably tutorials
@@ -274,8 +277,8 @@ def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
             kwargs.setdefault("engine", qualification_engine)
 
         kwargs.setdefault("verbose", 0)
-        kwargs.setdefault("show_spinner", False)
-        kwargs.setdefault("show_progress_bar", False)
+        # Spinner controls belong to the legacy PipelineRunner below. Native
+        # profiles validate the public run options before starting any FIT.
         if not plots:
             kwargs.setdefault("plots_visible", False)
             kwargs.setdefault("save_charts", False)

@@ -1,0 +1,30 @@
+name: Prepare the native Octave archive example
+description: Build MEX shims and capture real public Methods/DAG WASM fits for U15.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 24
+
+    - name: Install the documented Ubuntu Octave toolchain
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends -y octave liboctave-dev
+
+    - name: Prepare native runtimes and the four-source capture
+      shell: bash
+      env:
+        PYTHONDONTWRITEBYTECODE: '1'
+        OMP_NUM_THREADS: '1'
+        OPENBLAS_NUM_THREADS: '1'
+        MKL_NUM_THREADS: '1'
+        CARGO_BUILD_JOBS: '2'
+      run: |
+        python -B "$GITHUB_ACTION_PATH/../../../scripts/prepare_octave_example_runtime.py" \
+          --workspace "$GITHUB_WORKSPACE" \
+          --output "$RUNNER_TEMP/nirs4all-octave-example" \
+          --octave "$(command -v octave-cli)" \
+          --github-env "$GITHUB_ENV"

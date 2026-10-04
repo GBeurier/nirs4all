@@ -110,6 +110,12 @@ jobs:
           EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"
 
+      - name: Checkout installed-test orchestration separately
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: .release-ci-harness
+
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
@@ -140,6 +146,9 @@ jobs:
 
       - name: Build qualified Methods and DAG candidate runtime
         uses: ./.github/actions/candidate-native
+
+      - name: Prepare installed SDK for mandatory cold replay tests
+        uses: ./.release-ci-harness/.github/actions/prepare-installed-example
 
       - name: Gate real library usability
         timeout-minutes: 5
@@ -189,6 +198,8 @@ jobs:
           path: |
             fast-dagml-pytest-report/
             coverage.xml
+            ${{ runner.temp }}/nirs4all-installed-example/*.json
+            ${{ runner.temp }}/nirs4all-installed-example/*.log
           if-no-files-found: warn
 
       - name: Upload coverage to Codecov
@@ -263,6 +274,49 @@ jobs:
           EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"
 
+      - name: Checkout current release orchestration separately
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: .release-ci-harness
+
+      - name: Require identical scientific sources before using corrected CI harness
+        env:
+          WORKFLOW_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          root = Path.cwd()
+          harness = root / '.release-ci-harness'
+          def git(directory, *args):
+              return subprocess.check_output(['git', '-C', str(directory), *args], text=True).strip()
+          assert git(harness, 'rev-parse', 'HEAD') == os.environ['WORKFLOW_SOURCE_SHA']
+          guarded = ['nirs4all', 'examples/user', 'examples/developer', 'examples/reference',
+                     'pyproject.toml', 'requirements-examples.txt', '.github/actions/candidate-native/action.yml']
+          identities = {}
+          for path in guarded:
+              tagged = git(root, 'rev-parse', 'HEAD:' + path)
+              current = git(harness, 'rev-parse', 'HEAD:' + path)
+              assert tagged == current, f'Scientific/release input differs from immutable tag: {path}'
+              identities[path] = tagged
+          transported = {}
+          for path in ['examples/ci_example_launcher.py', 'examples/run_ci_examples.sh']:
+              payload = (harness / path).read_bytes()
+              shutil.copyfile(harness / path, root / path)
+              transported[path] = hashlib.sha256(payload).hexdigest()
+          proof = {'tag_commit': git(root, 'rev-parse', 'HEAD'),
+                   'workflow_commit': git(harness, 'rev-parse', 'HEAD'),
+                   'identical_scientific_inputs': identities, 'ci_harness_sha256': transported}
+          Path('release-ci-source-proof.json').write_text(json.dumps(proof, indent=2) + '\n')
+          print(json.dumps(proof, sort_keys=True))
+          PY
+
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
@@ -283,12 +337,28 @@ jobs:
       - name: Build qualified Methods and DAG candidate runtime
         uses: ./.github/actions/candidate-native
 
+      - name: Prepare real Octave archive example prerequisites
+        uses: ./.release-ci-harness/.github/actions/prepare-octave-example
+
       - name: Run all strict examples once
         run: |
           cd examples
           chmod +x run_ci_examples.sh
           ./run_ci_examples.sh -c all -j 2 -k
         timeout-minutes: 45
+
+      - name: Preserve strict example logs and source proof
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: strict-example-report
+          path: |
+            examples/workspace/ci_output/
+            release-ci-source-proof.json
+            ${{ runner.temp }}/nirs4all-octave-example/prerequisites.json
+            ${{ runner.temp }}/nirs4all-octave-example/logs/
+          if-no-files-found: error
+          retention-days: 14
 
   # Build distribution packages (after tests, docs, and examples pass)
   build:
