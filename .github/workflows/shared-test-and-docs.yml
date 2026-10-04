@@ -63,6 +63,9 @@ jobs:
       - name: Build qualified Methods and DAG candidate runtime
         uses: ./.github/actions/candidate-native
 
+      - name: Prepare installed SDK for mandatory cold replay tests
+        uses: ./.github/actions/prepare-installed-example
+
       - name: Gate real library usability
         timeout-minutes: 5
         uses: ./.github/actions/library-usability

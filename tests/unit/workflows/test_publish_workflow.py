@@ -119,11 +119,20 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
         assert "tests/integration/api/" in serialized
         assert "test_marker_audit.py" in serialized
         assert "run_full_dagml_pytest.py" not in serialized
+
+    for workflow_name, test_job in (
+        ("CI.yaml", "tests"), ("publish.yml", "run-tests"),
+        ("shared-test-and-docs.yml", "run-tests"), ("pre-publish.yml", "run-tests"),
+    ):
+        job = _load_named_workflow(workflow_name)["jobs"][test_job]
         installed_steps = [
             index for index, step in enumerate(job["steps"])
             if step.get("uses", "").endswith("/.github/actions/prepare-installed-example")
         ]
-        first_pytest = next(index for index, step in enumerate(job["steps"]) if "python -m pytest" in step.get("run", ""))
+        first_pytest = next(
+            index for index, step in enumerate(job["steps"])
+            if "python -m pytest" in step.get("run", "") or "run_full_dagml_pytest.py" in step.get("run", "")
+        )
         assert len(installed_steps) == 1 and installed_steps[0] < first_pytest
         assert "if" not in job["steps"][installed_steps[0]]
 
@@ -148,6 +157,13 @@ def test_github_fast_and_exhaustive_gates_have_distinct_triggers() -> None:
         assert "strategy" not in job
         serialized = yaml.safe_dump(job)
         assert "run_ci_examples.sh -c all -j 2 -k" in serialized
+        required_actions = []
+        for action in ("candidate-native", "prepare-octave-example"):
+            matches = [index for index, step in enumerate(job["steps"]) if step.get("uses", "").endswith("/.github/actions/" + action)]
+            assert len(matches) == 1 and "if" not in job["steps"][matches[0]]
+            required_actions.append(matches[0])
+        runner = next(index for index, step in enumerate(job["steps"]) if "run_ci_examples.sh -c all" in step.get("run", ""))
+        assert required_actions[0] < required_actions[1] < runner
 
 
 @pytest.mark.parametrize("changed_science", [False, True])
