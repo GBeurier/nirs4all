@@ -55,9 +55,9 @@ def sdk_payload(path: Path, workspace: Path) -> dict[str, str]:
 def project_dependencies(roots: list[Path], output: Path) -> dict[str, str]:
     """Link external dependencies; never execute parent editables or overlay products."""
     output.mkdir()
-    excluded = PRODUCT_MODULES | {"pip", "setuptools", "wheel", "_distutils_hack", "sitecustomize.py", "usercustomize.py"}
+    excluded = PRODUCT_MODULES | {"pip", "setuptools", "_distutils_hack", "sitecustomize.py", "usercustomize.py"}
     excluded |= {name.replace("-", "_") + ".libs" for name in UPSTREAMS}
-    distributions = {"nirs4all", *UPSTREAMS, "pip", "setuptools", "wheel"}
+    distributions = {"nirs4all", *UPSTREAMS, "pip", "setuptools"}
     inventory: dict[str, str] = {}
     for root in roots:
         for path in sorted(root.iterdir()):
