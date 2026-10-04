@@ -63,6 +63,12 @@ jobs:
           python -m pip install -r requirements-examples.txt
           python -m pip install -e .
 
+      - name: Build qualified Methods and DAG candidate runtime
+        uses: ./.github/actions/candidate-native
+
+      - name: Prepare real Octave archive example prerequisites
+        uses: ./.github/actions/prepare-octave-example
+
       - name: Run all examples once
         run: |
           cd examples

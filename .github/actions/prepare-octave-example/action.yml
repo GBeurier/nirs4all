@@ -12,7 +12,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install --no-install-recommends -y octave liboctave-dev
+        sudo apt-get install --no-install-recommends -y octave octave-dev
 
     - name: Prepare native runtimes and the four-source capture
       shell: bash
