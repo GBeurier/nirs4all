@@ -541,9 +541,41 @@ class _DagmlExportedModel:
     multi-target shape is preserved by the estimator itself).
     """
 
-    def __init__(self, estimator: Any, y_transform: Any) -> None:
+    def __init__(self, estimator: Any, y_transform: Any, *, named_refit_artifact: dict[str, Any] | None = None,
+                 late_partial_refit_artifact: Mapping[str, Any] | None = None) -> None:
         self.estimator = estimator
         self.y_transform = y_transform
+        from nirs4all.pipeline.dagml.named_torch_estimator import DagMLNamedTorchEstimator
+
+        if isinstance(estimator, DagMLNamedTorchEstimator):
+            from nirs4all.pipeline.dagml.node_runner import validate_named_refit_origin
+
+            if named_refit_artifact is None:
+                raise ValueError("named Torch model export requires its original native REFIT anchor")
+            validate_named_refit_origin({**named_refit_artifact, "estimator": estimator, "y_transform": y_transform}, named_refit_artifact)
+            self.named_refit_artifact = {
+                key: copy.deepcopy(named_refit_artifact[key])
+                for key in ("artifact_id", "controller_id", "content_fingerprint", "named_refit_origin", "named_refit_fingerprint")
+            }
+        if hasattr(estimator, "_nirs4all_late_partial_refit_origin") or late_partial_refit_artifact is not None and "late_partial_refit_origin" in late_partial_refit_artifact:
+            if late_partial_refit_artifact is None:
+                raise ValueError("late partial model export requires its original native REFIT anchor")
+            self.late_partial_refit_artifact = {
+                key: copy.deepcopy(late_partial_refit_artifact[key])
+                for key in ("artifact_id", "controller_id", "content_fingerprint", "late_partial_refit_origin", "late_partial_refit_fingerprint")
+            }
+            self._validate_late_partial()
+
+    def _validate_late_partial(self) -> None:
+        """Verify the independent component anchor before numerical use."""
+        anchor = getattr(self, "late_partial_refit_artifact", None)
+        if anchor is None and not hasattr(self.estimator, "_nirs4all_late_partial_refit_origin"):
+            return
+        if not isinstance(anchor, dict):
+            raise ValueError("late partial exported component lost its native REFIT anchor")
+        from nirs4all.pipeline.dagml.multimodal_contracts import validate_late_partial_refit_origin
+
+        validate_late_partial_refit_origin({**anchor, "estimator": self.estimator, "y_transform": self.y_transform}, anchor)
 
     def predict(self, X: Any) -> np.ndarray:
         """Predict in the ORIGINAL target space: estimator, then inverse y-transform when present."""
@@ -556,9 +588,19 @@ class _DagmlExportedModel:
 
     def predict_numeric(self, X: Any) -> np.ndarray:
         """Restore numeric targets while keeping class labels encoded for stacking."""
+        from nirs4all.pipeline.dagml.named_torch_estimator import DagMLNamedTorchEstimator
         from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
 
+        if isinstance(self.estimator, DagMLNamedTorchEstimator):
+            from nirs4all.pipeline.dagml.node_runner import validate_named_refit_origin
+
+            anchor = getattr(self, "named_refit_artifact", None)
+            if not isinstance(anchor, dict):
+                raise ValueError("named Torch exported model lacks its original native REFIT anchor")
+            validate_named_refit_origin({**anchor, "estimator": self.estimator, "y_transform": self.y_transform}, anchor)
+        self._validate_late_partial()
         pred = np.asarray(self.estimator.predict(X), dtype=float)
+        self._validate_late_partial()
         if self.y_transform is None:
             return pred
         if isinstance(self.y_transform, CapturedTargetTransform):
@@ -567,10 +609,15 @@ class _DagmlExportedModel:
 
     def predict_proba_numeric(self, X: Any) -> np.ndarray:
         """Replay every class-probability column of a fitted base classifier."""
+        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
+        self._validate_late_partial()
         predict_proba = getattr(self.estimator, "predict_proba", None)
-        if self.y_transform is not None or not callable(predict_proba):
+        decoder_only = isinstance(self.y_transform, CapturedTargetTransform) and self.y_transform.transformer is None
+        if self.y_transform is not None and not decoder_only or not callable(predict_proba):
             raise ValueError("native stacking probability source lacks a fitted classifier")
         probabilities = np.asarray(predict_proba(X), dtype=float).reshape(len(X), -1)
+        self._validate_late_partial()
         if probabilities.shape[1] < 2 or not np.all(np.isfinite(probabilities)):
             raise ValueError("native stacking probability source has invalid class columns")
         return probabilities
@@ -630,7 +677,7 @@ class _DagmlNativeBySourceFusionModel:
             raise ValueError(f"native by_source fusion export requires contiguous source indices from 0: {source_indices!r}")
         self.source_indices = source_indices
         self.members = [member for _index, member in ordered]
-        self.source_widths = [_estimator_feature_width(member.estimator) for member in self.members]
+        self.source_widths: Sequence[int | None] = [_estimator_feature_width(member.estimator) for member in self.members]
 
     def predict(self, X: Any) -> np.ndarray:
         blocks = self._source_blocks(X)
@@ -790,6 +837,219 @@ class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
         return np.concatenate(self._source_blocks(X), axis=1)
 
 
+class _DagmlRankedIndependentSourceModels(_DagmlNativeIndependentSourceModels):
+    """Replay each original native output from its verified sidecar bytes."""
+
+    selected_output_binding_id: str | None = None
+
+    def __init__(self, members: Any, feature_axes: Any, outputs: list[dict[str, Any]], carriers: dict[str, bytes], capture_sha256: str, source_widths: list[int]) -> None:
+        super().__init__(members, None)
+        if len(source_widths) != len(self.source_ids) or any(type(width) is not int or width <= 0 for width in source_widths):
+            raise ValueError("native source input widths must align with its source order")
+        self.source_widths = tuple(source_widths)
+        self.feature_axes_cm1 = tuple(tuple(axis) if axis is not None else None for axis in (feature_axes or [None] * len(source_widths)))
+        if len(self.feature_axes_cm1) != len(source_widths) or any(axis is not None and (len(axis) != width or not np.isfinite(np.asarray(axis, dtype=float)).all())
+                                                                 for width, axis in zip(source_widths, self.feature_axes_cm1, strict=True)):
+            raise ValueError("native source feature axes differ from its declared input widths")
+        self.native_outputs = copy.deepcopy(outputs)
+        self.native_carriers = dict(carriers)
+        self.source_capture_sha256 = capture_sha256
+        self.output_binding_ids = tuple(item["output_binding_id"] for item in outputs)
+
+    def validate_source_capture(self, capture: dict[str, Any], capture_sha256: str) -> None:
+        if self.source_capture_sha256 != capture_sha256:
+            raise ValueError("independent-source model differs from its native capture")
+        sidecars = {item["artifact_id"]: item for item in capture["sidecars"]}
+        if set(sidecars) != set(self.native_carriers):
+            raise ValueError("independent-source model differs from its native sidecar binding set")
+        for artifact_id, raw in self.native_carriers.items():
+            if hashlib.sha256(raw).hexdigest() != sidecars[artifact_id]["serialization_sha256"]:
+                raise ValueError("independent-source embedded carrier differs from its verified native sidecar")
+        if len(self.native_outputs) != len(capture["outputs"]):
+            raise ValueError("independent-source model output count differs from native capture")
+        for item, native in zip(self.native_outputs, capture["outputs"], strict=True):
+            if any(item.get(key) != value for key, value in native.items()):
+                raise ValueError("independent-source model output differs from native package binding")
+            record = sidecars.get(item["artifact_id"], {}).get("native_record", {})
+            if record.get("node_id") != native["producer_node"]:
+                raise ValueError("independent-source output uses another producer's sidecar")
+
+    def predict_output(self, binding_id: str, X: Any) -> np.ndarray:
+        import io
+
+        import joblib
+
+        matches = [item for item in self.native_outputs if item["output_binding_id"] == binding_id]
+        if len(matches) != 1:
+            raise ValueError(f"unknown named output {binding_id!r}")
+        output = matches[0]
+        payload = joblib.load(io.BytesIO(self.native_carriers[output["artifact_id"]]))
+        member = _DagmlExportedModel(payload["estimator"], payload["y_transform"])
+        return np.asarray(member.predict(self._source_blocks(X)[output["source_index"]]))
+
+    def predict_outputs(self, X: Any) -> dict[str, np.ndarray]:
+        return {name: self.predict_output(name, X) for name in self.output_binding_ids}
+
+    def predict_numeric_output(self, binding_id: str, X: Any) -> np.ndarray:
+        """Emit native numeric IDs; public decoding occurs after DAG validation."""
+        import io
+
+        import joblib
+
+        output = next(item for item in self.native_outputs if item["output_binding_id"] == binding_id)
+        payload = joblib.load(io.BytesIO(self.native_carriers[output["artifact_id"]]))
+        features = np.asarray(X) if not isinstance(X, Mapping | list | tuple) else None
+        selected = getattr(self, "selected_output_binding_id", None)
+        if selected == binding_id and features is not None and features.ndim == 2 and features.shape[1] == self.source_widths[output["source_index"]]:
+            block = features
+        else:
+            block = self._source_blocks(X)[output["source_index"]]
+        return np.asarray(_DagmlExportedModel(payload["estimator"], payload["y_transform"]).predict_numeric(block))
+
+    def public_target_transform(self, binding_id: str) -> Any:
+        import io
+
+        import joblib
+
+        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
+        output = next(item for item in self.native_outputs if item["output_binding_id"] == binding_id)
+        if output["prediction_kind"] != "class_label":
+            return None
+        payload = joblib.load(io.BytesIO(self.native_carriers[output["artifact_id"]]))
+        transform = payload["y_transform"]
+        return CapturedTargetTransform(None, transform.decoder) if isinstance(transform, CapturedTargetTransform) else None
+
+    def predict(self, X: Any) -> np.ndarray:
+        selected = getattr(self, "selected_output_binding_id", None)
+        if selected is None:
+            raise ValueError("archive has multiple named outputs; select an output explicitly")
+        entry = next(item for item in self.native_outputs if item["output_binding_id"] == selected)
+        if isinstance(X, Mapping | list | tuple):
+            return self.predict_output(selected, X)
+        features = np.asarray(X)
+        width = self.source_widths[entry["source_index"]]
+        if features.ndim != 2:
+            raise ValueError("selected source replay requires a 2D feature matrix")
+        if features.shape[1] != width:
+            return self.predict_output(selected, features)
+        import io
+
+        import joblib
+
+        payload = joblib.load(io.BytesIO(self.native_carriers[entry["artifact_id"]]))
+        return np.asarray(_DagmlExportedModel(payload["estimator"], payload["y_transform"]).predict(features))
+
+
+def _write_attested_source_bundle(result: Any, native: dict[str, Any], output_path: str | Path, selected_source: Mapping[str, Any] | None = None) -> Path:
+    """Export original execute_training captures and a bijection of their native sidecars."""
+    from nirs4all.pipeline.bundle import write_single_model_bundle
+    from nirs4all.pipeline.dagml.attested_by_source import validate_source_package_bindings
+    from nirs4all.pipeline.dagml.native_results import _validate_portable_uri
+
+    captures = native["source_training_captures"]
+    packages = [item["package"] for item in captures]
+    refs = native["manifest"]["artifacts"]
+    records = validate_source_package_bindings(packages, refs)
+    loaded = {item["artifact_id"]: item for item in native["artifacts"]}
+    carriers, sidecars, extra, outputs, members = {}, [], {}, [], []
+    public_contract = None
+    source_names: list[str] | None = None
+    source_widths: list[int] | None = None
+    feature_axes = None
+    for rank, package in enumerate(packages, 1):
+        graph = package["effective_plan"]["graph_plan"]["graph"]
+        metadata = graph.get("metadata", {})
+        order = metadata.get("by_source_source_order")
+        if not isinstance(order, list) or len(order) < 2 or len(set(order)) != len(order):
+            raise ValueError("native source package lacks its signed source order")
+        contract = metadata.get("by_source_class_labels")
+        if rank == 1:
+            source_names, public_contract = order, contract
+            source_widths = metadata["by_source_input_widths"]
+            feature_axes = metadata["by_source_feature_axes"]
+        elif (order != source_names or contract != public_contract or metadata["by_source_input_widths"] != source_widths
+              or metadata["by_source_feature_axes"] != feature_axes):
+            raise ValueError("native source order or class vocabulary changed between selected ranks")
+        nodes = {node["id"]: node for node in graph["nodes"]}
+        by_node = {record["node_id"]: artifact_id for artifact_id, record in records.items()
+                   if artifact_id in {item["artifact_id"] for item in package["artifact_bindings"]}}
+        for binding in package["output_bindings"]:
+            node = nodes[binding["node_id"]]
+            index = node.get("metadata", {}).get("source_index")
+            if type(index) is not int or not 0 <= index < len(order) or binding["binding_id"] != f"output:source_{index}":
+                raise ValueError("native source output binding differs from its signed source identity")
+            artifact_id = by_node[binding["node_id"]]
+            artifact = loaded[artifact_id]
+            member = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+            if public_contract is not None and public_contract["label_type"] != "native_numeric":
+                actual = getattr(member.y_transform, "classes_", None)
+                labels = [value.item() if isinstance(value, np.generic) else value for value in actual] if actual is not None else None
+                if labels != public_contract["labels"]:
+                    raise ValueError("captured classifier decoder differs from its signed typed vocabulary")
+            if rank == 1:
+                members.append((index, order[index], binding["binding_id"], member))
+            outputs.append({"rank": rank, "output_id": binding["binding_id"], "producer_node": binding["node_id"],
+                            "prediction_kind": binding["prediction_kind"], "target_names": binding["target_names"], "class_labels": binding["class_labels"],
+                            "source_index": index, "source_id": order[index], "artifact_id": artifact_id,
+                            "output_binding_id": binding["binding_id"] if rank == 1 else f"{binding['binding_id']}:rank:{rank}"})
+    if source_names is None or source_widths is None:
+        raise ValueError("native source export requires at least one captured training package")
+    for ref in refs:
+        artifact_id = ref["artifact_id"]
+        raw = (Path(result._dagml_results_dir) / _validate_portable_uri(ref["uri"])).read_bytes()
+        carrier_sha = hashlib.sha256(raw).hexdigest()
+        expected = ref.get("serialization_fingerprint", ref["content_fingerprint"])
+        if carrier_sha != expected or len(raw) != ref["size_bytes"]:
+            raise ValueError("native source sidecar changed between validation and export")
+        path = f"dagml_source_sidecar_{hashlib.sha256(artifact_id.encode()).hexdigest()}.joblib"
+        carriers[artifact_id] = raw
+        extra[path] = raw
+        sidecars.append({"artifact_id": artifact_id, "controller_id": ref["controller_id"], "kind": ref["kind"],
+                        "producer_node": records[artifact_id]["node_id"], "native_record": records[artifact_id], "uri": path,
+                        "size_bytes": len(raw), "serialization_sha256": carrier_sha})
+    native_outputs = [{key: item[key] for key in ("rank", "output_id", "producer_node", "prediction_kind", "target_names", "class_labels")}
+                      for item in outputs]
+    capture = {"schema_version": 1, "captures": captures, "sidecars": sidecars, "outputs": native_outputs}
+    raw_capture = json.dumps(capture, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    capture_sha = hashlib.sha256(raw_capture).hexdigest()
+    extra["dagml_source_training_capture.json"] = raw_capture
+    axes = feature_axes
+    members.sort(key=lambda item: item[0])
+    model = _DagmlRankedIndependentSourceModels(members, axes, outputs, carriers, capture_sha, source_widths)
+    model.validate_source_capture(capture, capture_sha)
+    selected_output = None
+    if selected_source is not None:
+        index = selected_source.get("branch_id")
+        projection = (selected_source.get("result_metadata") or {}).get("dagml_projection", {})
+        variant_id = selected_source.get("variant_id", projection.get("variant_id"))
+        if projection.get("variant_id", variant_id) != variant_id:
+            raise ValueError("selected source row carries conflicting native variant identities")
+        ranks = [rank for rank, item in enumerate(captures, 1) if item["outcome"]["selected_variant_id"] == variant_id]
+        if len(ranks) != 1 or type(index) is not int or not 0 <= index < len(source_names):
+            raise ValueError("selected source row must identify exactly one native refit rank and source")
+        selected_output = next(item for item in outputs if item["rank"] == ranks[0] and item["source_index"] == index)
+        model.selected_output_binding_id = selected_output["output_binding_id"]
+    provenance = _dagml_native_bundle_provenance(native["manifest"], export_path="dagml_native_independent_sources",
+        artifact_count=len(carriers), export_shape="independent_by_source_multi", retrain_lineage=getattr(result, "_retrain_lineage", None))
+    provenance["dagml_source_training_capture_ref"] = {"path": "dagml_source_training_capture.json", "sha256": capture_sha}
+    provenance["dagml_independent_output_topology"] = {
+        "schema_id": "dag-ml.host_independent_outputs.v1", "kind": "independent_by_source", "input_relation": "aligned_rows",
+        "outputs": [{"source_id": source_names[index], "source_index": index, "output_binding_id": f"output:source_{index}",
+                     "feature_width": model.source_widths[index],
+                     **({"feature_axis_cm1": list(axis)} if (axis := model.feature_axes_cm1[index]) is not None else {})}
+                    for index in range(len(source_names))],
+        "ranked_outputs": outputs,
+    }
+    if selected_output is not None:
+        provenance.pop("dagml_independent_output_topology")
+        provenance["dagml_native_export_shape"] = "independent_by_source_selected"
+        provenance["dagml_selected_source"] = copy.deepcopy(selected_output)
+        provenance["dagml_source_widths"] = list(model.source_widths)
+    return write_single_model_bundle(model, output_path, model_label="dagml_independent_sources", pipeline_uid=str(native["manifest"].get("run_id") or ""),
+                                    provenance=provenance, extra_members=extra, train_steps=None)
+
+
 class _DagmlNativeMetadataConcatModel:
     """Replay fanned REFIT models using the required metadata partition key."""
 
@@ -869,14 +1129,19 @@ class _DagmlNativeStackingModel:
             raise ValueError("native stacking probability projections must match base members")
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
             raise ValueError("native raw stacking requires one distinct named source per base model")
-        from nirs4all.pipeline.dagml.multimodal_contracts import stacking_source_presence_contract
+        from nirs4all.pipeline.dagml.multimodal_contracts import late_partial_stack_contract, stacking_source_presence_contract
 
         stacking_source_presence_contract(self)
+        closure = late_partial_stack_contract(self)
+        if closure is not None:
+            self.multimodal_input_schema = copy.deepcopy(closure["input_schema"])
+            self.late_partial_refit_contract = copy.deepcopy(closure)
 
     def _meta_features(self, X: Any, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
-        from nirs4all.pipeline.dagml.multimodal_contracts import stacking_source_presence_contract
+        from nirs4all.pipeline.dagml.multimodal_contracts import stacking_source_presence_contract, validate_late_partial_stack
         from nirs4all.pipeline.dagml.source_missing import append_source_presence, predict_present_rows
 
+        closure = validate_late_partial_stack(self)
         presence_contract = stacking_source_presence_contract(self)
         base_blocks: list[np.ndarray] = []
         expected_rows: int | None = None
@@ -884,16 +1149,22 @@ class _DagmlNativeStackingModel:
             raise ValueError("native raw stacking requires its ordered raw source blocks")
         if source_masks is not None:
             if presence_contract is None:
-                raise ValueError("native stacking requires zero_with_indicator to accept source masks")
-            if not isinstance(source_masks, Mapping) or set(source_masks) != set(self.source_names or ()):
+                if (closure is None or closure["missing_source_policy"] != "error"
+                        or not isinstance(source_masks, Mapping) or set(source_masks) != set(self.source_names or ())
+                        or any(np.asarray(mask).dtype != np.dtype(bool) or np.asarray(mask).shape != (len(X[index]),)
+                               or not np.all(mask) for index, mask in enumerate(source_masks[name] for name in self.source_names or ()))):
+                    raise ValueError("native stacking requires zero_with_indicator to accept absent source rows")
+                source_masks = None
+            if source_masks is not None and (not isinstance(source_masks, Mapping) or set(source_masks) != set(self.source_names or ())):
                 raise ValueError("native stacking source masks must exactly match its named sources")
         if presence_contract is not None:
             if len({len(block) for block in X}) != 1:
                 raise ValueError("native stacking raw source blocks have incompatible row counts")
             for index, name in enumerate(presence_contract["source_names"]):
                 mask = np.ones(len(X[index]), dtype=bool) if source_masks is None else source_masks[name]
+                predict = self.base_members[index].predict_proba_numeric if self.probability_sources[index] else self.base_members[index].predict_numeric
                 values = predict_present_rows(
-                    self.base_members[index].predict_numeric, X[index], mask,
+                    predict, X[index], mask,
                     presence_contract["prediction_widths"][index],
                 )
                 base_blocks.append(append_source_presence(values, mask))
@@ -963,21 +1234,32 @@ class _DagmlNativeStackingModel:
 
     def predict(self, X: Any, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Predict public labels or regression values from captured source models."""
-        return np.asarray(self.meta_member.predict(self._meta_features(X, source_masks=source_masks)))
+        from nirs4all.pipeline.dagml.multimodal_contracts import validate_late_partial_stack
+
+        values = np.asarray(self.meta_member.predict(self._meta_features(X, source_masks=source_masks)))
+        validate_late_partial_stack(self)
+        return values
 
     def predict_numeric(self, X: Any, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Keep final class labels encoded until native replay has validated them."""
-        return np.asarray(self.meta_member.predict_numeric(self._meta_features(X, source_masks=source_masks)), dtype=float)
+        from nirs4all.pipeline.dagml.multimodal_contracts import validate_late_partial_stack
 
-    def predict_proba_numeric(self, X: Any) -> np.ndarray:
+        values = np.asarray(self.meta_member.predict_numeric(self._meta_features(X, source_masks=source_masks)), dtype=float)
+        validate_late_partial_stack(self)
+        return values
+
+    def predict_proba_numeric(self, X: Any, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Replay the upstream meta-classifier's probability columns."""
-        estimator = self.meta_member.estimator
-        predict_proba = getattr(estimator, "predict_proba", None)
-        if self.meta_member.y_transform is not None or not callable(predict_proba):
-            raise ValueError("nested probability stacking requires a fitted classifier without target transform")
-        probabilities = np.asarray(predict_proba(self._meta_features(X)), dtype=float)
+        from nirs4all.pipeline.dagml.multimodal_contracts import validate_late_partial_stack
+
+        probabilities = self.meta_member.predict_proba_numeric(self._meta_features(X, source_masks=source_masks))
         if probabilities.ndim != 2 or probabilities.shape[1] < 2:
             raise ValueError("nested probability stacking requires at least two probability columns")
+        closure = validate_late_partial_stack(self)
+        if closure is not None:
+            if probabilities.shape[1] != len(closure["class_labels"]):
+                raise ValueError("late partial prediction changed its full class vocabulary")
+            return probabilities
         column = 1 if probabilities.shape[1] == 2 else 0
         return probabilities[:, column:column + 1]
 
@@ -1609,6 +1891,7 @@ class RunResult:
     # Signed evidence from an in-process by_source CV execute_training run.
     _dagml_training_outcome: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_portable_predictor_package: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_source_training_captures: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _dagml_initial_full_refit_package: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_source_feature_axes: tuple[list[str] | None, ...] | None = field(default=None, repr=False)
 
@@ -2611,7 +2894,8 @@ class RunResult:
             return None
 
         artifact = artifacts[0]
-        model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+        model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"], named_refit_artifact=artifact,
+                                   late_partial_refit_artifact=artifact)
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2775,6 +3059,8 @@ class RunResult:
             or independent_outputs or selected_source is not None
         ):
             return None
+        if (independent_outputs or selected_source is not None) and native.get("source_training_captures"):
+            return _write_attested_source_bundle(self, native, output_path, selected_source)
         if independent_outputs:
             indexed = _indexed_branch_artifacts(artifacts)
             if indexed is None or len(indexed) < 2:
@@ -2924,12 +3210,18 @@ class RunResult:
 
         if len(artifacts) == 1:
             artifact = artifacts[0]
-            model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+            if "late_partial_refit_origin" in artifact:
+                raise self._dagml_export_refusal(
+                    "export", "a partial-source component cannot be exported alone as .n4a; "
+                    "select the fitted meta-model run from result.runs to export the complete stack",
+                )
+            model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"], named_refit_artifact=artifact,
+                                       late_partial_refit_artifact=artifact)
             model_label = (str(self.cv_best.get("model_name")) if checkpoint_selected and self.cv_best is not None
                            else model_names[0] if model_names else type(artifact["estimator"]).__name__)
             from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
 
-            multimodal_provenance = archive_metadata(artifact["estimator"])
+            multimodal_provenance = archive_metadata(artifact["estimator"], artifact=artifact)
             if multimodal_provenance and self._tuning_result is not None:
                 multimodal_provenance["multimodal_host"]["tuning"] = self._tuning_result.to_dict()
             generated_provenance: dict[str, Any] = {}
@@ -3079,8 +3371,10 @@ class RunResult:
         stacking = _native_stacking_artifacts(native_manifest, artifacts)
         if stacking is not None:
             base_artifacts, meta_artifact = stacking
-            base_members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in base_artifacts]
-            meta_member = _DagmlExportedModel(meta_artifact["estimator"], meta_artifact["y_transform"])
+            base_members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"],
+                                              late_partial_refit_artifact=artifact) for artifact in base_artifacts]
+            meta_member = _DagmlExportedModel(meta_artifact["estimator"], meta_artifact["y_transform"],
+                                            late_partial_refit_artifact=meta_artifact)
             model_label = model_names[0] if model_names else "dagml_native_stacking"
             provenance = _dagml_native_bundle_provenance(
                 native_manifest,

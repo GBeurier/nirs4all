@@ -110,7 +110,7 @@ def _oracle(dataset: dict[str, Any], library: str, tmp_path: Path, *, train: dic
     )
     result = json.loads(completed.stdout)
     assert result["library"] == library
-    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0"}
+    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0"}
     return result
 
 

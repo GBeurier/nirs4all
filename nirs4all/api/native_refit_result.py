@@ -71,8 +71,10 @@ class NativeMethodsRefitResult:
 
         output = Path(path)
         payload = self.package_json().encode("utf-8")
+        # Do not clean up a path that this operation failed to create.
+        handle = output.open("xb")
         try:
-            with output.open("xb") as handle:
+            with handle:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -143,7 +145,10 @@ class NativeMethodsRefitResult:
         groups: Any = None,
         metadata: Any = None,
     ) -> PredictResult:
-        """Run scheduler-owned PREDICT from the V3 raw N4MM child.
+        """Run scheduler-owned PREDICT from a V3 native Methods child.
+
+        Native N4MM/N4ME states and the closed native PLS RolePipeline retain
+        their original controller identities, with no host model conversion.
 
         ``sample_ids`` are mandatory.  No positional IDs, source estimator,
         Python model or host-sidecar is used by this operation.

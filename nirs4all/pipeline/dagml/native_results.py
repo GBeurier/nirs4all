@@ -214,7 +214,9 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
     node runner's captured ``"joblib"``, NOT the ML framework, per ADR-16 / dag-ml ``ArtifactBackend``),
     ``uri`` (relative to the run dir), ``content_fingerprint`` (sha256 of the written bytes — NOT
     ``content_hash``), ``size_bytes``, ``kind``, plus ``controller_id`` when available and the source
-    ``artifact_id``. An EMPTY input writes nothing and returns ``[]``.
+    ``artifact_id``. Named Torch preserves the original native REFIT fingerprint
+    and stores the carrier SHA separately as ``serialization_fingerprint``.
+    An EMPTY input writes nothing and returns ``[]``.
     """
     if not refit_artifacts:
         return []
@@ -225,6 +227,26 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
     for index, artifact in enumerate(refit_artifacts):
         uri = _artifact_uri(str(artifact.get("artifact_id") or f"artifact_{index}"), index)
         payload = {"estimator": artifact["estimator"], "y_transform": artifact["y_transform"]}
+        if "multimodal_tuning_evidence" in artifact:
+            payload["multimodal_tuning_evidence"] = artifact["multimodal_tuning_evidence"]
+        from .named_torch_estimator import DagMLNamedTorchEstimator
+
+        named = isinstance(payload["estimator"], DagMLNamedTorchEstimator)
+        late = hasattr(payload["estimator"], "_nirs4all_late_partial_refit_origin")
+        if late or "late_partial_refit_origin" in artifact or "late_partial_refit_fingerprint" in artifact:
+            from .multimodal_contracts import validate_late_partial_refit_origin
+
+            validate_late_partial_refit_origin(artifact, artifact)
+            payload["late_partial_refit_origin"] = json.loads(json.dumps(artifact["late_partial_refit_origin"]))
+            payload["late_partial_refit_fingerprint"] = artifact["late_partial_refit_fingerprint"]
+        if named or "named_refit_origin" in artifact or "named_refit_fingerprint" in artifact:
+            from .node_runner import validate_named_refit_origin
+
+            if not named:
+                raise ValueError("named Torch REFIT provenance requires its named estimator")
+            validate_named_refit_origin(artifact, artifact)
+            payload["named_refit_origin"] = json.loads(json.dumps(artifact["named_refit_origin"]))
+            payload["named_refit_fingerprint"] = artifact["named_refit_fingerprint"]
         if "fold_estimators" in artifact:
             payload["fold_estimators"] = artifact["fold_estimators"]
         if "fold_selection" in artifact:
@@ -244,6 +266,18 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
             "kind": artifact.get("kind"),
             "controller_id": artifact.get("controller_id"),
         }
+        if named:
+            # The native fingerprint binds the genuine REFIT, not the joblib
+            # carrier. Never replace that origin with a freshly exported hash.
+            ref["serialization_fingerprint"] = ref["content_fingerprint"]
+            ref["content_fingerprint"] = artifact["content_fingerprint"]
+            ref["named_refit_origin"] = json.loads(json.dumps(payload["named_refit_origin"]))
+            ref["named_refit_fingerprint"] = payload["named_refit_fingerprint"]
+        if late:
+            ref["serialization_fingerprint"] = fingerprint.removeprefix("sha256:")
+            ref["content_fingerprint"] = artifact["content_fingerprint"]
+            ref["late_partial_refit_origin"] = json.loads(json.dumps(payload["late_partial_refit_origin"]))
+            ref["late_partial_refit_fingerprint"] = payload["late_partial_refit_fingerprint"]
         if host_artifacts:
             ref["host_artifacts"] = host_artifacts
         branch_index = _branch_index_from_artifact_id(ref["artifact_id"])
@@ -439,7 +473,8 @@ def _stacking_replay_manifest(
                     "producer_node": source,
                     "meta_feature_key": f"{source}.{(source_ports or {}).get(node, {}).get(source, 'oof')}",
                     "column_block": "probability_values" if (source_ports or {}).get(node, {}).get(source) == "proba" or source in (probability_producers or set()) else "prediction_values",
-                    **({"column_projection": "selected_class"} if (source_ports or {}).get(node, {}).get(source) == "proba" else {}),
+                    **({"column_projection": "selected_class"} if (source_ports or {}).get(node, {}).get(source) == "proba"
+                       and by_producer[source][0].get("late_partial_refit_origin", {}).get("class_labels") is None else {}),
                 } for source in source_nodes],
                 "meta_feature_construction": {
                     "kind": "base_prediction_column_stack",
@@ -484,7 +519,8 @@ def _stacking_replay_manifest(
             # This is the base key order used by node_runner._ordered_oof_specs after suffix stripping.
             "meta_feature_key": f"{producer_node}.{(source_ports or {}).get(target_node, {}).get(producer_node, 'oof')}",
             "column_block": "probability_values" if (source_ports or {}).get(target_node, {}).get(producer_node) == "proba" else "prediction_values",
-            **({"column_projection": "selected_class"} if (source_ports or {}).get(target_node, {}).get(producer_node) == "proba" else {}),
+            **({"column_projection": "selected_class"} if (source_ports or {}).get(target_node, {}).get(producer_node) == "proba"
+               and ref.get("late_partial_refit_origin", {}).get("class_labels") is None else {}),
         }
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])
@@ -763,8 +799,19 @@ def write_native_results(
         InitialFullRefitPackage(initial_package)
         (run_dir / "initial_full_refit_package.json").write_text(_canonical_json(initial_package), encoding="utf-8")
 
+    source_captures = getattr(result, "_dagml_source_training_captures", [])
+    source_payload = None
+    if source_captures:
+        from .attested_by_source import validate_source_package_bindings
+
+        validate_source_package_bindings([item["package"] for item in source_captures], artifact_refs)
+        source_payload = _canonical_json(source_captures).encode("utf-8")
+        (run_dir / "source_training_captures.json").write_bytes(source_payload)
+
     # manifest.json — the run header + capability flags + the ScoreSet hash + the model ArtifactRefs.
     manifest = _manifest_header(result, predictions, score_set, run_id, run_dir, artifact_refs)
+    if source_payload is not None:
+        manifest["source_training_captures_ref"] = {"path": "source_training_captures.json", "sha256": hashlib.sha256(source_payload).hexdigest()}
     if initial_package is not None:
         manifest["files"]["initial_full_refit_package"] = "initial_full_refit_package.json"
         manifest["initial_full_refit_package_fingerprint"] = initial_package["package_fingerprint"]
@@ -935,6 +982,32 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
         )
     predictions.flush()
 
+    source_captures = []
+    source_ref = manifest.get("source_training_captures_ref")
+    if source_ref is not None:
+        if (not isinstance(source_ref, dict) or set(source_ref) != {"path", "sha256"}
+                or source_ref["path"] != "source_training_captures.json"):
+            raise ValueError("native source training capture reference is invalid")
+        source_path = run_dir / source_ref["path"]
+        if source_path.stat().st_size > 64 * 1024 * 1024:
+            raise ValueError("native source training capture is oversized")
+        source_bytes = source_path.read_bytes()
+        if hashlib.sha256(source_bytes).hexdigest() != source_ref["sha256"]:
+            raise ValueError("native source training capture hash differs")
+        source_captures = json.loads(source_bytes)
+        if not isinstance(source_captures, list) or not source_captures:
+            raise ValueError("native source training captures must be a non-empty list")
+        from dag_ml import TrainingOutcome
+
+        from .attested_by_source import validate_source_package_bindings
+
+        for item in source_captures:
+            TrainingOutcome(item["outcome"])
+            if item["package"]["training_outcome"]["outcome_fingerprint"] != item["outcome"]["outcome_fingerprint"]:
+                raise ValueError("native source package does not bind its original training outcome")
+        validate_source_package_bindings([item["package"] for item in source_captures], manifest.get("artifacts", []))
+    elif (run_dir / "source_training_captures.json").exists():
+        raise ValueError("native results contain an undeclared source training capture")
     artifacts = _rehydrate_artifacts(run_dir, manifest.get("artifacts", []))
     if generated_version == _GENERATED_PREDICT_SCHEMA_VERSION:
         from .multimodal_contracts import generated_prediction_contract
@@ -956,7 +1029,7 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
         InitialFullRefitPackage(initial_package)
         if initial_package["package_fingerprint"] != manifest.get("initial_full_refit_package_fingerprint"):
             raise ValueError("native results initial full-refit package fingerprint mismatch")
-    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts, "initial_full_refit_package": initial_package, "generated_view_manifest": generated_manifest}
+    return {"manifest": manifest, "score_set": score_set, "predictions": predictions, "artifacts": artifacts, "initial_full_refit_package": initial_package, "generated_view_manifest": generated_manifest, "source_training_captures": source_captures}
 
 
 def _validate_portable_uri(uri: Any) -> str:
@@ -1004,6 +1077,8 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
        unknown / unexpected ``backend`` is refused before the load.
     3. **Content fingerprint** — a mismatch between the on-disk bytes' sha256 and the recorded
        ``content_fingerprint`` raises before the load (a corrupted/edited payload never unpickles).
+       Named Torch checks ``serialization_fingerprint`` for the carrier, then verifies
+       the retained native fingerprint against its genuine REFIT origin and state.
 
     Each loaded payload is ``{estimator, y_transform}``; the returned entry merges in the ArtifactRef's
     identity/metadata (``artifact_id`` / ``kind`` / ``controller_id`` / ``backend`` / ``uri``).
@@ -1021,8 +1096,21 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
             )
         path = run_dir / uri
         sidecar_refs = ref.get("host_artifacts")
+        named = any(key in ref for key in ("named_refit_origin", "named_refit_fingerprint"))
+        late = any(key in ref for key in ("late_partial_refit_origin", "late_partial_refit_fingerprint"))
+        anchored = named or late
+        expected = ref.get("serialization_fingerprint") if anchored else ref.get("content_fingerprint")
+        if "serialization_fingerprint" in ref and not anchored:
+            raise ValueError("native results serialization fingerprint lacks its original REFIT provenance")
+        if late and (not isinstance(ref.get("late_partial_refit_origin"), dict)
+                     or ref.get("content_fingerprint") != ref.get("late_partial_refit_fingerprint")
+                     or not isinstance(expected, str) or len(expected) != 64):
+            raise ValueError("native results late partial artifact lacks its original REFIT or serialization fingerprint")
+        if named and (not isinstance(ref.get("named_refit_origin"), dict)
+                      or ref.get("content_fingerprint") != ref.get("named_refit_fingerprint")
+                      or not isinstance(expected, str) or len(expected) != 64):
+            raise ValueError("native results named Torch artifact lacks its original REFIT or serialization fingerprint")
         sidecar_owner = tempfile.TemporaryDirectory(prefix="nirs4all_native_sidecars_") if sidecar_refs else None
-        expected = ref.get("content_fingerprint")
         try:
             if sidecar_owner is not None:
                 for directory_ref in cast(list[dict[str, Any]], sidecar_refs):
@@ -1047,6 +1135,22 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
                     )
                 payload = joblib.load(snapshot)
             hydrate_host_artifacts(payload, directories, owner=sidecar_owner)
+            from .named_torch_estimator import DagMLNamedTorchEstimator
+
+            if named or isinstance(payload["estimator"], DagMLNamedTorchEstimator):
+                from .node_runner import validate_named_refit_origin
+
+                if (not named or payload.get("named_refit_origin") != ref.get("named_refit_origin")
+                        or payload.get("named_refit_fingerprint") != ref.get("named_refit_fingerprint")):
+                    raise ValueError("native results named Torch REFIT provenance disagrees with its manifest")
+                validate_named_refit_origin(payload, ref)
+            if late or hasattr(payload["estimator"], "_nirs4all_late_partial_refit_origin"):
+                from .multimodal_contracts import validate_late_partial_refit_origin
+
+                if (not late or payload.get("late_partial_refit_origin") != ref.get("late_partial_refit_origin")
+                        or payload.get("late_partial_refit_fingerprint") != ref.get("late_partial_refit_fingerprint")):
+                    raise ValueError("native results late partial REFIT provenance disagrees with its manifest")
+                validate_late_partial_refit_origin(payload, ref)
         except Exception:
             if sidecar_owner is not None:
                 sidecar_owner.cleanup()
@@ -1059,8 +1163,16 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
             "controller_id": ref.get("controller_id"),
             "backend": ref.get("backend"),
             "uri": uri,
-            "content_fingerprint": actual,
+            "content_fingerprint": ref["content_fingerprint"] if anchored else actual,
         }
+        if named:
+            entry["serialization_fingerprint"] = actual
+            entry["named_refit_origin"] = json.loads(json.dumps(payload["named_refit_origin"]))
+            entry["named_refit_fingerprint"] = payload["named_refit_fingerprint"]
+        if late:
+            entry["serialization_fingerprint"] = actual
+            entry["late_partial_refit_origin"] = json.loads(json.dumps(payload["late_partial_refit_origin"]))
+            entry["late_partial_refit_fingerprint"] = payload["late_partial_refit_fingerprint"]
         for key in ("fold_estimators", "fold_selection"):
             if key in payload:
                 entry[key] = payload[key]

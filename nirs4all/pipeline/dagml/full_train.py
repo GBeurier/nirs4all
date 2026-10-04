@@ -17,10 +17,11 @@ import numpy as np
 
 from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
+from nirs4all.data.multimodal import MultimodalSpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.dagml_bridge import controller_manifests, pipeline_to_dsl
+from nirs4all.pipeline.dagml_bridge import controller_manifests, named_model_input_spec, pipeline_to_dsl
 
-from .cli_runner import data_bindings_for_fitted_x_chain
+from .cli_runner import data_bindings_for, data_bindings_for_fitted_x_chain
 from .envelope import build_envelope, target_names
 from .errors import DagMlUnavailable, DagMlUnsupported, _reject_multi_model
 from .identity import IdentityMap, mint_identity
@@ -29,6 +30,7 @@ from .node_runner import run_node
 from .public_normalization import normalize_model_steps
 from .raw_training_lowerer import _array_content_fingerprint
 from .resolver import MaterializationResolver
+from .resources import current_execution_resources
 from .result import _index_sample_blocks
 from .steps import _apply_model_params, _assert_supported_operators, _model_name, _split_pipeline
 
@@ -127,6 +129,13 @@ def run_full_train(
         }
     test = spectro.index_column("sample", {"partition": "test"})
     envelope = build_envelope(spectro, identity, sample_ints=envelope_train, augmentation_by_sample=augmentation_by_sample, metadata_by_sample=metadata_by_sample)
+    named_inputs = named_model_input_spec(steps)
+    if getattr(spectro, "independent_unit_ids", None) is not None and (
+        named_inputs is not None or augmented_train or base_fit_model_count or separation is not None
+    ):
+        raise DagMlUnsupported("experimental-unit full training requires weighted operators without named Torch, augmentation or separation")
+    if named_inputs is not None and execute is None:
+        raise DagMlUnsupported("named Torch inputs require the in-process DAG-ML view callback; CLI execution is not qualified for this profile")
     if test:
         cohort_builder = getattr(dag_ml, "attach_predict_cohort_to_envelope", None)
         if not callable(cohort_builder):
@@ -137,7 +146,8 @@ def run_full_train(
         envelope.update(cohort_builder(envelope, {
             "role": "external_test", "relations": test_envelope["coordinator_relations"],
             "target_names": target_names(spectro),
-            "data_content_fingerprint": _array_content_fingerprint("X", spectro.x({"partition": "test"}, layout="2d")),
+            "data_content_fingerprint": (spectro.content_hash(sample_rows=test) if isinstance(spectro, MultimodalSpectroDataset) else
+                                         _array_content_fingerprint("X", spectro.x({"partition": "test"}, layout="2d"))),
             "target_content_fingerprint": _array_content_fingerprint("y", spectro.y({"partition": "test"})),
         }).to_dict())
     if separation is not None:
@@ -151,7 +161,19 @@ def run_full_train(
             workdir=workdir, random_state=random_state,
         )
     dsl = pipeline_to_dsl(steps, "nirs4all-full-train")
-    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    if named_inputs is not None:
+        dsl["root_seed"] = random_state if random_state is not None else 0
+    resolver = MaterializationResolver(spectro, identity)
+    from .experimental_units import apply_experimental_unit_contract
+
+    if getattr(spectro, "independent_unit_ids", None) is not None:
+        apply_experimental_unit_contract(
+            dsl, spectro, identity, train,
+            target_values=resolver.resolve_targets([identity.to_wire(sample) for sample in train])["values"],
+            target_names=target_names(spectro),
+        )
+    manifests = controller_manifests(dsl)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests).graph.to_dict()
     models = [node for node in graph["nodes"] if node["kind"] == "model"]
     if len(models) != 1 and not base_fit_model_count:
         raise DagMlUnsupported("full-training execution needs one concrete model; expand independent public model requests before dispatch")
@@ -160,9 +182,12 @@ def run_full_train(
     model_id = models[0]["id"]
     from .cli_runner import needs_dynamic_feature_axis
 
-    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(
-        graph, model_id, envelope, force=needs_dynamic_feature_axis(steps),
-    )
+    if named_inputs is not None:
+        dsl["data_bindings"] = data_bindings_for(model_id, envelope, model_input=named_inputs)
+    else:
+        dsl["data_bindings"] = data_bindings_for_fitted_x_chain(
+            graph, model_id, envelope, force=needs_dynamic_feature_axis(steps),
+        )
     if base_fit_model_count:
         from .cli_runner import data_bindings_for_nodes
 
@@ -218,8 +243,13 @@ def run_full_train(
             outcome, identity, dataset_name=spectro.name, model_id=projection_ids,
             model_name=projection_names, metric=metric, task_type=task_type,
             config_name=config_name, artifacts=artifacts,
+            grouping_key=(dsl.get("aggregation_policy") or {}).get("grouping_key"),
         )
-    resolver = MaterializationResolver(spectro, identity)
+    fixed_views = None
+    if named_inputs is not None:
+        from .fixed_cohort_views import FixedCohortViewStore
+
+        fixed_views = FixedCohortViewStore(resolver, named_inputs, envelope)
     nodes = {node["id"]: node for node in graph["nodes"]}
     from nirs4all.api.general_transfer import bind_transfer_operators
 
@@ -228,12 +258,18 @@ def run_full_train(
     store: dict[int, Any] = {}
 
     def callback(task: dict[str, Any]) -> dict[str, Any]:
-        return run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform)
+        return run_node(
+            task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform,
+            generated_views=fixed_views.bind_task(task) if fixed_views is not None else None,
+            graph_metadata=graph.get("metadata"),
+        )
 
     warnings.warn(message, NoSplitEvaluationWarning, stacklevel=2)
     outcome = json.loads(execute(
-        json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
+        json.dumps(dsl), json.dumps(envelope), json.dumps(manifests), callback, "REFIT",
         training_sample_ids=[identity.to_wire(sample) for sample in train],
+        resource_limits_json=json.dumps(current_execution_resources().to_contract()),
+        **({"view_callback": fixed_views} if fixed_views is not None else {}),
     ))
     if outcome["phase"] != "REFIT":
         raise ValueError("full-training runtime returned an unexpected phase")
@@ -241,6 +277,7 @@ def run_full_train(
         outcome, identity, dataset_name=spectro.name, model_id=projection_ids,
         model_name=projection_names, metric=metric, task_type=task_type,
         config_name=config_name, artifacts=_capture_refit_artifacts(outcome["node_results"], store),
+        grouping_key=(dsl.get("aggregation_policy") or {}).get("grouping_key"),
     )
 
 
@@ -450,11 +487,7 @@ def run_by_source_auto_full_train(
         "id": "nirs4all-by-source-auto-full-train",
         "steps": [{"kind": "branch", "mode": "duplication", "branches": branches}],
     }
-    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     model_ids = [next(node["id"] for node in branch["steps"] if node["kind"] == "model") for branch in branches]
-    compiled_models = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
-    if compiled_models != set(model_ids):
-        raise DagMlUnsupported(f"by_source full training compiled models {compiled_models!r}, expected {model_ids!r}")
 
     identity = mint_identity(spectro)
     train = spectro.index_column("sample", {"partition": "train"})
@@ -464,6 +497,20 @@ def run_by_source_auto_full_train(
         train = list(train_sample_ids)
     test = spectro.index_column("sample", {"partition": "test"})
     envelope = build_envelope(spectro, identity, sample_ints=train)
+    resolver = MaterializationResolver(spectro, identity)
+    if getattr(spectro, "independent_unit_ids", None) is not None:
+        from .experimental_units import apply_experimental_unit_contract
+
+        apply_experimental_unit_contract(
+            dsl, spectro, identity, train,
+            target_values=resolver.resolve_targets([identity.to_wire(sample) for sample in train])["values"],
+            target_names=target_names(spectro),
+        )
+    manifests = controller_manifests(dsl)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests).graph.to_dict()
+    compiled_models = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
+    if compiled_models != set(model_ids):
+        raise DagMlUnsupported(f"by_source full training compiled models {compiled_models!r}, expected {model_ids!r}")
     envelope["data_content_fingerprint"] = _array_content_fingerprint(
         "X", spectro.x({"sample": train}, layout="2d"),
     )
@@ -482,7 +529,6 @@ def run_by_source_auto_full_train(
             "target_content_fingerprint": _array_content_fingerprint("y", spectro.y({"partition": "test"})),
         }).to_dict())
     dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
-    resolver = MaterializationResolver(spectro, identity)
     nodes = {node["id"]: node for node in graph["nodes"]}
     target_transform = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     store: dict[int, Any] = {}
@@ -519,7 +565,7 @@ def run_by_source_auto_full_train(
         artifacts = _load_subprocess_refit_artifacts(outcome["node_results"], cli_run["artifact_dir"])
     else:
         outcome = json.loads(execute(
-            json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
+            json.dumps(dsl), json.dumps(envelope), json.dumps(manifests), callback, "REFIT",
             training_sample_ids=training_ids, package_id="package:nirs4all.by_source.initial.refit",
         ))
         artifacts = _capture_refit_artifacts(outcome["node_results"], store)
@@ -532,6 +578,7 @@ def run_by_source_auto_full_train(
             outcome, identity, dataset_name=spectro.name, model_id=model_id,
             model_name=_model_name(source_bodies[name]), metric=metric,
             task_type=task_type, config_name=config_name, artifacts=artifacts,
+            grouping_key=(dsl.get("aggregation_policy") or {}).get("grouping_key"),
         )
         evaluation = local.per_dataset[spectro.name]["evaluation"]
         for row in local.predictions.filter_predictions(load_arrays=True):
@@ -557,6 +604,7 @@ def _project_full_train(
     outcome: dict[str, Any], identity: IdentityMap, *, dataset_name: str,
     model_id: str | list[str], model_name: str | list[str], metric: str, task_type: str,
     config_name: str, artifacts: list[dict[str, Any]],
+    grouping_key: dict[str, str] | None = None,
 ) -> RunResult:
     """Expose actual full-training reports without manufacturing CV evidence."""
     scores = outcome["scores"]
@@ -575,11 +623,16 @@ def _project_full_train(
         "test_used_for_validation": has_test,
         "independent_model_selection_holdout": False,
     }
+    if grouping_key is not None:
+        evaluation.update(score_level="group", score_grouping_key=dict(grouping_key))
     indexed = _index_sample_blocks(outcome["node_results"])
     predictions = Predictions()
     candidate_scores: list[tuple[str, float]] = []
     for current_id, current_name in model_pairs:
-        reports = [report for report in scores["reports"] if report["producer_node"] == current_id and report["level"] == "sample"]
+        reports = [report for report in scores["reports"]
+                   if report["producer_node"] == current_id
+                   and report["level"] == ("group" if grouping_key is not None else "sample")
+                   and report.get("grouping_key") == grouping_key]
         if any(report["partition"] not in {"final", "test"} or report.get("fold_id") is not None for report in reports):
             raise ValueError("full-training reports unexpectedly contain cross-validation evidence")
         blocks = {report["partition"]: dict(report["metrics"]) for report in reports}

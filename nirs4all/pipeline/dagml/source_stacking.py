@@ -15,6 +15,7 @@ from typing import Any
 
 from sklearn.compose import ColumnTransformer
 
+from .detect import _by_source_stacking_preprocessing
 from .host_finetune import attach_host_finetune_splitter
 from .steps import _is_split_step
 
@@ -46,7 +47,16 @@ def lower_source_stacking(
                     if isinstance(step, dict) and isinstance(step.get("branch"), dict) and step["branch"].get("by_source") in (True, "auto")]
     if len(source_steps) != 1:
         raise ValueError("source stacking requires exactly one by_source branch")
+    preprocessing = _by_source_stacking_preprocessing(pipeline)
+    if preprocessing is None:
+        raise ValueError("source stacking upstream preprocessing requires reconstructible, explicitly seeded ordinary X transforms")
+    prefix, prefix_positions = preprocessing
     missing_policy = source_stacking_missing_policy(pipeline)
+    target_policy = pipeline[source_steps[0]]["branch"].get("target_policy", "complete")
+    if not isinstance(target_policy, str) or target_policy not in {"complete", "per_target"}:
+        raise ValueError("source stacking target_policy must be 'complete' or 'per_target'")
+    if target_policy != "complete" and source_descriptors is None:
+        raise ValueError("source stacking target_policy requires typed MultimodalDataset targets")
     if missing_policy != "error" and source_descriptors is None:
         raise ValueError("source stacking missing_source_policy requires a MultimodalDataset with typed source descriptors")
     splitters = [step for step in pipeline if _is_split_step(step)]
@@ -64,7 +74,9 @@ def lower_source_stacking(
     sources = []
     start = 0
     for index, (width, name) in enumerate(zip(source_widths, source_names, strict=True)):
-        branch = copy.deepcopy(bodies[index])
+        # Clone the complete source chain together, retaining shared references
+        # within that source and independent learned state between sources.
+        branch = copy.deepcopy([*prefix, *bodies[index]])
         if source_descriptors is None:
             columns = list(range(start, start + width))
             selector = ColumnTransformer([("source", "passthrough", columns)], remainder="drop", sparse_threshold=0)
@@ -85,9 +97,18 @@ def lower_source_stacking(
         # The policy is part of graph/checkpoint identity even on complete cohorts.
         layout["schema"] = "nirs4all.source-stacking-layout.v3"
         layout["missing_source_policy"] = missing_policy
+    if missing_policy != "error" or target_policy == "per_target":
+        if not 2 <= len(sources) <= 4:
+            raise ValueError("incomplete source stacking requires two to four named sources")
+        layout["schema"] = "nirs4all.source-stacking-layout.v4"
+        layout["missing_source_policy"] = missing_policy
+        layout["target_policy"] = target_policy
     layout["fingerprint"] = hashlib.sha256(json.dumps(layout, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     lowered = copy.deepcopy(pipeline)
     # Labels include the physical index even when two inputs share a name.
     labels = source_names if source_descriptors is not None else [f"source_{index}" for index in range(len(branches))]
     lowered[source_steps[0]] = {"branch": dict(zip(labels, branches, strict=True))}
+    # These steps now live inside the branches; retaining the public prefix
+    # here would both fit outside source presence and replay it twice.
+    lowered = [step for index, step in enumerate(lowered) if index not in prefix_positions]
     return lowered, branches, layout

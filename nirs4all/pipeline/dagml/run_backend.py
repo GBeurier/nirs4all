@@ -461,6 +461,23 @@ def run_via_dagml(
             and generated_view_store is None):
         raise ValueError("generated data provider lost its live view store before training")
     spectro = _materialize_dataset(dataset)
+    from nirs4all.pipeline.dagml_bridge import named_model_input_spec
+
+    from .named_torch import prepare_named_torch_pipeline
+
+    pipeline = prepare_named_torch_pipeline(pipeline, spectro)
+    if named_model_input_spec(pipeline) is not None:
+        from .resources import current_execution_resources
+
+        if generated_view_store is not None:
+            raise ValueError("named Torch currently requires an explicit complete IO cohort; generated-provider training is not yet qualified")
+        resources = current_execution_resources()
+        if resources.cpu_threads != 1 or resources.gpu_devices:
+            raise ValueError("named Torch currently requires serial CPU resources")
+        from .in_process_runner import _dagml_extension_loads, in_process_enabled
+
+        if not in_process_enabled() or not _dagml_extension_loads():
+            raise NotImplementedError("named Torch requires the in-process DAG-ML binding with attested fixed-cohort views; ordinary CLI execution is unsupported")
     requested_charts = isinstance(pipeline, list) and any(_is_chart_step(step) for step in pipeline)
     chart_pre_holdout_spectro = None
     if requested_charts and (save_charts or plots_visible):

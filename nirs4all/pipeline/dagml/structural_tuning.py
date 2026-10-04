@@ -88,9 +88,17 @@ def validate_structural_profile(pipeline: Any) -> tuple[list[Any], Any]:
     if not isinstance(pipeline, list):
         raise TypeError("structural tuning requires a pipeline list")
     steps, splitter = _split_pipeline(pipeline)
+    from .structural_classification import declared_classifier_topologies, is_classification_choice
     from .structural_multimodal import is_methods_model_choice, validate_typed_profile
     from .structural_topology import declared_topologies, is_topology_choice
+    from .structural_torch import declared_torch_topologies, is_torch_choice
 
+    if is_torch_choice(steps):
+        declared_torch_topologies(steps, splitter)
+        return steps, splitter
+    if is_classification_choice(steps):
+        declared_classifier_topologies(steps, splitter)
+        return steps, splitter
     if is_topology_choice(steps):
         declared_topologies(steps, splitter)
         return steps, splitter
@@ -170,8 +178,20 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
     unknown = tuning.keys() - SUPPORTED_TUNING_KEYS - {"progress_callback"}
     if unknown:
         raise ValueError(f"unsupported structural tuning controls: {sorted(unknown)}")
-    spec = parse_tuning_spec({key: value for key, value in tuning.items() if key in SUPPORTED_TUNING_KEYS})
-    if spec.engine != "n4m" or spec.metric != "rmse" or spec.direction != "minimize":
+    from .structural_classification import is_classification_choice, prepare_classification_structure
+
+    classification = is_classification_choice(steps)
+    controls = {key: value for key, value in tuning.items() if key in SUPPORTED_TUNING_KEYS}
+    if classification:
+        controls.setdefault("metric", "accuracy")
+        controls.setdefault("direction", "maximize")
+    spec = parse_tuning_spec(controls)
+    if classification:
+        if spec.engine != "n4m" or spec.metric not in {"accuracy", "balanced_accuracy", "f1"} or spec.direction != "maximize":
+            raise ValueError("native classifier structural tuning requires n4m with maximizing a native label metric")
+        if spec.n_jobs != 1 or spec.pruner not in {None, "none"}:
+            raise ValueError("native structural classification is serial without pruning; parallel classification is unqualified")
+    elif spec.engine != "n4m" or spec.metric != "rmse" or spec.direction != "minimize":
         raise ValueError("structural tuning requires n4m with minimizing native RMSE")
     if spec.seed is not None and not 0 <= spec.seed <= (1 << 64) - 1:
         raise ValueError("structural tuning seed must be an unsigned 64-bit integer")
@@ -205,7 +225,12 @@ def _prepare_structure(pipeline: Any, dataset_input: Any, tuning: Any, run_optio
     dataset = _materialize_dataset(dataset_input)
     from .structural_multimodal import is_methods_model_choice, prepare_typed_structure
     from .structural_topology import is_topology_choice, prepare_topology_structure
+    from .structural_torch import is_torch_choice, prepare_torch_structure
 
+    if is_torch_choice(steps):
+        return prepare_torch_structure(steps, splitter, dataset, spec, run_options, native)
+    if classification:
+        return prepare_classification_structure(steps, splitter, dataset, spec, run_options, native)
     if is_topology_choice(steps):
         return prepare_topology_structure(steps, splitter, dataset, spec, run_options, native)
     if is_methods_model_choice(steps):
@@ -303,6 +328,8 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
     workers: dict[int, Any] = {}
     methods_controllers: dict[int, Any] = {}
     proposals: dict[int, dict[str, Any]] = {}
+    candidate_audits: dict[int, dict[str, Any]] = {}
+    retain_candidate_audit = bool(prepared.get("methods_typed") and spec.n_jobs != 1)
     resources = current_execution_resources()
     optimizer = HostSearchOptimizer(spec, n_folds=len(prepared["folds"]), structural_catalogue=prepared["catalogue"])
     progress = tuning.get("progress_callback")
@@ -322,7 +349,16 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
             worker.close()
         controller = methods_controllers.pop(index, None)
         if controller is not None:
-            controller.close()
+            try:
+                controller.close()
+            finally:
+                if retain_candidate_audit:
+                    from .typed_parallel import closed_candidate_audit
+
+                    selector = prepared["catalogue"]["selector_path"]
+                    candidate_audits[index] = closed_candidate_audit(
+                        controller, trial_index=index, recipe_id=proposals[index][selector],
+                    )
         proposals.pop(index, None)
 
     def propose(event: dict[str, Any]) -> Any:
@@ -458,6 +494,8 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
     result._tuning_result = TuningResult(tuning=spec, best_params={path: value for path, value in evidence["selected_params"].items() if path != selector},
                                         best_value=winner["score"], trials=tuple(trials), optimizer="n4m")
     result.structural_tuning_evidence = copy.deepcopy(evidence)
+    if retain_candidate_audit:
+        result.structural_tuning_candidate_audit = [candidate_audits[index] for index in sorted(candidate_audits)]
     result.structural_tuning_search_request = copy.deepcopy({key: prepared[key] for key in ("dsl", "envelope", "request")})
     result.structural_tuning_search_request["controller_manifests"] = copy.deepcopy(prepared["manifests"])
     if not prepared.get("methods_typed"):
@@ -471,6 +509,10 @@ def _train_selected_structure(
     dataset_input: Any, run_options: dict[str, Any],
 ) -> Any:
     """Execute the signed native winner with the ordinary host artifact capture."""
+    if prepared.get("methods_classification"):
+        from .structural_classification import train_selected_classification
+
+        return train_selected_classification(prepared, evidence, run_options)
     if prepared.get("methods_topology"):
         from .structural_topology import train_selected_topology
 
@@ -479,6 +521,8 @@ def _train_selected_structure(
         from .structural_multimodal import train_selected_typed_structure
 
         return train_selected_typed_structure(prepared, evidence, run_options)
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
     from .in_process_runner import _capture_refit_artifacts
     from .native_results import write_native_results
     from .raw_training_lowerer import _array_content_fingerprint, _core_relation_fingerprint, _data_contracts_from_campaign, _output_request_for_node, _training_influence_manifest
@@ -494,7 +538,9 @@ def _train_selected_structure(
     campaign = artifact.campaign_template.to_dict()
     envelope = copy.deepcopy(prepared["envelope"])
     envelope["relation_fingerprint"] = _core_relation_fingerprint(envelope["coordinator_relations"], native)
-    envelope["data_content_fingerprint"] = _array_content_fingerprint("X", _pool_features(dataset, prepared["pool"]))
+    envelope["data_content_fingerprint"] = (dataset.content_hash(sample_rows=prepared["pool"])
+                                            if isinstance(dataset, MultimodalSpectroDataset)
+                                            else _array_content_fingerprint("X", _pool_features(dataset, prepared["pool"])))
     envelope["target_content_fingerprint"] = _array_content_fingerprint("y", _pool_targets(dataset, prepared["pool"]))
     resolver = MaterializationResolver(dataset, identity)
     pool_ids = [identity.to_wire(sample) for sample in prepared["pool"]]
@@ -505,7 +551,9 @@ def _train_selected_structure(
         test_envelope = build_envelope(dataset, identity, sample_ints=test)
         envelope.update(native.attach_predict_cohort_to_envelope(envelope, {
             "role": "external_test", "relations": test_envelope["coordinator_relations"], "target_names": names,
-            "data_content_fingerprint": _array_content_fingerprint("X", _pool_features(dataset, test)),
+            "data_content_fingerprint": (dataset.content_hash(sample_rows=test)
+                                         if isinstance(dataset, MultimodalSpectroDataset)
+                                         else _array_content_fingerprint("X", _pool_features(dataset, test))),
             "target_content_fingerprint": _array_content_fingerprint("y", _pool_targets(dataset, test)),
         }).to_dict())
     _union_envelopes, identities = _data_contracts_from_campaign(campaign, envelope)
@@ -538,7 +586,14 @@ def _train_selected_structure(
         training = native.execute_training(request, data_envelopes, envelope["coordinator_relations"], influence, callback,
                                            outcome_id="outcome:nirs4all.structural", run_id="run:nirs4all.structural", bundle_id="bundle:nirs4all.structural")
         document = training.outcome.to_dict()
-        captures = _capture_refit_artifacts(frames, store)
+        if prepared.get("torch_topology"):
+            from .multimodal_contracts import bind_input_contract
+            from .node_runner import capture_torch_topology
+
+            captures = [capture_torch_topology(training, frames, store)]
+            bind_input_contract(captures[0]["estimator"], dataset)
+        else:
+            captures = _capture_refit_artifacts(frames, store)
         if len(captures) != 1:
             raise RuntimeError("structural winner must produce exactly one fitted REFIT predictor")
         if "source_layout" in prepared:
@@ -551,7 +606,12 @@ def _train_selected_structure(
         by_variant: dict[Any, list[dict[str, Any]]] = {}
         for frame in frames:
             by_variant.setdefault(frame.get("variant_id", document["selected_variant_id"]), []).append(frame)
-        model = next(node for node in graph["nodes"] if node["kind"] == "model")
+        if prepared.get("torch_topology"):
+            winner = next(entry for entry in prepared["catalogue"]["entries"]
+                          if entry["recipe_id"] == evidence["selected_params"][prepared["catalogue"]["selector_path"]])
+            model = next(node for node in graph["nodes"] if node["id"] == winner["target_node"])
+        else:
+            model = next(node for node in graph["nodes"] if node["kind"] == "model")
         result = _scores_to_run_result(document["score_set"], dataset.name, str(model["operator"]).rsplit(".", 1)[-1],
                                       producer=model["id"], config_name=run_options.get("name", ""),
                                       results_by_variant=by_variant, identity=identity, refit_artifacts=captures)
@@ -560,7 +620,8 @@ def _train_selected_structure(
             setattr(result, attribute, copy.deepcopy(value))
         result._dagml_target_names = names
         for metadata in result.per_dataset.values():
-            metadata.update(engine="dag-ml", refit_enabled=True, tuning_profile="structural_ridge_pls_v1")
+            metadata.update(engine="dag-ml", refit_enabled=True,
+                            tuning_profile="structural_torch_cpu_v1" if prepared.get("torch_topology") else "structural_ridge_pls_v1")
         _attach_export_spec(result, pipeline, dataset_input, run_options.get("name", ""), prepared["operator_seed"])
         if run_options.get("save_artifacts") or run_options.get("project") is not None or "workspace_path" in run_options:
             from nirs4all.pipeline.runner import _get_default_workspace_path

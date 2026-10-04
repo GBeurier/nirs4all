@@ -458,6 +458,10 @@ result_stacking = nirs4all.run(
     pipeline=pipeline_stacking,
     dataset="sample_data/regression",
     name="StackingTuning",
+    # This legacy MetaModel section demonstrates CV tuning only. Its automatic
+    # full-data refit cannot reconstruct OOF predictions for the meta-learner.
+    # Native deployment examples cover refit, export, and archive prediction.
+    refit=False,
     verbose=1
 )
 

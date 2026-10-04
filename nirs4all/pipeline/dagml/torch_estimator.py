@@ -77,6 +77,7 @@ class DagMLTorchEstimator(BaseEstimator):
         lr: float = 0.001,
         learning_rate: float | None = None,
         loss: Any = "MSELoss",
+        device: str | None = None,
     ) -> None:
         self.factory_path = factory_path
         self.template_blob = template_blob
@@ -91,6 +92,7 @@ class DagMLTorchEstimator(BaseEstimator):
         self.lr = lr
         self.learning_rate = learning_rate
         self.loss = loss
+        self.device = device
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
         params: dict[str, Any] = dict(super().get_params(deep=deep))
@@ -200,6 +202,7 @@ class DagMLTorchEstimator(BaseEstimator):
             "lr": self.learning_rate if self.learning_rate is not None else self.lr,
             "loss": self.loss,
             "task_type": task_type,
+            "device": self.device,
         }
         self.model_ = controller._train_model(model, x_tensor, y_tensor, **training)
         self.n_features_in_ = raw.shape[1] if raw.ndim == 2 else int(np.prod(raw.shape[1:]))

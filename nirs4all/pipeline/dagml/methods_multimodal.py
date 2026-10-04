@@ -20,7 +20,7 @@ from sklearn.linear_model import Ridge
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from nirs4all.api.result import RunResult
-from nirs4all.operators.models.multimodal import MultimodalRegressor, TensorPCA
+from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor, TensorPCA
 
 PROFILE = "dagml.methods.multimodal.v1"
 SOURCE_ORDER = ("nir", "image", "series", "metadata")
@@ -44,11 +44,9 @@ def _finite_nonnegative(value: Any, name: str) -> float:
     return result
 
 
-def recipe_from_estimator(model: MultimodalRegressor, *, allow_source_selection: bool = False) -> dict[str, Any]:
-    """Translate the supported sklearn declarations without fitting them."""
-    if type(model) is not MultimodalRegressor or model.backend != "methods":
-        raise ValueError("native multimodal execution requires MultimodalRegressor(backend='methods')")
-    if model.fusion != "early" or model.target_policy != "complete" or model.missing_source_policy != "error":
+def _source_encoder_recipe(model: Any, *, allow_source_selection: bool = False) -> tuple[tuple[str, ...], dict[str, Any]]:
+    """Validate the shared raw encoder declaration without constructing a model."""
+    if model.fusion != "early" or getattr(model, "target_policy", "complete") != "complete" or model.missing_source_policy != "error":
         raise ValueError("Methods multimodal profile requires early fusion, complete targets and complete sources")
     if not allow_source_selection and (not isinstance(model.transformers, Mapping) or tuple(model.transformers) != SOURCE_ORDER):
         raise ValueError(f"Methods multimodal profile requires source order {SOURCE_ORDER}")
@@ -72,6 +70,14 @@ def recipe_from_estimator(model: MultimodalRegressor, *, allow_source_selection:
         encoders[name] = {"kind": "tensor_pca", "n_components": encoder.n_components, "whiten": False, "random_state": encoder.random_state}
     if "metadata" in selected:
         encoders["metadata"] = _metadata_encoder_recipe(model.transformers["metadata"])
+    return selected, encoders
+
+
+def recipe_from_estimator(model: MultimodalRegressor, *, allow_source_selection: bool = False) -> dict[str, Any]:
+    """Translate the supported sklearn declarations without fitting them."""
+    if type(model) is not MultimodalRegressor or model.backend != "methods":
+        raise ValueError("native multimodal execution requires MultimodalRegressor(backend='methods')")
+    selected, encoders = _source_encoder_recipe(model, allow_source_selection=allow_source_selection)
     ridge = model.model
     if (type(ridge) is not Ridge or ridge.fit_intercept is not True or ridge.positive is not False
             or ridge.solver != "auto" or ridge.max_iter is not None or ridge.random_state is not None
@@ -151,14 +157,14 @@ def source_schemas_from_cohort(cohort: Any) -> dict[str, Any]:
     return schemas
 
 
-def methods_model_in_pipeline(pipeline: Any) -> MultimodalRegressor | None:
+def methods_model_in_pipeline(pipeline: Any) -> MultimodalRegressor | MultimodalClassifier | None:
     """Find an explicitly selected Methods backend, including generated recipes."""
     visited: set[int] = set()
 
-    def visit(value: Any) -> MultimodalRegressor | None:
-        if isinstance(value, MultimodalRegressor):
+    def visit(value: Any) -> MultimodalRegressor | MultimodalClassifier | None:
+        if isinstance(value, (MultimodalRegressor, MultimodalClassifier)):
             if value.backend not in {"sklearn", "methods"}:
-                raise ValueError("MultimodalRegressor.backend must be 'sklearn' or 'methods'")
+                raise ValueError("Multimodal estimator backend must be 'sklearn' or 'methods'")
             return value if value.backend == "methods" else None
         if isinstance(value, (Mapping, list, tuple)):
             if id(value) in visited:
@@ -316,6 +322,11 @@ def controller_for_graph(graph: Mapping[str, Any], cohort: Any, *, allow_fit: bo
     from .envelope import source_ids
 
     models = [node for node in graph["nodes"] if node["kind"] == "model"]
+    if any((node.get("operator") or {}).get("type") == "N4mMultimodalClassifierPipeline" for node in models):
+        from .methods_classification import classifier_controller_for_graph
+
+        return classifier_controller_for_graph(graph, cohort, allow_fit=allow_fit, node_params=node_params,
+            binding_source_ids=binding_source_ids, binding_controller_id=binding_controller_id)
     if any(node["operator"].get("type") == "N4mRolePipeline" for node in models):
         from dag_ml.multimodal_topology import MethodsTopologyController
 
@@ -358,6 +369,9 @@ class MethodsMultimodalRunResult(RunResult):
     methods_multimodal_tuning_evidence: dict[str, Any]
     methods_multimodal_search_request: dict[str, Any]
     _dagml_graph: dict[str, Any]
+    classes_: np.ndarray
+    classification: dict[str, Any]
+    classification_probability_blocks: list[dict[str, Any]]
     structural_tuning_training_request: dict[str, Any]
     structural_tuning_training_outcome: dict[str, Any]
 
@@ -409,6 +423,10 @@ def run_methods_multimodal(pipeline: Any, spectro: Any, *, name: str, random_sta
     from .resources import current_execution_resources
     from .training_contracts import DagMLTrainingRequestSpec, assemble_training_request
 
+    if isinstance(methods_model_in_pipeline(pipeline), MultimodalClassifier):
+        from .structural_classification import run_fixed_classifier
+
+        return cast(MethodsMultimodalRunResult, run_fixed_classifier(pipeline, spectro, name=name, random_state=random_state, refit=refit))
     if not isinstance(spectro, MultimodalSpectroDataset):
         raise TypeError("Methods multimodal run requires an IO MultimodalDataset")
     cohort = spectro.cohort
@@ -488,13 +506,43 @@ def execute_methods_training(*, spectro: Any, identity: Any, envelope: dict[str,
         for frame in frames:
             variant = frame.get("variant_id", document["selected_variant_id"])
             by_variant.setdefault(variant, []).append(frame)
-        projected = _scores_to_run_result(document["score_set"], spectro.name, "MethodsMultimodalRidge", producer=output["node_id"],
-                                           config_name=name, results_by_variant=by_variant, identity=identity)
+        classification = any((node.get("operator") or {}).get("type") == "N4mMultimodalClassifierPipeline" for node in graph["nodes"])
+        vocabulary = None
+        profile = PROFILE
+        if classification:
+            from .methods_classification import PROFILE as CLASSIFICATION_PROFILE
+            from .methods_classification import graph_vocabulary
+
+            vocabulary = graph_vocabulary(graph)
+            profile = CLASSIFICATION_PROFILE
+            # The probabilities port is auxiliary: it must never replace the
+            # genuine y_hat labels in the public per-sample report projection.
+            by_variant = {variant: [{**frame, "predictions": [block for block in frame.get("predictions", [])
+                            if block.get("producer_port") == "y_hat"]} for frame in variant_frames]
+                          for variant, variant_frames in by_variant.items()}
+        projected = _scores_to_run_result(document["score_set"], spectro.name,
+            "MethodsMultimodalPLSLogistic" if classification else "MethodsMultimodalRidge", producer=output["node_id"],
+            metric=request["options"]["selection"]["metric"]["name"] if classification else "rmse",
+            task_type=("binary_classification" if len(vocabulary["class_labels"]) == 2 else "multiclass_classification") if vocabulary else "regression",
+            config_name=name, results_by_variant=by_variant, identity=identity, classification_vocabulary=vocabulary)
         for info in projected.per_dataset.values():
-            info.update(native_profile=PROFILE, engine="dag-ml", refit_enabled=True)
-        return MethodsMultimodalRunResult(projected, outcome=outcome, package=package, audit=controller.audit, request=request,
-                                          training_inputs={"data_envelopes": data_envelopes, "relations": envelope["coordinator_relations"],
-                                                           "training_influence": influence})
+            info.update(native_profile=profile, engine="dag-ml", refit_enabled=True)
+            if vocabulary is not None:
+                info["classification"] = copy.deepcopy(vocabulary)
+        result = MethodsMultimodalRunResult(projected, outcome=outcome, package=package, audit=controller.audit, request=request,
+            training_inputs={"data_envelopes": data_envelopes, "relations": envelope["coordinator_relations"], "training_influence": influence})
+        result.native_profile = profile
+        if vocabulary is not None:
+            # Preserve genuine native probability blocks and their signed
+            # column labels; no probability calculation occurs in the SDK.
+            result.classification_probability_blocks = [copy.deepcopy(block) for frame in frames
+                for block in frame.get("predictions", []) if block.get("producer_port") == "probabilities"]
+            expected_columns = [f"class:{label}" for label in vocabulary["class_labels"]]
+            if any(block.get("target_names") != expected_columns for block in result.classification_probability_blocks):
+                raise ValueError("native classifier probability columns differ from the signed class vocabulary")
+            result.classes_ = np.asarray(vocabulary["label_names"])
+            result.classification = copy.deepcopy(vocabulary)
+        return result
     finally:
         try:
             if training is not None:
@@ -507,7 +555,7 @@ def is_methods_multimodal_package(package: Mapping[str, Any]) -> bool:
     """Recognize the additive portable kind; native validation grants trust."""
     records = package.get("execution_bundle", {}).get("refit_artifacts", [])
     return isinstance(records, list) and any(isinstance(record, Mapping)
-                                            and record.get("artifact", {}).get("kind") == "methods_multimodal_pipeline"
+                                            and record.get("artifact", {}).get("kind") in {"methods_multimodal_pipeline", "methods_multimodal_classifier_pipeline"}
                                             for record in records)
 
 
@@ -541,8 +589,11 @@ def predict_methods_multimodal_archive(path: str | Path, data: Any, *, methods_l
     plan = document["effective_plan"]
     graph = plan["graph_plan"]["graph"]
     model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
-    raw_nodes = [node for node in model_nodes if node["operator"].get("type") == "N4mMultimodalPipeline"]
-    topology = any(node["operator"].get("type") == "N4mRolePipeline" for node in model_nodes)
+    classification = any((node.get("operator") or {}).get("type") == "N4mMultimodalClassifierPipeline" for node in model_nodes)
+    raw_type = "N4mMultimodalClassifierPipeline" if classification else "N4mMultimodalPipeline"
+    meta_type = "N4mRoleClassifierPipeline" if classification else "N4mRolePipeline"
+    raw_nodes = [node for node in model_nodes if node["operator"].get("type") == raw_type]
+    topology = any(node["operator"].get("type") == meta_type for node in model_nodes)
     if (not raw_nodes or any(node["operator"].get("source_schemas") != schemas for node in raw_nodes)
             or (not topology and len(model_nodes) != 1)):
         raise ValueError("current source schema differs from the signed archived Methods multimodal declaration")
@@ -578,7 +629,8 @@ def predict_methods_multimodal_archive(path: str | Path, data: Any, *, methods_l
     if topology:
         for node in model_nodes:
             node_plan = plan["node_plans"][node["id"]]
-            expected_owner = ("controller:methods.python.multimodal" if node in raw_nodes else "controller:methods.python.regression")
+            expected_owner = (("controller:methods.python.multimodal.classification" if node in raw_nodes else "controller:methods.python.classification")
+                              if classification else ("controller:methods.python.multimodal" if node in raw_nodes else "controller:methods.python.regression"))
             if node_plan["controller_id"] != expected_owner or node.get("metadata", {}).get("controller_id") != expected_owner:
                 raise ValueError("Methods topology replay requires each exact signed native producer owner")
             if node in raw_nodes and (len(node_plan["data_bindings"]) != 1
@@ -601,10 +653,19 @@ def predict_methods_multimodal_archive(path: str | Path, data: Any, *, methods_l
             "sources": [{"source_id": producer, "sample_ids": list(physical_ids)}],
         })
         values = values[alignment["sources"][0]["row_indices"]]
+        profile = PROFILE
+        vocabulary = None
+        if classification:
+            from .methods_classification import PROFILE as CLASSIFICATION_PROFILE
+            from .methods_classification import decode_labels, graph_vocabulary
+
+            vocabulary = graph_vocabulary(graph)
+            values = decode_labels(values, vocabulary)
+            profile = CLASSIFICATION_PROFILE
         audit = copy.deepcopy(controller.audit)
         if any(event.get("operation") in {"fit", "FIT_CV", "REFIT"} for event in audit):
             raise RuntimeError("Methods multimodal inference unexpectedly performed training")
-        return values, {"engine": "core-native", "native_profile": PROFILE, "archive_path": str(path),
+        return values, {"engine": "core-native", "native_profile": profile, "classification": vocabulary, "archive_path": str(path),
                         "archive_schema_version": 2, "sample_ids": list(cohort.sample_ids), "target_names": ["y"],
                         "outcome_id": outcome_id, "run_id": run_id, "training_performed": False, "methods_multimodal_audit": audit}
     finally:

@@ -34,6 +34,7 @@ from .methods_multimodal import (
 )
 from .structural_multimodal import validate_alpha_space
 from .tuning_contracts import DagMLTuningSpec, parse_tuning_spec, tcv1_sha256
+from .typed_parallel import typed_parallel_execution
 
 RAW_CONTROLLER = "controller:methods.python.multimodal"
 META_CONTROLLER = "controller:methods.python.regression"
@@ -165,8 +166,9 @@ def prepare_topology_structure(steps: list[Any], splitter: Any, dataset: Any, sp
         raise TypeError("early/late structural tuning requires a complete typed MultimodalDataset")
     if not dataset.is_regression:
         raise ValueError("early/late structural tuning requires a regression target")
-    if spec.n_jobs != 1 or spec.pruner not in {None, "none"}:
-        raise ValueError("early/late structural tuning requires n_jobs=1 without pruning")
+    if spec.pruner not in {None, "none"}:
+        raise ValueError("early/late structural tuning requires no pruning")
+    parallel_execution = typed_parallel_execution(spec, run_options)
     if not callable(getattr(native, "prepare_host_hpo_topology_catalogue", None)):
         raise ImportError("installed DAG-ML lacks native topology catalogue preparation")
     alternatives = declared_topologies(steps, splitter)
@@ -220,6 +222,8 @@ def prepare_topology_structure(steps: list[Any], splitter: Any, dataset: Any, sp
     # scopes for outer CV and full REFIT before any optimizer/model callback.
     catalogue = native.prepare_host_hpo_topology_catalogue(dsl, envelope, manifests, bindings, sinks)
     descriptor = spec.to_dict()
+    if parallel_execution is not None:
+        descriptor["parallel_execution"] = parallel_execution
     for key in ("resume", "n_trials", "storage", "study_name"):
         descriptor.pop(key, None)
     descriptor["operator_rng"] = {"policy": "per_native_task_v1", "seed": seed}

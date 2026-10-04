@@ -15,6 +15,7 @@ for training or prediction, not at module import time.
 """
 
 import copy
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -170,6 +171,8 @@ class PyTorchModelController(BaseModelController):
         y_train: Any,
         X_val: Any | None = None,
         y_val: Any | None = None,
+        *,
+        device: str | None = None,
         **kwargs
     ) -> Any:
         """Train PyTorch model with custom training loop."""
@@ -179,6 +182,7 @@ class PyTorchModelController(BaseModelController):
         torch = _get_torch()
         nn = _get_nn()
         optim = _torch_modules['optim']
+        from torch import Tensor
         from torch.utils.data import DataLoader, TensorDataset
 
         train_params = kwargs
@@ -188,11 +192,15 @@ class PyTorchModelController(BaseModelController):
             logger.warning("No GPU detected. Training PyTorch model on CPU may be slow.")
 
         # Setup device
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device(device if device is not None else ('cuda' if torch.cuda.is_available() else 'cpu'))
         model = model.to(device)
 
         # Data is already prepared as tensors by _prepare_data, just move to device
-        X_train = X_train.to(device)
+        input_names = tuple(X_train) if isinstance(X_train, Mapping) else None
+        X_train = (
+            {name: X_train[name].to(device) for name in input_names}
+            if input_names is not None else X_train.to(device)
+        )
         y_train = y_train.to(device)
 
         # Keep the training contract with the fitted artifact so workspace and
@@ -200,10 +208,18 @@ class PyTorchModelController(BaseModelController):
         # restore the feature layout used by convolutional models.
         task_type = train_params.get('task_type')
         model._nirs4all_task_type = getattr(task_type, 'value', task_type)
-        model._nirs4all_input_shape = tuple(X_train.shape[1:])
+        if input_names is None:
+            model._nirs4all_input_shape = tuple(X_train.shape[1:])
+        else:
+            model._nirs4all_input_shapes = {name: tuple(X_train[name].shape[1:]) for name in input_names}
 
         if X_val is not None:
-            X_val = X_val.to(device)
+            if input_names is not None:
+                if not isinstance(X_val, Mapping) or set(X_val) != set(input_names):
+                    raise ValueError("Validation inputs must contain the same named Torch sources as training.")
+                X_val = {name: X_val[name].to(device) for name in input_names}
+            else:
+                X_val = X_val.to(device)
         if y_val is not None:
             y_val = y_val.to(device)
 
@@ -240,17 +256,24 @@ class PyTorchModelController(BaseModelController):
         patience = train_params.get('patience', 10)
 
         # Create data loaders
-        train_dataset = TensorDataset(X_train, y_train)
+        train_inputs = [X_train[name] for name in input_names] if input_names is not None else [X_train]
+        train_dataset = TensorDataset(*train_inputs, y_train)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
         val_loader = None
         if (
             X_val is not None
             and y_val is not None
-            and getattr(X_val, "shape", (0,))[0] > 0
+            and (len(next(iter(X_val.values()))) if input_names is not None else getattr(X_val, "shape", (0,))[0]) > 0
             and getattr(y_val, "shape", (0,))[0] > 0
         ):
-            val_dataset = TensorDataset(X_val, y_val)
+            if input_names is not None:
+                assert isinstance(X_val, Mapping)
+                val_inputs = [X_val[name] for name in input_names]
+            else:
+                assert isinstance(X_val, Tensor)
+                val_inputs = [X_val]
+            val_dataset = TensorDataset(*val_inputs, y_val)
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
         # Training loop with early stopping
@@ -263,14 +286,16 @@ class PyTorchModelController(BaseModelController):
             model.train()
             train_loss = 0.0
 
-            for batch_X, batch_y in train_loader:
+            for *batch_inputs, batch_y in train_loader:
                 optimizer.zero_grad()
 
                 # Support for models that need targets during forward (e.g., FCK-PLS)
                 if hasattr(model, 'set_targets'):
                     model.set_targets(batch_y)
 
-                outputs = model(batch_X)
+                outputs = model(**dict(zip(input_names, batch_inputs, strict=True))) if input_names is not None else model(batch_inputs[0])
+                if input_names is not None and (not isinstance(outputs, torch.Tensor) or outputs.shape != batch_y.shape or not torch.isfinite(outputs).all()):
+                    raise ValueError("Named Torch regression must return finite predictions with the target shape.")
                 loss = loss_fn(outputs, batch_y)
 
                 # Support for models with custom regularization
@@ -289,12 +314,14 @@ class PyTorchModelController(BaseModelController):
             if val_loader is not None:
                 model.eval()
                 with torch.no_grad():
-                    for batch_X, batch_y in val_loader:
+                    for *batch_inputs, batch_y in val_loader:
                         # Support for models that need targets during forward
                         if hasattr(model, 'set_targets'):
                             model.set_targets(batch_y)
 
-                        outputs = model(batch_X)
+                        outputs = model(**dict(zip(input_names, batch_inputs, strict=True))) if input_names is not None else model(batch_inputs[0])
+                        if input_names is not None and (not isinstance(outputs, torch.Tensor) or outputs.shape != batch_y.shape or not torch.isfinite(outputs).all()):
+                            raise ValueError("Named Torch regression must return finite predictions with the target shape.")
                         loss = loss_fn(outputs, batch_y)
                         val_loss += loss.item()
                 if len(val_loader) > 0:

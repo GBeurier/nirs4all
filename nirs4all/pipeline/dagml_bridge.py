@@ -39,6 +39,7 @@ _META_MODEL_REF = "nirs4all.meta_model"
 _RESIDUAL_LEARNER_CONTROLLER_ID = "controller:nirs4all.residual_learner"
 _RESIDUAL_LEARNER_REF = "nirs4all.residual_learner"
 _PREDICTION_FEATURE_CONTROLLER_ID = "controller:nirs4all.prediction_feature_join"
+_SOURCE_RECIPE_CONTROLLER_ID = "controller:nirs4all.source_recipe"
 
 # Every nirs4all generation keyword (mirrors config._generator.keywords.GENERATION_KEYWORDS). Used
 # to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
@@ -105,6 +106,7 @@ _RESERVED_MODEL_KEYS = frozenset({
     "model_params",
     "params",
     "metadata",
+    "model_input",
     "steps",
     "name",
     "finetune_params",
@@ -1056,6 +1058,19 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                     host_metadata[f"nirs4all_{control_key}"] = encode_training_controls(step[control_key], name=control_key)
             if host_metadata:
                 dsl_step["metadata"] = host_metadata
+            if step.get("model_input") is not None:
+                from nirs4all.pipeline.dagml.named_torch_estimator import DagMLNamedTorchEstimator
+                from nirs4all.pipeline.dagml.tuning_contracts import tcv1_sha256
+
+                if not isinstance(op, DagMLNamedTorchEstimator):
+                    raise ValueError("named model_input requires the admitted named Torch adapter")
+                specification = _strict_json_safe(step["model_input"], "model_input")
+                metadata = copy.deepcopy(step.get("metadata") or {})
+                expected = "controller:nirs4all.named_torch." + tcv1_sha256(specification)[:16]
+                if metadata.get("controller_id") != expected or metadata.get("named_torch_profile") != "cpu_named_intermediate_regression_v1":
+                    raise ValueError("named Torch controller identity disagrees with its input contract")
+                dsl_step["model_input"] = specification
+                dsl_step["metadata"] = {**metadata, **host_metadata}
             # Non-reserved siblings are model hyperparameters: plain values extend ``params``;
             # param-level generator dicts lower to native dag-ml ``generators`` so the compiler
             # expands variants and dag-ml runs generation + SELECT + refit natively (no Python expand).
@@ -1559,7 +1574,96 @@ def _derive_controller_manifests_from_dagml(specs: list[dict[str, Any]]) -> list
     return _manifest_collection_to_dicts(derive_controller_manifests(host_spec_payloads))
 
 
-def controller_manifests() -> list[dict[str, Any]]:
+def _named_controller_specs(context: Any) -> list[dict[str, Any]]:
+    """Derive contextual manifests from explicit pipeline or compiled graph contracts."""
+    from nirs4all.pipeline.dagml.tuning_contracts import tcv1_sha256
+
+    declarations: dict[str, dict[str, Any]] = {}
+
+    def collect(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, dict):
+            metadata = value.get("metadata") or {}
+            specification = value.get("model_input") or metadata.get("dsl_model_input")
+            if specification is not None:
+                controller_id = "controller:nirs4all.named_torch." + tcv1_sha256(specification)[:16]
+                if metadata.get("controller_id") != controller_id:
+                    raise ValueError("named input declaration lacks its exact contextual controller identity")
+                declarations[controller_id] = specification
+            for key in ("pipeline", "steps", "nodes"):
+                if key in value:
+                    collect(value[key])
+
+    collect(context)
+    return [{
+        "controller_id": controller_id, "controller_version": _NIRS4ALL_VERSION,
+        "operator_kind": "model", "priority": 20,
+        "added_capabilities": ["needs_python_gil"],
+        "data_requirements": copy.deepcopy(specification),
+        "input_ports": [
+            {"name": port["name"], "kind": "data", "representation": port["accepted_representations"][0], "cardinality": "one"}
+            for port in specification["ports"]
+        ] + [{"name": "y", "kind": "target", "representation": None, "cardinality": "one"}],
+    } for controller_id, specification in declarations.items()]
+
+
+def named_model_input_spec(context: Any) -> dict[str, Any] | None:
+    """Read the one admitted named contract from a step, pipeline, DSL or graph."""
+    specifications = _named_controller_specs(context)
+    if len(specifications) > 1:
+        raise ValueError("the named Torch profile requires one input contract")
+    return copy.deepcopy(specifications[0]["data_requirements"]) if specifications else None
+
+
+def _source_recipe_manifest(context: Any, manifests: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Declare only signed, unbound recipes whose source model owns learning."""
+    if not isinstance(context, dict):
+        return None
+    nodes: dict[str, dict[str, Any]] = {}
+
+    def collect(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, dict):
+            if value.get("kind") in {"transform", "model"} and isinstance(value.get("id"), str):
+                nodes[value["id"]] = value
+            for key in ("pipeline", "steps", "nodes", "branches"):
+                if key in value:
+                    collect(value[key])
+
+    collect(context)
+    recipes = [node for node in nodes.values()
+               if (node.get("metadata") or {}).get("controller_id") == _SOURCE_RECIPE_CONTROLLER_ID]
+    if not recipes:
+        return None
+    availability = context.get("metadata", {}).get("prediction_availability") or {}
+    for node in recipes:
+        declaration = node.get("metadata", {}).get("nirs4all_source_recipe") or {}
+        model_id = declaration.get("model_node_id")
+        owner = nodes.get(model_id, {}) if isinstance(model_id, str) else {}
+        owner_metadata = owner.get("metadata") or {}
+        layout = owner_metadata.get("nirs4all_source_stacking") or {}
+        source = declaration.get("source_name")
+        if (node.get("kind") != "transform" or declaration.get("schema_version") != 1
+                or owner.get("kind") != "model" or not isinstance(source, str)
+                or source not in availability.get("source_presence", {})
+                or owner_metadata.get("prediction_availability_source") != source
+                or layout.get("source", {}).get("source_name") != source
+                or layout.get("target_policy") not in {"complete", "per_target"}):
+            raise ValueError("source preprocessing recipe lacks its signed source model owner")
+        for binding in context.get("data_bindings", []):
+            if binding.get("node_id") == node["id"]:
+                raise ValueError("source preprocessing recipe cannot have an independent data binding")
+    template = next(manifest for manifest in manifests if manifest["controller_id"] == "controller:nirs4all.transform")
+    return {**copy.deepcopy(template), "controller_id": _SOURCE_RECIPE_CONTROLLER_ID,
+            "operator_selectors": [{"refs": [_SOURCE_RECIPE_CONTROLLER_ID]}],
+            "fit_scope": "stateless", "data_requirements": None}
+
+
+def controller_manifests(context: Any = None) -> list[dict[str, Any]]:
     """The host-controller manifests as JSON-ready dicts.
 
     Newer dag-ml releases expose ``HostControllerSpec`` plus
@@ -1567,11 +1671,37 @@ def controller_manifests() -> list[dict[str, Any]]:
     nirs4all and dag-ml share manifest construction. Older or partial dag-ml
     installs keep the exact static manifests this bridge has historically exposed.
     """
-    specs = _controller_manifest_specs()
+    from nirs4all.pipeline.dagml.experimental_units import require_weighted_context
+
+    weighted = require_weighted_context(context)
+    named_specs = _named_controller_specs(context) if context is not None else []
+    specs = _controller_manifest_specs() + named_specs
     derived = _derive_controller_manifests_from_dagml(specs)
-    if derived is not None:
-        return derived
-    return _fallback_controller_manifests()
+    if derived is None:
+        derived = _fallback_controller_manifests()
+        model_manifest = next(manifest for manifest in derived if manifest["controller_id"] == "controller:nirs4all.model")
+        derived += [{**copy.deepcopy(model_manifest), **{key: value for key, value in spec.items() if key != "added_capabilities"}} for spec in named_specs]
+    recipe_manifest = _source_recipe_manifest(context, derived)
+    if recipe_manifest is not None:
+        derived.append(recipe_manifest)
+    if isinstance(context, dict) and context.get("metadata", {}).get("prediction_availability"):
+        # This join materializes the already computed native OOF matrix; it
+        # neither fits an estimator nor consumes training influence itself.
+        for manifest in derived:
+            if manifest["controller_id"] == _PREDICTION_FEATURE_CONTROLLER_ID:
+                manifest["fit_scope"] = "stateless"
+    named_ids = {spec["controller_id"] for spec in named_specs}
+    for manifest in derived:
+        if weighted and manifest.get("operator_kind") in {"model", "transform"}:
+            manifest["capabilities"] = list(dict.fromkeys([*manifest["capabilities"], "supports_sample_weights"]))
+        if manifest["controller_id"] in named_ids:
+            # Native kind templates add parallel capabilities. The admitted
+            # named Torch callback owns process-local RNG and runs serially.
+            capabilities = [value for value in manifest["capabilities"] if value not in {"thread_safe", "process_safe"}]
+            if "needs_python_gil" not in capabilities:
+                capabilities.insert(1, "needs_python_gil")
+            manifest["capabilities"] = capabilities
+    return derived
 
 
 def build_dagml_plan(
@@ -1598,8 +1728,9 @@ def build_dagml_plan(
         import dag_ml
     except ImportError as exc:  # pragma: no cover - exercised only without dag-ml
         raise ImportError("dag-ml is not installed; it is a core dependency — reinstall with `pip install nirs4all`") from exc
-    manifests = controller_manifests()
-    artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(pipeline_to_dsl(pipeline, dsl_id), manifests)
+    dsl = pipeline_to_dsl(pipeline, dsl_id)
+    manifests = controller_manifests(dsl)
+    artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests)
     return dag_ml.build_execution_plan(plan_id, artifact.graph, artifact.campaign_template, manifests)
 
 
@@ -1614,4 +1745,7 @@ def compile_with_dagml(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -
         import dag_ml
     except ImportError as exc:  # pragma: no cover - exercised only without dag-ml
         raise ImportError("dag-ml is not installed; it is a core dependency — reinstall with `pip install nirs4all`") from exc
-    return dag_ml.compile_pipeline_dsl_artifact(pipeline_to_dsl(pipeline, dsl_id))
+    dsl = pipeline_to_dsl(pipeline, dsl_id)
+    if named_model_input_spec(dsl) is not None:
+        return dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests(dsl))
+    return dag_ml.compile_pipeline_dsl_artifact(dsl)

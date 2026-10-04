@@ -365,10 +365,20 @@ def test_packaged_dual_ledger_matches_the_documented_companion() -> None:
 def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None:
     """A normal wheel must retain and resolve the resource used by the strict dual oracle."""
 
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(os.environ.get("NIRS4ALL_WHEEL_TEST_SOURCE_ROOT", Path(__file__).resolve().parents[3]))
+    assert (repo_root / "nirs4all" / "__init__.py").is_file(), (
+        "The wheel witness requires a complete SDK source tree; set NIRS4ALL_WHEEL_TEST_SOURCE_ROOT "
+        "when tests are staged without product sources"
+    )
+    # Build an independent source copy: neither an immutable candidate nor the
+    # installed package/test resource tree may receive setuptools outputs.
+    build_source = tmp_path / "wheel-source"
+    shutil.copytree(repo_root, build_source, ignore=shutil.ignore_patterns(
+        ".git", ".venv", ".pytest_cache", ".mypy_cache", ".ruff_cache", "__pycache__", "build", "dist", "*.egg-info",
+    ))
     build = subprocess.run(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(tmp_path)],
-        cwd=repo_root,
+        [sys.executable, "-m", "build", "--wheel", "--no-isolation", "--outdir", str(tmp_path)],
+        cwd=build_source,
         check=False,
         capture_output=True,
         text=True,
@@ -377,6 +387,7 @@ def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None
     [wheel] = list(tmp_path.glob("nirs4all-*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         assert "nirs4all/compatibility_ledger.json" in archive.namelist()
+        assert archive.read("nirs4all/compatibility_ledger.json") == (repo_root / "nirs4all" / "compatibility_ledger.json").read_bytes()
 
     venv = tmp_path / "wheel-venv"
     create_venv = subprocess.run(
@@ -387,8 +398,21 @@ def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None
     )
     assert create_venv.returncode == 0, create_venv.stdout + create_venv.stderr
     wheel_python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    purelib_probe = subprocess.run(
+        [str(wheel_python), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        check=False, capture_output=True, text=True,
+    )
+    assert purelib_probe.returncode == 0, purelib_probe.stdout + purelib_probe.stderr
+    purelib = Path(purelib_probe.stdout.strip())
+    # Reuse already resolved dependency directories, not parent editable hooks.
+    # The new child purelib remains first, so its own wheel is authoritative.
+    dependency_roots = list(dict.fromkeys(
+        str(Path(path).resolve()) for path in sys.path
+        if Path(path).is_dir() and Path(path).name in {"site-packages", "dist-packages"}
+    ))
+    (purelib / "wheel-test-dependencies.pth").write_text("\n".join(dependency_roots) + "\n", encoding="utf-8")
     install = subprocess.run(
-        [str(wheel_python), "-m", "pip", "install", str(wheel)],
+        [str(wheel_python), "-I", "-m", "pip", "install", "--no-index", "--no-deps", "--force-reinstall", str(wheel)],
         check=False,
         capture_output=True,
         text=True,
@@ -397,7 +421,10 @@ def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None
     probe = subprocess.run(
         [
             str(wheel_python),
+            "-I",
             "-c",
+            "from pathlib import Path; import sysconfig; import nirs4all; "
+            "assert Path(nirs4all.__file__).resolve().parent.parent == Path(sysconfig.get_path('purelib')).resolve(); "
             "from importlib.resources import files; from nirs4all.api.run import _resolve_dual_tolerances; "
             "assert files('nirs4all').joinpath('compatibility_ledger.json').is_file(); "
             "assert set(_resolve_dual_tolerances()) == {'score', 'prediction'}",

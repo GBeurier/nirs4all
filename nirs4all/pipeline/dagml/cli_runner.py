@@ -29,7 +29,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from nirs4all.pipeline.dagml_bridge import build_dagml_plan, controller_manifests, pipeline_to_dsl
+from nirs4all.pipeline.dagml_bridge import build_dagml_plan, controller_manifests, named_model_input_spec, pipeline_to_dsl
 
 from .envelope import build_fold_set
 
@@ -41,6 +41,12 @@ _SOURCE_ID = "src0"
 
 def model_node_id(pipeline: list[Any], *, dsl_id: str = "nirs4all-pipeline") -> str:
     """The compiler's id for the model node (compile-first; do not re-derive the ordinal)."""
+    if named_model_input_spec(pipeline) is not None:
+        import dag_ml
+
+        dsl = pipeline_to_dsl(pipeline, dsl_id)
+        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests(dsl)).graph.to_dict()
+        return str(next(node["id"] for node in graph["nodes"] if node["kind"] == "model"))
     plan = build_dagml_plan(pipeline, plan_id="plan:probe", dsl_id=dsl_id).to_dict()
     return str(next(node["id"] for node in plan["graph_plan"]["graph"]["nodes"] if node["kind"] == "model"))
 
@@ -91,9 +97,39 @@ def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _
     }
 
 
-def data_bindings_for(model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID) -> list[dict[str, Any]]:
-    """One DataBinding on the model node's ``x`` input, carrying the envelope's fingerprints."""
-    return [_data_binding(model_id, envelope, source_id=source_id)]
+def data_bindings_for(
+    model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID,
+    model_input: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Bind an aggregate X input or each explicitly declared dense source port.
+
+    Named bindings preserve the global envelope fingerprints but attest one
+    projected table each. The cohort's native source identities must retain
+    their captured user-name mapping, including during PREDICT replay.
+    """
+    if model_input is None:
+        return [_data_binding(model_id, envelope, source_id=source_id)]
+    layout = envelope.get("plan", {}).get("source_layout") or {}
+    names, native_ids = layout.get("source_order"), layout.get("source_ids")
+    if (not isinstance(names, list) or not isinstance(native_ids, list) or len(names) != len(native_ids)
+            or any(not isinstance(value, str) or not value for value in [*names, *native_ids])
+            or len(set(names)) != len(names) or len(set(native_ids)) != len(native_ids)):
+        raise ValueError("named inputs require an explicit unique envelope source-name/source-id table")
+    mapping = dict(zip(names, native_ids, strict=True))
+    ports = model_input["ports"]
+    if set(mapping) != {port["name"] for port in ports}:
+        raise ValueError("named input ports must cover exactly the envelope sources")
+    bindings = []
+    for port in ports:
+        name, metadata = port["name"], port["metadata"]
+        if metadata["source_id"] != mapping[name]:
+            raise ValueError(f"named source {name!r} changed captured native source identity; cohort source order must be preserved")
+        binding = _data_binding(model_id, envelope, source_id=mapping[name])
+        binding.update(input_name=name, source_ids=[mapping[name]], output_representation=port["accepted_representations"][0],
+                       feature_set_id=f"x:{mapping[name]}", metadata={"source_name": name},
+                       view_policy={"include_refit_test_view": True})
+        bindings.append(binding)
+    return bindings
 
 
 def data_bindings_for_nodes(model_ids: list[str], envelope: dict[str, Any], *, source_id: str = _SOURCE_ID) -> list[dict[str, Any]]:
@@ -147,6 +183,10 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
+    named_input = named_model_input_spec(dsl)
+    if named_input is not None:
+        dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, model_input=named_input)
+        return dsl
     # A selector's chosen feature indices are known only after its fold-local
     # fit. Keep that transformation as a native node so its output axis can be
     # handed to a downstream wavelength-aware operator in the same fold.
@@ -257,9 +297,12 @@ def run_cv_refit_bundle(
     reproducible. Set only for this launch and explicitly dropped otherwise, so no stale seed leaks
     into a later run or a concurrent dag-ml run.
     """
+    if named_model_input_spec(dsl) is not None:
+        raise NotImplementedError("named Torch requires attested fixed-cohort views from the in-process binding; ordinary CLI execution is unsupported")
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "dsl.json").write_text(json.dumps(dsl))
-    (workdir / "controllers.json").write_text(json.dumps(controller_manifests()))
+    manifests = controller_manifests(dsl)
+    (workdir / "controllers.json").write_text(json.dumps(manifests))
     (workdir / "envelope.json").write_text(json.dumps(envelope))
     (workdir / "graph.json").write_text(json.dumps(graph))
     capture = workdir / "results.jsonl"
@@ -354,9 +397,11 @@ def run_refit_phase_cli(
     package_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one no-splitter REFIT in the native CLI with attested row order."""
+    if named_model_input_spec(dsl) is not None:
+        raise NotImplementedError("named Torch requires attested fixed-cohort views from the in-process binding; ordinary CLI execution is unsupported")
     workdir.mkdir(parents=True, exist_ok=True)
     for name, payload in (
-        ("dsl", dsl), ("controllers", controller_manifests()),
+        ("dsl", dsl), ("controllers", controller_manifests(dsl)),
         ("envelope", envelope), ("graph", graph),
         ("training_sample_ids", training_sample_ids),
     ):

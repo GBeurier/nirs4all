@@ -140,18 +140,22 @@ jobs:
           from pathlib import Path
           import dag_ml
           import dag_ml.multimodal_topology as topology_controller
+          import dag_ml.multimodal_classification as classification_controller
           import n4m
           from n4m.compose.preprocessing import NativePreprocessingPipeline
           from n4m.estimators.regression.sparse import GroupSparsePLS
           from n4m.augmentation import run_native
           from n4m.roles import NativeEstimator, RolePipeline
 
-          assert n4m.abi_version() == (2, 16, 0)
+          assert n4m.abi_version() == (2, 17, 0)
           assert "nirs4all-methods-src" in n4m.__file__
           assert callable(RolePipeline.close)
+          assert callable(n4m.MultimodalClassifierPipeline)
           assert callable(dag_ml.prepare_host_hpo_topology_catalogue)
           source = Path(os.environ['GITHUB_WORKSPACE']) / 'dag-ml-cli-src/crates/dag-ml-py/python/dag_ml/multimodal_topology.py'
           assert Path(topology_controller.__file__).read_bytes() == source.read_bytes()
+          classification_source = Path(os.environ['GITHUB_WORKSPACE']) / 'dag-ml-cli-src/crates/dag-ml-py/python/dag_ml/multimodal_classification.py'
+          assert Path(classification_controller.__file__).read_bytes() == classification_source.read_bytes()
           print(n4m.__file__, n4m.abi_version())
           PY
           mkdir -p fast-dagml-pytest-report

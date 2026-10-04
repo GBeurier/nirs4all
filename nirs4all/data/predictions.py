@@ -36,6 +36,7 @@ from nirs4all.core.logging import get_logger
 from nirs4all.core.task_type import matches_task_type
 
 from ._predictions.result import PredictionResult, PredictionResultsList
+from ._predictions.target_codec import decode_target_array
 
 if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult
@@ -324,12 +325,8 @@ class Predictions:
             return
 
         for row in df.iter_rows(named=True):
-            y_true = np.array(row["y_true"], dtype=np.float64) if row.get("y_true") is not None else None
-            y_pred = np.array(row["y_pred"], dtype=np.float64) if row.get("y_pred") is not None else None
-            if y_true is not None and row.get("y_true_shape") is not None:
-                y_true = y_true.reshape(row["y_true_shape"])
-            if y_pred is not None and row.get("y_pred_shape") is not None:
-                y_pred = y_pred.reshape(row["y_pred_shape"])
+            y_true = decode_target_array(row, "y_true")
+            y_pred = decode_target_array(row, "y_pred")
             y_proba = None
             if row.get("y_proba") is not None:
                 y_proba = np.array(row["y_proba"], dtype=np.float64)
@@ -349,6 +346,13 @@ class Predictions:
                 with contextlib.suppress(json.JSONDecodeError, TypeError):
                     metadata = json.loads(raw_meta)
 
+            result_metadata: dict[str, Any] = {}
+            raw_result_metadata = row.get("result_metadata")
+            if raw_result_metadata is not None:
+                result_metadata = json.loads(raw_result_metadata)
+                if not isinstance(result_metadata, dict):
+                    raise ValueError("portable result_metadata must be a JSON object")
+
             self.add_prediction(
                 dataset_name=row.get("dataset_name", ""),
                 model_name=row.get("model_name", ""),
@@ -362,6 +366,7 @@ class Predictions:
                 y_proba=y_proba,
                 sample_indices=sample_indices,
                 metadata=metadata,
+                result_metadata=result_metadata,
             )
 
     def _populate_buffer_from_store(

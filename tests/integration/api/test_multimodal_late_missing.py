@@ -99,7 +99,7 @@ def test_late_missing_source_requires_observations_in_every_fit(policy: str, tmp
     cohort = _ragged_cohort()
     cohort = _replace_series(cohort, presence_mask=np.zeros(len(cohort), dtype=bool))
     monkeypatch.setattr(SequenceSummary, "fit", lambda *a, **k: pytest.fail("Unavailable series reached fitting"))
-    message = "complete modalities" if policy == "error" else "no observed rows"
+    message = "complete modalities" if policy == "error" else "availability leaves an empty native fit scope"
     with pytest.raises(Exception, match=message):
         _run(cohort, tmp_path, pipeline=_late_pipeline(policy=policy))
 
@@ -121,7 +121,7 @@ def test_late_missing_source_refuses_an_empty_inner_training_scope(tmp_path: Pat
         return original_fit(self, X, y)
 
     monkeypatch.setattr(SequenceSummary, "fit", observed_only)
-    with pytest.raises(Exception, match="no observed rows in the native training view"):
+    with pytest.raises(Exception, match="availability leaves an empty native fit scope"):
         _run(_replace_series(cohort, presence_mask=presence), tmp_path)
 
 
@@ -241,3 +241,25 @@ def test_dense_missing_sources_and_target_transform_replay(outputs: int, tmp_pat
     prediction = nirs4all.predict(archive, cohort(prediction=True))
     assert np.asarray(prediction.values).shape == ((5,) if outputs == 1 else (5, 2))
     assert np.isfinite(prediction.values).all()
+
+
+def test_missing_source_hpo_preserves_refit_anchor_through_export(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from sklearn.linear_model import Ridge
+
+    from nirs4all.pipeline.dagml.multimodal_contracts import validate_late_partial_refit_origin
+
+    cohort = _ragged_cohort(missing=True)
+    result = _run(cohort, tmp_path / "run", tuning=_late_tuning(tmp_path / "study", n_trials=1))
+    try:
+        for artifact in result._dagml_refit_artifacts:
+            origin = validate_late_partial_refit_origin(artifact, artifact)
+            assert origin["phase"] == "REFIT"
+            assert "multimodal_tuning_evidence" not in vars(artifact["estimator"])
+            assert artifact["multimodal_tuning_evidence"]["status"] == "completed"
+        archive = result.export(tmp_path / "tuned.n4a")
+    finally:
+        result.close()
+    monkeypatch.setattr(Ridge, "fit", lambda *a, **k: pytest.fail("Archive replay attempted fitting"))
+    prediction = nirs4all.predict(archive, cohort)
+    assert np.isfinite(prediction.y_pred).all()
+    assert prediction.metadata["training_performed"] is False

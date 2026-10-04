@@ -465,6 +465,8 @@ class BundleLoader:
         self.fold_weights: dict[int, float] = {}
         self._artifact_index: dict[str, str] = {}
         self.relation_replay_manifest: dict[str, Any] = {}
+        self._source_native_capture: dict[str, Any] | None = None
+        self._source_native_capture_sha: str | None = None
         self._named_output_names: tuple[str, ...] = ()
         self._named_source_ids: tuple[str, ...] = ()
         self._named_output_widths: tuple[int, ...] = ()
@@ -482,6 +484,11 @@ class BundleLoader:
             if 'manifest.json' in zf.namelist():
                 with zf.open('manifest.json') as f:
                     manifest_data = json.load(f)
+                    if "dagml_source_training_capture_ref" in manifest_data or "dagml_source_training_capture.json" in zf.namelist():
+                        from nirs4all.pipeline.dagml.attested_by_source import validate_source_archive_before_model
+
+                        self._source_native_capture = validate_source_archive_before_model(zf, manifest_data)
+                        self._source_native_capture_sha = manifest_data["dagml_source_training_capture_ref"]["sha256"]
                     self.metadata = BundleMetadata.from_dict(manifest_data)
                     _validate_bundle_format_version(self.metadata.bundle_format_version)
                     if manifest_data.get("dagml_native_export_shape") == "independent_by_source_multi":
@@ -518,7 +525,15 @@ class BundleLoader:
                                     raise ValueError("independent-source archive has an invalid spectral axis") from exc
                             feature_axes.append(tuple(axis) if axis is not None else None)
                         self._named_source_ids = source_ids
-                        self._named_output_names = tuple(entry["output_binding_id"] for entry in outputs)
+                        if "ranked_outputs" in topology and self._source_native_capture is None:
+                            raise ValueError("ranked independent outputs require original native training captures")
+                        ranked = topology.get("ranked_outputs", outputs)
+                        if not isinstance(ranked, list) or not ranked or any(not isinstance(entry, dict) or not isinstance(entry.get("output_binding_id"), str) for entry in ranked):
+                            raise ValueError("independent-source ranked output manifest is invalid")
+                        ranked_names = tuple(entry["output_binding_id"] for entry in ranked)
+                        if len(set(ranked_names)) != len(ranked_names):
+                            raise ValueError("independent-source ranked output IDs must be unique")
+                        self._named_output_names = ranked_names
                         self._named_output_widths = tuple(entry["feature_width"] for entry in outputs)
                         self._named_feature_axes = tuple(feature_axes)
             else:
@@ -728,6 +743,14 @@ class BundleLoader:
                 or tuple(getattr(model, "source_widths", ())) != self._named_output_widths
                 or tuple(getattr(model, "feature_axes_cm1", (None,) * len(self._named_source_ids))) != self._named_feature_axes):
             raise ValueError("independent-source archive model disagrees with its named-output manifest")
+        if self._source_native_capture is not None:
+            from nirs4all.api.result import _DagmlRankedIndependentSourceModels
+
+            if not isinstance(model, _DagmlRankedIndependentSourceModels):
+                raise ValueError("source native capture requires its original sidecar-backed model")
+            if self._source_native_capture_sha is None:
+                raise ValueError("source native capture requires a verified SHA-256 digest")
+            model.validate_source_capture(self._source_native_capture, self._source_native_capture_sha)
         return model
 
     def predict_output(self, name: str, X: Any) -> np.ndarray:
@@ -977,6 +1000,17 @@ class BundleLoader:
             _, model = artifacts[0]
             return self._predict_legacy_model_artifact(model, X)
 
+    def _validate_source_refit_model(self, model: Any) -> Any:
+        if self._source_native_capture is not None:
+            from nirs4all.api.result import _DagmlRankedIndependentSourceModels
+
+            if not isinstance(model, _DagmlRankedIndependentSourceModels):
+                raise ValueError("source native capture requires its original sidecar-backed model")
+            if self._source_native_capture_sha is None:
+                raise ValueError("source native capture requires a verified SHA-256 digest")
+            model.validate_source_capture(self._source_native_capture, self._source_native_capture_sha)
+        return model
+
     def _get_refit_model(self, step_idx: int) -> Any | None:
         """Load the single refit model if available.
 
@@ -993,7 +1027,7 @@ class BundleLoader:
         if self.artifact_provider is not None:
             for refit_key in (f"step_{step_idx}_foldfinal", f"step_{step_idx}_final"):
                 if refit_key in self._artifact_index:
-                    return self.artifact_provider._load_artifact(refit_key)
+                    return self._validate_source_refit_model(self.artifact_provider._load_artifact(refit_key))
 
         # Check chain data for refit fold key in fold_artifacts.
         if self._chain_data and self.artifact_provider is not None:
@@ -1007,7 +1041,7 @@ class BundleLoader:
                     if key.startswith(f"step_{step_idx}"):
                         model = self.artifact_provider._load_artifact(key)
                         if model is not None:
-                            return model
+                            return self._validate_source_refit_model(model)
 
         return None
 

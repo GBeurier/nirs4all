@@ -163,7 +163,9 @@ def test_native_late_missing_export_replays_new_rows_without_fit(
         child = _meta(result)
         artifacts = child._dagml_refit_artifacts
         meta = next(item["estimator"] for item in artifacts if item["controller_id"] == "controller:nirs4all.meta_model")
-        bases = {item["estimator"].multimodal_source_name: item for item in artifacts if hasattr(item["estimator"], "multimodal_source_name")}
+        bases = {item["estimator"].multimodal_source_name: item for item in artifacts
+                 if getattr(item["estimator"], "multimodal_source_name", None) is not None}
+        assert set(bases) == set(meta.multimodal_source_names)
         new = _ragged_cohort(prediction=True, missing=True)
         source = new.sources["series"]
         mask = np.zeros(len(new), dtype=bool) if all_series_absent else source.presence_mask
@@ -173,7 +175,7 @@ def test_native_late_missing_export_replays_new_rows_without_fit(
         new = _replace_series(new, values=values, presence_mask=mask)
         new = new.take([new.sample_ids[index] for index in [4, 1, 3, 0]])
         new = MultimodalDataset(
-            dict(reversed(list(new.sources.items()))), sample_ids=new.sample_ids,
+            new.sources, sample_ids=new.sample_ids, target_names=cohort.target_names,
             partitions=new.partitions, task_type="regression",
         )
         expected_parts = []
@@ -185,7 +187,7 @@ def test_native_late_missing_export_replays_new_rows_without_fit(
                 block = source.values
                 observed = block.take_rows(presence) if hasattr(block, "take_rows") else block[presence]
                 captured = bases[name]
-                member = _DagmlExportedModel(captured["estimator"], captured["y_transform"])
+                member = _DagmlExportedModel(captured["estimator"], captured["y_transform"], late_partial_refit_artifact=captured)
                 part[presence] = member.predict_numeric(observed).reshape(int(presence.sum()), width)
             expected_parts.append(np.column_stack([part, presence.astype(float)]))
         expected = meta.predict(np.column_stack(expected_parts))
@@ -208,6 +210,12 @@ def test_native_late_missing_export_replays_new_rows_without_fit(
     finally:
         result.close()
     shutil.rmtree(workspace)
+    reordered = MultimodalDataset(
+        dict(reversed(list(new.sources.items()))), sample_ids=new.sample_ids,
+        target_names=cohort.target_names, partitions=new.partitions, task_type="regression",
+    )
+    with pytest.raises(ValueError, match="original target names and ordered named sources"):
+        nirs4all.predict(archive, reordered)
     replay = nirs4all.predict(archive, MultimodalDataset.from_dict(new.to_dict()))
     np.testing.assert_array_equal(np.asarray(replay.y_pred).reshape(len(new), width), np.asarray(expected).reshape(len(new), width))
     assert replay.metadata["phase"] == "PREDICT"
@@ -215,3 +223,26 @@ def test_native_late_missing_export_replays_new_rows_without_fit(
     assert replay.metadata["training_performed"] is False
     assert replay.metadata["artifact_integrity_verified"] is True
     assert replay.metadata["scores"] is None
+
+
+def test_partial_source_component_archive_export_refuses_before_writing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nirs4all.pipeline.dagml.rt import RtError
+    from tests.integration.api.test_multimodal_late_missing import _run
+    from tests.integration.api.test_multimodal_ragged import _ragged_cohort
+
+    result = _run(_ragged_cohort(missing=True), tmp_path / "training")
+    try:
+        source_run = next(run for run in result.runs if len(run._dagml_refit_artifacts) == 1
+                          and run._dagml_refit_artifacts[0]["late_partial_refit_origin"]["source_name"] is not None)
+        output = tmp_path / "must-not-exist" / "component.n4a"
+
+        def forbidden(*args: Any, **kwargs: Any) -> Any:
+            pytest.fail("unsupported standalone partial component reached the bundle writer")
+
+        monkeypatch.setattr("nirs4all.pipeline.bundle.write_single_model_bundle", forbidden)
+        with pytest.raises(RtError, match="partial-source component cannot be exported alone"):
+            source_run.export(output)
+        assert not output.exists()
+        assert not output.parent.exists()
+    finally:
+        result.close()

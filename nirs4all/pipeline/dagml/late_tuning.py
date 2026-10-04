@@ -6,7 +6,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
-from .detect import _detect_by_source_stacking_branch
+from .detect import _by_source_stacking_preprocessing, _detect_by_source_stacking_branch
 from .host_finetune import is_host_finetune, validate_host_finetune
 from .source_stacking import lower_source_stacking
 from .steps import _is_split_step
@@ -86,18 +86,20 @@ def prepare_late_tuning(pipeline: list[Any], dataset: Any, paths: Any) -> LateFu
     detected = _detect_by_source_stacking_branch(pipeline, dataset.n_sources)
     if detected is None:
         raise ValueError("multimodal tuning requires one multimodal model or by_source branches followed by merge='predictions' and a meta-model")
-    if not dataset.cohort.target_mask.all():
-        raise ValueError("late-fusion tuning requires complete targets")
     body, meta = detected
     meta_step = next((step for step in pipeline if isinstance(step, dict) and "model" in step), None)
     if meta_step is not None and "finetune_params" in meta_step:
         raise ValueError("meta-model HPO requires a native whole-stack nested search; reusing a precomputed OOF matrix would leak its inner selection targets")
+    preprocessing = _by_source_stacking_preprocessing(pipeline)
+    if preprocessing is None:
+        raise ValueError("whole-stack source preprocessing is not reconstructible")
+    prefix, prefix_positions = preprocessing
     has_local_finetune = False
     bodies = body.items() if isinstance(body, dict) else ((source, body) for source in dataset.source_names)
     for source, branch in bodies:
         for index, step in enumerate(branch):
             if isinstance(step, dict) and "finetune_params" in step:
-                params = validate_nested_local_finetune(step, paths, prefix=f"branches.{source}.{index}")
+                params = validate_nested_local_finetune(step, paths, prefix=f"branches.{source}.{len(prefix) + index}")
                 step["finetune_params"] = params
                 has_local_finetune = True
     _lowered, branches, layout = lower_source_stacking(
@@ -105,13 +107,22 @@ def prepare_late_tuning(pipeline: list[Any], dataset: Any, paths: Any) -> LateFu
         source_descriptors=dataset.cohort.schema_descriptors(),
     )
     missing_policy = layout.get("missing_source_policy", "error")
+    target_policy = layout.get("target_policy", "complete")
+    if dataset.is_classification and (target_policy != "complete" or not dataset.cohort.target_mask.all()):
+        raise ValueError("classification late-fusion tuning requires one complete class target")
+    if not dataset.cohort.target_mask.all() and target_policy != "per_target":
+        raise ValueError("partial late-fusion targets require explicit target_policy='per_target'")
     if has_local_finetune and missing_policy != "error":
         raise ValueError("nested local HPO requires complete sources and missing_source_policy='error'")
-    if missing_policy == "zero_with_indicator" and dataset.is_classification:
-        raise ValueError("late-fusion missing_source_policy='zero_with_indicator' currently requires regression")
+    if has_local_finetune and target_policy == "per_target":
+        raise ValueError("per-target late fusion uses whole-stack tuning, not branch-local finetune_params")
     if missing_policy == "error" and any(not mask.all() for mask in dataset.cohort.source_presence().values()):
         raise ValueError("late-fusion tuning requires complete sources unless missing_source_policy='zero_with_indicator' is explicit")
     # Store independently addressable source bodies even for a shared public list.
+    # Selected REFIT re-enters the public by_source detector with each whole
+    # source chain already expanded. Remove the original upstream declaration
+    # so it cannot be duplicated during the selected run.
+    pipeline = [step for index, step in enumerate(pipeline) if index not in prefix_positions]
     branch_step = next(step for step in pipeline if isinstance(step, dict) and "branch" in step)
     branch_step["branch"]["steps"] = dict(zip(dataset.source_names, branches, strict=True))
     meta_step = next(step for step in pipeline if isinstance(step, dict) and "model" in step)

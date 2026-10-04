@@ -75,6 +75,10 @@ class _NamedOutputAdapter:
         self.output = output
 
     def predict(self, X: Any) -> Any:
+        from nirs4all.api.result import _DagmlRankedIndependentSourceModels
+
+        if isinstance(self.model, _DagmlRankedIndependentSourceModels):
+            return self.model.predict_numeric_output(self.output, X)
         return self.model.predict_output(self.output, X)
 
 
@@ -111,9 +115,23 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
             model, manifest, member, fingerprint, expected, initial_package = _load_verified_archive(archive)
     if not callable(getattr(model, "predict", None)):
         raise ValueError("general archive model is not predict-capable")
-    from .multimodal_contracts import validate_stacking_archive_contract
+    from .multimodal_contracts import (
+        validate_late_partial_archive_contract,
+        validate_named_archive_contract,
+        validate_stacking_archive_contract,
+    )
 
+    named_artifact = validate_named_archive_contract(manifest, model)
     validate_stacking_archive_contract(manifest, model)
+    late_contract = validate_late_partial_archive_contract(manifest, model)
+    from nirs4all.api.result import _DagmlExportedModel
+
+    from .torch_topology_replay import CapturedTorchTopology
+
+    captured_topology = model.estimator if isinstance(model, _DagmlExportedModel) else model
+    if isinstance(captured_topology, CapturedTorchTopology):
+        captured_topology.validate()
+
     if "dagml_generated_model_replay" in manifest:
         from nirs4all.api.result import _DagmlExportedModel
 
@@ -125,8 +143,19 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
         expected_contract.pop("artifact_id")
         if generated_prediction_contract(captured) != expected_contract:
             raise ValueError("general archive model disagrees with its generated prediction contract")
+    artifact = {"artifact_id": member, "estimator": model, "y_transform": None, "content_fingerprint": fingerprint}
+    if named_artifact is not None:
+        artifact.update(named_artifact)
+        artifact["serialization_fingerprint"] = fingerprint
+    if late_contract is not None:
+        from .tuning_contracts import tcv1_sha256
+
+        artifact["late_partial_refit_contract"] = late_contract
+        artifact["late_partial_refit_fingerprint"] = tcv1_sha256(late_contract)
+        artifact["serialization_fingerprint"] = fingerprint
+        artifact["content_fingerprint"] = artifact["late_partial_refit_fingerprint"]
     return {
-        "artifact": {"artifact_id": member, "estimator": model, "y_transform": None, "content_fingerprint": fingerprint},
+        "artifact": artifact,
         "manifest": manifest, "archive_fingerprint": archive_fingerprint,
         "initial_full_refit_package": initial_package,
         "artifact_integrity_verified": expected is not None,
@@ -169,9 +198,16 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
                 InitialFullRefitPackage(initial_package)
             except DagMlError as exc:
                 raise ValueError(f"general archive initial full-refit package is invalid: {exc}") from exc
-        from .multimodal_contracts import validate_dependencies
+        from .multimodal_contracts import late_partial_archive_contract, named_archive_artifact, validate_dependencies
 
+        named_origin = named_archive_artifact(manifest)
+        late_contract = late_partial_archive_contract(manifest)
         validate_dependencies(manifest)
+        source_capture = None
+        if "dagml_source_training_capture_ref" in manifest or "dagml_source_training_capture.json" in archive.namelist():
+            from .attested_by_source import validate_source_archive_before_model
+
+            source_capture = validate_source_archive_before_model(archive, manifest)
         _validate_generated_archive_before_model(archive, manifest)
         members = [name for name in names if name.startswith("artifacts/") and not name.endswith("/")]
         if len(members) != 1 or not members[0].endswith(".joblib"):
@@ -184,6 +220,8 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
             shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
         fingerprint = file_fingerprint(model_path)[0]
         expected = manifest.get("artifact_integrity", {}).get(member)
+        if (named_origin is not None or late_contract is not None) and expected is None:
+            raise ValueError("attested REFIT archive requires its serialized artifact digest before model load")
         if expected is not None and expected != fingerprint:
             raise ValueError("general archive artifact content fingerprint mismatch; refusing to deserialize")
         if "artifact_integrity" in manifest and expected is None:
@@ -217,6 +255,12 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
                     shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
             directories = verify_host_artifacts(sidecar_root, sidecar_refs)
             model = joblib.load(model_path)
+            if source_capture is not None:
+                from nirs4all.api.result import _DagmlRankedIndependentSourceModels
+
+                if not isinstance(model, _DagmlRankedIndependentSourceModels):
+                    raise ValueError("source native capture requires its original sidecar-backed model")
+                model.validate_source_capture(source_capture, manifest["dagml_source_training_capture_ref"]["sha256"])
             hydrate_host_artifacts(model, directories, owner=sidecar_owner)
         except Exception:
             sidecar_owner.cleanup()
@@ -297,18 +341,36 @@ def predict_general_archive(
             tuple(item["feature_axis_cm1"]) if isinstance(item.get("feature_axis_cm1"), list) else None
             for item in named_outputs
         )
+        ranked_outputs = topology.get("ranked_outputs")
+        if ranked_outputs is not None:
+            if "dagml_source_training_capture_ref" not in loaded["manifest"] or ranked_outputs != getattr(model, "native_outputs", None):
+                raise ValueError("archive ranked outputs require their original native training captures")
+            ids = tuple(item["output_binding_id"] for item in ranked_outputs)
         if (tuple(getattr(model, "output_binding_ids", ())) != ids
                 or tuple(getattr(model, "source_ids", ())) != tuple(item.get("source_id") for item in named_outputs)
                 or tuple(getattr(model, "source_widths", ())) != tuple(item.get("feature_width") for item in named_outputs)
                 or tuple(getattr(model, "feature_axes_cm1", (None,) * len(ids))) != manifest_axes):
             raise ValueError("archive model disagrees with its independent-output topology")
+        if ranked_outputs is not None:
+            named_outputs = ranked_outputs
     if isinstance(named_outputs, list) and output is None:
         raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict")
     if output is not None:
         if not isinstance(named_outputs, list) or output not in [item.get("output_binding_id") for item in named_outputs if isinstance(item, dict)]:
             raise ValueError(f"archive has no named output {output!r}")
         adapter = _NamedOutputAdapter(loaded["artifact"]["estimator"], output)
-        loaded = {**loaded, "artifact": {**loaded["artifact"], "estimator": adapter},
+        from nirs4all.api.result import _DagmlRankedIndependentSourceModels
+
+        transform = adapter.model.public_target_transform(output) if isinstance(adapter.model, _DagmlRankedIndependentSourceModels) else loaded["artifact"].get("y_transform")
+        loaded = {**loaded, "artifact": {**loaded["artifact"], "estimator": adapter, "y_transform": transform},
+                  "pipeline": [{"model": adapter}]}
+    from nirs4all.api.result import _DagmlRankedIndependentSourceModels
+
+    selected_model = loaded["artifact"]["estimator"]
+    binding = getattr(selected_model, "selected_output_binding_id", None)
+    if isinstance(selected_model, _DagmlRankedIndependentSourceModels) and binding is not None:
+        adapter = _NamedOutputAdapter(selected_model, binding)
+        loaded = {**loaded, "artifact": {**loaded["artifact"], "estimator": adapter, "y_transform": selected_model.public_target_transform(binding)},
                   "pipeline": [{"model": adapter}]}
     source_sample_ids = None
     if isinstance(data, Mapping) and isinstance(named_outputs, list):

@@ -51,7 +51,8 @@ def _evaluate_host_task(
             "seed": operator_seed, "variant": task.get("variant_id"), "fold": task.get("fold_id"),
             "node": task["node_plan"]["node_id"], "phase": task["phase"],
         })[:8], 16)
-        init_global_random_state(task_seed)
+        if not (graph.get("metadata") or {}).get("python_torch_profile"):
+            init_global_random_state(task_seed)
         host_task = copy.deepcopy(task)
         for choice in (host_task.get("variant") or {}).get("choices", {}).values():
             for override in choice.get("param_overrides", []):
@@ -59,7 +60,7 @@ def _evaluate_host_task(
         validate_cv_weight_transfer_graph(graph, resolver)
         generated_views = view_store.bind_task(host_task) if view_store is not None else None
         return run_node(host_task, resolver, nodes.__getitem__, model_store, graph.get("edges", []), None,
-                        generated_views=generated_views)
+                        generated_views=generated_views, graph_metadata=graph.get("metadata", {}))
     finally:
         # Search callbacks are CV-only. Candidate snapshots cannot initialize a
         # later trial or the selected run, which captures its own native CV fold.
@@ -93,6 +94,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise ValueError("multimodal tuning model steps accept only model, train_params, refit_params, finetune_params and name")
     model = model_step["model"] if model_step is not None else None
     model_controls = {key: value for key, value in (model_step or {}).items() if key != "model"}
+    if isinstance(model, MultimodalClassifier) and getattr(model, "backend", "sklearn") == "methods":
+        raise ValueError("native classifier HPO requires explicit _or_ topology sequences with node-qualified n_components axes")
     methods_backend = isinstance(model, MultimodalRegressor) and model.backend == "methods"
     if methods_backend:
         from .methods_multimodal import TUNABLE_KEYS, validate_training_profile
@@ -134,7 +137,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise ValueError(f"durable multimodal tuning does not support pruner={spec.pruner!r}")
     if spec.n_jobs != 1 and (spec.sampler not in {None, "random"} or spec.pruner not in {None, "none"}):
         raise ValueError("durable multimodal tuning requires n_jobs=1 for nonrandom samplers or pruning")
-    supported_metrics = {"accuracy", "balanced_accuracy"} if classification else {"rmse", "mse", "mae", "r2"}
+    supported_metrics = {"accuracy", "balanced_accuracy", "f1"} if classification else {"rmse", "mse", "mae", "r2"}
     if spec.metric not in supported_metrics:
         raise ValueError(f"multimodal {'classification' if classification else 'regression'} tuning requires one of {sorted(supported_metrics)}")
     if spec.force_params is not None:
@@ -160,8 +163,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         raise TypeError("tuning.progress_callback must be callable")
     recipe = prepare_late_tuning(pipeline, dataset, spec.space) if model is None else None
     if recipe is not None:
-        if not cohort.target_mask.all():
-            raise ValueError("late-fusion tuning requires complete targets")
+        if recipe.layout.get("schema") == "nirs4all.source-stacking-layout.v4" and spec.n_jobs != 1:
+            raise ValueError("incomplete late-fusion tuning requires serial n_jobs=1")
         if recipe.layout.get("missing_source_policy", "error") == "error" and any(not mask.all() for mask in cohort.source_presence().values()):
             raise ValueError("late-fusion tuning requires complete sources unless missing_source_policy='zero_with_indicator' is explicit")
     pool = list(range(dataset.num_samples))
@@ -187,7 +190,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             graph = native.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests).graph.to_dict()
         else:
             graph = json.loads(native.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
-            manifests = controller_manifests()
+            manifests = controller_manifests(dsl)
         target = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
     else:
         from .run_paths import _assemble_stacking_dsl
@@ -197,7 +200,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
             task_type="classification" if classification else "regression", random_state=operator_seed, group_by_sample=groups, source_layout=recipe.layout,
         )
         target = "merge:stack"
-        manifests = controller_manifests()
+        manifests = controller_manifests(dsl)
     nodes = {node["id"]: node for node in graph["nodes"]}
     resolver = MaterializationResolver(dataset, identity)
     store: dict[Any, Any] = {}
@@ -401,5 +404,7 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
         result.methods_multimodal_tuning_evidence = copy.deepcopy(evidence)
         result.methods_multimodal_search_request = copy.deepcopy({"dsl": dsl, "envelope": envelope, "controller_manifests": manifests, "request": request})
     for artifact in result._dagml_refit_artifacts:
-        artifact["estimator"].multimodal_tuning_evidence = evidence
+        # Native REFIT already sealed the estimator's learned state. Search
+        # evidence belongs to its transport envelope, not to that signed state.
+        artifact["multimodal_tuning_evidence"] = copy.deepcopy(evidence)
     return result

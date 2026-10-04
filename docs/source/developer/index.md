@@ -8,6 +8,7 @@ Documentation for developers who want to understand NIRS4ALL internals or contri
 architecture
 r2_native_recovery_audit
 pipeline_architecture
+native_source_stacking_preprocessing
 controllers
 controllers_intro
 caching

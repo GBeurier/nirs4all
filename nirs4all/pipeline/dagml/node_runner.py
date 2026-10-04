@@ -23,6 +23,7 @@ unbound transforms use the legacy reconstructed chain at the model node.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -150,11 +151,21 @@ class _DagmlSelectedFoldEstimator:
 class _FrozenTransform(TransformerMixin, BaseEstimator):
     """Keep a transform fitted by its own native task when the model fits."""
 
-    def __init__(self, transformer: Any) -> None:
+    def __init__(self, transformer: Any, fit_sample_ids: list[str] | None = None) -> None:
         self.transformer = transformer
+        self.fit_sample_ids = fit_sample_ids
         self.fitted_ = True
 
-    def fit(self, X: Any, y: Any = None) -> _FrozenTransform:  # noqa: ARG002 - fitted upstream
+    def fit(self, X: Any, y: Any = None, sample_weight: Any = None) -> _FrozenTransform:  # noqa: ARG002 - fitted upstream
+        if sample_weight is not None:
+            chain = self.transformer
+            steps = [step for source in chain.source_steps for step in source] if chain.source_steps is not None else chain.steps
+            if not steps or any(
+                getattr(step, "_nirs4all_fit_influence", {}).get("fit_sample_ids") != self.fit_sample_ids
+                or not np.array_equal(np.asarray(getattr(step, "_nirs4all_fit_influence", {}).get("row_weights")), sample_weight)
+                for step in steps
+            ):
+                raise ValueError("frozen encoder does not attest the model's actual native weighted fit scope")
         return self
 
     def transform(self, X: Any) -> Any:
@@ -600,10 +611,16 @@ class _MultiBlockEstimator:
 
         return get_tags(self._model)
 
-    def _fit_transform_block(self, steps: list[Any], block: Any) -> Any:
+    def _fit_transform_block(self, steps: list[Any], block: Any, sample_weight: Any = None) -> Any:
         out = block
         for step in steps:
-            out = np.asarray(step.fit_transform(out))
+            if sample_weight is None:
+                out = np.asarray(step.fit_transform(out))
+            else:
+                from .experimental_units import weighted_fit_kwargs
+
+                step.fit(out, **weighted_fit_kwargs(step, sample_weight))
+                out = np.asarray(step.transform(out))
         return out
 
     @staticmethod
@@ -622,17 +639,21 @@ class _MultiBlockEstimator:
 
     def fit(
         self, blocks: list[Any], y: Any, *, target_mask: np.ndarray | None = None,
-        source_masks: dict[str, np.ndarray] | None = None,
+        source_masks: dict[str, np.ndarray] | None = None, sample_weight: Any = None,
     ) -> _MultiBlockEstimator:
         from sklearn.base import clone
 
         options = self._source_options(source_masks)
         if target_mask is not None:
             options["target_mask"] = target_mask
+        if sample_weight is not None:
+            options["sample_weight"] = sample_weight
         self._source_widths = tuple(_fixed_block_width(block) for block in blocks)
         templates = self._source_chain_templates or [self._chain_template for _ in blocks]
         self._block_chains = [[clone(step) for step in chain] for chain in templates]
-        transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
+        if sample_weight is not None and np.asarray(sample_weight).ndim != 1 and any(self._block_chains):
+            raise ValueError("per-target weighted encoders must live inside the public multimodal model")
+        transformed = [self._fit_transform_block(steps, block, sample_weight) for steps, block in zip(self._block_chains, blocks, strict=True)]
         self._model.fit(transformed, y, **options)
         return self
 
@@ -1148,6 +1169,9 @@ def _run_fitted_transform_node(
         return views
 
     def fit_transformer(transformer: Any, x_fit: Any) -> None:
+        from .experimental_units import native_fit_weights, weighted_fit_kwargs
+
+        weights = native_fit_weights(task, resolver._dataset, resolver._identity, ids)
         fit_with_views = getattr(transformer, "fit_with_views", None)
         if generated_views is not None:
             if callable(fit_with_views):
@@ -1156,9 +1180,13 @@ def _run_fitted_transform_node(
                 "fit", "x", view["partition"], ids, x_fit, targets=y_fit,
             )
         if callable(fit_with_views):
+            if weights is not None:
+                raise ValueError("experimental-unit weights cannot be consumed by partition-aware fit_with_views")
             fit_with_views(partitioned_views(x_fit))
         else:
-            transformer.fit(x_fit, y_fit)
+            transformer.fit(x_fit, y_fit, **weighted_fit_kwargs(transformer, weights))
+            if weights is not None:
+                transformer._nirs4all_fit_influence = copy.deepcopy(task["fit_influence"])
 
     from nirs4all.data.multimodal import MultimodalSpectroDataset
 
@@ -1189,6 +1217,8 @@ def _run_fitted_transform_node(
         shared = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
         select_with_views = getattr(shared, "select_with_views", None)
         if callable(select_with_views):
+            if getattr(resolver._dataset, "independent_unit_ids", None) is not None:
+                raise ValueError("experimental-unit weights cannot be consumed by transfer selection")
             # Legacy transfer selection sees all feature sources concatenated,
             # then applies the selected preprocessing independently per source.
             select_with_views(partitioned_views(np.hstack(fit_blocks)))
@@ -1402,6 +1432,187 @@ def _resolve_finetune_best_params(
     return best_params
 
 
+def resolve_named_model_features(
+    task: dict[str, Any], resolver: MaterializationResolver, specification: dict[str, Any],
+    sample_ids: list[str], partition: str, generated_views: GeneratedTaskViews | None = None,
+) -> dict[str, np.ndarray]:
+    """Materialize each named table through its own native row/source scope.
+
+    Buffers retain their storage dtype until the Torch adapter performs its
+    explicit float32 conversion. No concatenation or positional source wrapper
+    crosses this boundary. Every source uses the same ordered native row IDs.
+    """
+    from .envelope import source_ids, source_order
+
+    names = source_order(resolver._dataset)
+    native_ids = source_ids(resolver._dataset)
+    mapping = dict(zip(names, native_ids, strict=True))
+    ports = specification["ports"]
+    if len(mapping) != len(names) or set(mapping) != {port["name"] for port in ports}:
+        raise ValueError("named model sources disagree with the current cohort")
+    bindings = task["node_plan"].get("data_bindings") or []
+    if len(bindings) != len(ports):
+        raise ValueError("named model task requires exactly one native binding per port")
+    views = task.get("data_views") or {}
+    result = {}
+    for port in ports:
+        name, metadata = port["name"], port["metadata"]
+        if mapping[name] != metadata["source_id"]:
+            raise ValueError(f"named source {name!r} changed captured native source identity")
+        matched = [binding for binding in bindings if binding.get("input_name") == name]
+        if (len(matched) != 1 or matched[0].get("source_ids") != [mapping[name]]
+                or matched[0].get("output_representation") != port["accepted_representations"][0]):
+            raise ValueError(f"named model binding for {name!r} disagrees with its source contract")
+        matches = [(key, view) for key, view in views.items()
+                   if key in (f"data:{name}", f"data:{name}:validation", f"data:{name}:test")
+                   and view.get("partition") == partition]
+        if len(matches) != 1 or matches[0][1].get("sample_ids") != sample_ids:
+            raise ValueError(f"named model port {name!r} changed ordered native sample IDs")
+        key, _ = matches[0]
+        receipts = task.get("data_view_receipts") or {}
+        from .fixed_cohort_views import FixedCohortTaskViews
+
+        if key not in receipts or not isinstance(receipts[key], dict) or not isinstance(generated_views, FixedCohortTaskViews):
+            raise ValueError("named model requires every native receipt and its bound fixed-cohort provider")
+        generated_views.validate_task(task)
+        resolved = generated_views.feature_blocks(name, partition, sample_ids, source_names=(name,))
+        if (resolved.get("observation_ids") != sample_ids or tuple(resolved.get("source_names", ())) != (name,)
+                or len(resolved["blocks"]) != 1 or "source_masks" in resolved):
+            raise ValueError(f"named model port {name!r} requires its complete attested source table")
+        values = np.asarray(resolved["blocks"][0])
+        if (values.shape != (len(sample_ids), *metadata["feature_shape"])
+                or str(values.dtype) != metadata["dtype"] or not np.isfinite(values).all()):
+            raise ValueError(f"named source {name!r} changed shape, dtype or finite-value contract")
+        result[name] = values
+    return result
+
+
+def emit_named_refit_origin(
+    task: dict[str, Any], estimator: Any, specification: dict[str, Any], fit_ids: list[str],
+    *, graph_node: dict[str, Any], target_names: list[str],
+) -> dict[str, Any]:
+    """Bind the actual completed named FIT to its immutable native REFIT origin."""
+    from .named_torch import named_learned_state_sha256, named_task_seed
+    from .tuning_contracts import tcv1_sha256
+
+    if (task["phase"] != "REFIT" or task.get("fold_id") is not None or not fit_ids
+            or len(fit_ids) != len(set(fit_ids)) or hasattr(estimator, "_nirs4all_named_refit_origin")):
+        raise ValueError("named Torch origin can only be emitted once by a genuine full-Train REFIT")
+    node = task["node_plan"]
+    params = {**node["params"], **_variant_overrides(task, node["node_id"])}
+    if estimator.get_params(deep=False) != params:
+        raise ValueError("named Torch effective controls disagree with its native REFIT task")
+    input_schema = getattr(estimator, "multimodal_input_schema", None)
+    if not isinstance(input_schema, dict):
+        raise ValueError("native named Torch REFIT requires its complete bound multimodal input schema")
+    origin = {
+        "schema_version": 1, "artifact_id": _artifact_id(node["node_id"], task.get("variant_id") or "base"),
+        "run_id": task["run_id"], "node_id": node["node_id"], "controller_id": node["controller_id"],
+        "phase": "REFIT", "fold_id": None, "variant_id": task.get("variant_id"), "native_seed": task.get("seed"),
+        "effective_seed": named_task_seed(task),
+        "fit_sample_ids": list(fit_ids), "params": params, "model_input": specification,
+        "graph_node": graph_node, "target_names": target_names,
+        "multimodal_input_schema": copy.deepcopy(input_schema),
+        "learned_state_sha256": named_learned_state_sha256(estimator),
+    }
+    estimator._nirs4all_named_refit_origin = json.loads(json.dumps(origin))
+    estimator._nirs4all_named_refit_fingerprint = tcv1_sha256(origin)
+    return {"id": origin["artifact_id"], "kind": "sklearn_estimator", "controller_id": node["controller_id"],
+            "backend": "joblib", "content_fingerprint": estimator._nirs4all_named_refit_fingerprint}
+
+
+def validate_named_refit_origin(bundle: dict[str, Any], artifact: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Verify the original named REFIT record and current state, without repairing it."""
+    from .named_torch import named_learned_state_sha256, named_task_seed
+    from .tuning_contracts import tcv1_sha256
+
+    estimator = bundle["estimator"]
+    origin, fingerprint = bundle.get("named_refit_origin"), bundle.get("named_refit_fingerprint")
+    if (not isinstance(origin, dict) or fingerprint != tcv1_sha256(origin)
+            or getattr(estimator, "_nirs4all_named_refit_origin", None) != origin
+            or getattr(estimator, "_nirs4all_named_refit_fingerprint", None) != fingerprint
+            or origin.get("phase") != "REFIT" or origin.get("fold_id") is not None
+            or type(origin.get("effective_seed")) is not int
+            or origin["effective_seed"] != named_task_seed({
+                "seed": origin.get("native_seed"), "node_plan": {"node_id": origin.get("node_id")},
+                "variant_id": origin.get("variant_id"), "fold_id": None, "phase": "REFIT",
+            })
+            or not origin.get("fit_sample_ids") or len(set(origin["fit_sample_ids"])) != len(origin["fit_sample_ids"])
+            or origin.get("params") != estimator.get_params(deep=False)
+            or origin.get("model_input") != getattr(estimator, "_nirs4all_named_model_input", None)
+            or not isinstance(origin.get("multimodal_input_schema"), dict)
+            or origin["multimodal_input_schema"] != getattr(estimator, "multimodal_input_schema", None)
+            or not isinstance(origin.get("graph_node"), dict)
+            or origin["graph_node"].get("id") != origin.get("node_id")
+            or origin["graph_node"].get("params") != origin["params"]
+            or (origin["graph_node"].get("metadata") or {}).get("dsl_model_input") != origin["model_input"]
+            or (origin["graph_node"].get("metadata") or {}).get("controller_id") != origin.get("controller_id")
+            or not isinstance(origin.get("target_names"), list) or len(origin["target_names"]) != 1
+            or origin.get("learned_state_sha256") != named_learned_state_sha256(estimator)
+            or bundle.get("y_transform") is not None):
+        raise ValueError("named Torch learned state, controls or original REFIT provenance changed")
+    if artifact is not None and (
+        artifact.get("id", artifact.get("artifact_id")) != origin["artifact_id"]
+        or artifact.get("controller_id") != origin["controller_id"]
+        or artifact.get("content_fingerprint") != fingerprint
+    ):
+        raise ValueError("named Torch native ArtifactRef disagrees with its original REFIT fingerprint")
+    return origin
+
+
+class _PerTargetLateEstimator(BaseEstimator):
+    """Delegate each masked target's whole encoder/head fit to the public model."""
+
+    def __init__(self, model: Any, source_name: str, chain_template: list[Any] | None = None):
+        self.model = model
+        self.source_name = source_name
+        self.chain_template = chain_template
+
+    def fit(self, X: Any, y: Any, *, target_mask: Any, sample_weight: Any = None) -> _PerTargetLateEstimator:
+        from nirs4all.operators.models.multimodal import MultimodalRegressor
+
+        encoder = make_pipeline(*self.chain_template) if self.chain_template else "passthrough"
+        fitted = MultimodalRegressor(
+            {self.source_name: encoder}, model=self.model, target_policy="per_target",
+            missing_source_policy="error",
+        )
+        fitted.fit([X], y, target_mask=target_mask, sample_weight=sample_weight)
+        self.model_ = fitted
+        self.target_counts_ = fitted.target_counts_
+        self.n_features_in_ = fitted.n_features_in_
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict([X]))
+
+
+def _bind_partial_model_contract(estimator: Any, resolver: Any, availability: dict[str, Any],
+                                 layout: dict[str, Any], fit_ids: list[str], target_mask: np.ndarray,
+                                 *, source_name: str | None) -> None:
+    """Retain exact fit scopes alongside the captured IO contract."""
+    order = tuple(resolver._dataset.source_names)
+    if order != tuple(source["source_name"] for source in layout["sources"]):
+        raise ValueError("partial-source model order disagrees with the IO cohort")
+    estimator.multimodal_source_order = order
+    estimator.multimodal_source_names = order
+    estimator.multimodal_target_names = tuple(availability["target_names"])
+    estimator.multimodal_target_policy = layout["target_policy"]
+    estimator.multimodal_missing_source_policy = layout["missing_source_policy"]
+    estimator.multimodal_prediction_width = len(availability["target_names"])
+    estimator.multimodal_source_name = source_name
+    if source_name is not None:
+        estimator.source_name = source_name
+    if "class_labels" in availability:
+        if not np.array_equal(np.asarray(estimator.classes_, dtype=float), availability["class_labels"]):
+            raise ValueError("fitted class vocabulary differs from the native admitted vocabulary")
+        estimator.multimodal_prediction_width = len(availability["class_labels"])
+    if "class_labels" not in availability:
+        estimator.multimodal_target_fit_sample_ids = {
+            name: [sample for sample, valid in zip(fit_ids, target_mask[:, column], strict=True) if valid]
+            for column, name in enumerate(availability["target_names"])
+        }
+
+
 def run_model_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
@@ -1411,6 +1622,7 @@ def run_model_node(
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     generated_views: GeneratedTaskViews | None = None,
+    *, graph_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
 
@@ -1450,6 +1662,21 @@ def run_model_node(
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
+    named_input = (graph_node.get("metadata") or {}).get("dsl_model_input")
+    named_artifact_ref = None
+    if named_input is not None:
+        from .named_torch_estimator import DagMLNamedTorchEstimator
+
+        metadata = graph_node.get("metadata") or {}
+        if (metadata.get("named_torch_profile") != "cpu_named_intermediate_regression_v1"
+                or any(metadata.get(key) for key in (
+                    "nirs4all_finetune_params", "nirs4all_train_params", "nirs4all_refit_params",
+                    "nirs4all_source_stacking", "source_concat_preprocessing", "nirs4all_prediction_output", "auxiliary_prediction_ports",
+                ))
+                or metadata.get("source_index") is not None
+                or _upstream_x_chain(node_id, edges) or y_transform_node is not None):
+            raise ValueError("named Torch requires its admitted plain model topology and complete sources")
+    torch_selection = (graph_node.get("metadata") or {}).get("source_selection") if graph_node.get("operator") in ("nirs4all.pipeline.dagml.torch_estimator.DagMLTorchEstimator", {"class": "nirs4all.pipeline.dagml.torch_estimator.DagMLTorchEstimator"}) and node_plan.get("params", {}).get("factory_path") == "nirs4all.operators.models.pytorch.mlp.structural_mlp" else None
     transfer_request = _cv_weight_transfer_task_request(task, resolver, graph_node, model_store, edges, y_transform_node, generated_views)
     if generated_views is not None and (graph_node.get("metadata") or {}).get("nirs4all_finetune_params"):
         raise ValueError("generated data views do not yet support branch-local finetune_params")
@@ -1461,6 +1688,19 @@ def run_model_node(
     if source_policy not in {"error", "zero_with_indicator"}:
         raise ValueError("unsupported source-stacking missing_source_policy")
     missing_source = source_policy == "zero_with_indicator"
+    binding = (graph_node.get("metadata") or {}).get("nirs4all_source_stacking") or {}
+    partial_source_name = (graph_node.get("metadata") or {}).get("prediction_availability_source")
+    partial_profile = partial_source_name is not None
+    availability = (graph_metadata or {}).get("prediction_availability")
+    target_policy = binding.get("target_policy", "complete")
+    if partial_profile:
+        if (not isinstance(availability, dict) or source_index is None or not isinstance(partial_source_name, str)
+                or partial_source_name != (graph_node.get("metadata") or {}).get("source_name")
+                or target_policy not in {"complete", "per_target"} or generated_views is not None
+                or y_transform_node is not None or residual_mode or transfer_request is not None):
+            raise ValueError("partial-source models require their signed raw IO availability and unchanged target space")
+        from .source_missing import checked_source_presence, checked_target_validity
+    partial_artifact_ref = None
     if missing_source and source_index is None:
         raise ValueError("source-presence policy requires one declared raw source per base model")
 
@@ -1500,12 +1740,25 @@ def run_model_node(
     if phase == "PREDICT":
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
+        if named_input is not None and (
+            not isinstance(estimator, DagMLNamedTorchEstimator)
+            or getattr(estimator, "_nirs4all_named_model_input", None) != named_input
+        ):
+            raise ValueError("named Torch replay graph disagrees with its captured REFIT input contract")
+        if named_input is not None:
+            validate_named_refit_origin(bundle)
+        if partial_profile:
+            from .multimodal_contracts import validate_late_partial_refit_origin
+
+            validate_late_partial_refit_origin(bundle)
         incoming_chain = _fitted_input_chain(task, model_store)
         joined_chain = incoming_chain if isinstance(incoming_chain, _PredictionFeatureChain) else None
         multi_block = isinstance(estimator, _MultiBlockEstimator)
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
         model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
+        if named_input is not None and not isinstance(model, DagMLNamedTorchEstimator):
+            raise ValueError("named model ports require the named Torch runtime adapter")
         from .framework_estimator import DagMLFrameworkEstimator
         from .torch_estimator import DagMLTorchEstimator
 
@@ -1522,7 +1775,9 @@ def run_model_node(
         )
 
         training_metadata = graph_node.get("metadata") or {}
-        if missing_source and training_metadata.get("nirs4all_finetune_params"):
+        if getattr(resolver._dataset, "independent_unit_ids", None) is not None and training_metadata.get("nirs4all_finetune_params"):
+            raise ValueError("experimental-unit influence requires native whole-pipeline tuning, not branch-local finetune")
+        if (missing_source or partial_profile) and training_metadata.get("nirs4all_finetune_params"):
             raise ValueError("missing-source late fusion requires whole-stack tuning instead of branch-local finetune_params")
         has_training_controls = any(key in training_metadata for key in ("nirs4all_train_params", "nirs4all_refit_params"))
         if has_training_controls:
@@ -1530,6 +1785,8 @@ def run_model_node(
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
         fitted_chain = _fitted_input_chain(task, model_store)
+        if partial_profile and fitted_chain is not None:
+            raise ValueError("partial-source encoders must be fitted inside each actual source/target training intersection")
         joined_chain = fitted_chain if isinstance(fitted_chain, (_PartitionedXChain, _DuplicatedXChain, _PredictionFeatureChain)) else None
         if joined_chain is not None and training_metadata.get("nirs4all_finetune_params"):
             raise ValueError("Local HPO requires a linear preprocessing recipe without feature or prediction joins")
@@ -1540,9 +1797,9 @@ def run_model_node(
             raise ValueError("model node is missing a fitted preprocessing data-edge artifact")
         upstream: list[Any]
         if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None and source_index is not None:
-            upstream = [_FrozenTransform(fitted_chain.for_source(source_index))]
+            upstream = [_FrozenTransform(fitted_chain.for_source(source_index), train_ids)]
         else:
-            upstream = [_FrozenTransform(fitted_chain)] if isinstance(fitted_chain, _FittedXChain) else ([] if joined_chain is not None else [
+            upstream = [_FrozenTransform(fitted_chain, train_ids)] if isinstance(fitted_chain, _FittedXChain) else ([] if joined_chain is not None else [
                 route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
                 for upstream_id in _upstream_x_chain(node_id, edges)
             ])
@@ -1594,10 +1851,10 @@ def run_model_node(
 
         multimodal = isinstance(model, (MultimodalRegressor, MultimodalClassifier))
         multi_block = not source_concat and _is_multi_block_model(model) and (resolver.is_multi_source() or multimodal)
-        if missing_source and (source_concat or multi_block or joined_chain is not None):
+        if (missing_source or partial_profile) and (source_concat or multi_block or joined_chain is not None):
             raise ValueError("source-presence late fusion requires single-source base models with encoders inside each branch")
         source_templates = (
-            [[_FrozenTransform(fitted_chain.for_source(index))] for index in range(len(fitted_chain.source_steps))]
+            [[_FrozenTransform(fitted_chain.for_source(index), train_ids)] for index in range(len(fitted_chain.source_steps))]
             if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None else None
         )
         if source_chains is not None:
@@ -1638,7 +1895,11 @@ def run_model_node(
                 if source_templates is not None else _SourceConcatEstimator(model, shared_chain_template=upstream)
             )
         else:
-            estimator = make_pipeline(*upstream, model) if upstream else model
+            if partial_profile and target_policy == "per_target":
+                assert isinstance(partial_source_name, str)
+                estimator = _PerTargetLateEstimator(model, partial_source_name, upstream)
+            else:
+                estimator = make_pipeline(*upstream, model) if upstream else model
         # The residual learner receives scheduler-derived targets in the original
         # numeric space. A pipeline target transform applies to the base model;
         # transforming residuals again would change the quantity being learned.
@@ -1665,7 +1926,18 @@ def run_model_node(
             fit_ids = train_ids
         else:
             fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label) if include_augmented_fit else train_ids
-        if missing_source:
+        if partial_profile:
+            assert isinstance(availability, dict) and source_index is not None and isinstance(partial_source_name, str)
+            if fit_ids != train_ids:
+                raise ValueError("partial-source fit cannot expand the native cohort with augmented children")
+            presence = checked_source_presence(resolver, fit_ids, source_index, partial_source_name,
+                                               availability, fold_label=fold_label, fitting=True)
+            resolved_fit_targets = resolver.resolve_targets(fit_ids)
+            observed = checked_target_validity(resolved_fit_targets, fit_ids, availability, fitting=True)
+            fit_ids = [sample for sample, keep in zip(fit_ids, presence & observed.any(axis=1), strict=True) if keep]
+            if not fit_ids:
+                raise ValueError("partial-source model has no observed source/target training intersection")
+        elif missing_source:
             presence = (
                 generated_presence(fit_ids, fit_partition, cast(int, source_index))
                 if generated_views is not None else
@@ -1685,7 +1957,15 @@ def run_model_node(
         # (legacy feeds y as float64).
         x_train: Any
         fit_options: dict[str, Any] = {}
-        if source_concat or multi_block:
+        if named_input is not None:
+            if fit_ids != train_ids:
+                raise ValueError("named Torch cannot substitute or augment native fit rows")
+            x_train = resolve_named_model_features(task, resolver, named_input, fit_ids, fit_partition, generated_views)
+        elif torch_selection is not None:
+            from .torch_topology_replay import selected_torch_features
+
+            x_train = selected_torch_features(resolver, fit_ids, torch_selection, include_augmented=include_augmented_fit, fold_label=fold_label)
+        elif source_concat or multi_block:
             resolved = (
                 generated_blocks(fit_ids, fit_partition, getattr(estimator, "source_names", None))
                 if generated_views is not None else
@@ -1733,7 +2013,12 @@ def run_model_node(
             if y_transform is not None:
                 raise ValueError("residual learner cannot apply a second target transform")
         target_mask = target_block.get("validity_masks")
-        if target_mask is not None:
+        if partial_profile:
+            assert isinstance(availability, dict)
+            target_mask = checked_target_validity(target_block, fit_ids, availability, fitting=True)
+            if target_policy == "complete" and not target_mask.all():
+                raise ValueError("complete target policy cannot fit masked labels")
+        if target_mask is not None and not partial_profile:
             if not isinstance(model, MultimodalRegressor) or getattr(model, "target_policy", "complete") != "per_target":
                 raise ValueError("partial training targets require MultimodalRegressor(target_policy='per_target')")
             if upstream or y_transform is not None:
@@ -1745,7 +2030,7 @@ def run_model_node(
             y_fit = y_transform.fit_transform(y_train) if y_transform is not None else y_train
         else:
             y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
-        if target_mask is not None:
+        if target_mask is not None and (not partial_profile or target_policy == "per_target"):
             fit_options["target_mask"] = np.asarray(target_mask, dtype=bool).reshape(y_fit.shape)
         transfer_provenance = None
         if transfer_request is not None:
@@ -1761,11 +2046,33 @@ def run_model_node(
                 fit_options.update(transfer_options)
         apply_pipeline_folds_to_model(model, training_metadata, phase, fit_ids)
         if generated_views is not None:
-            generated_views.record_model_call(
-                "fit", "x", fit_partition, fit_ids, x_train, options=fit_options, targets=y_fit,
-            )
+            if named_input is not None:
+                for name, values in x_train.items():
+                    generated_views.record_model_call("fit", name, fit_partition, fit_ids, values, options=fit_options, targets=y_fit)
+            else:
+                generated_views.record_model_call(
+                    "fit", "x", fit_partition, fit_ids, x_train, options=fit_options, targets=y_fit,
+                )
         with _gpu_device_scope(task, estimator):
+            from .experimental_units import native_fit_weights, weighted_fit_kwargs
+
+            weights = native_fit_weights(task, resolver._dataset, resolver._identity, fit_ids,
+                                        target_names=target_block.get("target_names"),
+                                        per_target=partial_profile and target_policy == "per_target"
+                                        or isinstance(model, MultimodalRegressor) and model.target_policy == "per_target")
+            if isinstance(estimator, _MultiBlockEstimator) and weights is not None:
+                from .experimental_units import require_sample_weight_support
+
+                require_sample_weight_support(estimator._model)
+                for chain in estimator._source_chain_templates or [estimator._chain_template]:
+                    for transformer in chain:
+                        require_sample_weight_support(transformer)
+                fit_options["sample_weight"] = weights
+            else:
+                fit_options.update(weighted_fit_kwargs(estimator, weights))
             estimator.fit(x_train, y_fit, **fit_options)
+            if weights is not None:
+                estimator._nirs4all_fit_influence = copy.deepcopy(task["fit_influence"])
         if transfer_request is not None:
             if phase == "FIT_CV":
                 transfer_store.capture(transfer_request, transfer_identity, task["fold_id"], model, transfer_contract)
@@ -1774,9 +2081,25 @@ def run_model_node(
         from .multimodal_contracts import bind_input_contract
 
         bind_input_contract(estimator, resolver._dataset, source_index)
+        if named_input is not None:
+            estimator._nirs4all_named_model_input = json.loads(json.dumps(named_input))
+            if phase == "REFIT":
+                named_artifact_ref = emit_named_refit_origin(
+                    task, estimator, named_input, fit_ids, graph_node=graph_node,
+                    target_names=target_block.get("target_names", ["y"]),
+                )
         if missing_source:
             estimator.multimodal_missing_source_policy = source_policy
             estimator.multimodal_prediction_width = int(y_train.shape[1]) if y_train.ndim == 2 else 1
+        if partial_profile:
+            from .envelope import source_order
+
+            assert isinstance(availability, dict) and target_mask is not None
+            layout = {"sources": [{"source_name": name} for name in source_order(resolver._dataset)],
+                      "target_policy": target_policy, "missing_source_policy": source_policy}
+            _bind_partial_model_contract(estimator, resolver, availability, layout, fit_ids, target_mask,
+                                         source_name=partial_source_name)
+
         if training_controls is not None:
             estimator._nirs4all_training_controls = training_controls
             report_model_training_controls(training_controls, model, len(fit_ids))
@@ -1794,7 +2117,13 @@ def run_model_node(
         # np.asarray on the resolver's ndarray preserves float32; legacy predicts on float32.
         x: Any
         options: dict[str, Any] = {}
-        if source_concat or multi_block:
+        if named_input is not None:
+            x = resolve_named_model_features(task, resolver, named_input, ids, view_partition, generated_views)
+        elif torch_selection is not None:
+            from .torch_topology_replay import selected_torch_features
+
+            x = selected_torch_features(resolver, ids, torch_selection, include_augmented=include_augmented, fold_label=fold_label)
+        elif source_concat or multi_block:
             resolved = (
                 generated_blocks(ids, view_partition, getattr(estimator, "source_names", None))
                 if generated_views is not None else
@@ -1828,7 +2157,7 @@ def run_model_node(
 
     def _predict(ids: list[str], include_augmented: bool, view_partition: str, *, full_probabilities: bool = False) -> list[list[float]]:
         features, options = _features(ids, include_augmented, view_partition)
-        if missing_source:
+        if missing_source and not partial_profile:
             from .source_missing import predict_present_rows
 
             if proba_output or full_probabilities:
@@ -1867,11 +2196,24 @@ def run_model_node(
                     pred = np.asarray(estimator.predict_with_ids(features, ids, sample_metadata), dtype=float).reshape(len(ids), -1)
                 else:
                     if generated_views is not None:
-                        generated_views.record_model_call(
-                            "predict", "x", view_partition, ids, features, options=options,
-                        )
+                        if named_input is not None:
+                            for name, values in features.items():
+                                generated_views.record_model_call("predict", name, view_partition, ids, values, options=options)
+                        else:
+                            generated_views.record_model_call(
+                                "predict", "x", view_partition, ids, features, options=options,
+                            )
                     pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
+        if partial_profile:
+            assert isinstance(availability, dict)
+            if not np.isfinite(scaled).all():
+                raise ValueError("partial-source predictions must be finite on every present row")
+            if (proba_output or full_probabilities) and (
+                scaled.shape[1] != len(availability["class_labels"]) or np.any(scaled < 0)
+                or np.any(scaled > 1) or not np.allclose(scaled.sum(axis=1), 1, rtol=0, atol=1e-8)
+            ):
+                raise ValueError("partial-source classification requires full native-vocabulary probability distributions")
         return [[float(value) for value in row] for row in scaled]
 
     # What to predict: the phase's own partition and the independent held-out TEST cohort.
@@ -1910,7 +2252,7 @@ def run_model_node(
         # complete training pool. Keep this report-only surface distinct from
         # the fold's own in-sample `train` measurement and validation OOF.
         train_pool_ids = list(dict.fromkeys([*train_ids, *predict_ids]))
-        if generated_views is None:
+        if generated_views is None and named_input is None:
             specs.append((train_pool_ids, "train_pool", task.get("fold_id"), True))
     if phase in ("FIT_CV", "REFIT"):
         if phase == "FIT_CV":
@@ -1933,9 +2275,15 @@ def run_model_node(
     regression_targets: list[dict[str, Any]] = []
     classification_probabilities: list[dict[str, Any]] = []
     for spec_ids, partition, spec_fold, spec_include_augmented in specs:
+        if partial_profile and spec_ids:
+            assert isinstance(availability, dict) and source_index is not None and isinstance(partial_source_name, str)
+            presence = checked_source_presence(resolver, spec_ids, source_index, partial_source_name,
+                                               availability, fold_label=fold_label)
+            spec_ids = [sample for sample, present in zip(spec_ids, presence, strict=True) if present]
+            spec_include_augmented = False
         if not spec_ids:
             continue
-        if generated_views is None:
+        if generated_views is None and named_input is None:
             view_partition = ""
         else:
             if phase == "FIT_CV":
@@ -1958,7 +2306,7 @@ def run_model_node(
         names = [f"y{i}" for i in range(len(true_y[0]))] if multi_target else ["y"]
         names = target_block.get("target_names", names)
         if proba_output:
-            names = [str(label) for label in estimator.classes_]
+            names = [json.dumps(float(label)) if partial_profile else str(label) for label in estimator.classes_]
         true_values = [[float(value) for value in row] for row in true_y] if multi_target else [[float(value)] for value in true_y]
         predictions.append(
             {
@@ -1981,7 +2329,7 @@ def run_model_node(
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
                 "values": _predict(spec_ids, spec_include_augmented, view_partition, full_probabilities=True),
-                "target_names": [str(label) for label in estimator.classes_],
+                "target_names": [json.dumps(float(label)) if partial_profile else str(label) for label in estimator.classes_],
             })
         if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and not proba_output
                 and resolver._dataset.is_classification
@@ -2033,7 +2381,38 @@ def run_model_node(
                 if isinstance(key, tuple) and len(key) == 4
                 and key[:3] == ("stacking_fold_estimator", node_id, variant_label)
             }
-        artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
+        artifact_ref = {"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"}
+        if partial_profile:
+            from .multimodal_contracts import emit_late_partial_refit_origin
+
+            assert isinstance(availability, dict)
+            partial_artifact_ref = emit_late_partial_refit_origin(
+                task, estimator, graph_node=graph_node, dataset=resolver._dataset,
+                fit_sample_ids=fit_ids, target_names=availability["target_names"],
+                source_name=partial_source_name, availability=availability,
+                target_decoder=resolver.target_decoder(),
+            )
+            bundle = model_store[artifact_handle]
+            bundle["late_partial_refit_origin"] = copy.deepcopy(estimator._nirs4all_late_partial_refit_origin)
+            bundle["late_partial_refit_fingerprint"] = estimator._nirs4all_late_partial_refit_fingerprint
+            artifact_ref = partial_artifact_ref
+            from .multimodal_contracts import validate_late_partial_refit_origin
+
+            validate_late_partial_refit_origin(bundle, artifact_ref)
+        if named_input is not None:
+            if named_artifact_ref is None:
+                raise ValueError("named REFIT did not emit its actual completed-fit origin")
+            bundle = model_store[artifact_handle]
+            bundle["named_refit_origin"] = json.loads(json.dumps(estimator._nirs4all_named_refit_origin))
+            bundle["named_refit_fingerprint"] = estimator._nirs4all_named_refit_fingerprint
+            artifact_ref = named_artifact_ref
+            validate_named_refit_origin(bundle, artifact_ref)
+        if graph_metadata and "python_torch_profile" in graph_metadata:
+            from .torch_topology_replay import emit_refit_attestation
+
+            emit_refit_attestation(task, graph_node, model_store[artifact_handle], artifact_ref, fit_ids,
+                                   graph_metadata, node_lookup, edges or [])
+        artifacts.append(artifact_ref)
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
     from .native_vote import capture_vote_evidence
@@ -2047,11 +2426,55 @@ def run_model_node(
     return result
 
 
+def _partial_meta_feature_matrix(specs: list[dict[str, Any]], node_id: str, resolver: Any,
+                                 node_lookup: Callable[[str], dict[str, Any]], availability: dict[str, Any],
+                                 fold_label: str | None) -> tuple[list[str], np.ndarray]:
+    """Verify native joined features and preserve full source/class column order."""
+    from .source_missing import checked_prediction_features, checked_source_presence
+
+    layout = node_lookup(node_id)["metadata"]["nirs4all_source_stacking"]
+    sources = layout["sources"]
+    if not specs or len(specs) != len(sources):
+        raise ValueError("partial meta features require every declared native source input")
+    ids = list(specs[0]["sample_ids"])
+    if not ids or len(ids) != len(set(ids)):
+        raise ValueError("partial meta features require unique ordered native sample IDs")
+    columns = []
+    for spec, source in zip(specs, sources, strict=True):
+        metadata = node_lookup(spec["producer_node"]).get("metadata") or {}
+        binding = metadata.get("nirs4all_source_stacking") or {}
+        name, index = source["source_name"], source["source_index"]
+        if (spec["sample_ids"] != ids or binding.get("layout_fingerprint") != layout["fingerprint"]
+                or binding.get("source") != source or metadata.get("source_name") != name
+                or metadata.get("source_index") != index or metadata.get("prediction_availability_source") != name
+                or binding.get("target_policy") != layout["target_policy"]
+                or binding.get("missing_source_policy") != layout["missing_source_policy"]):
+            raise ValueError("native prediction source order/schema disagrees with the signed layout")
+        presence = checked_source_presence(resolver, ids, index, name, availability, fold_label=fold_label)
+        values = checked_prediction_features(spec, presence)
+        expected_names = ([json.dumps(float(label)) for label in availability["class_labels"]]
+                          if "class_labels" in availability else availability["target_names"])
+        if values.shape[1] != len(expected_names) or spec.get("target_names") != expected_names:
+            raise ValueError("native source prediction columns differ from the signed full target/class table")
+        if "class_labels" in availability:
+            if spec.get("source_port") != "proba":
+                raise ValueError("partial classification requires the signed probability source port")
+            observed = values[presence]
+            if np.any(observed < 0) or np.any(observed > 1) or not np.allclose(observed.sum(axis=1), 1, rtol=0, atol=1e-8):
+                raise ValueError("present source classification features must be genuine complete probability distributions")
+        elif "class_labels" not in availability and spec.get("source_port", "oof") != "oof":
+            raise ValueError("partial regression requires original target-space predictions")
+        columns.append(np.column_stack([values, presence.astype(float)])
+                       if layout["missing_source_policy"] == "zero_with_indicator" else values)
+    return ids, np.column_stack(columns)
+
+
 def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str,
                          *, project_probability_columns: bool = False,
                          resolver: MaterializationResolver | None = None,
                          node_lookup: Callable[[str], dict[str, Any]] | None = None,
-                         fold_label: str | None = None) -> tuple[list[str], np.ndarray]:
+                         fold_label: str | None = None,
+                         availability: dict[str, Any] | None = None) -> tuple[list[str], np.ndarray]:
     """Build ``(sample_ids, X_meta)`` from base prediction-input specs, concatenated per producer.
 
     One column block per base producer in the order ``specs`` is given (the caller passes them in the
@@ -2059,6 +2482,10 @@ def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str,
     canonical and every other spec must cover the same samples (a missing one is a hard error, never a
     silent zero). Mirrors dag-ml's own ``join_oof_features`` column ordering.
     """
+    if node_lookup is not None and (node_lookup(node_id).get("metadata") or {}).get("prediction_availability_meta"):
+        if resolver is None or availability is None or project_probability_columns:
+            raise ValueError("partial meta features require signed availability without probability projection")
+        return _partial_meta_feature_matrix(specs, node_id, resolver, node_lookup, availability, fold_label)
     sample_ids = list(specs[0]["sample_ids"])
     rows_by_sample: dict[str, list[float]] = {sample_id: [] for sample_id in sample_ids}
     for spec in specs:
@@ -2147,6 +2574,7 @@ def run_meta_model_node(
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
     model_store: MutableMapping[Any, Any],
+    *, graph_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a STACKING meta-model node from its base branches' OOF + off-fold predictions (#10).
 
@@ -2185,6 +2613,16 @@ def run_meta_model_node(
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"
     metadata = node_lookup(node_id).get("metadata") or {}
+    partial_profile = bool(metadata.get("prediction_availability_meta"))
+    availability = (graph_metadata or {}).get("prediction_availability")
+    source_layout = metadata.get("nirs4all_source_stacking") or {}
+    target_policy = source_layout.get("target_policy", "complete")
+    if partial_profile:
+        if (not isinstance(availability, dict) or source_layout.get("schema") != "nirs4all.source-stacking-layout.v4"
+                or target_policy not in {"complete", "per_target"}):
+            raise ValueError("partial meta model requires signed availability and its exact layout")
+        from .source_missing import checked_target_validity
+    partial_artifact_ref = None
     probability_output = metadata.get("nirs4all_prediction_output") == "proba"
     dual_probability_output = "proba" in metadata.get("auxiliary_prediction_ports", [])
 
@@ -2218,6 +2656,7 @@ def run_meta_model_node(
             specs, node_id, project_probability_columns=project_probability_columns,
             resolver=resolver, node_lookup=node_lookup,
             fold_label=task.get("fold_id") if phase == "FIT_CV" else "refit",
+            availability=availability if partial_profile else None,
         )
 
     def prediction_blocks(estimator: Any, features: np.ndarray, sample_ids: list[str],
@@ -2232,7 +2671,7 @@ def run_meta_model_node(
         probabilities = np.asarray(estimator.predict_proba(features), dtype=float).reshape(len(sample_ids), -1)
         auxiliary = _meta_prediction_block(
             node_id, phase, variant_label, fold_label, partition, fold_id, sample_ids,
-            probabilities, [str(label) for label in estimator.classes_], producer_port="proba",
+            probabilities, [json.dumps(float(label)) if partial_profile else str(label) for label in estimator.classes_], producer_port="proba",
         )
         return [primary, auxiliary]
 
@@ -2243,11 +2682,15 @@ def run_meta_model_node(
         # one is a real wiring error.
         artifact_handle = _stable_handle(_artifact_id(node_id, variant_label))
         estimator = model_store[artifact_handle]["estimator"]
+        if partial_profile:
+            from .multimodal_contracts import validate_late_partial_refit_origin
+
+            validate_late_partial_refit_origin(model_store[artifact_handle])
         predict_specs = ordered_specs("predict")
         if not predict_specs:
             raise ValueError(f"meta-model node {node_id!r} REFIT/PREDICT received no `:predict` off-fold inputs (no base predict-set predictions)")
         sample_ids, x_meta = feature_matrix(predict_specs)
-        target = _meta_target_block(sample_ids, resolver.resolve_targets(sample_ids))
+        target = _meta_target_block(sample_ids, resolver.resolve_targets(sample_ids), allow_partial=partial_profile and target_policy == "per_target")
         predictions = prediction_blocks(estimator, x_meta, sample_ids, "final", None, target["target_names"])
         regression_targets = [target]
         return _build_result(task, predictions, [], {}, regression_targets)
@@ -2259,8 +2702,22 @@ def run_meta_model_node(
         raise ValueError(f"meta-model node {node_id!r} received no Validation OOF inputs to fit on")
     sample_ids, x_meta = feature_matrix(oof_specs)
     train_target = resolver.resolve_targets(sample_ids)
-    if "validity_masks" in train_target:
-        raise ValueError("late fusion does not support partial targets")
+    if "validity_masks" in train_target and not (partial_profile and target_policy == "per_target"):
+        raise ValueError("late fusion partial targets require the signed per_target profile")
+    target_mask = None
+    if partial_profile:
+        assert isinstance(availability, dict)
+        target_mask = checked_target_validity(train_target, sample_ids, availability, fitting=True)
+        if target_policy == "per_target":
+            # Filter only the FIT rows. The native OOF/evaluation universes and
+            # their feature masks stay intact for subsequent predictions.
+            observed = np.asarray(target_mask.any(axis=1)).reshape(-1)
+            if not observed.any():
+                raise ValueError("partial meta model has no observed target fit rows")
+            sample_ids = [sample for sample, active in zip(sample_ids, observed, strict=True) if active]
+            x_meta = x_meta[observed]
+            target_mask = target_mask[observed]
+            train_target = resolver.resolve_targets(sample_ids)
     y_meta = np.asarray(train_target["values"], dtype=float)
 
     artifact_id = _artifact_id(node_id, variant_label)
@@ -2272,7 +2729,34 @@ def run_meta_model_node(
         apply_model_training_controls(fit_estimator, metadata, phase)
         if any(key in metadata for key in ("nirs4all_train_params", "nirs4all_refit_params")) else None
     )
-    fit_estimator.fit(x_meta, y_meta)
+    if partial_profile:
+        assert isinstance(availability, dict) and target_mask is not None
+        if target_policy == "per_target":
+            fit_estimator = _PerTargetLateEstimator(fit_estimator, "meta")
+            from .experimental_units import native_fit_weights
+
+            weights = native_fit_weights(task, resolver._dataset, resolver._identity, sample_ids,
+                                        target_names=train_target["target_names"], per_target=True)
+            fit_estimator.fit(x_meta, y_meta, target_mask=target_mask.reshape(y_meta.shape), sample_weight=weights)
+        else:
+            if not target_mask.all():
+                raise ValueError("complete meta target policy cannot fit missing labels")
+            from .experimental_units import native_fit_weights, weighted_fit_kwargs
+
+            weights = native_fit_weights(task, resolver._dataset, resolver._identity, sample_ids)
+            fit_estimator.fit(x_meta, y_meta, **weighted_fit_kwargs(fit_estimator, weights))
+        from .multimodal_contracts import bind_input_contract
+
+        bind_input_contract(fit_estimator, resolver._dataset, None)
+        _bind_partial_model_contract(fit_estimator, resolver, availability, source_layout,
+                                     sample_ids, target_mask, source_name=None)
+    else:
+        from .experimental_units import native_fit_weights, weighted_fit_kwargs
+
+        weights = native_fit_weights(task, resolver._dataset, resolver._identity, sample_ids)
+        fit_estimator.fit(x_meta, y_meta, **weighted_fit_kwargs(fit_estimator, weights))
+    if weights is not None:
+        fit_estimator._nirs4all_fit_influence = copy.deepcopy(task["fit_influence"])
     source_layout = metadata.get("nirs4all_source_stacking") or {}
     if source_layout.get("missing_source_policy") == "zero_with_indicator":
         fit_estimator.multimodal_missing_source_policy = "zero_with_indicator"
@@ -2297,7 +2781,7 @@ def run_meta_model_node(
                 "nested scheduler evidence is required"
             )
         outer_ids, x_outer = feature_matrix(outer_specs)
-        target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
+        target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids), allow_partial=partial_profile and target_policy == "per_target")
         fold_predictions.extend(prediction_blocks(fit_estimator, x_outer, outer_ids, "validation", task.get("fold_id"), target["target_names"]))
         fold_targets.append(target)
         if probability_output or dual_probability_output:
@@ -2305,7 +2789,7 @@ def run_meta_model_node(
         test_specs = ordered_specs("test")
         if test_specs:
             test_ids, x_test = feature_matrix(test_specs)
-            test_target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
+            test_target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids), allow_partial=partial_profile and target_policy == "per_target")
             fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", task.get("fold_id"), test_target["target_names"]))
             fold_targets.append(test_target)
             if probability_output or dual_probability_output:
@@ -2323,7 +2807,29 @@ def run_meta_model_node(
                 if isinstance(key, tuple) and len(key) == 4
                 and key[:3] == ("stacking_fold_estimator", node_id, variant_label)
             }
-        artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
+        artifact_ref = {"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"}
+        if partial_profile:
+            from .multimodal_contracts import emit_late_partial_refit_origin
+
+            assert isinstance(availability, dict)
+            partial_artifact_ref = emit_late_partial_refit_origin(
+                task, fit_estimator, graph_node=node_lookup(node_id), dataset=resolver._dataset,
+                fit_sample_ids=sample_ids, target_names=availability["target_names"], source_name=None,
+                availability=availability, target_decoder=resolver.target_decoder(),
+            )
+            bundle = model_store[artifact_handle]
+            bundle["late_partial_refit_origin"] = copy.deepcopy(fit_estimator._nirs4all_late_partial_refit_origin)
+            bundle["late_partial_refit_fingerprint"] = fit_estimator._nirs4all_late_partial_refit_fingerprint
+            artifact_ref = partial_artifact_ref
+            from .multimodal_contracts import validate_late_partial_refit_origin
+
+            validate_late_partial_refit_origin(bundle, artifact_ref)
+        if graph_metadata and "python_torch_profile" in graph_metadata:
+            from .torch_topology_replay import emit_refit_attestation
+
+            emit_refit_attestation(task, node_lookup(node_id), model_store[artifact_handle], artifact_ref, sample_ids,
+                                   graph_metadata, node_lookup, [])
+        artifacts.append(artifact_ref)
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
         # Predict the held-out TEST set from the base producers' `:refit` off-fold predictions (their
@@ -2333,7 +2839,7 @@ def run_meta_model_node(
         test_specs = ordered_specs("refit")
         if test_specs:
             test_ids, x_test = feature_matrix(test_specs)
-            target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
+            target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids), allow_partial=partial_profile and target_policy == "per_target")
             fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", None, target["target_names"]))
             fold_targets.append(target)
             if probability_output or dual_probability_output:
@@ -2379,9 +2885,9 @@ def _meta_probability_block(
     }
 
 
-def _meta_target_block(sample_ids: list[str], resolved: dict[str, Any]) -> dict[str, Any]:
+def _meta_target_block(sample_ids: list[str], resolved: dict[str, Any], *, allow_partial: bool = False) -> dict[str, Any]:
     """The y_true block paired 1:1 with a meta-node prediction block (dag-ml scores against it)."""
-    if "validity_masks" in resolved:
+    if "validity_masks" in resolved and not allow_partial:
         raise ValueError("late fusion does not support partial targets")
     values = np.asarray(resolved["values"], dtype=float).reshape(len(sample_ids), -1)
     names = resolved.get("target_names", ["y"] if values.shape[1] == 1 else [f"y{i}" for i in range(values.shape[1])])
@@ -2390,10 +2896,11 @@ def _meta_target_block(sample_ids: list[str], resolved: dict[str, Any]) -> dict[
         "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in sample_ids],
         "values": values.tolist(),
         "target_names": names,
+        **({"validity_masks": resolved["validity_masks"]} if "validity_masks" in resolved else {}),
     }
 
 
-def run_node(
+def _run_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
@@ -2402,6 +2909,7 @@ def run_node(
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     generated_views: GeneratedTaskViews | None = None,
+    *, graph_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
@@ -2438,6 +2946,8 @@ def run_node(
         if kind not in ("model", "tuner", "transform") or node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             raise ValueError("generated data views do not yet support this controller kind")
     if kind == "transform" and task.get("data_views"):
+        if (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("nirs4all_source_recipe") is not None:
+            raise ValueError("source preprocessing recipe cannot perform an independent FIT")
         return _run_fitted_transform_node(task, resolver, node_lookup, model_store, sample_metadata, generated_views)
     if kind == "feature_join" and (node_lookup(node_plan["node_id"]).get("metadata") or {}).get("merge_mode") == "concat":
         return _run_feature_join_node(task, model_store, node_lookup, edges)
@@ -2445,8 +2955,52 @@ def run_node(
         return _run_prediction_feature_join_node(task, model_store)
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
-            return run_meta_model_node(task, resolver, node_lookup, model_store)
+            return run_meta_model_node(task, resolver, node_lookup, model_store, graph_metadata=graph_metadata)
         if node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID:
-            return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views)
-        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views)
+            return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views, graph_metadata=graph_metadata)
+        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views, graph_metadata=graph_metadata)
     return _build_result(task, [], [], {})
+
+
+def run_node(
+    task: dict[str, Any], resolver: MaterializationResolver,
+    node_lookup: Callable[[str], dict[str, Any]], model_store: MutableMapping[Any, Any],
+    edges: list[dict[str, Any]] | None = None, y_transform_node: dict[str, Any] | None = None,
+    sample_metadata: dict[str, dict[str, Any]] | None = None, generated_views: GeneratedTaskViews | None = None,
+    *, graph_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Dispatch existing owners within the declared CPU topology task scope."""
+    from .named_torch import named_torch_task_scope
+    from .torch_topology_replay import predict_torch_task, torch_task_scope
+
+    if (task["node_plan"]["kind"] == "model"
+            or task["node_plan"]["controller_id"].startswith("controller:nirs4all.named_torch.")):
+        node = node_lookup(task["node_plan"]["node_id"])
+        metadata = node.get("metadata") or {}
+        if ("named_torch_profile" in metadata or "dsl_model_input" in metadata
+                or task["node_plan"]["controller_id"].startswith("controller:nirs4all.named_torch.")):
+            if (task["node_plan"]["kind"] != "model"
+                    or metadata.get("named_torch_profile") != "cpu_named_intermediate_regression_v1"
+                    or metadata.get("dsl_model_input") is None
+                    or graph_metadata and "python_torch_profile" in graph_metadata):
+                raise ValueError("named Torch requires its distinct admitted named model task")
+            from .fixed_cohort_views import FixedCohortTaskViews
+
+            if not isinstance(generated_views, FixedCohortTaskViews) or not task.get("data_view_receipts"):
+                raise ValueError("named Torch requires its native receipts and bound fixed-cohort views before the model callback")
+            generated_views.validate_task(task)
+            with named_torch_task_scope(task, node):
+                return _run_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views, graph_metadata=graph_metadata)
+    if graph_metadata and "python_torch_profile" in graph_metadata and (y_transform_node is not None or generated_views is not None):
+        raise ValueError("Python Torch topology: unsigned target transforms or generated views are unsupported")
+    with torch_task_scope(task, resolver, node_lookup, edges or [], graph_metadata):
+        if graph_metadata and "python_torch_profile" in graph_metadata and task["phase"] == "PREDICT" and task["node_plan"]["kind"] == "model":
+            return predict_torch_task(task, resolver, node_lookup, model_store, target_names=graph_metadata["python_torch_profile"]["target_names"])
+        return _run_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata, generated_views, graph_metadata=graph_metadata)
+
+
+def capture_torch_topology(training: Any, frames: list[dict[str, Any]], store: dict[Any, Any]) -> dict[str, Any]:
+    """Retain the complete native-selected Torch closure before detach."""
+    from .torch_topology_replay import capture_torch_topology as capture
+
+    return capture(training, frames, store)

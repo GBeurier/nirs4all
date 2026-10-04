@@ -55,7 +55,9 @@ def runtime() -> dict[str, Any]:
         if os.environ.get(_REQUIRED) == "1":
             pytest.fail("Mandatory real Octave SDK qualification: " + message)
         pytest.skip("Set real Octave/MEX, fresh Node capture and installed Python paths: " + message)
-    return {**{name: Path(value).resolve() for name, value in values.items()},
+    # Resolving the venv Python symlink loses its pyvenv.cfg and installed SDK.
+    return {**{name: Path(value).absolute() if name == "installed_python" else Path(value).resolve()
+               for name, value in values.items()},
             "dag_root": dag_root.resolve(), "module": _load_campaign(dag_root)}
 
 
@@ -157,14 +159,23 @@ def test_public_octave_hpo_five_raw_models_and_installed_replay_without_fit(camp
         assert saved["feature_names"] == expected_saved[record["node_id"]]["feature_names"]
         assert len(saved["states"]) == 1 and bytes(saved["states"][0]).startswith(b"N4ME")
     with ZipFile(campaign["archive"]) as archive:
-        assert len(archive.namelist()) == len(set(archive.namelist())) == 11
+        expected_members = {
+            "manifest.json", "dagml/portable_predictor_package.json", "dagml/graph.json",
+            "dagml/execution_bundle.json", "dagml/training_outcome.json",
+            "dagml/prediction_cache_payload_set.json", "dagml/score_set.json",
+            *(f"artifacts/{record['artifact']['content_fingerprint']}.json" for record in records),
+        }
+        assert len(archive.namelist()) == len(expected_members) == 12
+        assert set(archive.namelist()) == expected_members
         manifest = json.loads(archive.read("manifest.json"))
+        assert {member["path"] for member in manifest["member_inventory"]} == expected_members - {"manifest.json"}
         assert manifest["payloads"]["methods"]["n4mm"] == []
         assert len(manifest["payloads"]["methods"]["role_pipelines"]) == 5
     source_root = Path(nirs4all.__file__).resolve().parent
     context = {
         "dag_root": str(campaign["runtime"]["dag_root"]), "octave": str(campaign["runtime"]["octave"]),
-        "sdk_checkout": str(source_root), "heldout": campaign["heldout"], "operators": campaign["operators"],
+        "sdk_checkout": str(Path(__file__).resolve().parents[3] / "nirs4all"),
+        "heldout": campaign["heldout"], "operators": campaign["operators"],
         "replay_request": campaign["replay_request"].json(), "replay_envelopes": campaign["replay_envelopes"],
         "trusted_manifest": campaign["runtime"]["module"].OCTAVE_MANIFEST,
         "source_hashes": {name: hashlib.sha256((source_root / name).read_bytes()).hexdigest() for name in _SDK_FILES},

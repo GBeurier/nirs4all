@@ -366,21 +366,31 @@ def test_by_source_operator_generator_matches_per_source_oracle(generate_second_
     assert all(set(branches) == {"source_0", "source_1"} for branches in averages.values())
     assert sorted(branches["source_0"] for branches in averages.values()) == pytest.approx(sorted(expected_source_0 * len(expected_source_1)), abs=1e-9)
     assert sorted(branches["source_1"] for branches in averages.values()) == pytest.approx(sorted(expected_source_1 * 2), abs=1e-9)
-    expected_selected = min(
-        np.sqrt((left * left + right * right) / 2)
-        for left in expected_source_0 for right in expected_source_1
-    )
-    candidate_scores = {
-        variant_id: float(np.sqrt((branches["source_0"] ** 2 + branches["source_1"] ** 2) / 2))
-        for variant_id, branches in averages.items()
-    }
+    # Independent outputs retain their own metrics. SELECT is explicitly bound
+    # to the first source; it does not introduce a two-output fusion score.
+    outcome = native._dagml_training_outcome
+    assert outcome["selection_output_id"] == "output:source_0"
+    decision = next(iter(outcome["execution_bundle"]["selections"].values()))
+    ranked = sorted(averages, key=lambda variant: (averages[variant]["source_0"], variant))
+    assert [candidate["candidate_id"] for candidate in decision["ranked_candidates"]] == ranked
+    assert [candidate["score"] for candidate in decision["ranked_candidates"]] == [
+        averages[variant]["source_0"] for variant in ranked
+    ]
+    assert [candidate["rank"] for candidate in decision["ranked_candidates"]] == list(range(1, len(ranked) + 1))
+    assert decision["selected_score"] == pytest.approx(min(expected_source_0), abs=1e-9)
+    if generate_second_source:
+        # Source_1 choices leave the selected source's evidence exactly equal:
+        # the native total-order tie break must use the original variant ID.
+        assert decision["ranked_candidates"][0]["score"] == decision["ranked_candidates"][1]["score"]
+        assert ranked[0] < ranked[1]
     final_variants = {
         row["result_metadata"]["dagml_projection"]["variant_id"]
         for row in native.predictions.filter_predictions(load_arrays=True)
         if row["fold_id"] == "final"
     }
     assert len(final_variants) == 1
-    assert candidate_scores[final_variants.pop()] == pytest.approx(expected_selected, abs=1e-9)
+    assert final_variants.pop() == decision["selected_candidate_id"] == ranked[0]
+    assert averages[ranked[0]]["source_0"] == decision["selected_score"]
     assert native.cv_best_score == pytest.approx(min(min(branches.values()) for branches in averages.values()), abs=1e-9)
 
 

@@ -24,6 +24,21 @@ def test_callback_roundtrip_preserves_function_identity(reference):
     assert deserialize_component(f"{reference.__module__}.{reference.__name__}") is reference
 
 
+def test_optional_torch_factory_path_remains_a_string_after_json_roundtrip():
+    from nirs4all.pipeline.dagml.torch_estimator import DagMLTorchEstimator
+
+    path = "nirs4all.operators.models.pytorch.mlp.structural_mlp"
+    estimator = DagMLTorchEstimator(factory_path=path, factory_params={"hidden_units": 8})
+    restored = roundtrip(estimator)
+    assert restored.factory_path == path
+    assert restored.get_params(deep=False) == estimator.get_params(deep=False)
+
+
+def test_explicit_string_type_preserves_importable_literal_and_role_token():
+    for value in ("sklearn.metrics.mean_absolute_error", "n4m:regression.ridge"):
+        assert deserialize_component(value, infer_type=str, strict_imports=True) == value
+
+
 def test_partial_callback_roundtrip_preserves_bound_arguments():
     callback = partial(f_regression, center=False)
     restored = roundtrip(callback)
