@@ -119,6 +119,45 @@ jobs:
           ref: ${{ github.sha }}
           path: .release-ci-harness
 
+      - name: Refresh the 1.4.0 dependency-contract test from the CI harness
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release && inputs.release_tag == '1.4.0'
+        env:
+          EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
+          WORKFLOW_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          root = Path.cwd()
+          harness = root / '.release-ci-harness'
+          def git(directory, *args):
+              return subprocess.check_output(['git', '-C', str(directory), *args], text=True).strip()
+          assert git(root, 'rev-parse', 'HEAD') == os.environ['EXPECTED_TAG_SHA']
+          assert git(harness, 'rev-parse', 'HEAD') == os.environ['WORKFLOW_SOURCE_SHA']
+          guarded = ['nirs4all', 'pyproject.toml', 'requirements.txt',
+                     'requirements-test.txt', 'requirements-examples.txt',
+                     '.github/actions/candidate-native/action.yml']
+          for path in guarded:
+              assert git(root, 'rev-parse', 'HEAD:' + path) == git(harness, 'rev-parse', 'HEAD:' + path), path
+          relative = Path('tests/integration/parity/test_rt_goldens.py')
+          tagged = (root / relative).read_bytes()
+          corrected = (harness / relative).read_bytes()
+          digest = lambda data: hashlib.sha256(data).hexdigest()
+          assert digest(tagged) == '4ab79750b1fb38972efc678dc3542a4937ebe926ebfae07c6f550fac2f168bca'
+          assert digest(corrected) == '58adeccc0b6321770667c03918efd2ca6d0fa8d75e819ff94242280195e2f79f'
+          shutil.copyfile(harness / relative, root / relative)
+          print(json.dumps({'tag_commit': os.environ['EXPECTED_TAG_SHA'],
+                            'workflow_commit': os.environ['WORKFLOW_SOURCE_SHA'],
+                            'transported_test': str(relative), 'old_sha256': digest(tagged),
+                            'new_sha256': digest(corrected), 'scientific_inputs_unchanged': guarded},
+                           sort_keys=True))
+          PY
+
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
