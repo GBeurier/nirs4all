@@ -8,14 +8,14 @@ runs:
       uses: actions/checkout@v6
       with:
         repository: GBeurier/nirs4all-methods
-        ref: d5a63020a0912d645b06a65c5e0b322b0c3931b5
+        ref: 42a6f56de3e22199ea7299992ba7c441ba5b1fb0
         path: nirs4all-methods-src
 
     - name: Checkout qualified DAG source
       uses: actions/checkout@v6
       with:
         repository: GBeurier/dag-ml
-        ref: bdd89abcccf98eec558390fd4d8187b525b6f9af
+        ref: 801cf3493ec69db196d50e73b37c92a5b7d28eb0
         path: dag-ml-cli-src
 
     - uses: dtolnay/rust-toolchain@stable
@@ -76,7 +76,7 @@ runs:
         assert callable(n4m.MultimodalPipeline)
         assert callable(RolePipeline.close)
         assert callable(n4m.MultimodalClassifierPipeline)
-        assert version('dag-ml') == dag_ml.version() == '0.3.32'
+        assert version('dag-ml') == dag_ml.version() == '0.3.33'
         assert 'site-packages' in Path(native.__file__).resolve().parts
         assert callable(dag_ml.prepare_host_hpo_structural_catalogue)
         assert callable(dag_ml.prepare_host_hpo_topology_catalogue)
