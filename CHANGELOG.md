@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-04
+
+### Added
+
+- Preserve source identities, axes, units and missing-source contracts through
+  typed multimodal training, prediction and archives. Partial late fusion
+  supports two to four named branches with `zero_with_indicator` and native
+  OOF scopes for branch and meta-model fits.
+- Train fixed-size named Torch inputs jointly through the Python API, with the
+  documented CPU regression, CV/REFIT and trusted Python sidecar replay profile.
+  Ragged joint training and portable Torch weights remain outside this profile.
+- Search ordered source subsets, preprocessing chains, models and early/late
+  fusion alternatives through native structural HPO. Typed regression supports
+  isolated parallel random-search workers; classification and Torch retain
+  their documented sequential limits.
+- Compose global and model-local tuning with distinct train/refit controls and
+  persisted native PLS study resumption. Explicit SGD CV-to-refit warm start
+  remains limited to its documented dense profile.
+- Export fitted RolePipeline/N4ME states through Core archives and replay in a
+  fresh process without fitting or recovering the training workspace. Examples
+  through U24 exercise the public profiles; synthetic multimodal arrays remain
+  test fixtures, not a new public dataset generator.
+
+### Changed
+
+- Require DAG-ML 0.3.33, IO 0.2.4, Core 0.4.1 and Methods/pls4all 1.3.1 for the
+  qualified multimodal cohort and Methods ABI 2.17.
+
+### Fixed
+
+- Serialize subprocess protocol frames before writing and flush their capture
+  before exposing a response, preventing truncated captures during concurrent
+  requests or worker shutdown.
+
 ## [1.3.3] — 2026-09-30
 
 ### Added
