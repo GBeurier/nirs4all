@@ -95,7 +95,10 @@ jobs:
   run-tests:
     needs: release-preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # The exhaustive integration suite follows the 40-minute fast gate and
+    # exceeded two hours overall on the hosted runner (49% complete). Keep
+    # its full coverage instead of cancelling a healthy publication gate.
+    timeout-minutes: 300
     permissions:
       contents: read
       id-token: write
