@@ -12,6 +12,9 @@ from nirs4all.pipeline.dagml import node_runner
 class _Resolver:
     def __init__(self) -> None:
         self.requested: list[list[str]] = []
+        # This fixture declares no independent-unit weighting profile.
+        self._dataset = None
+        self._identity = None
 
     def target_sample_ids(self, ids: list[str]) -> list[str]:
         return ids
@@ -55,7 +58,7 @@ def test_fitted_transform_honors_metadata_branch_view(monkeypatch) -> None:
     resolver = _Resolver()
     store = {}
 
-    result = node_runner.run_node(task, resolver, lambda _node_id: {"metadata": {}}, store, sample_metadata=metadata)
+    result = node_runner.run_node(task, resolver, lambda node_id: {"id": node_id, "metadata": {}}, store, sample_metadata=metadata)
 
     assert resolver.requested == [["a1", "a2"]]
     fitted = store[result["outputs"]["x_out"]["handle"]]
@@ -95,7 +98,7 @@ def test_feature_join_uses_native_branch_handles_and_reassembles_by_sample_id() 
             for index in range(2)
         ],
     }
-    result = node_runner.run_node(task, None, lambda _node_id: {"metadata": merge_metadata}, store)
+    result = node_runner.run_node(task, None, lambda node_id: {"id": node_id, "metadata": merge_metadata}, store)
     joined = store[result["outputs"]["x_out"]["handle"]]
     sample_ids = ["b2", "a1", "b1", "a2"]
     metadata = {sample_id: {"group": sample_id[0].upper()} for sample_id in sample_ids}

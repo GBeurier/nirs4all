@@ -280,7 +280,8 @@ each declared alternative; this profile's numeric search space contains only
 The profile uses the existing U07 encoder families: NIR `StandardScaler`, image
 and series `TensorPCA`, and the supported mixed-metadata `ColumnTransformer`.
 It requires `GroupKFold(3)`, complete fixed-shape sources, one regression target,
-sequential execution and winner REFIT. PCA component counts must fit the raw
+serial execution or the bounded native parallel profile below, and winner REFIT.
+PCA component counts must fit the raw
 source width and every training fold. Matching native Methods and DAG-ML support
 is required; Python supplies declarations and raw buffers rather than computing
 candidate fits or enumerating the native recipe catalogue.
@@ -350,7 +351,8 @@ PCA components must fit every actual native inner training scope, outer training
 scope and full REFIT scope; the native catalogue checks these bounds before
 model callbacks. This profile requires complete four-source U07 inputs, one
 regression target named `y`, deterministic `GroupKFold(3)`, `refit=True`,
-`n_jobs=1`, and no pruner. Ordinary sklearn Ridge in the public meta declaration
+serial execution or the bounded native parallel profile below, and no pruner.
+Ordinary sklearn Ridge in the public meta declaration
 lowers to a native Methods Ridge; Python does not fit a sklearn meta-model.
 
 Stop/resume retains the complete topology, conditional axes, groups, targets,
@@ -369,6 +371,63 @@ state, and verifies archive replay. This phase qualifies the native Python
 path; it does not extend classification, missing or ragged inputs, deep
 learning, or the R/Octave/WASM replay matrix for these mixed-state topologies.
 
+## Bounded parallel typed campaigns
+
+The typed early-fusion and early/learned-late declarations above also accept
+`n_jobs=2`, `3` or `4`. Use the native random sampler, no pruner, one numerical
+CPU thread per candidate and no GPU devices:
+
+```python
+parallel_tuning = {**tuning, "sampler": "random", "pruner": None, "n_jobs": 2}
+with nirs4all.run(
+    pipeline, complete_four_source_cohort, tuning=parallel_tuning,
+    engine="dag-ml", refit=True, cpu_threads=1, gpu_devices=[],
+) as result:
+    archive = result.export("parallel-winner.n4a")
+    candidate_audit = result.structural_tuning_candidate_audit
+```
+
+A matching Methods build must report actual schema-v1 build capabilities through
+`n4m.build_capabilities()`, with `blas`, `openmp` and `cuda` all false. A CUDA build
+is refused even if no CUDA device is visible. Missing or malformed build evidence
+fails before the optimizer is created. This feature never changes environment
+variables, disables an accelerated backend or infers its build from the requested
+thread count. Upgrade Methods and DAG-ML together for this profile.
+
+DAG-ML admits bounded candidate windows and owns all worker execution, grouped
+folds, nested OOF, scoring and winner selection. Each candidate has distinct
+controller/model handles over the complete signed raw inputs. The SDK supplies
+raw buffers and declarations; it creates no Python pool and computes no fits.
+Serial `n_jobs=1` retains its previous request and checkpoint representation.
+Automatic or negative worker counts, more than four workers, adaptive samplers,
+pruning, GPU requests and multiple numerical threads are refused for this lane.
+Generated views, deep learning and R/Octave/WASM/browser parallel execution are
+outside this profile. Memory grows with admitted candidates and their nested
+models; this admission bound does not enforce a process memory ceiling or promise
+speedup on every dataset.
+
+Cancellation takes effect after an admitted window has joined. Its successful
+siblings remain terminal in the paired native/optimizer checkpoint; a failed
+candidate has no fabricated score. A worker failure closes every candidate owner
+and propagates after joined sibling outcomes are retained. Resume keeps terminal
+trials and re-executes pending RUNNING trials from fresh model state with their
+original proposal IDs and parameters. This is campaign resume, rather than partial
+numerical continuation. The native request signs the actual sequential build
+profile, worker count and per-candidate resource declaration; changing them, the
+complete cohort or the topology refuses resume before model callbacks.
+
+`structural_tuning_candidate_audit` contains the candidates executed by the current
+invocation, sorted by trial index, with their signed recipe IDs and separate raw
+and meta-owner event lists captured after resource closure. Owner lists are not a
+global chronology across workers. Winner REFIT and archive replay retain their
+ordinary training/replay evidence. A selected mixed N4MF/N4ME closure predicts new
+complete raw cohorts without FIT/HPO, including after deleting the training study
+and workspace.
+
+`examples/user/04_models/U22_parallel_structural_hpo.py` runs the U21 declarations
+with a bounded native campaign and exports/replays its winner. U20 declarations
+use the same tuning and resource controls.
+
 ## Dense profile limits
 
 The dense profile above requires `engine="dag-ml"`, tuning engine `n4m`, minimizing RMSE,
@@ -385,3 +444,144 @@ refused. Use the result's existing `.export()` method for the winner archive.
 An older DAG-ML build without the native catalogue and winner helpers fails
 explicitly. Ordinary fixed-estimator tuning, Optuna and generators without
 tuning keep their existing paths.
+
+
+## Native typed classification with early or learned late fusion
+
+`examples/user/04_models/U23_structural_hpo_classification.py` reuses U07's
+four raw modalities as a deterministic software fixture. It selects early
+fusion or two to four named singleton branches followed by a genuine Methods
+PLS-logistic head. Every learned encoder and classifier runs in Methods;
+DAG-ML owns recipe generation, grouped inner OOF, metrics and winner refit.
+
+Declare `MultimodalClassifier(..., model=n4m.roles.PLSLogistic(n_components=1,
+max_iter=500), backend="methods")`. Fixed public runs use
+`[GroupKFold(3), {"model": classifier}]`, or the same fixed named late
+sequence without an `_or_` site; neither creates an optimizer. A directly fitted classifier requires
+explicit IO-derived `source_schemas`; `predict_proba` column `j` corresponds
+exactly to `classes_[j]`. Learned late fusion keeps the existing syntax:
+
+```python
+pipeline = [GroupKFold(3), {"_or_": [
+    [{"model": early}],
+    [{"branch": {"image": [{"model": image}], "nir": [{"model": nir}]}},
+     {"merge": "predictions"}, {"model": PLSLogistic(n_components=1, max_iter=500)}],
+]}]
+```
+
+Each named branch must select exactly its own source. All four original IO
+source signatures remain required, including excluded sources. Native late
+fusion consumes the `probabilities` ports in declared branch order, followed
+by signed class-column order. The scored/deployed output is the distinct
+`y_hat` label port. Its output request declares the actual contiguous native
+IDs as text; original typed labels remain signed in the graph and state wrapper
+and are decoded at the public return boundary. No probability matrix replaces
+public label predictions.
+
+The mandatory component axes are `early.n_components`,
+`late.<source>.n_components` and `late.meta.n_components` for the declared
+alternatives. Counts are positive integer domains; `max_iter` is a fixed signed
+head parameter. The default objective is maximizing native accuracy;
+`balanced_accuracy` and support-weighted `f1` also use native label scoring.
+Classification requires `n_jobs=1`, no pruner and `refit=True`; HPO05 regression
+worker admission does not admit parallel classification.
+
+One sorted typed vocabulary is learned from Train labels only. Homogeneous
+strings and int64 labels retain their original types, including noncontiguous
+integer IDs. Mixed types, floating labels, missing labels and heldout-only
+classes are refused. The closed native wire budgets admit two to 65536 classes
+and UTF-8 string labels of at most 1 MiB each, including empty strings.
+Native preflight enforces the 16,777,216-cell class matrix budget, including
+concatenated late probability columns, and checks every actual outer, inner and
+full-refit training scope for all declared classes and component bounds before
+FIT or optimizer construction. The SDK signs identities and decodes exact
+finite integral class IDs; it never constructs inner folds or computes scores.
+
+The portable winner retains N4MC raw classifier states and the complete
+PLS-logistic meta state. Export does not fit again. Heldout rows remain Test;
+a Train-only late refit captures its deployment artifact without fabricating
+terminal predictions or a training metric. Fresh PREDICT replay produces actual
+payloads and original labels after validating the saved vocabulary and source
+identities, without FIT/HPO or a training workspace.
+
+These source declarations and software fixtures require the matching Methods
+ABI 2.17 and DAG classification build. Qualification is a separate release gate;
+this guide makes no claim that an older installed runtime supports the profile.
+
+## Native structural Torch regression on CPU
+
+`U24_structural_hpo_torch.py` declares early and learned late fusion through the
+same `_or_` sequences. Its model declarations use `MultimodalRegressor` with
+ordered passthrough sources and `DagMLTorchEstimator`. The exact importable
+`structural_mlp` factory creates a new Torch `Flatten → Linear → ReLU → Linear`
+module for every fit. The final late estimator is ordinary `Ridge(solver='svd')`.
+
+```python
+model = MultimodalRegressor(
+    transformers={"image": None, "nir": None},
+    model=DagMLTorchEstimator(
+        factory_path="nirs4all.operators.models.pytorch.mlp.structural_mlp",
+        factory_params={"hidden_units": 8}, force_layout="2d", device="cpu",
+        task_type="regression", epochs=3, batch_size=12, patience=3,
+        optimizer="Adam", loss="MSELoss", lr=0.01,
+    ),
+)
+pipeline = [GroupKFold(3), {"_or_": [
+    [{"model": model}],
+    [{"branch": {
+        "image": [{"model": image_only_model}],
+        "nir": [{"model": nir_only_model}],
+    }}, {"merge": "predictions"}, {"model": Ridge(alpha=1.0, solver="svd")}],
+]}]
+```
+
+This closed profile requires four complete aligned raw numeric 2D sources,
+finite mono-y regression targets, deterministic outer `GroupKFold(3)`,
+`refit=True`, `n_jobs=1`, `sampler='random'`, no pruner, `cpu_threads=1` and no GPU
+devices. Early source subsets preserve declared feature order; each late branch
+selects exactly its named source, with two to four branches. All four original
+source schemas remain signed, including excluded sources. Arbitrary Torch
+module templates, other factories, missing sources, generated/augmented views,
+classification and DL parallelism are refused before model callbacks.
+
+The exact required conditional axes are `early.lr`, `late.<name>.lr` and
+`late.meta.alpha`, for the nodes actually declared. Learning rates lie in
+`[1e-6, 0.1]`; Ridge alpha lies in `[0, 1e6]`. Architecture/training controls remain
+signed declarations: hidden width 1–128, epochs 1–100, batch size 1–1024 and
+patience 1–100. The existing Torch loop shuffles Train batches, receives no
+validation cohort, performs every declared epoch and applies no early stopping.
+The signature records this exact policy. Its random state derives from the
+native task identity before module initialization and batch ordering.
+
+DAG-ML owns topology expansion, proposals, three grouped outer folds, two
+native grouped inner OOF folds, full-training REFIT OOF, native RMSE and winner
+selection. Torch learns only from that task's Train rows. The meta Ridge learns
+only from native branch OOF predictions, never branch training predictions or
+Test rows. Admission bounds raw/selected buffers to 16,777,216 cells, the model
+to 1,000,000 parameters and the conservative training-work estimate to
+100,000,000 units before callbacks.
+
+All raw sources and scalar targets must also stay finite after the actual
+float32 conversion consumed by Torch. Finite float64 values outside that range
+are refused before compilation, proposals or fitting, including excluded
+sources and heldout targets. The scalar target's actual nonempty name, such as
+`concentration`, is signed in the profile and retained through outputs,
+capture and fresh replay; it is not renamed to `y`.
+
+The selected graph is exported with `allow_host_sidecar`. This archive carries
+all actual fitted Torch branches and the learned Ridge as Python joblib
+sidecars; fresh replay executes their signed native PREDICT graph without FIT,
+HPO or a training workspace. Treat joblib archives as trusted Python content.
+Each REFIT sidecar is bound to its native artifact/node/variant, fit scope,
+source identities, effective controls and learned-state fingerprint. Matching
+dimensions alone do not permit replacing a branch or another fit's state.
+This is a Python CPU host profile, with no portable Methods/Core numerical
+state or R/WASM Torch execution claim. U24's `--fusion early` and `--fusion late`
+options constrain the declaration to one real topology while native HPO still
+tunes its numeric parameters. Its deterministic arrays are software fixtures.
+
+`cpu_threads=1` signs sequential native scheduling; it does not promise a cap on
+Torch's internal numerical threads. These source declarations require the
+matching DAG/SDK adapters and Torch dependency. Whole-phase review and release
+qualification are separate gates; an older installed runtime is not claimed
+to support this profile.

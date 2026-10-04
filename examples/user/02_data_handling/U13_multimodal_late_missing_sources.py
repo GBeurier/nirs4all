@@ -73,8 +73,8 @@ def generate_cohort(*, seed: int, params: dict[str, Any], context: dict[str, Any
                             axis_coordinates={"wavelength": wavelengths}),
         "series": series_source,
     }
-    if prediction:
-        sources = dict(reversed(list(sources.items())))
+    # Archive replay retains the signed source order; new sample IDs and series
+    # lengths remain independent of the training cohort.
     n_train = 2 * ((3 * count // 4) // 2)
     return MultimodalDataset(
         sources, sample_ids=ids, source_alignment="left" if all_absent else "strict",

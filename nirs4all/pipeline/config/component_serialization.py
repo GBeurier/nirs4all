@@ -307,6 +307,8 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
         return blob
 
     if isinstance(blob, str):
+        if infer_type is str:
+            return blob
         if blob.startswith(N4M_ROLE_PREFIX):
             return _n4m_role_class(blob)()
         portable_name = blob
@@ -620,6 +622,17 @@ def _resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
                 else:
                     return None
         else:
+            if sig.parameters[name].default is None:
+                # Optional path parameters remain strings; they are not
+                # executable component references merely because they import.
+                try:
+                    annotation = get_type_hints(cls.__init__, include_extras=True).get(name)
+                except (NameError, TypeError):
+                    annotation = None
+                while get_origin(annotation) is Annotated:
+                    annotation = get_args(annotation)[0]
+                if annotation is str or set(get_args(annotation)) == {str, type(None)}:
+                    return str
             return type(sig.parameters[name].default)
 
     class_hints = get_type_hints(cls, include_extras=True)

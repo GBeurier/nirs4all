@@ -15,29 +15,37 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
 
-def _native_v3_ready() -> bool:
-    """Return whether this interpreter has the explicitly provisioned lane."""
+@pytest.fixture
+def native_v3_library(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Provision the exact native library; mandatory lanes cannot skip."""
 
-    if not os.environ.get("N4M_LIB_PATH"):
-        return False
+    required = os.environ.get("NIRS4ALL_REQUIRE_XL03_INSTALLED") == "1"
     try:
         import dag_ml
         import n4m  # noqa: F401
         import nirs4all_core  # noqa: F401
-    except ImportError:
-        return False
-    return all(
-        callable(getattr(dag_ml, name, None))
+
+        from nirs4all.pipeline.dagml.methods_runtime import resolve_methods_library_path
+
+        explicit = os.environ.get("NIRS4ALL_CORE_LIVE_METHODS_LIBRARY")
+        library = resolve_methods_library_path(explicit)
+        assert library is not None and Path(library).is_file()
         for name in (
             "execute_methods_portable_full_refit",
             "build_archive_v3_native_refit_payloads",
             "replay_loaded_methods_portable_refit_package_v3",
-        )
-    )
+        ):
+            assert callable(getattr(dag_ml, name, None)), name
+    except (ImportError, RuntimeError, ValueError, AssertionError) as error:
+        if required:
+            pytest.fail(f"mandatory native Methods V3 provisioning failed: {error}")
+        pytest.skip(f"native Methods V3 runtime is not provisioned: {error}")
+    for name in ("N4M_LIB_PATH", "N4M_LIBRARY_PATH"):
+        monkeypatch.setenv(name, str(library))
+    return str(library)
 
 
-@pytest.mark.skipif(not _native_v3_ready(), reason="native Methods V3 runtime is not provisioned")
-def test_native_full_refit_archive_v3_replays_in_a_fresh_process(tmp_path: Path) -> None:
+def test_native_full_refit_archive_v3_replays_in_a_fresh_process(tmp_path: Path, native_v3_library: str) -> None:
     """Train → V3 refit → archive → fresh-process PREDICT never touches legacy."""
 
     import nirs4all
@@ -111,8 +119,7 @@ print(json.dumps({'sample_ids': result.metadata['sample_ids'], 'values': result.
     np.testing.assert_allclose(np.asarray(observed["values"]), direct.y_pred, rtol=0.0, atol=1e-12)
 
 
-@pytest.mark.skipif(not _native_v3_ready(), reason="native Methods V3 runtime is not provisioned")
-def test_native_pls_ridge_stack_full_refit_replays_in_a_fresh_process(tmp_path: Path) -> None:
+def test_native_pls_ridge_stack_full_refit_replays_in_a_fresh_process(tmp_path: Path, native_v3_library: str) -> None:
     """The R2 PLS×2→Ridge path survives archive and process boundaries natively."""
 
     import nirs4all

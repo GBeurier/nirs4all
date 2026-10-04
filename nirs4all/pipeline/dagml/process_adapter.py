@@ -66,8 +66,9 @@ def describe() -> dict[str, Any]:
 
 
 def _emit(out: _Writer, payload: dict[str, Any]) -> None:
-    json.dump(payload, out, sort_keys=True)
-    out.write("\n")
+    # Append a complete frame, rather than interleaving encoder chunks from
+    # several persistent workers writing the same capture.
+    out.write(json.dumps(payload, sort_keys=True) + "\n")
     out.flush()
 
 
@@ -211,7 +212,8 @@ def _build_handler() -> NodeHandler:
                 view_store=None, operator_seed=int(os.environ.get("N4A_RANDOM_STATE", "0")),
             )
         else:
-            result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
+            result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata,
+                              graph_metadata=graph.get("metadata"))
         _capture_vote_sidecar(task, store, os.environ.get("N4A_DAGML_RESULT_CAPTURE"))
         _capture_refit_sidecar(result, store, os.environ.get("N4A_DAGML_REFIT_ARTIFACT_DIR"))
         return result
@@ -253,6 +255,9 @@ class _Tee:
 
     def write(self, text: str) -> int:
         self._secondary.write(text)
+        # An unbuffered coordinator can close/kill us as soon as the response
+        # is visible. Finish its capture before publishing the response.
+        self._secondary.flush()
         return self._primary.write(text)
 
     def flush(self) -> None:

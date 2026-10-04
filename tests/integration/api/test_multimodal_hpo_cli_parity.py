@@ -44,6 +44,10 @@ def _command(args: list[str], *, env: dict[str, str] | None = None) -> None:
 )
 def test_cli_n4m_and_public_python_score_same_four_source_dag(tmp_path: Path) -> None:
     cohort: MultimodalDataset = _cohort()
+    model = _model()
+    # The native JSON model mapping is canonicalized by source name. Use that
+    # same column order on both paths before requiring bitwise REFIT parity.
+    model.set_params(transformers={name: model.transformers[name] for name in sorted(model.transformers)})
     train_ids = [sample for sample, partition in zip(cohort.sample_ids, cohort.partitions, strict=True)
                  if partition == "train"]
     dataset = MultimodalSpectroDataset(cohort.take(train_ids))
@@ -54,7 +58,7 @@ def test_cli_n4m_and_public_python_score_same_four_source_dag(tmp_path: Path) ->
     groups = _split_group_grain(splitter, dataset, pool)
     envelope = build_envelope(dataset, identity, sample_ints=pool, group_by_sample=groups)
     dsl = assemble_cv_refit_dsl(
-        [{"model": _model()}], identity, envelope, folds,
+        [{"model": clone(model)}], identity, envelope, folds,
         dsl_id="multimodal-hpo", n_splits=len(folds),
     )
     graph = json.loads(dag_ml.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
@@ -111,7 +115,7 @@ def test_cli_n4m_and_public_python_score_same_four_source_dag(tmp_path: Path) ->
     assert len(cli_outcome["trials"]) == 3
 
     result = nirs4all.run(
-        [splitter, {"model": _model()}], cohort, tuning=controls,
+        [splitter, {"model": clone(model)}], cohort, tuning=controls,
         engine="dag-ml", workspace_path=tmp_path / "public",
         verbose=0, save_charts=False, random_state=19, refit=True,
     )
@@ -125,7 +129,7 @@ def test_cli_n4m_and_public_python_score_same_four_source_dag(tmp_path: Path) ->
         )
         assert cli_outcome["selected_params"] == result.tuning_best_params
         assert len(result._dagml_refit_artifacts) == 1
-        selected = clone(_model()).set_params(model__alpha=result.tuning_best_params["model.alpha"])
+        selected = clone(model).set_params(model__alpha=result.tuning_best_params["model.alpha"])
         selected_dsl = assemble_cv_refit_dsl(
             [{"model": selected}], identity, envelope, folds,
             dsl_id="multimodal-hpo", n_splits=len(folds),
@@ -143,6 +147,7 @@ def test_cli_n4m_and_public_python_score_same_four_source_dag(tmp_path: Path) ->
         assert len(artifacts) == 1
         cli_model = artifacts[0]["estimator"]
         public_model = result._dagml_refit_artifacts[0]["estimator"]
+        assert cli_model.source_names == public_model.source_names == tuple(model.transformers)
         prediction = _cohort(prediction=True)
         np.testing.assert_allclose(
             cli_model.predict([prediction.sources[name].values for name in cli_model.source_names]),

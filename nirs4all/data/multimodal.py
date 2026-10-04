@@ -25,6 +25,10 @@ class MultimodalSpectroDataset(SpectroDataset):
         self._data_provider_evidence = copy.deepcopy(getattr(cohort, "_data_provider_evidence", None))
         self.sample_ids = tuple(cohort.sample_ids)
         self.source_names: tuple[str, ...] = tuple(cohort.sources)
+        units = getattr(cohort, "independent_unit_ids", None)
+        repetitions = getattr(cohort, "repetition_ids", None)
+        self._independent_unit_ids = None if units is None else tuple(units)
+        self._repetition_ids = None if repetitions is None else tuple(repetitions)
         for index, partition in enumerate(cohort.partitions):
             self._indexer.add_samples(1, partition="test" if partition == "predict" else partition, sample_indices=[index])
         if cohort.task_type is not None:
@@ -45,9 +49,23 @@ class MultimodalSpectroDataset(SpectroDataset):
         columns: dict[str, Any] = {"sample_id": list(self.sample_ids)}
         if cohort.groups is not None:
             columns["group_id"] = list(cohort.groups)
+        if self.independent_unit_ids is not None:
+            columns["independent_unit_id"] = list(self.independent_unit_ids)
+        if self.repetition_ids is not None:
+            columns["repetition_id"] = list(self.repetition_ids)
         import pandas as pd
 
         self.add_metadata(pd.DataFrame(columns))
+
+    @property
+    def independent_unit_ids(self) -> tuple[str, ...] | None:
+        """The copied explicit unit labels, independently of split groups."""
+        return self._independent_unit_ids
+
+    @property
+    def repetition_ids(self) -> tuple[str, ...] | None:
+        """The copied explicit repetition labels, independently of observations."""
+        return self._repetition_ids
 
     @property
     def num_samples(self) -> int:
@@ -86,6 +104,12 @@ class MultimodalSpectroDataset(SpectroDataset):
     def content_hash(self, source_index: int | None = None, sample_rows: list[int] | None = None) -> str:
         """Fingerprint typed source buffers, optionally restricted to a cohort's rows."""
         digest = hashlib.sha256()
+        if self.independent_unit_ids is not None:
+            selected = range(len(self.sample_ids)) if sample_rows is None else sample_rows
+            digest.update(json.dumps({
+                "independent_unit_ids": [self.independent_unit_ids[index] for index in selected],
+                "repetition_ids": None if self.repetition_ids is None else [self.repetition_ids[index] for index in selected],
+            }, sort_keys=True).encode())
         items = list(self.cohort.sources.items())
         if source_index is not None:
             items = [items[source_index]]

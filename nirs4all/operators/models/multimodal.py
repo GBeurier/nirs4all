@@ -214,7 +214,7 @@ class _MultimodalEstimator(BaseEstimator):
         encoded[:, -1] = mask
         return encoded * weight
 
-    def fit(self, X: list[Any], y: Any, *, source_masks: Mapping[str, Any] | None = None) -> Self:
+    def fit(self, X: list[Any], y: Any, *, source_masks: Mapping[str, Any] | None = None, sample_weight: Any = None) -> Self:
         """Fit fresh source encoders and a model on exactly the supplied rows."""
         if not isinstance(self.transformers, Mapping) or not self.transformers:
             raise ValueError("transformers must be a nonempty ordered mapping of source names to transformers.")
@@ -228,6 +228,16 @@ class _MultimodalEstimator(BaseEstimator):
             raise ValueError("Multimodal prediction requires targets y.")
         check_consistent_length(blocks[0], y)
         masks = self._validate_source_masks(source_masks, names, np.shape(blocks[0])[0], self.missing_source_policy, fitting=True)
+        row_weights = None
+        if sample_weight is not None:
+            from nirs4all.pipeline.dagml.experimental_units import require_sample_weight_support
+
+            require_sample_weight_support(self)
+            row_weights = np.asarray(sample_weight, dtype=float)
+            if row_weights.shape != (len(blocks[0]),) or not np.isfinite(row_weights).all() or np.any(row_weights <= 0):
+                raise ValueError("sample_weight must be a positive finite vector aligned to the actual fit rows")
+            if any(not mask.all() for mask in masks.values()):
+                raise ValueError("weighted early/intermediate fusion requires complete sources; use native source-scoped late fusion")
         if self.source_weights is not None and not isinstance(self.source_weights, Mapping):
             raise ValueError("source_weights must be a mapping of configured source names to weights.")
         configured_weights = self.source_weights or {}
@@ -252,12 +262,22 @@ class _MultimodalEstimator(BaseEstimator):
                 if not hasattr(transformer, "fit") or not hasattr(transformer, "transform"):
                     raise ValueError(f"Source {name!r} requires a cloneable transformer with fit and transform.")
                 fitted[name] = clone(transformer)
-                fitted[name].fit(present_block, present_y)
+                if row_weights is None:
+                    fitted[name].fit(present_block, present_y)
+                else:
+                    from nirs4all.pipeline.dagml.experimental_units import weighted_fit_kwargs
+
+                    fitted[name].fit(present_block, present_y, **weighted_fit_kwargs(fitted[name], row_weights[mask]))
                 output = fitted[name].transform(present_block)
             values = self._encoded_block(output, name, int(mask.sum()))
             encoded.append(self._place_encoded(values, mask, weights[name], self.missing_source_policy))
         model = clone(self.model)
-        model.fit(np.concatenate(encoded, axis=1) if self.fusion == "early" else encoded, y)
+        fit_options = {}
+        if row_weights is not None:
+            from nirs4all.pipeline.dagml.experimental_units import weighted_fit_kwargs
+
+            fit_options = weighted_fit_kwargs(model, row_weights)
+        model.fit(np.concatenate(encoded, axis=1) if self.fusion == "early" else encoded, y, **fit_options)
 
         self.source_names_ = names
         self.input_shapes_ = {name: np.shape(block)[1:] for name, block in zip(names, blocks, strict=True)}
@@ -305,7 +325,14 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
     ``transformers`` maps source names to sklearn transformers, ``None`` or
     ``"passthrough"``. Its insertion order defines the input block order.
     ``fusion='early'`` concatenates encoded features; ``'intermediate'`` passes
-    a list of encoded blocks to ``model``. Optional ``source_weights`` multiply
+    a list of encoded blocks to ``model``. For a Torch factory or module,
+    intermediate fusion trains one joint module with ``forward(**inputs)``;
+    each input retains its configured name. The initial Torch profile requires
+    two to four complete dense float matrices, passthrough transformers,
+    ``source_weights=None`` and one complete target. An importable decorated
+    Torch factory receives ``input_shapes={name: (width,)}``; a supplied module
+    preserves its initial state. All its encoders and head share one optimizer.
+    Optional ``source_weights`` multiply
     each encoded block. All learned components are cloned and fitted on the
     supplied rows only. Nested sklearn parameters remain configurable.
 
@@ -352,11 +379,14 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
         self.target_policy = target_policy
         self.backend = backend
 
-    def fit(self, X: list[Any], y: Any, *, target_mask: Any = None, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> Self:
+    def fit(self, X: list[Any], y: Any, *, target_mask: Any = None, source_masks: Mapping[str, Any] | None = None,
+            source_schemas: Any = None, sample_weight: Any = None) -> Self:
         """Fit joint or target-specific chains using only observed target cells."""
         if self.backend not in {"sklearn", "methods"}:
             raise ValueError("backend must be 'sklearn' or 'methods'.")
         if self.backend == "methods":
+            if sample_weight is not None:
+                raise ValueError("Methods multimodal does not support experimental-unit sample weights")
             from nirs4all.pipeline.dagml.methods_multimodal import fit_declared_methods_model
 
             targets = np.asarray(y)
@@ -388,8 +418,47 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
         counts = observed_matrix.sum(axis=0)
         if np.any(counts == 0):
             raise ValueError(f"Every target requires observed training rows; empty target indices: {np.flatnonzero(counts == 0).tolist()}.")
+        fit_weights = None
+        if sample_weight is not None:
+            from nirs4all.pipeline.dagml.experimental_units import require_sample_weight_support
+
+            require_sample_weight_support(self)
+            fit_weights = np.asarray(sample_weight, dtype=float)
+            expected_shape = matrix.shape if self.target_policy == "per_target" else (len(targets),)
+            if (fit_weights.shape != expected_shape or not np.isfinite(fit_weights).all()
+                    or np.any(fit_weights < 0)
+                    or self.target_policy == "complete" and np.any(fit_weights <= 0)
+                    or self.target_policy == "per_target" and (np.any(fit_weights[observed_matrix] <= 0)
+                                                               or np.any(fit_weights[~observed_matrix] != 0))):
+                raise ValueError("sample_weight must match actual observed row/target cells without renormalization")
+        from nirs4all.pipeline.dagml.named_torch import named_torch_estimator
+
+        named_model = named_torch_estimator(self)
+        if named_model is not None:
+            if sample_weight is not None:
+                raise ValueError("named Torch is outside the experimental-unit influence profile")
+            names = tuple(self.transformers)
+            blocks = self._validate_blocks(X, names)
+            self._validate_source_masks(source_masks, names, len(targets), "error", fitting=True)
+            named_model.fit(dict(zip(names, blocks, strict=True)), y)
+            self.source_names_ = names
+            self.input_shapes_ = dict(named_model.input_shapes_)
+            self.model_ = named_model
+            self.transformers_ = dict.fromkeys(names)
+            self.source_weights_ = dict.fromkeys(names, 1.0)
+            self.fusion_ = "intermediate"
+            self.missing_source_policy_ = "error"
+            self.n_features_in_ = named_model.n_features_in_
+            self.named_torch_inputs_ = True
+            self.target_counts_ = counts
+            self.target_ndim_ = targets.ndim
+            self.n_outputs_ = matrix.shape[1]
+            self.__dict__.pop("target_models_", None)
+            self.__dict__.pop("output_widths_", None)
+            return self
+        self.__dict__.pop("named_torch_inputs_", None)
         if self.target_policy == "complete":
-            super().fit(X, y, source_masks=source_masks)
+            super().fit(X, y, source_masks=source_masks, sample_weight=fit_weights)
             self.__dict__.pop("target_models_", None)
         else:
             if not isinstance(self.transformers, Mapping) or not self.transformers:
@@ -405,7 +474,8 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
                 rows = observed_matrix[:, index]
                 subset = [self._take_rows(block, rows) for block in blocks]
                 model = clone(self).set_params(target_policy="complete")
-                model.fit(subset, matrix[rows, index], source_masks={name: mask[rows] for name, mask in masks.items()})
+                options = {} if fit_weights is None else {"sample_weight": fit_weights[rows, index]}
+                model.fit(subset, matrix[rows, index], source_masks={name: mask[rows] for name, mask in masks.items()}, **options)
                 models.append(model)
             self.target_models_ = tuple(models)
             self.source_names_ = models[0].source_names_
@@ -433,6 +503,11 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
             raise ValueError("backend must be 'sklearn' or 'methods'.")
         if source_schemas is not None:
             raise ValueError("source_schemas is only supported by backend='methods'")
+        if getattr(self, "named_torch_inputs_", False):
+            blocks = self._validate_blocks(X, self.source_names_, self.input_shapes_)
+            self._validate_source_masks(source_masks, self.source_names_, len(blocks[0]), "error", fitting=False)
+            prediction = np.asarray(self.model_.predict(dict(zip(self.source_names_, blocks, strict=True))))
+            return prediction.reshape(-1) if self.target_ndim_ == 1 else prediction
         if not hasattr(self, "target_models_"):
             return super().predict(X, source_masks=source_masks)
         blocks = self._validate_blocks(X, self.source_names_, self.input_shapes_)
@@ -465,8 +540,11 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
     def __sklearn_tags__(self) -> Any:
         from sklearn.utils import get_tags
 
+        from nirs4all.pipeline.dagml.named_torch import is_named_torch_model
+
         tags = super().__sklearn_tags__()
-        tags.target_tags.multi_output = self.target_policy == "per_target" or get_tags(self.model).target_tags.multi_output
+        tags.target_tags.multi_output = (False if is_named_torch_model(self) else
+                                       self.target_policy == "per_target" or get_tags(self.model).target_tags.multi_output)
         return tags
 
     def _more_tags(self) -> dict[str, Any]:
@@ -490,23 +568,97 @@ class MultimodalClassifier(ClassifierMixin, _MultimodalEstimator):
     ``classes_`` preserves the fitted classifier's exact class order.
     ``predict_proba`` is available only when the configured classifier supports
     it; probability column ``j`` corresponds to ``classes_[j]``. Neither labels
-    nor probabilities are encoded, reordered or scored by this wrapper.
+    nor probabilities are scored by this wrapper. With ``backend="methods"``,
+    the genuine native PLS-logistic head owns numerical execution, while a
+    signed sorted typed table maps original labels to native integer IDs.
+    Direct native fit requires explicit IO-derived ``source_schemas``.
     """
 
-    def fit(self, X: list[Any], y: Any, *, source_masks: Mapping[str, Any] | None = None) -> Self:
-        """Fit private source encoders and a classifier on the supplied rows."""
+    def __init__(self, transformers: Mapping[str, Any], model: Any, *, fusion: str = "early",
+                 source_weights: Mapping[str, float] | None = None, missing_source_policy: str = "error", backend: str = "sklearn"):
+        super().__init__(transformers, model, fusion=fusion, source_weights=source_weights, missing_source_policy=missing_source_policy)
+        self.backend = backend
+
+    def fit(self, X: list[Any], y: Any, *, source_masks: Mapping[str, Any] | None = None,
+            source_schemas: Any = None, sample_weight: Any = None) -> Self:
+        """Fit native PLS-logistic or the declared sklearn classifier."""
+        if self.backend == "methods":
+            if sample_weight is not None:
+                raise ValueError("Methods classification does not support experimental-unit sample weights")
+            from nirs4all.pipeline.dagml.methods_classification import fit_declared_methods_classifier
+
+            if y is None:
+                raise ValueError("MultimodalClassifier requires classification targets y.")
+            self._validate_source_masks(source_masks, tuple(self.transformers), len(y), "error", fitting=True)
+            fit_declared_methods_classifier(self, X, y, source_schemas=source_schemas)
+            return self
+        if self.backend != "sklearn":
+            raise ValueError("backend must be 'sklearn' or 'methods'.")
+        if source_schemas is not None:
+            raise ValueError("source_schemas is only supported by backend='methods'")
         if not is_classifier(self.model):
             raise ValueError("MultimodalClassifier requires a sklearn-compatible classifier as model.")
         if y is None:
             raise ValueError("MultimodalClassifier requires classification targets y.")
         targets = column_or_1d(y, warn=True)
         check_classification_targets(targets)
-        super().fit(X, targets, source_masks=source_masks)
+        super().fit(X, targets, source_masks=source_masks, sample_weight=sample_weight)
         self.classes_ = np.asarray(self.model_.classes_).copy()
         return self
 
-    @available_if(lambda self: hasattr(getattr(self, "model_", self.model), "predict_proba"))
-    def predict_proba(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None) -> np.ndarray:
-        """Return probabilities in the fitted classifier's ``classes_`` order."""
+    def _native_blocks(self, X: list[Any], source_masks: Mapping[str, Any] | None, source_schemas: Any) -> dict[str, Any]:
+        check_is_fitted(self, ["native_pipeline_", "source_schemas_"])
+        if source_schemas is not None and dict(source_schemas) != self.source_schemas_:
+            raise ValueError("classifier source schemas differ from the fitted raw identities")
+        blocks = self._validate_blocks(X, self.source_names_, self.input_shapes_)
+        self._validate_source_masks(source_masks, self.source_names_, len(blocks[0]), "error", fitting=False)
+        return dict(zip(self.source_names_, blocks, strict=True))
+
+    def predict(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> np.ndarray:
+        """Return labels in their original signed scalar representation."""
+        if self.backend == "methods":
+            blocks = self._native_blocks(X, source_masks, source_schemas)
+            return np.asarray(self.native_pipeline_.predict(blocks))
+        if self.backend != "sklearn":
+            raise ValueError("backend must be 'sklearn' or 'methods'.")
+        if source_schemas is not None:
+            raise ValueError("source_schemas is only supported by backend='methods'")
+        return super().predict(X, source_masks=source_masks)
+
+    @available_if(lambda self: self.backend == "methods" or hasattr(getattr(self, "model_", self.model), "predict_proba"))
+    def predict_proba(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> np.ndarray:
+        """Return genuine probabilities, column j corresponding to classes_[j]."""
+        if self.backend == "methods":
+            blocks = self._native_blocks(X, source_masks, source_schemas)
+            return np.asarray(self.native_pipeline_.predict_proba(blocks))
+        if self.backend != "sklearn":
+            raise ValueError("backend must be 'sklearn' or 'methods'.")
+        if source_schemas is not None:
+            raise ValueError("source_schemas is only supported by backend='methods'")
         fused = self._encode(X, source_masks=source_masks)
         return np.asarray(self.model_.predict_proba(fused))
+
+    @available_if(lambda self: self.backend == "methods" or hasattr(getattr(self, "model_", self.model), "decision_function"))
+    def decision_function(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> np.ndarray:
+        """Return the declared model's native decision scores."""
+        if self.backend == "methods":
+            blocks = self._native_blocks(X, source_masks, source_schemas)
+            return np.asarray(self.native_pipeline_.decision_function(blocks))
+        if source_schemas is not None:
+            raise ValueError("source_schemas is only supported by backend='methods'")
+        return np.asarray(self.model_.decision_function(self._encode(X, source_masks=source_masks)))
+
+    def close(self) -> None:
+        """Release native classifier ownership; harmless before fitting."""
+        native = self.__dict__.pop("native_pipeline_", None)
+        if native is not None:
+            native.close()
+
+    def __getstate__(self) -> dict[str, Any]:
+        if self.backend == "methods" and "native_pipeline_" in self.__dict__:
+            raise TypeError("Fitted Methods classifiers require portable native export; Python pickle is unsupported")
+        return cast(dict[str, Any], super().__getstate__())
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        state.setdefault("backend", "sklearn")
+        super().__setstate__(state)

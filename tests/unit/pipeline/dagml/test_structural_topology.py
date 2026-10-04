@@ -126,7 +126,7 @@ def test_invalid_campaign_controls_fail_before_native_catalogue(monkeypatch: pyt
     tuning = example.make_tuning(tmp_path / "study")
     options: dict[str, Any] = {"refit": True}
     if control == "parallel":
-        tuning["n_jobs"] = 2
+        tuning["n_jobs"] = 5
     elif control == "pruning":
         tuning["pruner"] = "median"
     elif control == "refit":

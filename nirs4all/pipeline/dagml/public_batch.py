@@ -217,6 +217,7 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
     if isinstance(dataset, DatasetConfigs) and len(dataset.configs) > 1:
         datasets = dataset.get_datasets()
     from nirs4all.pipeline.config.component_serialization import deserialize_component
+    from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
     from .full_train_variants import expand_full_train_variants
     from .steps import _is_split_step
@@ -224,7 +225,6 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
     def residual_has_choices(steps: list[Any]) -> bool:
         """Recognize generators inside the two residual operators before lowering."""
         from nirs4all.operators.models.residual import ResidualModel
-        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
         for step in steps:
             if not isinstance(step, dict):
@@ -250,7 +250,9 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
         has_residual_choices = isinstance(runtime_steps, list) and residual_has_choices(runtime_steps)
         if has_residual_choices:
             residual_choice_campaign = True
-        if isinstance(runtime_steps, list) and (has_residual_choices or not any(_is_split_step(step) for step in runtime_steps)):
+        if isinstance(runtime_steps, list) and (has_residual_choices or (
+            PipelineConfigs._has_gen_keys(runtime_steps) and not any(_is_split_step(step) for step in runtime_steps)
+        )):
             variants = expand_full_train_variants(runtime_steps, name=pipeline_name)
         if has_residual_choices or len(variants) > 1:
             pipeline_entries.extend((steps, pipeline_name, variant_name) for steps, variant_name in variants)

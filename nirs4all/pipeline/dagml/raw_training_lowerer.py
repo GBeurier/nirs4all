@@ -838,6 +838,7 @@ def _output_request_for_node(
     node_id: str | None = None,
     *,
     target_names: Sequence[str] | None = None,
+    class_labels: Sequence[Sequence[str]] | None = None,
 ) -> dict[str, Any]:
     """Return the sole requested prediction output, optionally for a declared meta node."""
 
@@ -865,6 +866,17 @@ def _output_request_for_node(
         "output_order": "target_order",
         "target_space": "raw",
     }
+    if class_labels is not None:
+        labels = [list(values) for values in class_labels]
+        if len(labels) != len(names) or any(len(values) < 2 or len(set(values)) != len(values)
+                                           or not all(isinstance(value, str) and value for value in values) for values in labels):
+            raise ValueError("classification output requires one unique vocabulary per target")
+        output["prediction_kind"] = "class_label"
+        output["class_labels"] = labels
+    ports = [port["name"] for port in next(node for node in model_nodes if node["id"] == node_id).get("ports", {}).get("outputs", [])
+             if port.get("kind") == "prediction"]
+    if len(ports) > 1:
+        output["port_name"] = "y_hat" if class_labels is not None and "y_hat" in ports else "oof"
     return output
 
 
@@ -876,6 +888,7 @@ def _training_influence_manifest(
     *,
     group_by_sample: Mapping[int, str],
     selection_metric: str,
+    refit: bool = True,
 ) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     oof_consumers = {edge["target"]["node_id"] for edge in graph.get("edges", []) if edge.get("contract", {}).get("requires_oof") is True}
@@ -895,7 +908,8 @@ def _training_influence_manifest(
         node_id = node["id"]
         for index, (train_ints, _validation_ints) in enumerate(folds):
             entries.append(_influence_entry(influence_kind, f"fit_cv:fold{index}", node_id, train_ints, identity, group_by_sample))
-        entries.append(_influence_entry(influence_kind, "refit:full", node_id, sorted({sample for fold in folds for side in fold for sample in side}), identity, group_by_sample))
+        if refit:
+            entries.append(_influence_entry(influence_kind, "refit:full", node_id, sorted({sample for fold in folds for side in fold for sample in side}), identity, group_by_sample))
     entries.append(
         _influence_entry(
             "hpo_selection",

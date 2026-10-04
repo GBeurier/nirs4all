@@ -371,7 +371,7 @@ def _taggers_from_step(step: Any) -> list[tuple[str, Any]] | None:
 
 
 # Keys on a step dict that are NOT model hyperparameters (mirrors StepParser.RESERVED_KEYWORDS).
-_RESERVED_STEP_KEYS = frozenset({"model", "model_params", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
+_RESERVED_STEP_KEYS = frozenset({"model", "model_input", "model_params", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
 
 
 def _apply_framework_factory_params(step: dict[str, Any], params: dict[str, Any]) -> dict[str, Any] | None:

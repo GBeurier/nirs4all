@@ -24,6 +24,7 @@ from .folds import _build_folds, _split_group_grain
 from .identity import mint_identity
 from .methods_multimodal import controller_sources, execute_methods_training, recipe_from_estimator, source_schemas_from_cohort, validate_training_profile
 from .tuning_contracts import DagMLTuningSpec, tcv1_sha256
+from .typed_parallel import typed_parallel_execution
 
 PARAMETER_PATHS = {"model.alpha": "model__alpha"}
 
@@ -109,8 +110,7 @@ def prepare_typed_structure(steps: list[Any], splitter: Any, dataset: Any, spec:
 
     if not isinstance(dataset, MultimodalSpectroDataset):
         raise TypeError("typed structural tuning requires an IO MultimodalDataset with the complete U07 raw input contract")
-    if spec.n_jobs != 1:
-        raise ValueError("typed structural Methods tuning currently requires n_jobs=1")
+    parallel_execution = typed_parallel_execution(spec, run_options)
     validate_alpha_space(spec)
     cohort = dataset.cohort
     for model in steps[0]["model"]["_or_"]:
@@ -149,6 +149,8 @@ def prepare_typed_structure(steps: list[Any], splitter: Any, dataset: Any, spec:
         binding["view_policy"] = {"include_augmented_train": False, "include_refit_test_view": True}
     catalogue = native.prepare_host_hpo_structural_catalogue(dsl, envelope, manifests, PARAMETER_PATHS)
     descriptor = spec.to_dict()
+    if parallel_execution is not None:
+        descriptor["parallel_execution"] = parallel_execution
     for key in ("resume", "n_trials", "storage", "study_name"):
         descriptor.pop(key, None)
     descriptor["operator_rng"] = {"policy": "per_native_task_v1", "seed": seed}

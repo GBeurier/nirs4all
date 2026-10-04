@@ -16,6 +16,7 @@ import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import cast
 
 
 def _test_files(paths: list[Path]) -> list[Path]:
@@ -67,7 +68,7 @@ def _report_failure(suites: list[ET.Element], name: str, message: str) -> None:
 
 def _run_module(
     index: int, file: Path, report_dir: Path, process_timeout: int | None,
-    pytest_timeout: int | None,
+    pytest_timeout: int | None, coverage_source: str,
 ) -> tuple[list[ET.Element], dict[str, object], str]:
     name = file.as_posix()
     stem = f"{index:04d}-{file.stem}"
@@ -108,7 +109,7 @@ def _run_module(
         "-p",
         "scripts.ci.pytest_collection_manifest",
         f"--junitxml={junit}",
-        "--cov=nirs4all",
+        f"--cov={coverage_source}",
         "--cov-report=",
         str(file),
     ]
@@ -190,6 +191,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="*", type=Path, default=[Path("tests")])
     parser.add_argument("--report-dir", type=Path, default=Path("dagml-pytest-report"))
     parser.add_argument("--coverage-output", type=Path, default=Path("coverage.xml"))
+    parser.add_argument(
+        "--coverage-source", default="nirs4all",
+        help="Package or directory to measure; use the installed package path when a local data directory has the same name",
+    )
     parser.add_argument("--process-timeout", type=int, default=1800)
     parser.add_argument("--pytest-timeout", type=int, default=300)
     parser.add_argument(
@@ -228,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:
         future_to_index = {
             executor.submit(
-                _run_module, index, file, report_dir, process_timeout, pytest_timeout
+                _run_module, index, file, report_dir, process_timeout, pytest_timeout, args.coverage_source
             ): index
             for index, file in enumerate(files, 1)
         }
@@ -270,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     summary = {
         "files": len(files),
-        "collected": sum(result["collected"] or 0 for result in results),
+        "collected": sum(cast(int | None, result["collected"]) or 0 for result in results),
         "seconds": round(time.monotonic() - started, 1),
         **totals,
         "results": results,

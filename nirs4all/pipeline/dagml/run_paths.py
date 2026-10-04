@@ -457,6 +457,19 @@ def _run_native_operator_generation(
     return result
 
 
+def _bind_experimental_unit_design(dsl: dict[str, Any], spectro: Any, identity: Any, pool: list[int]) -> None:
+    """Sign explicit units before compilation; native tasks own scope weights."""
+    if getattr(spectro, "independent_unit_ids", None) is None:
+        return
+    from .envelope import target_names
+    from .experimental_units import apply_experimental_unit_contract
+    from .resolver import MaterializationResolver
+
+    targets = MaterializationResolver(spectro, identity).resolve_targets([identity.to_wire(sample) for sample in pool])
+    names = targets.get("target_names", ["y"] if len(target_names(spectro)) == 1 else target_names(spectro))
+    apply_experimental_unit_contract(dsl, spectro, identity, pool, target_values=targets["values"], target_names=names)
+
+
 def _run_concrete_scores(
     pipeline: Any,
     spectro: Any,
@@ -500,7 +513,11 @@ def _run_concrete_scores(
     def run_callback() -> dict[str, Any]:
         import dag_ml
 
-        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+        from nirs4all.pipeline.dagml_bridge import named_model_input_spec
+
+        _bind_experimental_unit_design(dsl, spectro, identity, pool)
+        manifests = controller_manifests(dsl)
+        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests).graph.to_dict()
         return run_cv_refit_bundle(
             dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
         )
@@ -3852,6 +3869,9 @@ def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list
     """
     import dag_ml
 
+    if getattr(spectro, "independent_unit_ids", None) is not None:
+        raise DagMlUnsupported("experimental-unit influence does not support source-concat preprocessing")
+
     _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
@@ -3959,7 +3979,8 @@ def _run_by_source_distinct_preproc_concat(
         "steps": [model_node],
     }
 
-    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    _bind_experimental_unit_design(canonical_dsl, spectro, identity, pool)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests(canonical_dsl)).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if model_ids != [model_node["id"]]:
         raise DagMlUnsupported(f"by_source distinct preprocessing compile produced model nodes {model_ids!r}")
@@ -4154,7 +4175,10 @@ def _run_by_source_auto_models(
         "id": "nirs4all-by-source-auto-models",
         "steps": [{"kind": "branch", "mode": "duplication", "branches": branches}],
     }
-    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    from .attested_by_source import bind_source_output_contract, execute_attested_by_source_cv
+
+    bind_source_output_contract(canonical_dsl, spectro, identity, pool, names)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests(canonical_dsl)).graph.to_dict()
     model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
     model_ids = [node["id"] for node in model_nodes]
     compiled_model_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
@@ -4162,30 +4186,19 @@ def _run_by_source_auto_models(
         raise DagMlUnsupported(f"by_source auto model compile produced {compiled_model_ids!r}, expected {model_ids!r}")
     canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
-    attested = None
-    if refit and refit_top_k == 1 and not has_operator_generator:
-        from .in_process_runner import _dagml_extension_loads, in_process_enabled
+    from .in_process_runner import _dagml_extension_loads, in_process_enabled
 
-        if in_process_enabled() and _dagml_extension_loads():
-            from .attested_by_source import execute_attested_by_source_cv
-
-            attested = execute_attested_by_source_cv(
-                dsl=canonical_dsl, envelope=envelope, graph=graph, spectro=spectro,
-                identity=identity, folds=folds, source_names=names,
-                selection_metric=metric, random_state=random_state,
-            )
-    if attested is None:
-        outcome = run_cv_refit_bundle(
-            dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
-            workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
-            selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
-            random_state=random_state, refit_top_k=refit_top_k, refit=refit,
-        )
-    else:
-        outcome = {
-            "returncode": 0, "scores": attested["scores"], "results": attested["results"],
-            "refit_artifacts": attested["refit_artifacts"],
-        }
+    use_in_process = in_process_enabled() and _dagml_extension_loads()
+    attested = execute_attested_by_source_cv(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, spectro=spectro,
+        identity=identity, folds=folds, source_names=names,
+        selection_metric=metric, random_state=random_state, refit_top_k=refit_top_k, refit=refit,
+        group_by_sample=_split_group_grain(splitter, spectro, pool),
+        cli=None if use_in_process else cli, python=venv_python, dataset_path=dataset_arg,
+        dataset_pickle=dataset_pickle, workdir=run_dir,
+    )
+    outcome = {"returncode": 0, "scores": attested["scores"], "results": attested["results"],
+               "refit_artifacts": attested["refit_artifacts"], "selected_refit_variant_ids": attested["selected_refit_variant_ids"]}
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml by_source auto model run failed")
     winner_variant_id = next(
@@ -4233,8 +4246,9 @@ def _run_by_source_auto_models(
 
     result._dagml_source_feature_axes = tuple(_numeric_feature_axis(spectro, index) for index in range(n_sources))  # noqa: SLF001
     if attested is not None:
-        result._dagml_training_outcome = attested["training_result"].outcome.to_dict()  # noqa: SLF001
-        result._dagml_portable_predictor_package = attested["portable_package"].to_dict()  # noqa: SLF001
+        result._dagml_training_outcome = attested["training_outcome"]  # noqa: SLF001
+        result._dagml_portable_predictor_package = attested["portable_package_dict"]  # noqa: SLF001
+    result._dagml_source_training_captures = attested["captures"]  # noqa: SLF001
     if refit_top_k > 1:
         result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
     return result
@@ -4705,7 +4719,8 @@ def _assemble_stacking_dsl(
     selection_metric: str = "rmse",
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     """Declare the same nested OOF graph for concrete runs and whole-stack HPO."""
-    if source_layout is not None and source_layout.get("missing_source_policy", "error") != "error" and task_type == "classification":
+    partial_profile = source_layout is not None and source_layout.get("schema") == "nirs4all.source-stacking-layout.v4"
+    if not partial_profile and source_layout is not None and source_layout.get("missing_source_policy", "error") != "error" and task_type == "classification":
         raise DagMlUnsupported("late-fusion missing_source_policy='zero_with_indicator' currently requires regression")
     meta_metadata = _stacking_model_metadata(pipeline)
     from nirs4all.operators.models.meta import CoverageStrategy, MetaModel, TestAggregation
@@ -4742,7 +4757,13 @@ def _assemble_stacking_dsl(
     import dag_ml
 
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
-    from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
+    from nirs4all.pipeline.dagml_bridge import (
+        _META_MODEL_CONTROLLER_ID,
+        _META_MODEL_REF,
+        _SOURCE_RECIPE_CONTROLLER_ID,
+        _json_safe_params,
+        _qualname,
+    )
 
     outer_fold_set = build_fold_set(identity, folds, set_id="folds.stacking.outer")
     outer_partition_mode = outer_fold_set.get("partition_mode")
@@ -4774,6 +4795,28 @@ def _assemble_stacking_dsl(
             },
         ],
     }
+
+    if partial_profile:
+        from .source_missing import build_prediction_availability
+
+        assert source_layout is not None
+        if prediction_aggregations:
+            raise DagMlUnsupported("partial-source late fusion requires the exact ordered source producers without prediction aggregation")
+        canonical_dsl["metadata"] = {"prediction_availability": build_prediction_availability(
+            spectro, identity, pool, target_values=_dataset_y_rows(spectro, pool),
+            classification=task_type == "classification",
+        )}
+        availability = canonical_dsl["metadata"]["prediction_availability"]
+        if source_layout["target_policy"] == "complete" and not np.asarray(availability["target_validity_masks"]).all():
+            raise DagMlUnsupported("partial late-fusion labels require explicit target_policy='per_target'")
+        if source_layout["missing_source_policy"] == "error" and not all(all(mask) for mask in availability["source_presence"].values()):
+            raise DagMlUnsupported("late fusion requires complete modalities unless zero_with_indicator is explicit")
+        canonical_dsl["steps"][1]["metadata"]["prediction_availability_meta"] = True
+        canonical_dsl["steps"][1]["metadata"]["nirs4all_use_proba"] = False
+        canonical_dsl["steps"][1]["sources"] = [
+            step["id"] for branch in canonical_dsl["steps"][0]["branches"]
+            for step in branch["steps"] if step["kind"] == "model"
+        ]
 
     if prediction_aggregations:
         canonical_branches = {branch["id"]: branch for branch in canonical_dsl["steps"][0]["branches"]}
@@ -4833,15 +4876,19 @@ def _assemble_stacking_dsl(
         if selector.get("aggregate") == "proba_mean"
         or selector.get("metadata", {}).get("prediction_output") == "proba"
     }
-    if task_type == "classification" and (probability_branches or (meta_wrapper is not None and meta_wrapper.use_proba)):
+    if task_type == "classification" and (partial_profile or probability_branches or (meta_wrapper is not None and meta_wrapper.use_proba)):
         from .operator_routing import route_graph_node
 
         first_source_ports: dict[str, str] = {}
         for branch in canonical_dsl["steps"][0]["branches"]:
-            if branch["id"] not in probability_branches and not (meta_wrapper is not None and meta_wrapper.use_proba):
+            if not partial_profile and branch["id"] not in probability_branches and not (meta_wrapper is not None and meta_wrapper.use_proba):
                 continue
             for source_step in branch["steps"]:
-                if source_step["kind"] != "model" or not callable(getattr(route_graph_node(source_step), "predict_proba", None)):
+                if source_step["kind"] != "model":
+                    continue
+                if not callable(getattr(route_graph_node(source_step), "predict_proba", None)):
+                    if partial_profile:
+                        raise DagMlUnsupported("partial-source classification requires genuine full-class predict_proba from every branch")
                     continue
                 source_step["prediction_output_ports"] = ["proba"]
                 first_source_ports[source_step["id"]] = "proba"
@@ -4852,18 +4899,34 @@ def _assemble_stacking_dsl(
         # Put source bindings in the DSL BEFORE compilation/fingerprinting,
         # not in a callback-only graph mutation invisible to native provenance.
         for index, branch in enumerate(canonical_dsl["steps"][0]["branches"]):
+            source_model_ids = [step["id"] for step in branch["steps"] if step["kind"] == "model"]
+            if partial_profile and len(source_model_ids) != 1:
+                raise DagMlUnsupported("partial-source preprocessing requires one model owner per source")
             for step in branch["steps"]:
+                if partial_profile and step["kind"] == "transform":
+                    # These unbound nodes declare recipes only. The source
+                    # model clones and fits them on its native fit intersection.
+                    step["metadata"] = {**step.get("metadata", {}),
+                        "controller_id": _SOURCE_RECIPE_CONTROLLER_ID,
+                        "nirs4all_source_recipe": {
+                            "schema_version": 1, "model_node_id": source_model_ids[0],
+                            "source_name": source_layout["sources"][index]["source_name"],
+                        }}
                 if step["kind"] == "model":
                     step["metadata"] = {**step.get("metadata", {}), "nirs4all_source_stacking": {
                         "layout_fingerprint": source_layout["fingerprint"], "source": source_layout["sources"][index],
                         **({"missing_source_policy": source_layout["missing_source_policy"]} if "missing_source_policy" in source_layout else {}),
+                        **({"target_policy": source_layout["target_policy"]} if partial_profile else {}),
                     }}
+                    if partial_profile:
+                        step["metadata"]["prediction_availability_source"] = source_layout["sources"][index]["source_name"]
                     if source_layout.get("kind") == "typed_source_blocks":
                         step["metadata"]["source_index"] = index
                         step["metadata"]["source_name"] = source_layout["sources"][index]["source_name"]
         canonical_dsl["steps"][1]["metadata"]["nirs4all_source_stacking"] = source_layout
 
-    manifests = controller_manifests()
+    _bind_experimental_unit_design(canonical_dsl, spectro, identity, pool)
+    manifests = controller_manifests(canonical_dsl)
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]

@@ -29,7 +29,7 @@ import pickle
 from pathlib import Path
 from typing import Any
 
-from nirs4all.pipeline.dagml_bridge import controller_manifests
+from nirs4all.pipeline.dagml_bridge import controller_manifests, named_model_input_spec
 
 from .identity import mint_identity
 from .node_runner import clear_cv_weight_transfers, run_node
@@ -150,6 +150,13 @@ def run_cv_refit_bundle(
     # The op_callback IS process_adapter._build_handler's lambda — the SAME run_node over the SAME
     # resolver/nodes/edges/y_transform/store, so operators execute identically to the subprocess.
     resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children, fold_feature_views)
+    named_input = named_model_input_spec(dsl)
+    if named_input is not None:
+        from .fixed_cohort_views import FixedCohortViewStore
+
+        if view_store is not None:
+            raise ValueError("named Torch requires fixed IO cohorts rather than generated views")
+        view_store = FixedCohortViewStore(resolver, named_input, envelope)
     validate_cv_weight_transfer_graph(graph, resolver)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
@@ -159,10 +166,12 @@ def run_cv_refit_bundle(
         if view_store is not None and task["node_plan"]["kind"] in {"model", "tuner", "transform"} and not task.get("data_view_receipts"):
             raise ValueError("generated model or transform task is missing native data-view receipts")
         generated_views = view_store.bind_task(task) if view_store is not None and task.get("data_view_receipts") else None
-        return run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata, generated_views)
+        return run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata, generated_views,
+                        graph_metadata=graph.get("metadata"))
 
     bridge_args: tuple[Any, ...] = (
-        json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()),
+        json.dumps(dsl), json.dumps(envelope),
+        json.dumps(controller_manifests(dsl)),
         op_callback, selection_metric, json.dumps(current_execution_resources().to_contract()),
         refit, refit_top_k,
     )
@@ -176,7 +185,10 @@ def run_cv_refit_bundle(
         manifest = payload.get("generated_view_manifest")
         if not isinstance(manifest, dict):
             raise ValueError("generated DAG-ML run is missing its native data-view manifest")
-        dataset._dagml_generated_view_manifest = manifest
+        if named_input is not None:
+            dataset._dagml_fixed_cohort_view_manifest = manifest
+        else:
+            dataset._dagml_generated_view_manifest = manifest
     node_results = payload.get("node_results", [])
     from .native_vote import collect_vote_evidence
 
@@ -230,7 +242,29 @@ def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int
             if bundle is None:
                 continue
             descriptor = descriptors.get(artifact_id, {})
+            from .named_torch_estimator import DagMLNamedTorchEstimator
             from .target_capture import captured_target_transform
+
+            named_origin = {}
+            if isinstance(bundle["estimator"], DagMLNamedTorchEstimator):
+                from .node_runner import validate_named_refit_origin
+
+                validate_named_refit_origin(bundle, descriptor)
+                named_origin = {
+                    "named_refit_origin": json.loads(json.dumps(bundle["named_refit_origin"])),
+                    "named_refit_fingerprint": bundle["named_refit_fingerprint"],
+                    "content_fingerprint": descriptor["content_fingerprint"],
+                }
+            late_origin = {}
+            if hasattr(bundle["estimator"], "_nirs4all_late_partial_refit_origin"):
+                from .multimodal_contracts import validate_late_partial_refit_origin
+
+                validate_late_partial_refit_origin(bundle, descriptor)
+                late_origin = {
+                    "late_partial_refit_origin": json.loads(json.dumps(bundle["late_partial_refit_origin"])),
+                    "late_partial_refit_fingerprint": bundle["late_partial_refit_fingerprint"],
+                    "content_fingerprint": descriptor["content_fingerprint"],
+                }
 
             captured.append(
                 {
@@ -243,6 +277,8 @@ def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int
                     "kind": descriptor.get("kind"),
                     "controller_id": descriptor.get("controller_id"),
                     "backend": descriptor.get("backend"),
+                    **named_origin,
+                    **late_origin,
                 }
             )
     return captured
@@ -270,6 +306,12 @@ def _load_subprocess_refit_artifacts(node_results: list[dict[str, Any]], directo
             payload = joblib.load(path)  # noqa: S301 - run-local file written by the trusted adapter
             if not isinstance(payload, dict) or payload.get("artifact_id") != artifact_id:
                 raise ValueError(f"subprocess REFIT artifact {artifact_id!r} does not match its descriptor")
+            from .named_torch_estimator import DagMLNamedTorchEstimator
+
+            if isinstance(payload["estimator"], DagMLNamedTorchEstimator):
+                from .node_runner import validate_named_refit_origin
+
+                validate_named_refit_origin(payload, descriptor)
             captured.append(payload)
     return captured
 
@@ -338,7 +380,12 @@ def run_cv_refit_bundle_router(
         from .envelope import build_envelope, target_names
         from .raw_training_lowerer import _array_content_fingerprint
 
-        test_envelope = build_envelope(dataset, mint_identity(dataset), sample_ints=test)
+        source_metadata = None
+        if graph.get("metadata", {}).get("prediction_availability") is not None:
+            from .source_missing import prediction_source_presence_metadata
+
+            source_metadata = prediction_source_presence_metadata(dataset, [int(row) for row in test])
+        test_envelope = build_envelope(dataset, mint_identity(dataset), sample_ints=test, metadata_by_sample=source_metadata)
         cohort_builder = getattr(dag_ml, "attach_predict_cohort_to_envelope", None)
         if not callable(cohort_builder):
             raise RuntimeError("the installed DAG-ML runtime lacks the native test-cohort constructor")
@@ -380,6 +427,8 @@ def run_cv_refit_bundle_router(
             refit=refit,
             refit_top_k=refit_top_k,
         )
+    if named_model_input_spec(dsl) is not None:
+        raise NotImplementedError("named Torch requires the in-process DAG-ML binding with attested fixed-cohort views; ordinary CLI execution is unsupported")
     if view_store is not None:
         from .generated_subprocess import run_generated_subprocess
 

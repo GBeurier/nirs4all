@@ -253,7 +253,13 @@ def validate_core_methods_archive_v2(
         from nirs4all.api.portable_archive import read_portable_predictor_archive_v2
 
         loaded = read_portable_predictor_archive_v2(archive_path)
-        return CoreArchiveValidation(core=core, package=loaded.to_dict(), predictors=({"native_profile": PROFILE},),
+        native_profile = PROFILE
+        if any(record.get("artifact", {}).get("kind") == "methods_multimodal_classifier_pipeline"
+               for record in loaded.to_dict()["execution_bundle"]["refit_artifacts"]):
+            from .methods_classification import PROFILE as CLASSIFICATION_PROFILE
+
+            native_profile = CLASSIFICATION_PROFILE
+        return CoreArchiveValidation(core=core, package=loaded.to_dict(), predictors=({"native_profile": native_profile},),
                                      methods_library_path=library_path, methods_library_sha256=library_sha256)
     from .native_pls_phase_replay import is_native_pls_phase_package, read_native_pls_phase_archive
 

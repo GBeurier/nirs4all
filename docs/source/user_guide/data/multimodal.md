@@ -77,7 +77,7 @@ dataset = MultimodalDataset(
 ```
 
 Every observation has a unique string ID. Repetitions have different observation
-IDs and share a group ID. IO reorders each source to the canonical observation
+IDs; assign them to the same split group to keep them together. IO reorders each source to the canonical observation
 order; the default `source_alignment="strict"` rejects missing, extra or duplicate
 IDs. A group cannot span train and test.
 Use an explicit grouped splitter such as `GroupKFold(3)`.
@@ -86,6 +86,66 @@ Source arrays are copied and exposed read-only. Units are supplied by the caller
 no units, resampling, alignment by nearest time, or imputation are inferred.
 `dataset.to_dict()` and `MultimodalDataset.from_dict(payload)` preserve the raw
 arrays, dtypes, identities and axis metadata through JSON or YAML.
+
+## Declare independent experimental units
+
+When several observations measure the same independent unit, declare both the
+unit and the repetition explicitly. Observation IDs remain unique. Split groups
+may be larger than units: for example, several specimens can share one batch.
+No statistical unit is inferred from a split group.
+
+```python
+dataset = MultimodalDataset(
+    sources, sample_ids=observation_ids, y=targets,
+    task_type="regression", target_names=["concentration"],
+    groups=batch_ids, partitions=partitions,
+    independent_unit_ids=specimen_ids,
+    repetition_ids=scan_ids,
+)
+```
+
+Both identity lists follow the observation order and are copied into immutable
+tuples. A repeated unit requires repetition IDs; each `(unit, repetition)` pair
+must be unique. Different units can use the same repetition name, such as
+`scan.0`. Slicing and JSON round trips preserve these declarations. Omitting
+both lists retains the existing observation-level behavior.
+
+With `engine="dag-ml"`, declaring units selects equal total influence per unit
+and scores at the unit level. DAG-ML computes a row weight of `1 / count` from
+the observations of that unit in the actual fitting scope. For partial targets,
+it uses the observed rows of each target separately. The Python operators pass
+these native weights to every learned encoder and prediction head; they do not
+recount, resample or average training observations. Supported estimators must
+explicitly accept `sample_weight` in `fit`, including each learned step in a
+model-owned sklearn pipeline.
+
+For `by_source` pipelines, place weighted preprocessing and the prediction head
+inside the same sklearn `Pipeline` model owner. The current `_or_` transform
+grammar creates separate fitting nodes, so this combination with independent
+units is refused before FIT; it does not provide weighted model alternatives.
+Native top-k selection of operator variants without experimental-unit weighting
+remains a separate supported profile.
+
+Regression scores use the mean prediction for each unit. Complete mono-target
+classification votes over predicted labels; probability columns remain available
+as prediction features. The target must be consistent among observations of a
+unit. Native validation rejects unit leakage between fitting, validation and
+test scopes, including inner folds. OOF feature buffers and returned prediction
+rows retain observation IDs. The reported statistical key is
+`{"kind": "relation_metadata", "key": "independent_unit_id"}`; it is distinct
+from the split-group identity.
+
+The current profile supports weighted sklearn models, complete-source early
+fusion, and partial-source/per-target late fusion. Declare `task_type` explicitly
+and use unit IDs made of ASCII letters, digits and `_-.:` (at most 128 bytes).
+Named Torch, the Methods backend, standalone fitted transforms outside the model,
+separate target transformations, branch-local tuning and early fusion with missing
+sources are refused for this policy. Classification requires complete labels and
+non-overlapping validation folds. These restrictions do not change runs that
+omit the experimental-unit declaration.
+
+See the [public execution matrix](../../reference/multimodal_execution_matrix.md)
+for the current code and qualification status of each pipeline combination.
 
 ## Encode variable-length series
 
@@ -124,6 +184,14 @@ the sequence length. Configure `statistics=("mean", "std")` and
 `include_length=False` to choose a smaller representation. Output columns follow
 channel order, then statistic order; `get_feature_names_out()` names them.
 Fit retains the channel contract, without training values or lengths.
+
+Declare a required series length with `min_observations=2`, or an applicability
+range with `channel_bounds=[(-20, 60), (0, 1000)]`, one inclusive numeric pair per
+channel. Bounds use the source's declared measurement units; the encoder does
+not convert units. Every observed point is checked during fit and prediction,
+before computing the summaries. These explicit constraints survive export and
+replay. No range is inferred from training values. The defaults retain the
+existing behavior: one observation suffices and no additional range is imposed.
 
 All observations receive equal weight. Time coordinates are preserved by IO but
 are **not used** by this summary encoder, even for irregular sampling. Empty
@@ -236,9 +304,11 @@ Native metrics use only observed cells and retain named per-target metrics;
 the scalar regression metric is their unweighted mean. A report's `row_count`
 counts prediction rows, not the number of observed cells for each target.
 
-The default `target_policy="complete"` rejects partial masks. Partial targets
-currently require the early or intermediate `MultimodalRegressor` path; masked
-classification, late fusion and group-level score aggregation are rejected.
+The default `target_policy="complete"` rejects partial masks. Partial regression
+targets use the early or intermediate `MultimodalRegressor` path, or the
+development late-fusion branch profile described below with
+`target_policy="per_target"`. Masked classification remains refused. Group-level
+score aggregation with partial targets is outside these profiles.
 
 ## Encode, fuse and tune
 
@@ -298,6 +368,70 @@ fold sizes or nonlinear metrics such as RMSE and balanced accuracy; reports
 retain both values and their native score evidence.
 These CV values participate in hyperparameter selection; use the independent
 test partition to evaluate the selected pipeline.
+
+### Joint Torch intermediate fusion (development)
+
+Use the existing `MultimodalRegressor` with a supplied `torch.nn.Module` whose
+`forward(**inputs)` accepts each source by name. Its encoders and prediction
+head belong to the same module and train jointly with one Adam optimizer and
+MSE loss. The source transformers must be `None` or `"passthrough"`; put learned
+encoders inside your module.
+
+```python
+model = MultimodalRegressor(
+    transformers={"nir": "passthrough", "clinical": "passthrough"},
+    model=joint_module,  # Your nn.Module implementing forward(nir=..., clinical=...).
+    fusion="intermediate",
+)
+result = nirs4all.run(
+    [GroupKFold(3), {"model": model,
+                   "train_params": {"epochs": 20, "batch_size": 16, "lr": 0.001}}],
+    cohort, engine="dag-ml", refit=True, random_state=42, save_charts=False,
+)
+result.export("joint-model.n4a")
+result.close()
+prediction = nirs4all.predict("joint-model.n4a", new_cohort)
+```
+
+The development profile accepts two to four complete fixed-shape float32 or
+float64 sources and one complete numeric regression target. Supported IO
+representations are `signal_1d`, `tabular_numeric`, `gray_image`, `rgb_image`,
+`mc_image`, `multispectral_image` and `series_mv`. Each tensor retains its raw
+non-sample axes until the user's `forward(**inputs)` runs: RGB images have shape
+`(samples, height, width, 3)` and series `(samples, time, variable)`. The host
+does not flatten, permute channels, pad or resample these inputs. Put any such
+explicit conversion inside your module. CPU training converts inputs to float32; floating
+module parameters and buffers must already be float32. Source names are ASCII
+Python identifiers other than `y`. Source weights, missing-source policies,
+partial targets, external preprocessing, model-local tuning and generated
+provider views are outside this profile. Use one model with an optional index
+or group splitter; omitting the splitter performs native full-training REFIT
+and supplies no CV evidence.
+
+This profile uses the default in-process DAG-ML runtime. Explicit CLI execution
+is refused before fitting because it does not transport the required source
+receipts. Each receipt records the real IO buffer, ordered sample IDs and input
+schema; the controller verifies them before training or prediction.
+
+Alternatively, an importable Torch factory marked `framework="pytorch"` receives
+`input_shapes={name: source.values.shape[1:]}` and returns your module, including
+all raw image or series axes. Supplied module templates
+retain their initial weights and are copied for each fold. Native tasks select
+the training IDs, own CV/refit, and derive each CPU Torch callback seed from
+the public `random_state` while restoring the caller's RNG. Epochs and patience
+are bounded by 100, batch size by 1024,
+and learning rate by `[1e-6, 0.1]`; the adapter also bounds model size and work.
+
+Export retains the actual completed REFIT origin, fitted tensor identities,
+named input contract, complete IO schema and selected owner. Replay checks these
+before prediction and does not fit again. New observation IDs and per-source row order are allowed
+through IO alignment. In this first named profile, retain the cohort's source
+mapping order because the native source IDs are part of the captured contract.
+This is a trusted Python archive, requiring the user's importable factory or
+module dependencies and matching installed development builds. It does not
+provide portable Torch weights for R or WASM. Ragged joint Torch inputs remain
+unsupported by this profile; use the explicit summary encoder for ragged series.
+The demonstration arrays are software fixtures.
 
 ### Training controls during global search (1.3.3)
 
@@ -420,6 +554,17 @@ resume even when a progress callback consumes randomness. Explicit operator
 seeds remain effective. Custom generators and GPU determinism are not guaranteed
 by this policy.
 
+## Select independent source outputs
+
+When a `by_source` pipeline exposes an independent prediction output per source,
+native selection ranks candidate recipes using the first source in dataset
+order, signed as `selection_output_id="output:source_0"`. All source outputs,
+validation scores and OOF arrays are retained. Other source scores do not
+implicitly become a fused ranking metric; an explicit fusion model has its own
+output and selection evidence. Exactly equal selection scores use the original
+variant ID as the deterministic tie break. Ranked refits retain this same native
+ordering and their own genuine captures.
+
 ## Tune a late-fusion ensemble
 
 Use the existing `by_source` branches followed by `{"merge": "predictions"}`
@@ -454,8 +599,8 @@ of the checkpoint identity; changing their routing refuses resume.
 
 The returned `RunResult` represents the selected **ensemble**. Its direct
 `export()` saves that ensemble even if an individual base model scores better.
-The profile requires complete targets and instantiated sklearn operators.
-Sources must be complete unless the regression branch policy below is explicit.
+The profile requires instantiated sklearn operators. Sources and targets must
+be complete unless the branch policies below explicitly declare missingness.
 Development `main` also accepts the fixed model training controls described
 above; base-model local `finetune_params` may be nested in this global search
 profile. Meta-model local HPO remains refused. Single-target classification and complete multi-target regression use
@@ -469,7 +614,7 @@ python examples/user/02_data_handling/U10_multimodal_late_tuning.py --output /tm
 python examples/user/02_data_handling/U10_multimodal_late_tuning.py --output /tmp/mm-late --resume
 ```
 
-## Late regression fusion with absent modalities
+## Late fusion with absent modalities and partial regression targets
 
 Declare `missing_source_policy="zero_with_indicator"` on the named source branch:
 
@@ -499,11 +644,31 @@ when every source observation is present. Two single-target branches therefore
 produce four meta-model features. Complete multiple targets are also supported.
 
 Zeros encode an absent branch for the meta-model; they do not reconstruct raw
-measurements. Native scores include these fallback predictions on absent rows.
+measurements. Native meta-model scores cover the requested scored rows;
+base-model predictions remain restricted to observations actually present for
+that source and observed for that target.
 An entirely unobserved source in any inner, outer or final training scope is
-rejected, rather than borrowing fitted state from another fold. This policy
-currently accepts regression with complete targets. Classification, partial
-targets and preprocessing before the source branch are refused.
+rejected before model callbacks, rather than borrowing fitted state from another
+fold. The development profile also accepts complete single-target classification
+and partially observed regression targets. For partial targets, add
+`target_policy="per_target"` beside the branch's `missing_source_policy`; each
+target gets a fresh encoder/model fitted on the intersection of present source
+rows and observed target rows in that actual outer, inner or REFIT scope.
+
+Classification requires classifiers exposing `predict_proba`. Each branch
+supplies all K columns in the shared training vocabulary order, followed by
+its presence indicator. An absent observation supplies no class distribution;
+the native joined features retain explicit validity and presence masks. Every
+true training scope must contain the complete class vocabulary. The native
+scheduler validates availability before model callbacks or global HPO.
+
+This partial late profile is serial, with two to four named branches and a
+single meta-model. Global whole-stack HPO is supported; branch-local HPO with
+partial observations, external preprocessing before the source branch,
+augmentation, generated views, separate target transformations and already
+fitted preprocessing are refused. Classification targets must remain complete.
+See [the partial late-fusion guide](multimodal_late_partial.md) for the public
+pipeline declaration and the archive contract.
 
 At prediction, presence patterns and series lengths may change. An entire series
 modality can be absent: retain its declared channels, dtype, time unit and

@@ -475,7 +475,7 @@ def sample_relations(
             "target_id": "y",
             "group_id": group_ids.get(sample.sample_int),
             "origin_id": (identity.to_wire(sample.origin_int) if sample.augmented else None),
-            "repetition_id": None,
+            "repetition_id": metadata_columns.get("repetition_id", {}).get(sample.sample_int) if "independent_unit_id" in metadata_columns else None,
             "augmented": sample.augmented,
             "excluded": sample.sample_int in excluded,
             "metadata": {column: values[sample.sample_int] for column, values in metadata_columns.items() if sample.sample_int in values},
@@ -546,6 +546,18 @@ def build_envelope(
     will accept it).
     """
     dag_ml_data = _import_dag_ml_data()
+    from .experimental_units import experimental_unit_metadata
+
+    declared_unit_metadata = experimental_unit_metadata(dataset)
+    if declared_unit_metadata:
+        if "repetition_id" not in declared_unit_metadata and (metadata_by_sample or {}).get("repetition_id"):
+            raise ValueError("experimental-unit repetitions must be explicitly declared by IO repetition_ids")
+        metadata_by_sample = {key: dict(values) for key, values in (metadata_by_sample or {}).items()}
+        for key, values in declared_unit_metadata.items():
+            supplied = metadata_by_sample.get(key, {})
+            if any(sample not in values or values[sample] != value for sample, value in supplied.items()):
+                raise ValueError("experimental-unit relation metadata disagrees with explicit IO identity")
+            metadata_by_sample[key] = values
     chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
     # SINGLE-SOURCE: the caller's ``source_id`` (default ``src0``) is the one source, and each
     # relation carries it (BYTE-IDENTICAL). MULTI-SOURCE (early fusion): one ``signal_1d`` source

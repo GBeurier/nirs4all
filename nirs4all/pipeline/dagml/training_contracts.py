@@ -49,6 +49,7 @@ class DagMLTrainingRequestSpec:
     training_losses: Sequence[Mapping[str, Any]] = ()
     selection_required_metric_level: str | None = None
     selection_evaluation_scope: str | None = None
+    selection_requested_rank: int | None = None
 
 
 def assemble_training_request(spec: DagMLTrainingRequestSpec) -> dict[str, Any]:
@@ -121,6 +122,10 @@ def _training_options(spec: DagMLTrainingRequestSpec) -> dict[str, Any]:
         "metric": {"name": spec.selection_metric, "objective": spec.selection_objective},
         "require_finite": True,
     }
+    if spec.selection_requested_rank is not None:
+        if type(spec.selection_requested_rank) is not int or spec.selection_requested_rank < 1:
+            raise ValueError("selection_requested_rank must be a positive integer")
+        selection["requested_rank"] = spec.selection_requested_rank
     if spec.selection_required_metric_level is not None:
         selection["required_metric_level"] = spec.selection_required_metric_level
     if spec.selection_evaluation_scope is not None:

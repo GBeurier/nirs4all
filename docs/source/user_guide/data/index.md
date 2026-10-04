@@ -12,6 +12,7 @@ aggregation
 heterogeneous_repetitions
 heterogeneous_repetitions_tutorial
 multimodal
+multimodal_late_partial
 methods_multimodal_u07
 octave_multimodal
 sample_filtering

@@ -283,6 +283,7 @@ def _scores_to_run_result(
     report_fold_ids: set[str] | None = None,
     emit_all_refits: bool = False,
     refit_name_suffix: str = "_refit",
+    classification_vocabulary: dict[str, Any] | None = None,
 ) -> RunResult:
     """Project each variant's actual native reports without inventing partitions.
 
@@ -438,6 +439,11 @@ def _scores_to_run_result(
             return None
         y_true = np.asarray(target["values"], dtype=float)
         y_true = y_true.ravel() if y_true.ndim == 2 and y_true.shape[1] == 1 else y_true
+        if classification_vocabulary is not None:
+            from .methods_classification import decode_labels
+
+            y_true = decode_labels(y_true, classification_vocabulary)
+            y_pred = decode_labels(y_pred, classification_vocabulary)
         return sample_indices, list(block["sample_ids"]), y_true, y_pred
 
     # The refit-train / held-out test blocks are looked up PER-VARIANT below (`(variant_id, final/test,

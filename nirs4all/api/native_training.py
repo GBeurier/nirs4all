@@ -11,7 +11,8 @@ from __future__ import annotations
 import importlib
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
@@ -580,7 +581,53 @@ def refit_native_methods(
         metadata=dataset.get("metadata"),
         require_explicit_sample_ids=True,
     )
-    target_contracts = lower_raw_array_training_contracts(
+    # The parent package, rather than the retained Python estimator, owns the
+    # execution profile and controller registry. Lower only the new cohort;
+    # DAG-ML inherits the selected parameters and signed phase controls itself.
+    parent = _contract_document(source_package, "parent package")
+    parent_plan = _contract_document(parent.get("effective_plan"), "parent execution plan")
+    parent_manifests = _contract_document(parent_plan.get("controller_manifests"), "parent controller manifests")
+    parent_nodes = _contract_document(parent_plan.get("node_plans"), "parent node plans")
+    parent_campaign = _contract_document(parent_plan.get("campaign"), "parent campaign")
+    parent_seed = parent_campaign.get("root_seed")
+    # TrainingRequest requires an unsigned seed matching campaign.root_seed.
+    # A seedless parent cannot enter that contract without changing provenance.
+    if type(parent_seed) is not int or not 0 <= parent_seed < 2**64:
+        raise DagMLNativeCoverageError(
+            "native Methods full refit requires an explicit unsigned 64-bit parent campaign.root_seed; "
+            "an absent or invalid parent seed cannot be replaced"
+        )
+    from nirs4all.pipeline.dagml.native_pls_phase_controls import NATIVE_PLS_PHASE_CONTROLLER
+
+    role_node_ids = [node_id for node_id, node in parent_nodes.items()
+                     if isinstance(node, Mapping) and node.get("controller_id") == NATIVE_PLS_PHASE_CONTROLLER]
+    native_role_profile = None
+    if role_node_ids:
+        graph_plan = _contract_document(parent_plan.get("graph_plan"), "parent graph plan")
+        graph = _contract_document(graph_plan.get("graph"), "parent graph")
+        nodes = graph.get("nodes")
+        if len(role_node_ids) != 1 or not isinstance(nodes, list):
+            raise DagMLNativeCoverageError("native PLS full refit requires one signed parent model")
+        matches = [node for node in nodes if isinstance(node, Mapping) and node.get("id") == role_node_ids[0]]
+        if len(matches) != 1:
+            raise DagMLNativeCoverageError("native PLS full refit parent model is absent or ambiguous")
+        native_role_profile = deepcopy(dict(_contract_document(matches[0].get("params"), "parent PLS profile")))
+        # The retained pipeline declares how the parent was trained. Its HPO
+        # and phase overrides must not execute again when lowering a new cohort:
+        # the validated parent graph already owns these controls and parameters.
+        # Keep preprocessing and splitter declarations; replace only the one
+        # model step with its declaration for the target-cohort transport.
+        pipeline = [
+            {"model": step["model"]} if isinstance(step, Mapping) and "model" in step else step
+            for step in pipeline
+        ]
+    bindings = parent.get("output_bindings")
+    if not isinstance(bindings, list) or len(bindings) != 1 or not isinstance(bindings[0], Mapping):
+        raise DagMLNativeCoverageError("native Methods full refit requires one parent output binding")
+    target_names = bindings[0].get("target_names")
+    if not isinstance(target_names, list) or len(target_names) != (1 if targets.ndim == 1 else targets.shape[1]):
+        raise ValueError("native Methods full refit target width differs from the signed parent")
+    lowered_contracts = lower_raw_array_training_contracts(
         pipeline,
         features,
         targets,
@@ -592,7 +639,18 @@ def refit_native_methods(
         bundle_id="bundle:nirs4all.native_full_refit",
         dagml_module=dagml_module,
         methods_library_path=methods_library_path,
-    ).to_prepared()
+        portable_methods=True,
+        native_role_profile=native_role_profile,
+        target_names=list(target_names),
+        seed=parent_seed,
+    )
+    # Keep the exact parent registry, including any native tuner declaration.
+    # The target request carries no HPO operation or parameter patch and cannot
+    # choose a different model; native full-refit derivation checks the topology.
+    target_contracts = replace(lowered_contracts, request_spec=replace(
+        lowered_contracts.request_spec,
+        controller_manifests=[deepcopy(dict(parent_manifests[key])) for key in sorted(parent_manifests)],
+    )).to_prepared()
     if target_contracts.methods_inputs is None:
         raise RuntimeError("native Methods target lowering omitted Methods numeric inputs")
     request_document = _contract_document(target_contracts.request, "training request")

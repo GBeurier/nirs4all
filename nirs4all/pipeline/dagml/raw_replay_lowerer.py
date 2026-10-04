@@ -329,10 +329,10 @@ def validate_native_methods_refit_package_v3(package: Any) -> dict[str, Any]:
     raw = bundle.get("raw_artifact_payloads")
     if not isinstance(raw, dict) or not raw:
         raise RawArrayMethodsReplayError("Package V3 has no durable raw Methods artifacts")
-    artifact_ids = _native_methods_refit_artifact_ids_from_bundle(bundle, package_label="Package V3")
-    if not set(artifact_ids).issubset(raw):
+    artifact_ids = _native_methods_refit_artifact_ids_from_bundle(bundle, package_label="Package V3", allow_native_estimator_states=True)
+    if set(artifact_ids) != set(raw):
         raise RawArrayMethodsReplayError(
-            "Package V3 N4MM refit artifacts must each have a matching durable raw payload"
+            "Package V3 native refit artifacts must exactly match its durable raw payload inventory"
         )
     _single_refit_v3_output_binding(outcome)
     _refit_v3_requirements(_object(outcome, "effective_plan"))
@@ -376,7 +376,8 @@ def _native_methods_refit_artifact_ids(package: Mapping[str, Any], *, native_pro
 
 
 def _native_methods_refit_artifact_ids_from_bundle(
-    bundle: Mapping[str, Any], *, package_label: str, native_profile: str | None = None
+    bundle: Mapping[str, Any], *, package_label: str, native_profile: str | None = None,
+    allow_native_estimator_states: bool = False,
 ) -> list[str]:
     """Validate one complete raw-Methods refit artifact set from a package bundle."""
 
@@ -398,14 +399,38 @@ def _native_methods_refit_artifact_ids_from_bundle(
         artifact = _artifact_document(record)
         artifact_id = artifact.get("id", record.get("artifact_id"))
         backend = artifact.get("backend")
+        accepted_kind = artifact.get("kind") == expected_kind
+        if allow_native_estimator_states and native_profile is None and artifact.get("kind") == "n4m_estimator":
+            descriptor = artifact.get("native_estimator_descriptor")
+            accepted_kind = (
+                isinstance(descriptor, Mapping)
+                and descriptor.get("format") == "N4ME"
+                and descriptor.get("owner_controller") == artifact.get("controller_id")
+                and artifact.get("controller_id") in {
+                    "controller:n4m.transformer", "controller:n4m.selector", "controller:n4m.regressor",
+                    "controller:n4m.classifier", "controller:n4m.sample_filter", "controller:n4m.augmenter",
+                }
+                and backend == "raw" and artifact.get("plugin") is None and artifact.get("plugin_version") is None
+                and artifact.get("abi_major") == 2 and artifact.get("abi_min_minor") == 13
+            )
+        elif allow_native_estimator_states and native_profile is None and artifact.get("kind") == "methods_role_pipeline":
+            from .native_pls_phase_controls import NATIVE_PLS_PHASE_CONTROLLER
+
+            accepted_kind = (
+                artifact.get("controller_id") == NATIVE_PLS_PHASE_CONTROLLER
+                and backend == "raw" and artifact.get("plugin") == "dagml.methods.native.regression"
+                and artifact.get("plugin_version") == "1.0.0"
+            )
         if (
-            artifact.get("kind") != expected_kind
+            not accepted_kind
             or (expected_controller is not None and artifact.get("controller_id") != expected_controller)
             or not isinstance(artifact_id, str)
             or not artifact_id
             or (backend is not None and backend != "raw")
         ):
             raise RawArrayMethodsReplayError(
+                "Package V3 requires raw artifacts from the supported native Methods controllers"
+                if allow_native_estimator_states else
                 "raw-array Methods replay requires only raw n4m_model refit artifacts"
                 if native_profile is None else "native PLS phase replay requires only raw methods_role_pipeline refit artifacts from its controller"
             )

@@ -2005,12 +2005,42 @@ def _detect_proba_mean_stacking_branch(
     return branches, learner, selectors
 
 
+def _by_source_stacking_preprocessing(pipeline: list[Any]) -> tuple[list[Any], list[int]] | None:
+    """Read ordinary upstream X steps without fitting or changing their scopes.
+
+    Public multi-source X transforms run separately on each source. Their native
+    counterpart belongs inside each branch's real training intersection, never
+    on a concatenated matrix or a once-fitted full-cohort preprocessing cache.
+    """
+    branch_positions = [index for index, step in enumerate(pipeline) if _is_by_source_branch_step(step)]
+    if len(branch_positions) != 1:
+        return None
+    prefix: list[Any] = []
+    positions: list[int] = []
+    for index, step in enumerate(pipeline[:branch_positions[0]]):
+        if _is_split_step(step):
+            continue
+        operator = step
+        if isinstance(step, dict):
+            # Plain public spelling only: transfer/global-fit/layout/target
+            # policies must not disappear when the chain moves into a branch.
+            if set(step) != {"preprocessing"}:
+                return None
+            operator = step["preprocessing"]
+        if operator is not None and not _is_supported_x_transform(operator):
+            return None
+        positions.append(index)
+        if operator is not None:
+            prefix.append(operator)
+    return prefix, positions
+
+
 def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tuple[list[Any] | dict[str, list[Any]], Any] | None:
     """Detect source-specific base models followed by native OOF stacking.
 
     Admits ONLY:
 
-    ``splitter + {"branch": {"by_source": True, "steps": [X-transform*, {"model": Base}]}}
+    ``X-transform* + splitter + {"branch": {"by_source": True, "steps": [X-transform*, {"model": Base}]}}
     + {"merge": "predictions"} + {"model": Meta}``
 
     ``steps`` may also map each source name to its own transform/model body.
@@ -2034,16 +2064,23 @@ def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tu
     order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
     if order != [branch_step, merge_step, model_step]:
         return None
-    for step in pipeline:
-        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
+    preprocessing = _by_source_stacking_preprocessing(pipeline)
+    if preprocessing is None:
+        return None
+    _prefix, prefix_positions = preprocessing
+    for index, step in enumerate(pipeline):
+        if index in prefix_positions or step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
             continue
         return None
 
     criterion = branch_step["branch"]
-    if set(criterion) - (_HANDLED_BY_SOURCE_KEYS | {"missing_source_policy"}):
+    if set(criterion) - (_HANDLED_BY_SOURCE_KEYS | {"missing_source_policy", "target_policy"}):
         return None
     policy = criterion.get("missing_source_policy", "error")
     if not isinstance(policy, str) or policy not in {"error", "zero_with_indicator"}:
+        return None
+    target_policy = criterion.get("target_policy", "complete")
+    if not isinstance(target_policy, str) or target_policy not in {"complete", "per_target"}:
         return None
     body = criterion.get("steps")
     if not isinstance(body, (list, dict)) or not body:

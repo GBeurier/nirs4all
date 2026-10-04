@@ -60,6 +60,7 @@ runs:
         import dag_ml._dag_ml as native
         import dag_ml.multimodal_methods as controller
         import dag_ml.multimodal_topology as topology_controller
+        import dag_ml.multimodal_classification as classification_controller
         import n4m
         from n4m.roles import RolePipeline
         import nirs4all
@@ -71,9 +72,10 @@ runs:
         assert Path(nirs4all.__file__).resolve() == workspace / 'nirs4all/__init__.py'
         assert Path(n4m.__file__).resolve() == methods / 'bindings/python/src/n4m/__init__.py'
         assert Path(n4m.library_path()).resolve() == library.resolve()
-        assert library.is_file() and n4m.abi_version() == (2, 16, 0)
+        assert library.is_file() and n4m.abi_version() == (2, 17, 0)
         assert callable(n4m.MultimodalPipeline)
         assert callable(RolePipeline.close)
+        assert callable(n4m.MultimodalClassifierPipeline)
         assert version('dag-ml') == dag_ml.version() == '0.3.32'
         assert 'site-packages' in Path(native.__file__).resolve().parts
         assert callable(dag_ml.prepare_host_hpo_structural_catalogue)
@@ -82,6 +84,8 @@ runs:
         assert Path(controller.__file__).read_bytes() == source.read_bytes()
         topology_source = dag / 'crates/dag-ml-py/python/dag_ml/multimodal_topology.py'
         assert Path(topology_controller.__file__).read_bytes() == topology_source.read_bytes()
+        classification_source = dag / 'crates/dag-ml-py/python/dag_ml/multimodal_classification.py'
+        assert Path(classification_controller.__file__).read_bytes() == classification_source.read_bytes()
         cli = Path(os.environ['N4A_DAGML_CLI'])
         assert cli == dag / 'target/debug/dag-ml-cli' and os.access(cli, os.X_OK)
         print('SDK source:', nirs4all.__file__)

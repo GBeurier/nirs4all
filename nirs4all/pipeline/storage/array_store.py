@@ -8,6 +8,11 @@ metric, val_score, task_type) making it self-describing and portable.
 The relational metadata (runs, pipelines, chains, full scores) stays in
 SQLite.  This module only manages the array sidecar files.
 
+Classification string/int64 targets use optional versioned JSON label columns,
+with a sorted typed vocabulary and integer positions. These positions describe
+storage only: they never change the model's probability-column class order.
+Purely numerical files retain their historical schema and target representation.
+
 Workspace layout::
 
     workspace/
@@ -37,6 +42,8 @@ import numpy as np
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+from nirs4all.data._predictions.target_codec import classification_task, decode_target_array, encode_target_labels
 
 try:  # POSIX advisory locking
     import fcntl
@@ -182,6 +189,8 @@ _PARQUET_SCHEMA = pa.schema(
     ]
 )
 
+_LABEL_PARQUET_SCHEMA = _PARQUET_SCHEMA.append(pa.field("y_true_labels", pa.utf8())).append(pa.field("y_pred_labels", pa.utf8()))
+
 
 class ArrayStore:
     """Parquet-backed storage for prediction arrays.
@@ -296,7 +305,8 @@ class ArrayStore:
 
     def _records_to_table(self, records: list[dict]) -> pa.Table:
         """Convert a list of record dicts to a PyArrow Table."""
-        columns: dict[str, list] = {field.name: [] for field in _PARQUET_SCHEMA}
+        columns: dict[str, list] = {field.name: [] for field in _LABEL_PARQUET_SCHEMA}
+        has_labels = False
 
         for rec in records:
             columns["prediction_id"].append(rec["prediction_id"])
@@ -316,9 +326,11 @@ class ArrayStore:
             sample_indices = rec.get("sample_indices")
             weights = rec.get("weights")
 
-            columns["y_true"].append(_arr_to_list(y_true))
-            columns["y_pred"].append(_arr_to_list(y_pred))
             for field, values in (("y_true", y_true), ("y_pred", y_pred)):
+                encoded = encode_target_labels(values) if classification_task(rec.get("task_type")) else None
+                columns[f"{field}_labels"].append(encoded)
+                has_labels = has_labels or encoded is not None
+                columns[field].append(None if encoded is not None else _arr_to_list(values))
                 # Retain historical flat single-target reads; multi-output
                 # targets require explicit axes to keep samples distinguishable.
                 shape = list(np.shape(values)) if values is not None and np.ndim(values) > 1 and np.shape(values)[1] > 1 else None
@@ -345,8 +357,9 @@ class ArrayStore:
             else:
                 columns["result_metadata"].append(None)
 
-        arrays = [pa.array(columns[field.name], type=field.type) for field in _PARQUET_SCHEMA]
-        return pa.table(arrays, schema=_PARQUET_SCHEMA)
+        schema = _LABEL_PARQUET_SCHEMA if has_labels else _PARQUET_SCHEMA
+        arrays = [pa.array(columns[field.name], type=field.type) for field in schema]
+        return pa.table(arrays, schema=schema)
 
     @staticmethod
     def _atomic_write_parquet(table: pa.Table, path: Path) -> None:
@@ -399,6 +412,14 @@ class ArrayStore:
         if not records:
             return 0
 
+        # Validate every label payload before clearing tombstones or publishing
+        # any dataset. A malformed late record must not partially resurrect IDs.
+        groups: dict[str, list[dict]] = {}
+        for rec in records:
+            ds = rec["dataset_name"]
+            groups.setdefault(ds, []).append(rec)
+        tables = {dataset_name: self._records_to_table(group_records) for dataset_name, group_records in groups.items()}
+
         # Clear tombstones for prediction_ids being written (handles upserts)
         written_ids = {rec["prediction_id"] for rec in records}
         tombstones = self._read_tombstones()
@@ -406,21 +427,19 @@ class ArrayStore:
         if len(cleared) != len(tombstones):
             self._write_tombstones(cleared)
 
-        # Group records by dataset_name
-        groups: dict[str, list[dict]] = {}
-        for rec in records:
-            ds = rec["dataset_name"]
-            groups.setdefault(ds, []).append(rec)
-
         total_written = 0
         for dataset_name, group_records in groups.items():
-            table = self._records_to_table(group_records)
+            table = tables[dataset_name]
             path = self._parquet_path(dataset_name)
 
             if path.exists():
                 existing = pq.read_table(path)
-                if existing.schema != _PARQUET_SCHEMA:
-                    existing = _align_to_schema(existing, _PARQUET_SCHEMA)
+                # Appending regression records must retain earlier typed labels.
+                schema = _LABEL_PARQUET_SCHEMA if any(name in {"y_true_labels", "y_pred_labels"} for name in (*existing.schema.names, *table.schema.names)) else _PARQUET_SCHEMA
+                if existing.schema != schema:
+                    existing = _align_to_schema(existing, schema)
+                if table.schema != schema:
+                    table = _align_to_schema(table, schema)
                 combined = pa.concat_tables([existing, table])
                 self._atomic_write_parquet(combined, path)
             else:
@@ -477,19 +496,15 @@ class ArrayStore:
                 pid = row["prediction_id"]
                 arrays: dict[str, Any] = {}
 
-                for field in ("y_true", "y_pred", "y_proba", "weights"):
+                for field in ("y_true", "y_pred"):
+                    arrays[field] = decode_target_array(row, field)
+
+                for field in ("y_proba", "weights"):
                     val = row.get(field)
                     if val is not None:
                         arrays[field] = np.array(val, dtype=np.float64)
                     else:
                         arrays[field] = None
-
-                # Older files have no target shape columns: keep their flat
-                # representation rather than guessing lost target dimensions.
-                for field in ("y_true", "y_pred"):
-                    shape = row.get(f"{field}_shape")
-                    if arrays[field] is not None and shape is not None:
-                        arrays[field] = arrays[field].reshape(shape)
 
                 # Reconstruct y_proba shape if available
                 if arrays["y_proba"] is not None:
