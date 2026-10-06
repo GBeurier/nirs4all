@@ -24,7 +24,8 @@ Choose the product before choosing the function. `nirs4all` on PyPI is the full 
 | Native tuning | `tune`, `resume_tuning` | `nirs4all_tune`, `nirs4all_resume_tuning` | `tune`, `tuneBrowser` | `nirs4all.tune`, `nirs4all.resumeTuning` |
 | Open saved results | `open_experiment` | `nirs4all_open_experiment` | `openExperiment` | `nirs4all.resultView` |
 | Calibrate and audit | `calibrate`, `robustness` | `nirs4all_calibrate`, `nirs4all_robustness` | `calibrate`, `robustness` | `nirs4all.calibrate`, `nirs4all.robustness` |
-| Raw multimodal predictor | `MultimodalPredictor` | `nirs4all_multimodal_*`, `nirs4all_native_multimodal_export/load` | `MultimodalPredictor` | `nirs4all.MultimodalPredictor` |
+| Raw multimodal predictor | `MultimodalPredictor` | `nirs4all_multimodal_*` | `MultimodalPredictor` | `nirs4all.MultimodalPredictor` |
+| Native CPU multimodal (candidate) | `run_multimodal`, `NativeMultimodal` | `nirs4all_run_multimodal`, `nirs4all_native_multimodal_export/load` | Node `runMultimodal`, `NativeMultimodal` | `nirs4all.runMultimodal`, `nirs4all.NativeMultimodal` |
 | SDK workspace snapshot | `save_workspace`, `open_workspace`, `import_workspace` | `nirs4all_open_workspace`, `nirs4all_import_workspace` | `openWorkspace` (hashed bytes and native experiments) | `nirs4all.Workspace`, `Workspace.importSnapshot` |
 
 R also has a distinct local `nirs4all_run(X, y, …)` workflow. Its inputs and fitted object are not interchangeable with `nirs4all_native_run(dataset, archive, …)`. JavaScript `tuneBrowser` uses a browser-native initial-full-refit package; native CPU tuning uses its own archive contract. Consult {doc}`deployment` before transporting either.
