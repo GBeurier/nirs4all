@@ -11,9 +11,9 @@ on:
 # exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
 
 env:
-  N4A_DAG_ML_REF: 867f3576592ec390e2a16ced53cc027c022cde27
-  N4A_DAG_ML_DATA_REF: 3f761473d1aa597a1ed76d9d8c60094f4053aab8
-  N4A_IO_REF: b3baefc6ae69f036e4475e24ff1b971adf5b968e
+  N4A_DAG_ML_REF: 9095e5640c53b02dd91dc4de7a20d1a7d501bbdb
+  N4A_DAG_ML_DATA_REF: 78719b68c8e9ffd4c2035792574b8da33387d237
+  N4A_IO_REF: 2641ffb468be4d7e4f4b7ef5f60e706c56d08d59
   N4A_METHODS_REF: dcc570b3647f77cf0428dd346078f442ed5cd032
 
 jobs:

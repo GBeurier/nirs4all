@@ -21,8 +21,8 @@ on:
   workflow_dispatch:  # Allow manual trigger
 
 env:
-  N4A_DAG_ML_REF: 29907331d3f6befdcca5168be223cda7d668eece
-  N4A_DAG_ML_DATA_REF: 6a71216176556a582ba9b684cda37403014e41c2
+  N4A_DAG_ML_REF: 9095e5640c53b02dd91dc4de7a20d1a7d501bbdb
+  N4A_DAG_ML_DATA_REF: 78719b68c8e9ffd4c2035792574b8da33387d237
 
 jobs:
   build-docs:
