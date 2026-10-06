@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.4.4] — 2026-10-06
+
+### Fixed
+
+- Reconcile the same refit prediction exposed by global and per-dataset result
+  views, so a unique unscored final model remains accessible through `final`
+  and `best`.
+- Preserve loaded evidence when reopening metadata-only workspace projections,
+  while refusing contradictory provenance, sample order or matrix sample axes.
+- Keep distinct unscored final predictions ambiguous and preserve scored model
+  selection and CV metric accessors.
+
+
 ## [1.4.3] — 2026-10-06
 
 ### Fixed
