@@ -11,11 +11,11 @@ This section covers model training, comparison, hyperparameter tuning, and ensem
 
 | Example | Topic | Difficulty | Duration |
 |---------|-------|------------|----------|
-| [U01](#u01-multi-model) | Multi-Model Comparison | ★★☆☆☆ | ~4 min |
+| [U01](#u01-multi-model-comparison) | Multi-Model Comparison | ★★☆☆☆ | ~4 min |
 | [U02](#u02-hyperparameter-tuning) | Hyperparameter Tuning | ★★★☆☆ | ~5 min |
 | [U03](#u03-stacking-ensembles) | Stacking Ensembles | ★★★☆☆ | ~4 min |
 | [U04](#u04-pls-variants) | PLS Variants | ★★☆☆☆ | ~3 min |
-| [U05](#u05-advanced-finetuning) | Advanced Fine-Tuning | ★★★★☆ | ~8 min |
+| [U05](#u05-advanced-fine-tuning) | Advanced Fine-Tuning | ★★★★☆ | ~8 min |
 | [U06](#u06-tabpfn-nirs) | TabPFN for NIRS | ★★☆☆☆ | ~3 min |
 | [U07](#u07-aom-panoply) | AOM Panoply | ★★★★★ | ~2-5 min |
 

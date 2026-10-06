@@ -12,7 +12,7 @@ This section covers model interpretation and explainability using SHAP (SHapley 
 | Example | Topic | Difficulty | Duration |
 |---------|-------|------------|----------|
 | [U01](#u01-shap-basics) | SHAP Basics | ★★☆☆☆ | ~5 min |
-| [U02](#u02-shap-sklearn) | SHAP with sklearn | ★★☆☆☆ | ~4 min |
+| [U02](#u02-shap-with-sklearn-wrapper) | SHAP with sklearn | ★★☆☆☆ | ~4 min |
 | [U03](#u03-feature-selection) | Feature Selection | ★★★☆☆ | ~4 min |
 
 ---
