@@ -7,7 +7,10 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from nirs4all.controllers.charts.targets import YChartController
+from nirs4all.data import SpectroDataset
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.config.context import DataSelector, ExecutionContext
 from nirs4all.visualization.charts.candlestick import CandlestickChart
 from nirs4all.visualization.charts.confusion_matrix import ConfusionMatrixChart
 from nirs4all.visualization.charts.heatmap import HeatmapChart
@@ -20,6 +23,31 @@ from tests.unit.visualization.charts.test_audit_chart_scores import _add
 def close_figures():
     yield
     plt.close('all')
+
+
+@pytest.mark.parametrize('layout', ['stacked', 'staggered'])
+def test_audit_local_minor_target_histograms_use_absolute_fold_ids(monkeypatch, layout):
+    """Excluded IDs leave holes; both train and validation values must retain identity."""
+    dataset = SpectroDataset('absolute_target_ids')
+    dataset.add_samples(np.arange(16.).reshape(8, 2), {'partition': 'train'})
+    dataset.add_targets(np.arange(8.))
+    dataset._indexer.mark_excluded([1, 3], reason='audit holes')
+    # Valid partial train/validation populations, as supported by ShuffleSplit.
+    folds = [([0, 2], [4, 5]), ([4, 5], [0, 2])]
+    dataset.set_folds(folds)
+    controller = YChartController()
+    captured = []
+    monkeypatch.setattr(controller, '_plot_categorical_fold',
+                        lambda ax, train, val, *args, **kwargs: captured.append((train.copy(), val.copy())))
+    context = ExecutionContext(selector=DataSelector(processing=[['raw']]))
+    _, name = controller._create_fold_grid_histogram(dataset, context, dataset.folds, layout=layout)
+
+    assert name == f'Y_distribution_2folds_{layout}'
+    assert len(captured) == 2
+    for (train_values, val_values), (train_ids, val_ids) in zip(captured, folds, strict=True):
+        # The target is the original sample ID: this oracle does not remap through base IDs.
+        np.testing.assert_array_equal(train_values, train_ids)
+        np.testing.assert_array_equal(val_values, val_ids)
 
 
 @pytest.mark.parametrize('aggregate', [None, 'y'])

@@ -10,6 +10,26 @@ from nirs4all.pipeline.config.component_serialization import deserialize_compone
 from nirs4all.pipeline.config.generator import count_combinations, expand_spec, expand_spec_with_choices
 
 
+@pytest.mark.parametrize("spec,expected_count", [
+    ({"_or_": ["A", "B"], "pick": 3}, 0),
+    ({"_or_": ["A", "B"], "pick": 2, "_mutex_": [["A", "B"]]}, 1),
+])
+def test_audit_local_minor_zero_generator_variants_are_rejected(spec, expected_count):
+    assert count_combinations([spec]) == expected_count
+    assert expand_spec([spec]) == []
+    with pytest.raises(ValueError, match="Generator expansion produced no pipeline configurations"):
+        PipelineConfigs([spec])
+
+
+@pytest.mark.parametrize("steps", [[], [Ridge()], [{"branch": [[{"_or_": ["A", "B"], "pick": 3}]]}]])
+def test_audit_local_minor_non_generator_and_branch_bypass_contracts_remain(steps):
+    assert not PipelineConfigs._has_gen_keys(steps)
+    config = PipelineConfigs(steps)
+    assert len(config.steps) == 1
+    assert config.generator_choices == [[]]
+    assert not config.has_configurations
+
+
 @pytest.mark.parametrize("spec", [
     {"_grid_": {"x": [{"_range_": [1, 3]}, 10]}},
     {"_or_": [{"_range_": [1, 3]}, "B"], "pick": 2},

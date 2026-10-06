@@ -1,5 +1,5 @@
 {% set name = "nirs4all" %}
-{% set version = "1.4.1" %}
+{% set version = "1.4.2" %}
 {% set python_min = "3.11" %}
 
 package:
@@ -8,9 +8,9 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
-  # Exact digest of the locally built 1.4.1 release candidate source distribution.
+  # Exact digest of the locally built 1.4.2 release candidate source distribution.
   # Verify against PyPI before updating the feedstock; publication is pending.
-  sha256: 334b87f93a54540e4ce194564fca54a0c23fc99a0fce984a44e6285c8c8ac182
+  sha256: ea730f129791546227fe782026a8ad0fd9138fe467b4a0bf821de3e7202b7552
 
 build:
   noarch: python

@@ -9,6 +9,58 @@ from nirs4all.controllers.data.resampler import ResamplerController
 from nirs4all.operators.transforms import Resampler
 
 
+@pytest.mark.parametrize("n_sources", [1, 2])
+@pytest.mark.parametrize("save_artifacts", [False, True])
+@pytest.mark.parametrize("existing_csv", [False, True])
+def test_audit_local_minor_resampling_never_dumps_matrices(tmp_path, n_sources, save_artifacts, existing_csv):
+    """Real persisted resampling must not create or overwrite diagnostic matrix exports."""
+    import sqlite3
+
+    import joblib
+    from sklearn.linear_model import Ridge
+    from sklearn.model_selection import KFold
+
+    import nirs4all
+    from nirs4all.data import SpectroDataset
+
+    wavelengths = np.array([1000., 1250., 1500., 1750., 2000.])
+    target = np.array([1125., 1375., 1625., 1875.])
+    rng = np.random.default_rng(313)
+    sources = [rng.normal(size=(12, 5)) for _ in range(n_sources)]
+    dataset = SpectroDataset("private_resampling_matrix")
+    dataset.add_samples([x[:8] for x in sources], {"partition": "train"},
+                        headers=[wavelengths.tolist() for _ in sources], header_unit="cm-1")
+    dataset.add_samples([x[8:] for x in sources], {"partition": "test"})
+    dataset.add_targets(2 * sources[0][:, 0] - sources[0][:, 1])
+    workspace = tmp_path / "workspace"
+    csv_paths = [workspace / dataset.name / f"Export_X_{partition}.csv" for partition in ("train", "test")]
+    previous = b"user-owned existing CSV\n"
+    if existing_csv:
+        csv_paths[0].parent.mkdir(parents=True)
+        for path in csv_paths:
+            path.write_bytes(previous)
+    with nirs4all.run([Resampler(target_wavelengths=target, method="linear"), KFold(2), Ridge()],
+                     dataset, engine="legacy", workspace_path=workspace,
+                     save_artifacts=save_artifacts, save_charts=False, verbose=0) as result:
+        assert result.predictions.num_predictions > 0
+
+    for path in csv_paths:
+        if existing_csv:
+            assert path.read_bytes() == previous
+        else:
+            assert not path.exists()
+    if save_artifacts:
+        with sqlite3.connect(f"{(workspace / 'store.sqlite').as_uri()}?mode=ro", uri=True) as connection:
+            paths = connection.execute("SELECT artifact_path FROM artifacts WHERE artifact_type = 'transformer'").fetchall()
+        assert len(paths) >= n_sources
+        for (relative_path,) in paths:
+            fitted = joblib.load(workspace / "artifacts" / relative_path).value
+            assert isinstance(fitted, Resampler)
+            # Independent linear interpolation oracle, not the controller's own output.
+            expected = np.stack([np.interp(target, wavelengths, row) for row in sources[0]])
+            np.testing.assert_allclose(fitted.transform(sources[0]), expected, atol=1e-7)
+
+
 class TestResampler:
     """Test the Resampler operator."""
 
@@ -211,4 +263,3 @@ class TestResamplerIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,6 +15,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 HELPER = Path(__file__).resolve().parents[3] / "scripts/prepare_installed_example_runtime.py"
 SPEC = importlib.util.spec_from_file_location("installed_example_preparation", HELPER)
@@ -156,3 +160,245 @@ def test_interpreter_exports_reject_environment_file_injection(tmp_path, separat
     with pytest.raises(ValueError, match="Invalid GitHub interpreter path"):
         helper.export_installed_interpreters(Path(f"/child/python{separator}UNRELATED=bad"), github_env)
     assert github_env.read_text() == "EXISTING_SETTING=preserved\n"
+
+
+def _preparation_fixture(tmp_path, monkeypatch, *, align=False, fault=None):
+    """Exercise orchestration with synthetic unit artifacts and intercepted installers."""
+    workspace = tmp_path / "workspace"
+    (workspace / "nirs4all").mkdir(parents=True)
+    sdk_source = workspace / "nirs4all/__init__.py"
+    sdk_source.write_text(f"__version__ = {helper.SDK_VERSION!r}\n")
+    wheelhouse = tmp_path / "unit-wheel-fixtures"
+    wheelhouse.mkdir()
+    artifacts = {}
+    module_bytes = {
+        "dag_ml._dag_ml": b"synthetic unit DAG extension bytes",
+        "n4m.roles._multimodal": b"# synthetic unit Methods source bytes\n",
+    }
+    for name, version in {"nirs4all": helper.SDK_VERSION, **helper.UPSTREAMS}.items():
+        path = wheelhouse / f"{name.replace('-', '_')}-{version}-py3-none-any.whl"
+        with zipfile.ZipFile(path, "w") as wheel:
+            wheel.writestr(f"{name.replace('-', '_')}-{version}.dist-info/METADATA", f"Name: {name}\nVersion: {version}\n")
+            if name == "nirs4all":
+                wheel.writestr("nirs4all/__init__.py", sdk_source.read_bytes())
+            elif name == "dag-ml":
+                wheel.writestr("dag_ml/_dag_ml.abi3.so", module_bytes["dag_ml._dag_ml"])
+            elif name == "nirs4all-methods":
+                wheel.writestr("n4m/roles/_multimodal.py", module_bytes["n4m.roles._multimodal"])
+        artifacts[name] = path
+    manifest = tmp_path / "unit-artifact-manifest.json"
+    manifest.write_text(json.dumps({name: {"path": str(artifacts[name]), "version": version,
+                                          "public": True, "sha256": helper.sha256(artifacts[name])}
+                                    for name, version in helper.UPSTREAMS.items()}))
+    shared = tmp_path / "parent-site-packages"
+    shared.mkdir()
+    (shared / "torch").mkdir()
+    (shared / "torch/__init__.py").write_text("# preserve chosen Torch profile\n")
+    cli = tmp_path / "source-cli"
+    cli.write_bytes(b"preserve compiled source CLI")
+    native = tmp_path / "source-methods.so"
+    native.write_bytes(b"preserve source native Methods library")
+    methods_source = tmp_path / "methods-source/bindings/python/src/n4m/roles/_multimodal.py"
+    methods_source.parent.mkdir(parents=True)
+    (methods_source.parents[1] / "__init__.py").write_text("# source Methods package\n")
+    methods_source.write_bytes(module_bytes["n4m.roles._multimodal"])
+    monkeypatch.setenv("N4M_LIB_PATH", str(native))
+    monkeypatch.setenv("NIRS4ALL_CORE_LIVE_METHODS_LIBRARY", str(native))
+    monkeypatch.setenv("PYTHONPATH", str(workspace) + os.pathsep + str(methods_source.parents[2]))
+    github_env = tmp_path / "github-env"
+    github_env.write_text("EXISTING_SETTING=preserved\n")
+    args = argparse.Namespace(workspace=workspace, output=tmp_path / "prepared", sdk_wheel=artifacts["nirs4all"],
+                              upstream_manifest=manifest, shared_site_packages=[shared], github_env=github_env,
+                              align_parent_public_upstreams=align)
+    purelib = args.output / "child/lib/site-packages"
+    commands = []
+
+    def create_child(self, path):
+        purelib.mkdir(parents=True)
+        (path / "bin").mkdir()
+        (path / "bin/python").write_text("# intercepted unit interpreter\n")
+
+    def fake_run(command, **kwargs):
+        commands.append((command, kwargs))
+        if "-c" in command:
+            compile(command[command.index("-c") + 1], "<fresh-runtime-proof>", "exec")
+            arguments = command[command.index("-c") + 2:]
+            parent = command[0] == sys.executable
+            expected = json.loads(arguments[0])
+            bindings = json.loads(arguments[1] if parent else arguments[3])
+            proof = {"versions": expected, "public_bindings": {}}
+            for module, item in bindings.items():
+                origin = (tmp_path / "parent-runtime" if parent else purelib) / item["wheel_member"]
+                origin.parent.mkdir(parents=True, exist_ok=True)
+                if origin != methods_source:
+                    origin.write_bytes(module_bytes[module])
+                wrong = module == "dag_ml._dag_ml" and ((parent and fault == "parent_binding") or (not parent and fault in {"child_binding", "forged_child_digest"}))
+                if wrong:
+                    origin.write_bytes(b"wrong installed native extension bytes")
+                digest = hashlib.sha256(origin.read_bytes()).hexdigest()
+                if not parent and module == "dag_ml._dag_ml" and fault == "forged_child_digest":
+                    digest = item["sha256"]
+                proof["public_bindings"][module] = {"origin": str(origin), "sha256": digest}
+            library = (tmp_path / "parent-runtime" if parent else purelib) / "n4m/lib/libn4m.so"
+            library.parent.mkdir(parents=True, exist_ok=True)
+            library.write_bytes(b"synthetic public unit library")
+            proof["native_library"] = str(library)
+            Path(arguments[2]).write_text(json.dumps(proof))
+        elif "install" in command and command[0] != sys.executable and fault == "wheel_changed":
+            with zipfile.ZipFile(artifacts["dag-ml"], "a") as wheel:
+                wheel.writestr("changed-artifact.txt", "bytes changed after public artifact selection")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(helper.venv.EnvBuilder, "create", create_child)
+    monkeypatch.setattr(helper.subprocess, "check_output", lambda *a, **k: str(purelib) + "\n")
+    monkeypatch.setattr(helper.subprocess, "run", fake_run)
+    return args, commands, artifacts, [sdk_source, shared / "torch/__init__.py", cli, native, methods_source]
+
+
+@pytest.mark.parametrize("align", [False, True])
+def test_public_parent_alignment_is_opt_in_and_installs_only_the_same_seven_artifacts(tmp_path, monkeypatch, align):
+    args, commands, artifacts, preserved = _preparation_fixture(tmp_path, monkeypatch, align=align)
+    before = {p: p.read_bytes() for p in preserved}
+    receipt = helper.prepare(args)
+    installs = [command for command, _ in commands if "install" in command]
+    parent = [command for command in installs if command[0] == sys.executable]
+    child = [command for command in installs if command[0] != sys.executable]
+    assert len(parent) == int(align) and len(child) == 1
+    approved = {"pls4all", "nirs4all-methods", "nirs4all-io", "dag-ml", "dag-ml-data", "nirs4all-core", "nirs4all-formats"}
+    child_paths = child[0][child[0].index("--force-reinstall") + 1:]
+    assert set(child_paths) == {str(path) for path in artifacts.values()}
+    if align:
+        installed = parent[0][parent[0].index("--force-reinstall") + 1:]
+        assert len(installed) == 7
+        assert {helper.wheel_identity(Path(path))[0] for path in installed} == approved
+        assert set(installed) == {str(artifacts[name]) for name in approved}
+        assert set(installed) < set(child_paths)
+        assert "--no-deps" in parent[0]
+        assert receipt["parent_child_binding_sha256_equal"] is True
+        parent_index = next(i for i, (command, _) in enumerate(commands) if command == parent[0])
+        assert "-c" in commands[parent_index + 1][0]  # Fresh process before child preparation/training.
+        assert commands[parent_index + 1][0][0] == sys.executable
+        assert "N4M_LIB_PATH" not in commands[parent_index + 1][1]["env"]
+        assert "NIRS4ALL_CORE_LIVE_METHODS_LIBRARY" not in commands[parent_index + 1][1]["env"]
+        assert commands[parent_index + 1][1]["env"]["PYTHONPATH"] == str(args.workspace)
+        assert os.environ["N4M_LIB_PATH"] == str(preserved[3])
+        assert str(preserved[4].parents[2]) in os.environ["PYTHONPATH"]
+    else:
+        assert receipt["parent_alignment"] == {"requested": False, "status": "NOT_REQUESTED"}
+        assert all(command[0] != sys.executable for command, _ in commands)
+    assert {p: p.read_bytes() for p in preserved} == before
+    assert receipt["status"] == "PASS"
+    assert {k: v["sha256"] for k, v in receipt["wheel_artifacts"].items()} == {name: helper.sha256(path) for name, path in artifacts.items()}
+    assert all("wheel" not in command and "download" not in command for command, _ in commands)
+    assert any(command[-1] == "check" for command, _ in commands)
+    exported = dict(line.split("=", 1) for line in args.github_env.read_text().splitlines())
+    assert all(exported[flag] == "1" for flag in helper.INSTALLED_REQUIRE_FLAGS)
+    if align:
+        assert exported["PYTHONPATH"] == str(args.workspace)
+        assert exported["N4M_LIB_PATH"] == exported["NIRS4ALL_CORE_LIVE_METHODS_LIBRARY"]
+        assert exported["N4M_LIB_PATH"] != str(preserved[3])
+    else:
+        assert "PYTHONPATH" not in exported and "N4M_LIB_PATH" not in exported
+
+
+@pytest.mark.parametrize("fault", ["parent_binding", "child_binding", "forged_child_digest", "wheel_changed"])
+def test_public_binding_or_artifact_drift_fails_before_any_cold_profile_export(tmp_path, monkeypatch, fault):
+    args, commands, _, _ = _preparation_fixture(tmp_path, monkeypatch, align=True, fault=fault)
+    expected = "Selected wheel artifact changed" if fault == "wheel_changed" else "Public upstream binding payload mismatch"
+    with pytest.raises(ValueError, match=expected):
+        helper.prepare(args)
+    assert args.github_env.read_text() == "EXISTING_SETTING=preserved\n"
+    receipt = json.loads((args.output / "prerequisites.json").read_text())
+    assert receipt["status"] == "FAIL"
+    if fault == "parent_binding":
+        assert not (args.output / "child").exists()
+        assert len(commands) == 2
+
+
+def test_sdk_source_drift_is_rejected_before_opt_in_parent_installation(tmp_path, monkeypatch):
+    args, commands, _, preserved = _preparation_fixture(tmp_path, monkeypatch, align=True)
+    preserved[0].write_text("# source drift\n")
+    with pytest.raises(ValueError, match="SDK wheel/source payload mismatch"):
+        helper.prepare(args)
+    assert commands == []
+    assert args.github_env.read_text() == "EXISTING_SETTING=preserved\n"
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_selected_public_wheel_requires_one_unambiguous_dag_extension(tmp_path, monkeypatch, duplicate):
+    _, _, artifacts, _ = _preparation_fixture(tmp_path, monkeypatch)
+    with zipfile.ZipFile(artifacts["dag-ml"], "w") as wheel:
+        if duplicate:
+            wheel.writestr("dag_ml/_dag_ml.abi3.so", b"first")
+            wheel.writestr("dag_ml/_dag_ml.cpython-311.so", b"second")
+    with pytest.raises(ValueError, match="exactly one dag_ml._dag_ml binding"):
+        helper.public_binding_payloads(artifacts)
+
+
+@pytest.mark.parametrize("align", [False, True])
+def test_cli_parent_alignment_defaults_off_and_requires_explicit_flag(tmp_path, monkeypatch, align):
+    captured = []
+
+    def capture(args):
+        captured.append(args)
+        return {"status": "PASS", "python": "/unit-child/bin/python"}
+
+    monkeypatch.setattr(helper, "prepare", capture)
+    arguments = [str(HELPER), "--workspace", str(tmp_path), "--output", str(tmp_path / "prepared")]
+    if align:
+        arguments.append("--align-parent-public-upstreams")
+    monkeypatch.setattr(sys, "argv", arguments)
+    helper.main()
+    assert len(captured) == 1 and captured[0].align_parent_public_upstreams is align
+
+
+def test_ci_action_explicitly_requests_public_parent_alignment_in_its_real_shell(tmp_path, monkeypatch):
+    action = yaml.safe_load((HELPER.parents[1] / ".github/actions/prepare-installed-example/action.yml").read_text())
+    executable = tmp_path / "bin/python"
+    executable.parent.mkdir()
+    captured = tmp_path / "launched-arguments.json"
+    executable.write_text(f"#!{sys.executable}\nimport json,sys\nfrom pathlib import Path\nPath({str(captured)!r}).write_text(json.dumps(sys.argv[1:]))\n")
+    executable.chmod(0o755)
+    environment = {**os.environ, "PATH": str(executable.parent) + os.pathsep + os.environ["PATH"],
+                   "GITHUB_ACTION_PATH": str(HELPER.parents[1] / ".github/actions/prepare-installed-example"),
+                   "GITHUB_WORKSPACE": str(tmp_path), "RUNNER_TEMP": str(tmp_path / "runner"), "GITHUB_ENV": str(tmp_path / "github-env")}
+    result = subprocess.run(["bash", "-e", "-c", action["runs"]["steps"][0]["run"]], env=environment, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    arguments = json.loads(captured.read_text())
+    assert arguments[0] == "-B" and Path(arguments[1]).resolve() == HELPER
+    captured_args = []
+    monkeypatch.setattr(sys, "argv", arguments[1:])
+    monkeypatch.setattr(helper, "prepare", lambda args: captured_args.append(args) or {"status": "PASS", "python": "/unit-child/bin/python"})
+    helper.main()
+    assert captured_args[0].align_parent_public_upstreams is True
+    assert captured_args[0].workspace == tmp_path
+
+
+def test_public_environment_removes_only_known_methods_overlays_without_mutating_the_caller(tmp_path):
+    paths = [tmp_path / "sdk", tmp_path / "methods/bindings/python/src", tmp_path / "tag/bindings/python_nirs4all_methods/src", tmp_path / "unrelated-overlay"]
+    for path in paths[1:]:
+        (path / "n4m").mkdir(parents=True)
+        (path / "n4m/__init__.py").write_text("# fixture\n")
+    environment = {"PYTHONPATH": os.pathsep.join(map(str, paths)), "N4M_LIB_PATH": "/source/libn4m.so",
+                   "NIRS4ALL_CORE_LIVE_METHODS_LIBRARY": "/source/libn4m.so", "N4A_DAGML_CLI": "/source/dag-ml-cli",
+                   "CUDA_VISIBLE_DEVICES": "selected-profile", "UNRELATED": "preserved"}
+    before = dict(environment)
+    aligned = helper.public_parent_environment(environment)
+    assert aligned == {"PYTHONPATH": os.pathsep.join(map(str, [paths[0], paths[3]])), "N4A_DAGML_CLI": "/source/dag-ml-cli",
+                       "CUDA_VISIBLE_DEVICES": "selected-profile", "UNRELATED": "preserved"}
+    assert environment == before
+
+
+def test_public_payloads_include_python_native_and_relocated_files_not_metadata(tmp_path, monkeypatch):
+    _, _, artifacts, _ = _preparation_fixture(tmp_path, monkeypatch)
+    members = {"n4m/lib/libn4m.so.2": b"versioned native library", "n4m/backend.py": b"# Python runtime\n",
+               "nirs4all_methods-1.3.2.data/purelib/n4m/relocated.py": b"# relocated runtime\n",
+               "nirs4all_methods-1.3.2.dist-info/unused.py": b"metadata not runtime"}
+    with zipfile.ZipFile(artifacts["nirs4all-methods"], "a") as wheel:
+        for name, contents in members.items():
+            wheel.writestr(name, contents)
+    payloads = helper.public_upstream_payloads(artifacts)
+    assert payloads["n4m/lib/libn4m.so.2"] == hashlib.sha256(members["n4m/lib/libn4m.so.2"]).hexdigest()
+    assert payloads["n4m/backend.py"] == hashlib.sha256(members["n4m/backend.py"]).hexdigest()
+    assert payloads["n4m/relocated.py"] == hashlib.sha256(members["nirs4all_methods-1.3.2.data/purelib/n4m/relocated.py"]).hexdigest()
+    assert not any(".dist-info" in path for path in payloads)

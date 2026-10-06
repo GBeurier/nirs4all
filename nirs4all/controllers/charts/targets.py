@@ -199,9 +199,6 @@ class YChartController(OperatorController):
         # Get train partition context for y values
         train_context = context.with_partition("train")
 
-        # Get base sample IDs for the train partition
-        base_sample_ids = dataset._indexer.x_indices(train_context, include_augmented=False)
-
         # Get all y values for determining common bins
         y_train_all = dataset.y(train_context, include_augmented=False)
         y_train_flat = y_train_all.flatten() if y_train_all.ndim > 1 else y_train_all
@@ -238,22 +235,14 @@ class YChartController(OperatorController):
                 ax.set_title(f'Fold {fold_idx + 1} - Validation')
                 continue
 
-            # Map fold indices to sample IDs and get y values
-            val_idx_arr = np.array(val_idx)
-            try:
-                val_sample_ids = base_sample_ids[val_idx_arr]
-            except IndexError:
-                val_sample_ids = val_idx_arr
+            # Splitter folds already contain absolute sample IDs.
+            val_sample_ids = np.asarray(val_idx)
 
             y_val = dataset.y({"sample": val_sample_ids.tolist(), "y": context.state.y_processing}, include_augmented=False)
             y_val_flat = y_val.flatten() if y_val.ndim > 1 else y_val
 
             # Also get train y for this fold (for stacked visualization)
-            train_idx_arr = np.array(train_idx)
-            try:
-                train_sample_ids = base_sample_ids[train_idx_arr]
-            except IndexError:
-                train_sample_ids = train_idx_arr
+            train_sample_ids = np.asarray(train_idx)
 
             y_train_fold = dataset.y({"sample": train_sample_ids.tolist(), "y": context.state.y_processing}, include_augmented=False)
             y_train_fold_flat = y_train_fold.flatten() if y_train_fold.ndim > 1 else y_train_fold

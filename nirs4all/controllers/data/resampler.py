@@ -5,7 +5,7 @@ This controller handles the Resampler operator, extracting wavelengths from
 dataset headers and managing the resampling process across multiple sources.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import numpy as np
 
@@ -318,18 +318,14 @@ class ResamplerController(OperatorController):
             dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")  # noqa: SLF001
 
             if runtime_context.save_artifacts and runtime_context.store is not None:
-                logger.debug(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
+                logger.debug(f"Resampled features for dataset '{dataset.name}', source {sd_idx}")
                 logger.debug(dataset.features_processings(sd_idx))
                 train_context = context.with_partition("train")
-                train_x_full = dataset.x(train_context.selector, "2d", concat_source=True)
+                train_x_full = cast(np.ndarray, dataset.x(train_context.selector, "2d", concat_source=True))
                 test_context = context.with_partition("test")
-                test_x_full = dataset.x(test_context.selector, "2d", concat_source=True)
-                # save train and test features to CSV for debugging
-                import os
-                root_path = runtime_context.store.workspace_path
-                os.makedirs(f"{root_path}/{dataset.name}", exist_ok=True)
-                np.savetxt(f"{root_path}/{dataset.name}/Export_X_train.csv", train_x_full, delimiter=",")
-                np.savetxt(f"{root_path}/{dataset.name}/Export_X_test.csv", test_x_full, delimiter=",")
+                test_x_full = cast(np.ndarray, dataset.x(test_context.selector, "2d", concat_source=True))
+                logger.debug(f"Resampled train feature shape: {train_x_full.shape}")
+                logger.debug(f"Resampled test feature shape: {test_x_full.shape}")
 
         context = context.with_processing(new_processing_list)
         context = context.with_metadata(add_feature=False)

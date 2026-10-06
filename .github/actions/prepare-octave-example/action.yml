@@ -4,6 +4,15 @@ description: Build MEX shims and capture real public Methods/DAG WASM fits for U
 runs:
   using: composite
   steps:
+    - name: Checkout the isolated Octave hydration helper
+      uses: actions/checkout@v6
+      with:
+        repository: GBeurier/dag-ml
+        ref: 337522ee9627f48f54a51aa00120c4b85d733a8b
+        path: .octave-example-dag-helper
+        # The preparation guard compares this commit with the qualified runtime.
+        fetch-depth: 0
+
     - uses: actions/setup-node@v6
       with:
         node-version: 24
@@ -25,6 +34,7 @@ runs:
       run: |
         python -B "$GITHUB_ACTION_PATH/../../../scripts/prepare_octave_example_runtime.py" \
           --workspace "$GITHUB_WORKSPACE" \
+          --dag-root "$GITHUB_WORKSPACE/.octave-example-dag-helper" \
           --output "$RUNNER_TEMP/nirs4all-octave-example" \
           --octave "$(command -v octave-cli)" \
           --github-env "$GITHUB_ENV"

@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.4.2] — 2026-10-06
+
+### Fixed
+
+- Fit legacy tagging filters on base training rows while tagging the selected
+  train/test and optional augmented rows with matched target arrays.
+- Use stored absolute sample IDs directly in target fold histograms.
+- Keep legacy resampler diagnostics to feature dimensions, without exporting
+  full training or test matrices as CSV files.
+- Reject generator configurations with no variants, including constraint-pruned
+  expansions, while retaining non-generator and branch bypass contracts.
+
+### Changed
+
+- Carry forward the 1.4.1 audit repairs and verified public dependency cohort.
+- Align release metadata and secondary CI dependency pins with that cohort.
+
+
 ## [1.4.1] — 2026-10-06
 
 ### Added

@@ -15,11 +15,60 @@ import numpy as np
 import pytest
 
 from nirs4all.controllers.data.tag import TagController
+from nirs4all.data import SpectroDataset
 from nirs4all.operators.filters.base import SampleFilter
 from nirs4all.operators.filters.x_outlier import XOutlierFilter
 from nirs4all.operators.filters.y_outlier import YOutlierFilter
 from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+
+
+@pytest.mark.parametrize("target_columns", [None, 1, 2])
+@pytest.mark.parametrize("include_augmented", [False, True])
+def test_audit_local_minor_tag_fits_base_train_and_tags_all_selected_rows(monkeypatch, target_columns, include_augmented):
+    """Held-out and augmented extremes must not determine the fitted threshold."""
+    class RecordingFilter(SampleFilter):
+        def fit(self, X, y=None):
+            self.fit_x = X.copy()
+            self.fit_y = None if y is None else y.copy()
+            self.limit = np.max(X[:, 0])
+            return self
+
+        def get_mask(self, X, y=None):
+            self.mask_x = X.copy()
+            return X[:, 0] <= self.limit
+
+    dataset = SpectroDataset("tag_fit_cohort")
+    dataset.set_task_type("regression")
+    train_x = np.array([[1., 10.], [2., 20.], [3., 30.]])
+    dataset.add_samples(train_x, {"partition": "train"})
+    dataset.add_samples(np.array([[100., 1000.], [200., 2000.]]), {"partition": "test"})
+    if target_columns is None:
+        monkeypatch.setattr(dataset, "y", lambda *args, **kwargs: None)
+    else:
+        targets = np.column_stack([np.arange(5.) + 10 * column for column in range(target_columns)])
+        dataset.add_targets(targets)
+    dataset.add_samples(np.array([[500., 5000.]]), {"partition": "train", "origin": 0, "augmentation": "extreme"})
+    context = ExecutionContext(selector=DataSelector(partition=None, processing=[["raw"]], include_augmented=include_augmented))
+    runtime = RuntimeContext(step_runner=Mock(verbose=0))
+    probe = RecordingFilter(tag_name="held_out_threshold")
+    step = ParsedStep(operator=None, keyword="tag", step_type=StepType.WORKFLOW,
+                      original_step={"tag": probe}, metadata={})
+
+    _, artifacts = TagController().execute(step, dataset, context, runtime, mode="train")
+
+    np.testing.assert_array_equal(probe.fit_x, train_x)
+    if target_columns is None:
+        assert probe.fit_y is None
+    else:
+        expected_y = targets[:3, 0] if target_columns == 1 else targets[:3]
+        np.testing.assert_array_equal(probe.fit_y, expected_y)
+    assert len(probe.mask_x) == (6 if include_augmented else 5)
+    assert probe.limit == 3.
+    selected = list(range(6 if include_augmented else 5))
+    np.testing.assert_array_equal(dataset.get_tag("held_out_threshold", {"sample": selected}),
+                                  [False, False, False, True, True] + ([True] if include_augmented else []))
+    assert len(artifacts) == 1 and artifacts[0][0] is probe
 
 
 class TestTagControllerMatches:
