@@ -11,6 +11,26 @@ from nirs4all.api.advanced_capabilities import advanced_api_capability_ledger
 from nirs4all.pipeline.dagml.rt import RtError
 
 
+@pytest.mark.parametrize("explicit_axis", [False, True])
+def test_path_template_retains_physical_axis_and_caller_override(tmp_path, explicit_axis):
+    import json
+
+    import nirs4all
+
+    axis = np.linspace(1100, 2400, 30)
+    rng = np.random.default_rng(15)
+    spectra = np.exp(-((axis[None, :] - 1650) / 180) ** 2) * rng.uniform(0.5, 1.5, (24, 1))
+    path = tmp_path / "Xcal.csv"
+    np.savetxt(path, spectra, delimiter=",", header=",".join(map(str, axis)), comments="")
+    config = tmp_path / "dataset.json"
+    config.write_text(json.dumps({"train_x": str(path), "train_x_params": {"delimiter": ",", "has_header": True,
+                                                                              "header_unit": "nm"}}))
+    requested = axis + 5 if explicit_axis else None
+    generated = nirs4all.generate.from_template(str(config), n_samples=8, wavelengths=requested,
+                                                random_state=15, engine="legacy")
+    np.testing.assert_allclose(generated.wavelengths_nm(), axis if requested is None else requested, atol=0.6)
+
+
 @pytest.fixture(autouse=True)
 def _clean_generate_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep plugin selection isolated while each rollback call stays explicit."""
@@ -19,6 +39,22 @@ def _clean_generate_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class TestGenerateFunction:
     """Tests for the main generate() function."""
+
+    @pytest.mark.parametrize("option", ["instrument", "noise_base", "wavelength_step", "complexitiy"])
+    def test_unknown_options_fail_before_generation(self, monkeypatch: pytest.MonkeyPatch, option: str) -> None:
+        import nirs4all
+        import nirs4all.synthesis
+
+        monkeypatch.setattr(nirs4all.synthesis, "SyntheticDatasetBuilder", lambda **_kwargs: pytest.fail("builder constructed"))
+        with pytest.raises(TypeError, match=option):
+            nirs4all.generate(n_samples=30, engine="legacy", **{option: 10})
+
+    def test_documented_default_axis_and_supported_options(self) -> None:
+        import nirs4all
+
+        dataset = nirs4all.generate(n_samples=30, random_state=0, engine="legacy", distribution="uniform", batch_effects=False)
+        np.testing.assert_array_equal(dataset.wavelengths_nm(), np.arange(350, 2501, 2))
+        assert dataset.num_samples == 30
 
     def test_basic_generation(self):
         """Test basic dataset generation."""

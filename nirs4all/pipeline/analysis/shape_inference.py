@@ -48,11 +48,13 @@ def _components(default: int) -> _ShapeRule:
 
 
 def _resample(samples: int, features: int, params: Mapping[str, Any]) -> tuple[int, int]:
-    return samples, int(params.get("n_features", params.get("target_points", features)))
+    count = params.get("num_samples", params.get("n_features", params.get("target_points", features)))
+    return samples, features if count is None else int(count)
 
 
 def _crop(samples: int, features: int, params: Mapping[str, Any]) -> tuple[int, int]:
-    return samples, max(1, int(params.get("end", features)) - int(params.get("start", 0)))
+    start, end, step = slice(params.get("start"), params.get("end")).indices(features)
+    return samples, len(range(start, end, step))
 
 
 def _wavelet(samples: int, features: int, params: Mapping[str, Any]) -> tuple[int, int]:
@@ -117,14 +119,18 @@ def infer_output_shape(
 
     Returns:
         ``(samples, features)`` after the operator, or ``None`` when the
-        operator has no registered shape rule (callers should treat unknown
+        operator has no registered rule or its shape is data-dependent (callers should treat unknown
         operators as shape-preserving but unverified).
     """
     rule = _SHAPE_RULES.get(operator_name)
     if rule is None:
         return None
     params = params or {}
-    if operator_name == "PCA" and "n_components" not in params:
-        # PCA without n_components keeps min(features, samples) components.
-        return samples, min(features, samples)
+    if operator_name == "PCA":
+        components = params.get("n_components")
+        if components is None:
+            return samples, min(features, samples)
+        if isinstance(components, (str, float)):
+            # Explained-variance and MLE counts depend on the fitted data.
+            return None
     return rule(samples, features, params)

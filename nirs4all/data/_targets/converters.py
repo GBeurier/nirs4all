@@ -155,7 +155,10 @@ class NumericConverter:
         for col in range(data.shape[1]):
             col_data = data[:, col]
 
-            if col_data.dtype.kind in {"U", "S", "O"}:  # String/object types
+            if col_data.dtype.kind == "O" and all(isinstance(value, (int, float, np.number)) for value in col_data):
+                numeric[:, col] = col_data.astype(np.float32)
+                column_transformers[col] = None
+            elif col_data.dtype.kind in {"U", "S", "O"}:  # String/object types
                 encoder = FlexibleLabelEncoder()
                 numeric[:, col] = encoder.fit_transform(col_data)
                 column_transformers[col] = encoder

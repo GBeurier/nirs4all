@@ -269,8 +269,11 @@ def _solve_local_ridge_path(
     return out
 
 
-def _topk_indices_per_row(K_cross: np.ndarray, k: int) -> np.ndarray:
-    """Return the top-k column indices per row of ``K_cross`` by similarity.
+def _topk_indices_per_row(K_cross: np.ndarray, k: int, train_diagonal: np.ndarray) -> np.ndarray:
+    """Return the k nearest columns in kernel-induced distance.
+
+    Query self-norm is constant within each row, so distance ranking uses
+    the training self-norm minus twice the cross-kernel similarity.
 
     Output shape is ``(n_query, k)``; columns are not sorted within each row,
     which is fine because we slice symmetric submatrices anyway.
@@ -278,7 +281,8 @@ def _topk_indices_per_row(K_cross: np.ndarray, k: int) -> np.ndarray:
     n_tr = K_cross.shape[1]
     if k >= n_tr:
         return np.broadcast_to(np.arange(n_tr), (K_cross.shape[0], n_tr)).copy()
-    return np.argpartition(-K_cross, k - 1, axis=1)[:, :k]
+    distances = train_diagonal[None, :] - 2.0 * K_cross
+    return np.argpartition(distances, k - 1, axis=1)[:, :k]
 
 
 def _batched_local_ridge_path(
@@ -303,7 +307,7 @@ def _batched_local_ridge_path(
     q = Yc_tr.shape[1]
     n_alpha = alpha_grid.size
     k_eff = min(int(k), n_tr)
-    idx = _topk_indices_per_row(K_cross, k_eff)         # (n_query, k_eff)
+    idx = _topk_indices_per_row(K_cross, k_eff, np.diag(K_tr))         # (n_query, k_eff)
     # Gather submatrices: K_sub[i] = K_tr[idx[i], :][:, idx[i]] -> (n_q, k, k)
     K_sub = K_tr[idx[:, :, None], idx[:, None, :]]
     K_sub = 0.5 * (K_sub + np.swapaxes(K_sub, -1, -2))
@@ -330,7 +334,7 @@ def _local_predict(
     """Predict every query row by a local Ridge on its k nearest neighbours.
 
     The neighbour set for query ``i`` is the top-k columns of
-    ``K_cross[i, :]`` ranked by similarity (largest first). Implemented via
+    ``K_cross[i, :]`` ranked by kernel distance (including training norms). Implemented via
     the batched alpha path with a 1-element alpha grid.
     """
     preds = _batched_local_ridge_path(

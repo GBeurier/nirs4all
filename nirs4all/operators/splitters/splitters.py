@@ -206,8 +206,7 @@ class SystematicCircularSplitter(CustomSplitter):
         if y is None:
             raise ValueError("Y data are required to use systematic circular sampling")
 
-        if self.random_state is not None:
-            rd.seed(self.random_state)
+        rng = rd.Random(self.random_state)
 
         y = np.asarray(y).reshape(-1)
 
@@ -215,7 +214,7 @@ class SystematicCircularSplitter(CustomSplitter):
         n_train, n_test = _validate_shuffle_split(n_samples, self.test_size, None)
 
         ordered_idx = np.argsort(y, axis=0)
-        rotated_idx = np.roll(ordered_idx, rd.randint(0, n_samples))
+        rotated_idx = np.roll(ordered_idx, rng.randint(0, n_samples))
 
         step = n_samples / n_train
         indices = [round(step * i) for i in range(n_train)]
@@ -230,6 +229,10 @@ class SystematicCircularSplitter(CustomSplitter):
 class KBinsStratifiedSplitter(CustomSplitter):
     """
     Implements stratified sampling using KBins discretization.
+
+    Every occupied bin needs at least two samples, and each split must have
+    enough samples for all occupied bins. Sparse targets may require fewer bins
+    or strategy="quantile". Defaults remain uniform bins and a 25% test split.
     """
 
     _webapp_meta = {
@@ -471,20 +474,16 @@ class KMeansSplitter(CustomSplitter):
         kmean.fit(X_transformed)
         centroids = kmean.cluster_centers_
 
-        index_train = np.zeros(n_samples, dtype=int)
+        index_train = np.empty(n_train, dtype=int)
+        available = np.ones(n_samples, dtype=bool)
         for i, centroid in enumerate(centroids):
-            tmp_array = cdist(X_transformed, [centroid], metric=self.metric).flatten()
-            closest_idx = np.argmin(tmp_array)
+            distances = cdist(X_transformed, [centroid], metric=self.metric).flatten()
+            distances[~available] = np.inf
+            closest_idx = np.argmin(distances)
             index_train[i] = closest_idx
+            available[closest_idx] = False
 
-        index_train = np.unique(index_train).astype(int)
-        index_test = np.delete(np.arange(n_samples), index_train)
-
-        # Ensure that the number of training and testing samples is correct
-        if len(index_train) > n_train:
-            index_train = index_train[:n_train]
-        if len(index_test) > n_test:
-            index_test = index_test[:n_test]
+        index_test = np.flatnonzero(available)
 
         yield index_train, index_test
 
@@ -593,7 +592,7 @@ class SPXYSplitter(CustomSplitter):
         if self.pca_components is not None:
             pca = PCA(self.pca_components, random_state=self.random_state)
             X_transformed = pca.fit_transform(X)
-            y_transformed = pca.fit_transform(y_arr)
+            y_transformed = y_arr
         else:
             X_transformed = X
             y_transformed = y_arr
@@ -639,7 +638,10 @@ class SPXYSplitter(CustomSplitter):
 
 class SPlitSplitter(CustomSplitter):
     """
-    Implements the SPlit sampling.
+    Implements SPlit sampling for reciprocal integer test fractions.
+
+    test_size must be 1/r for an integer r >= 2. The held-out set has
+    ceil(n_samples / r) rows. random_state chooses the initial twin locally.
     """
 
     _webapp_meta = {
@@ -656,11 +658,14 @@ class SPlitSplitter(CustomSplitter):
 
     def split(self, X, y=None, groups=None):
         n_samples = X.shape[0]
-        # n_features = X.shape[1]
-        # n_train, n_test = _validate_shuffle_split(n_samples, self.test_size, None)
-
-        r = int(1 / self.test_size)
-        index_test = _twin(X, r)
+        if not np.isfinite(self.test_size) or not 0 < self.test_size <= 0.5:
+            raise ValueError("test_size must be 1/r for an integer r >= 2")
+        ratio = 1 / self.test_size
+        r = round(ratio)
+        if not np.isclose(ratio, r) or r > n_samples / 2:
+            raise ValueError("test_size must be 1/r with 2 <= r <= n_samples/2")
+        rng = np.random.default_rng(self.random_state)
+        index_test = _twin(X, r, u1=int(rng.integers(n_samples)))
         index_train = np.delete(np.arange(n_samples), index_test)
         yield index_train, index_test
 

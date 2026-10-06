@@ -12,6 +12,7 @@ The models provide:
 - Serialization/deserialization
 """
 
+import re
 from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeAlias, cast
@@ -79,6 +80,24 @@ class PartitionType(StrEnum):
     TRAIN = "train"
     TEST = "test"
     PREDICT = "predict"
+
+
+def infer_partition_from_path(path: str, fallback: str | None = "train") -> str | None:
+    """Infer a partition from filename tokens, never from parent directories.
+
+    Explicit declarations take precedence at callers. Conflicting filename
+    tokens require an explicit partition rather than silently choosing train.
+    """
+    tokens = set(re.split(r"[^a-z0-9]+", Path(path).name.lower().split(".", 1)[0]))
+    patterns = {
+        "train": {"train", "cal", "calibration", "trn", "fit", "xcal", "xtrain", "ycal", "ytrain", "mcal", "mtrain", "calx", "trainx", "caly", "trainy"},
+        "test": {"test", "val", "validation", "tst", "holdout", "xtest", "xval", "ytest", "yval", "mtest", "mval", "testx", "valx", "testy", "valy"},
+        "predict": {"predict", "unknown", "new", "inference"},
+    }
+    matches = [partition for partition, names in patterns.items() if tokens & names]
+    if len(matches) > 1:
+        raise ValueError(f"Ambiguous partition in filename '{path}': {matches}. Specify partition explicitly.")
+    return matches[0] if matches else fallback
 
 class NAPolicy(StrEnum):
     """Policy for handling NA/missing values during data loading and pipeline execution."""
@@ -159,6 +178,11 @@ class LoadingParams(BaseModel):
     These parameters control how CSV and other files are parsed.
     Parameters can be specified at global, partition, or file level,
     with more specific levels overriding general ones.
+
+    Literal metadata tokens such as 'NA', 'None', and 'null' can be retained
+    with ``keep_default_na=False, na_values=[]``. To designate only an explicit
+    missing-value marker, use ``keep_default_na=False, na_values=['missing']``.
+    These controls affect parsing; na_policy controls subsequent handling.
     """
 
     model_config = ConfigDict(extra="allow")  # Allow extra fields for forward compatibility
@@ -192,6 +216,10 @@ class LoadingParams(BaseModel):
         default=None,
         description="File encoding. Default: 'utf-8'"
     )
+
+    keep_default_na: bool | None = Field(default=None, description="Whether pandas default NA tokens denote missing values.")
+    na_values: Any | None = Field(default=None, description="Explicit NA token(s); use [] with keep_default_na=False to preserve literal categories.")
+    na_filter: bool | None = Field(default=None, description="Whether to detect missing tokens during parsing.")
 
     na_policy: NAPolicy | str | None = Field(
         default=None,
@@ -715,8 +743,8 @@ class SourceConfig(BaseModel):
             for f in self.files:
                 if isinstance(f, str):
                     # Infer partition from path
-                    lower_path = f.lower()
-                    if any(p in lower_path for p in ('train', 'cal')):
+                    partition = infer_partition_from_path(f)
+                    if partition == 'train':
                         paths.append(f)
                 elif isinstance(f, (SourceFileConfig, dict)):
                     file_dict = f if isinstance(f, dict) else f.model_dump()
@@ -725,8 +753,8 @@ class SourceConfig(BaseModel):
                         paths.append(file_dict['path'])
                     elif partition is None:
                         # Infer from path
-                        lower_path = file_dict['path'].lower()
-                        if any(p in lower_path for p in ('train', 'cal')):
+                        partition = infer_partition_from_path(file_dict['path'])
+                        if partition == 'train':
                             paths.append(file_dict['path'])
         return paths
 
@@ -744,8 +772,8 @@ class SourceConfig(BaseModel):
             for f in self.files:
                 if isinstance(f, str):
                     # Infer partition from path
-                    lower_path = f.lower()
-                    if any(p in lower_path for p in ('test', 'val')):
+                    partition = infer_partition_from_path(f)
+                    if partition == 'test':
                         paths.append(f)
                 elif isinstance(f, (SourceFileConfig, dict)):
                     file_dict = f if isinstance(f, dict) else f.model_dump()
@@ -754,8 +782,8 @@ class SourceConfig(BaseModel):
                         paths.append(file_dict['path'])
                     elif partition is None:
                         # Infer from path
-                        lower_path = file_dict['path'].lower()
-                        if any(p in lower_path for p in ('test', 'val')):
+                        partition = infer_partition_from_path(file_dict['path'])
+                        if partition == 'test':
                             paths.append(file_dict['path'])
         return paths
 
@@ -1022,8 +1050,8 @@ class VariationConfig(BaseModel):
             for f in self.files:
                 if isinstance(f, str):
                     # Infer partition from path
-                    lower_path = f.lower()
-                    if any(p in lower_path for p in ('train', 'cal')):
+                    partition = infer_partition_from_path(f)
+                    if partition == 'train':
                         paths.append(f)
                 elif isinstance(f, (VariationFileConfig, dict)):
                     file_dict = f if isinstance(f, dict) else f.model_dump()
@@ -1032,8 +1060,8 @@ class VariationConfig(BaseModel):
                         paths.append(file_dict['path'])
                     elif partition is None:
                         # Infer from path
-                        lower_path = file_dict['path'].lower()
-                        if any(p in lower_path for p in ('train', 'cal')):
+                        partition = infer_partition_from_path(file_dict['path'])
+                        if partition == 'train':
                             paths.append(file_dict['path'])
         return paths
 
@@ -1051,8 +1079,8 @@ class VariationConfig(BaseModel):
             for f in self.files:
                 if isinstance(f, str):
                     # Infer partition from path
-                    lower_path = f.lower()
-                    if any(p in lower_path for p in ('test', 'val')):
+                    partition = infer_partition_from_path(f)
+                    if partition == 'test':
                         paths.append(f)
                 elif isinstance(f, (VariationFileConfig, dict)):
                     file_dict = f if isinstance(f, dict) else f.model_dump()
@@ -1061,8 +1089,8 @@ class VariationConfig(BaseModel):
                         paths.append(file_dict['path'])
                     elif partition is None:
                         # Infer from path
-                        lower_path = file_dict['path'].lower()
-                        if any(p in lower_path for p in ('test', 'val')):
+                        partition = infer_partition_from_path(file_dict['path'])
+                        if partition == 'test':
                             paths.append(file_dict['path'])
         return paths
 
@@ -1182,7 +1210,7 @@ class DatasetConfigSchema(BaseModel):
         description="Parameters applied to all test files."
     )
 
-    train_x_params: LoadingParams | None = Field(
+    train_x_params: LoadingParams | list[LoadingParams] | None = Field(
         default=None,
         description="Parameters for loading train_x."
     )
@@ -1197,7 +1225,7 @@ class DatasetConfigSchema(BaseModel):
         description="Parameters for loading train_group."
     )
 
-    test_x_params: LoadingParams | None = Field(
+    test_x_params: LoadingParams | list[LoadingParams] | None = Field(
         default=None,
         description="Parameters for loading test_x."
     )
@@ -1526,6 +1554,8 @@ class DatasetConfigSchema(BaseModel):
         file_params_attr = f"{partition}_{data_type}_params"
         file_params = getattr(self, file_params_attr, None)
         if file_params:
+            if isinstance(file_params, list):
+                raise ValueError("Per-source feature parameters require selecting a source; use the positional loader's per-source merge.")
             result = file_params.merge_with(result)
 
         return result
@@ -1614,16 +1644,28 @@ class DatasetConfigSchema(BaseModel):
 
         return list(self.variations)
 
+    @staticmethod
+    def _feature_file_params(source: SourceConfig | VariationConfig, path: str) -> dict[str, Any]:
+        """Merge source and file parameters, retaining a placeholder per path."""
+        params = source.params.model_dump(exclude_none=True) if source.params else {}
+        for file in source.files or []:
+            if isinstance(file, str):
+                continue
+            definition = file if isinstance(file, dict) else file.model_dump(exclude_none=True)
+            if definition["path"] == path:
+                params.update(definition.get("params") or {})
+        return params
+
     def variations_to_legacy_format(self) -> dict[str, Any]:
         """Convert variations format to legacy format for backward compatibility.
 
         This converts the variations syntax to the train_x/test_x format
         that existing loaders understand. The conversion depends on variation_mode:
 
-        - separate: Returns config for first variation (caller handles multiple runs)
+        - separate: Supports a single variation; multiple variations are refused
         - concat: Returns list of paths to be concatenated
         - select: Returns config for selected variations only
-        - compare: Same as separate (caller handles comparison)
+        - compare: Supports a single variation; multiple variations are refused
 
         Returns:
             Dictionary with legacy format configuration.
@@ -1631,29 +1673,20 @@ class DatasetConfigSchema(BaseModel):
         if not self.variations:
             return self.to_dict()
 
-        result: dict[str, Any] = {}
-
-        # Copy non-variation fields
-        if self.name:
-            result['name'] = self.name
-        if self.description:
-            result['description'] = self.description
-        if self.task_type:
-            result['task_type'] = self.task_type.value if hasattr(self.task_type, 'value') else self.task_type
-        if self.global_params:
-            result['global_params'] = self.global_params.model_dump(exclude_none=True)
-        if self.aggregate:
-            result['aggregate'] = self.aggregate
-        if self.aggregate_method:
-            result['aggregate_method'] = self.aggregate_method.value if hasattr(self.aggregate_method, 'value') else self.aggregate_method
+        result = self.model_dump(exclude_none=True, exclude={
+            "sources", "variations", "files", "variation_mode", "variation_select", "variation_prefix",
+        })
 
         # Get variations to use
         variations_to_use = self.get_selected_variations()
         mode = self.variation_mode or VariationMode.SEPARATE
 
         if mode in (VariationMode.SEPARATE, VariationMode.COMPARE):
-            # For separate/compare, return first variation
-            # Caller is responsible for handling multiple variations
+            if len(variations_to_use) > 1:
+                raise ValueError(
+                    f"variation_mode='{mode.value}' with multiple variations is not supported by DatasetConfigs. "
+                    "Provide independent dataset configs for separate runs, or use concat/select explicitly."
+                )
             if variations_to_use:
                 first_var = variations_to_use[0]
                 train_paths = first_var.get_train_paths()
@@ -1664,11 +1697,12 @@ class DatasetConfigSchema(BaseModel):
                 if test_paths:
                     result['test_x'] = test_paths[0] if len(test_paths) == 1 else test_paths
 
-                if first_var.params:
-                    result['train_x_params'] = first_var.params.model_dump(exclude_none=True)
-                    result['test_x_params'] = first_var.params.model_dump(exclude_none=True)
+                for partition, paths in (('train', train_paths), ('test', test_paths)):
+                    if paths:
+                        params = [self._feature_file_params(first_var, path) for path in paths]
+                        result[f'{partition}_x_params'] = params if len(params) > 1 else params[0]
 
-        elif mode == VariationMode.CONCAT:
+        elif mode in (VariationMode.CONCAT, VariationMode.SELECT):
             # Concatenate all variations (multi-source style)
             train_x_paths = []
             test_x_paths = []
@@ -1681,15 +1715,13 @@ class DatasetConfigSchema(BaseModel):
 
                 if train_paths:
                     train_x_paths.extend(train_paths)
-                    if var.params:
-                        for _ in train_paths:
-                            train_x_params.append(var.params.model_dump(exclude_none=True))
+                    for path in train_paths:
+                        train_x_params.append(self._feature_file_params(var, path))
 
                 if test_paths:
                     test_x_paths.extend(test_paths)
-                    if var.params:
-                        for _ in test_paths:
-                            test_x_params.append(var.params.model_dump(exclude_none=True))
+                    for path in test_paths:
+                        test_x_params.append(self._feature_file_params(var, path))
 
             if train_x_paths:
                 result['train_x'] = train_x_paths if len(train_x_paths) > 1 else train_x_paths[0]
@@ -1699,25 +1731,6 @@ class DatasetConfigSchema(BaseModel):
                 result['train_x_params'] = train_x_params if len(train_x_params) > 1 else train_x_params[0]
             if test_x_params:
                 result['test_x_params'] = test_x_params if len(test_x_params) > 1 else test_x_params[0]
-
-        elif mode == VariationMode.SELECT:
-            # Same as concat but only for selected variations
-            train_x_paths = []
-            test_x_paths = []
-
-            for var in variations_to_use:
-                train_paths = var.get_train_paths()
-                test_paths = var.get_test_paths()
-
-                if train_paths:
-                    train_x_paths.extend(train_paths)
-                if test_paths:
-                    test_x_paths.extend(test_paths)
-
-            if train_x_paths:
-                result['train_x'] = train_x_paths if len(train_x_paths) > 1 else train_x_paths[0]
-            if test_x_paths:
-                result['test_x'] = test_x_paths if len(test_x_paths) > 1 else test_x_paths[0]
 
         # Handle shared targets
         if self.shared_targets:
@@ -1750,6 +1763,7 @@ class DatasetConfigSchema(BaseModel):
             {
                 'name': v.name,
                 'description': v.description,
+                'files': [f if isinstance(f, (str, dict)) else f.model_dump(exclude_none=True) for f in v.files or []],
                 'preprocessing_applied': [p.model_dump() for p in v.preprocessing_applied] if v.preprocessing_applied else None,
                 'params': v.params.model_dump(exclude_none=True) if v.params else None,
             }
@@ -1775,21 +1789,9 @@ class DatasetConfigSchema(BaseModel):
         if not self.sources:
             return self.to_dict()
 
-        result: dict[str, Any] = {}
-
-        # Copy non-source fields
-        if self.name:
-            result['name'] = self.name
-        if self.description:
-            result['description'] = self.description
-        if self.task_type:
-            result['task_type'] = self.task_type.value if hasattr(self.task_type, 'value') else self.task_type
-        if self.global_params:
-            result['global_params'] = self.global_params.model_dump(exclude_none=True)
-        if self.aggregate:
-            result['aggregate'] = self.aggregate
-        if self.aggregate_method:
-            result['aggregate_method'] = self.aggregate_method.value if hasattr(self.aggregate_method, 'value') else self.aggregate_method
+        result = self.model_dump(exclude_none=True, exclude={
+            "sources", "variations", "files", "variation_mode", "variation_select", "variation_prefix",
+        })
 
         # Convert sources to train_x/test_x lists
         train_x_paths = []
@@ -1803,15 +1805,13 @@ class DatasetConfigSchema(BaseModel):
 
             if train_paths:
                 train_x_paths.extend(train_paths)
-                if source.params:
-                    for _ in train_paths:
-                        train_x_params.append(source.params.model_dump(exclude_none=True))
+                for path in train_paths:
+                    train_x_params.append(self._feature_file_params(source, path))
 
             if test_paths:
                 test_x_paths.extend(test_paths)
-                if source.params:
-                    for _ in test_paths:
-                        test_x_params.append(source.params.model_dump(exclude_none=True))
+                for path in test_paths:
+                    test_x_params.append(self._feature_file_params(source, path))
 
         if train_x_paths:
             result['train_x'] = train_x_paths if len(train_x_paths) > 1 else train_x_paths[0]
@@ -1855,6 +1855,7 @@ class DatasetConfigSchema(BaseModel):
                 'name': s.name,
                 'link_by': s.link_by,
                 'params': s.params.model_dump(exclude_none=True) if s.params else None,
+                'files': [f if isinstance(f, str) else f.model_dump(exclude_none=True) if isinstance(f, BaseModel) else f for f in s.files] if s.files else None,
             }
             for s in self.sources
         ]

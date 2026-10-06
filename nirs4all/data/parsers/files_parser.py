@@ -4,25 +4,15 @@ Files parser for dataset configuration.
 This parser handles the new 'files' syntax defined in the specification.
 Implemented in Phase 4 to support partition assignment.
 
-The files syntax allows specifying multiple files with column/row selection
-and partition assignment within a single configuration.
+The files syntax supports whole files with explicit train/test partitions.
+Column/row selectors, key joins, and column-based partition rules are refused
+by the positional loader. Use explicit train_x/train_y/train_group inputs or
+the declared relation materialization API for those requests.
 
 Example:
     files:
       - path: data/measurements.csv
         partition: train
-        columns:
-          features: "2:-1"
-          targets: -1
-          metadata: [0, 1]
-
-    # Or with complex partition:
-    files:
-      - path: data/all_data.csv
-        partition:
-          column: "split"
-          train_values: ["train"]
-          test_values: ["test"]
 
 The sources syntax (Phase 6) allows specifying multiple feature sources
 for sensor fusion or multi-instrument datasets:
@@ -47,7 +37,7 @@ Example:
 
     targets:
       path: data/targets.csv
-      link_by: sample_id
+      partition: train
 """
 
 import contextlib
@@ -69,6 +59,7 @@ from ..schema import (
     VariationFileConfig,
     VariationMode,
 )
+from ..schema.config import infer_partition_from_path
 from .base import BaseParser, ParserResult
 
 
@@ -137,6 +128,10 @@ class FilesParser(BaseParser):
         if not parsed_files and not errors:
             errors.append("No valid files found in 'files' configuration.")
 
+        for pf in parsed_files:
+            if pf['_resolved_partition'] not in ('train', 'test'):
+                errors.append(f"Partition '{pf['_resolved_partition']}' is not supported; use train or test explicitly.")
+
         # Organize files by partition
         train_files = []
         test_files = []
@@ -158,7 +153,7 @@ class FilesParser(BaseParser):
                 train_files.append(pf)
 
         # Build config schema data
-        config_data = {}
+        config_data = {key: value for key, value in input_data.items() if key not in {'files', 'partition'}}
 
         if name:
             config_data['name'] = name
@@ -186,6 +181,11 @@ class FilesParser(BaseParser):
             else:
                 config_data['test_x'] = [f.get('path') for f in test_files]
 
+        for partition, partition_files in (('train', train_files), ('test', test_files)):
+            if partition_files:
+                params = [f['params'].model_dump(exclude_none=True) if f.get('params') else {} for f in partition_files]
+                config_data[f'{partition}_x_params'] = params if len(params) > 1 else params[0]
+
         # Store parsed files for advanced processing
         config_data['files'] = [
             self._to_file_config(pf) for pf in parsed_files
@@ -200,7 +200,8 @@ class FilesParser(BaseParser):
             config=config_dict,
             errors=errors,
             warnings=warnings,
-            source_type="files"
+            source_type="files",
+            dataset_name=name or (Path(parsed_files[0]["path"]).stem if parsed_files else None),
         )
 
     def _parse_single_file(
@@ -221,10 +222,7 @@ class FilesParser(BaseParser):
         """
         # Handle simple string path
         if isinstance(file_config, str):
-            fallback = global_partition if isinstance(global_partition, str) else None
-            resolved_partition = self._resolve_partition_from_path(
-                file_config, fallback
-            )
+            resolved_partition = self._resolve_partition(None, file_config, global_partition)
             return {
                 'path': file_config,
                 '_resolved_partition': resolved_partition,
@@ -245,6 +243,13 @@ class FilesParser(BaseParser):
         resolved_partition = self._resolve_partition(
             file_partition, path, global_partition
         )
+
+        unsupported = [key for key in ('columns', 'rows', 'link_by') if file_config.get(key) is not None]
+        if unsupported:
+            raise ValueError(
+                f"files[{index}] options {unsupported} are not supported by the positional dataset loader. "
+                "Use explicit train_x/train_y/train_group inputs or the declared relation materialization API."
+            )
 
         # Parse columns
         columns = file_config.get('columns')
@@ -283,8 +288,7 @@ class FilesParser(BaseParser):
             if isinstance(file_partition, str):
                 return file_partition.lower()
             elif isinstance(file_partition, dict):
-                # Dict partition means column-based or complex - defer to loader
-                return 'mixed'
+                raise ValueError('Dictionary partition rules are not supported by the positional dataset loader; use explicit train/test files.')
             elif isinstance(file_partition, PartitionType):
                 return file_partition.value
 
@@ -293,7 +297,7 @@ class FilesParser(BaseParser):
             if isinstance(global_partition, str):
                 return global_partition.lower()
             elif isinstance(global_partition, dict):
-                return 'mixed'
+                raise ValueError('Dictionary partition rules are not supported by the positional dataset loader; use explicit train/test files.')
 
         # Infer from path
         return self._resolve_partition_from_path(path, None)
@@ -312,28 +316,7 @@ class FilesParser(BaseParser):
         Returns:
             Partition name ('train', 'test', or 'predict').
         """
-        path_lower = Path(path).stem.lower()
-
-        # Training patterns
-        train_patterns = ('train', 'cal', 'calibration', 'xcal', 'xtrain')
-        for pattern in train_patterns:
-            if pattern in path_lower:
-                return 'train'
-
-        # Test patterns
-        test_patterns = ('test', 'val', 'validation', 'xval', 'xtest')
-        for pattern in test_patterns:
-            if pattern in path_lower:
-                return 'test'
-
-        # Predict patterns
-        predict_patterns = ('predict', 'unknown', 'new')
-        for pattern in predict_patterns:
-            if pattern in path_lower:
-                return 'predict'
-
-        # Default to train if cannot infer
-        return fallback if fallback else 'train'
+        return infer_partition_from_path(path, fallback or 'train') or 'train'
 
     def _to_file_config(self, parsed: dict[str, Any]) -> FileConfig:
         """Convert parsed file dict to FileConfig model."""
@@ -379,11 +362,11 @@ class SourcesParser(BaseParser):
 
         targets:
           path: data/targets.csv
-          link_by: sample_id
+          partition: train
 
         metadata:
           path: data/metadata.csv
-          link_by: sample_id
+          partition: train
     """
 
     def can_parse(self, input_data: Any) -> bool:
@@ -473,9 +456,8 @@ class SourcesParser(BaseParser):
             )
 
         # Build config schema data
-        config_data: dict[str, Any] = {
-            'sources': parsed_sources,
-        }
+        config_data: dict[str, Any] = {key: value for key, value in input_data.items() if key not in {'sources', 'targets', 'metadata'}}
+        config_data['sources'] = parsed_sources
 
         if name:
             config_data['name'] = name
@@ -685,7 +667,7 @@ class VariationsParser(BaseParser):
 
         targets:
           path: data/targets.csv
-          link_by: sample_id
+          partition: train
     """
 
     def can_parse(self, input_data: Any) -> bool:
@@ -781,9 +763,8 @@ class VariationsParser(BaseParser):
             )
 
         # Build config schema data
-        config_data: dict[str, Any] = {
-            'variations': parsed_variations,
-        }
+        config_data: dict[str, Any] = {key: value for key, value in input_data.items() if key not in {'variations', 'targets', 'metadata'}}
+        config_data['variations'] = parsed_variations
 
         if name:
             config_data['name'] = name

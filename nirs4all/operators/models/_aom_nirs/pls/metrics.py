@@ -28,8 +28,8 @@ def r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def balanced_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    y_true = np.asarray(y_true).astype(int)
-    y_pred = np.asarray(y_pred).astype(int)
+    y_true = np.asarray(y_true).ravel()
+    y_pred = np.asarray(y_pred).ravel()
     classes = np.unique(y_true)
     accs = []
     for cls in classes:
@@ -41,8 +41,8 @@ def balanced_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def macro_f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    y_true = np.asarray(y_true).astype(int)
-    y_pred = np.asarray(y_pred).astype(int)
+    y_true = np.asarray(y_true).ravel()
+    y_pred = np.asarray(y_pred).ravel()
     classes = np.unique(np.concatenate([y_true, y_pred]))
     f1s = []
     for cls in classes:

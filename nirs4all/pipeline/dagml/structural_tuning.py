@@ -338,6 +338,7 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
     checkpoint_fingerprint = (optimizer.resume_checkpoint["fingerprint"]
                               if optimizer.resume_checkpoint is not None else None)
     optimizer_progress = False
+    objective_fingerprint: str | None = None
 
     def release_candidate(index: int) -> None:
         store = stores.pop(index, None)
@@ -382,8 +383,10 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
             variant = task.get("variant") or {}
             choices = variant.get("choices") or {}
             expected = {"trial_index": index, "recipe_id": entry["recipe_id"],
-                        "catalogue_fingerprint": prepared["catalogue"]["catalogue_fingerprint"]}
-            if (not task.get("variant_id") or task["variant_id"] != variant.get("variant_id")
+                        "catalogue_fingerprint": prepared["catalogue"]["catalogue_fingerprint"],
+                        "objective_fingerprint": objective_fingerprint}
+            if (objective_fingerprint is None
+                    or not task.get("variant_id") or task["variant_id"] != variant.get("variant_id")
                     or (choices.get("host_hpo") or {}).get("value") != expected
                     or {key: value for key, value in choices.items() if key != "host_hpo"} != entry["variant"]["choices"]
                     or task["node_plan"]["node_id"] not in nodes):
@@ -436,7 +439,16 @@ def _run_structural_tuning(pipeline: Any, dataset_input: Any, tuning: Any, *, ru
         return sequential
 
     def checkpoint(event: dict[str, Any]) -> Any:
-        nonlocal stop_requested, checkpoint_fingerprint, optimizer_progress
+        nonlocal stop_requested, checkpoint_fingerprint, optimizer_progress, objective_fingerprint
+        # DAG attests the objective before invoking any candidate callback.
+        # Bind task metadata to that verified checkpoint; do not merely allow
+        # the new field or accept an objective supplied by the candidate.
+        observed_objective = event["checkpoint"]["binding"]["objective_fingerprint"]
+        if (not isinstance(observed_objective, str) or len(observed_objective) != 64
+                or any(char not in "0123456789abcdef" for char in observed_objective)
+                or objective_fingerprint is not None and observed_objective != objective_fingerprint):
+            raise ValueError("native structural checkpoint objective fingerprint mismatch")
+        objective_fingerprint = observed_objective
         if event["operation"] == "prepare_terminal":
             return True
         # Preserve an attested resume frontier when only the optimizer clock

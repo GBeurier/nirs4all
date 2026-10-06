@@ -3998,7 +3998,7 @@ class TestKOPLS:
         assert hasattr(model, 'ortho_scores_')
         assert hasattr(model, 'ortho_loadings_')
         assert model.n_features_in_ == 50
-        assert model.n_components_ == 5
+        assert model.n_components_ == model.x_scores_.shape[1] == 1
 
     def test_fit_multi_target(self, multi_target_data):
         """Test KOPLS fit on multi-target regression data."""
@@ -4356,7 +4356,7 @@ class TestKOPLSJAX:
         assert hasattr(model, 'n_components_')
         assert hasattr(model, 'x_scores_')
         assert model.n_features_in_ == 50
-        assert model.n_components_ == 5
+        assert model.n_components_ == model.x_scores_.shape[1] == 1
 
     @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
     def test_predict_jax_backend(self, regression_data):
@@ -5709,3 +5709,80 @@ class TestFCKPLSBackendParity:
         # Predictions should be very similar
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
                                    err_msg="FCKPLS: NumPy and JAX predictions differ")
+
+
+class TestScientificAuditFollowup:
+    """Seed, final projection and estimator contracts from OM1-19/21/22/25."""
+
+    @pytest.mark.parametrize("backend", ["numpy", "jax"])
+    def test_oklmpls_seed_and_final_coefficients(self, backend):
+        if backend == "jax":
+            pytest.importorskip("jax")
+        from nirs4all.operators.models.sklearn.oklmpls import OKLMPLS
+        rng = np.random.default_rng(63)
+        X = rng.normal(size=(30, 8))
+        y = 2 * X[:, 0] - X[:, 4]
+        params = {"n_components": 3, "warm_start_pls": False, "max_iter": 1, "backend": backend,
+                  "standardize": False, "lambda_dyn": 1.0}
+        first = OKLMPLS(**params, random_state=1).fit(X, y)
+        repeat = OKLMPLS(**params, random_state=1).fit(X, y)
+        other = OKLMPLS(**params, random_state=2).fit(X, y)
+        np.testing.assert_allclose(first.predict(X), repeat.predict(X), atol=1e-8)
+        assert np.max(np.abs(first.predict(X) - other.predict(X))) > 1e-3
+        scores = first.transform(X)
+        expected_b = np.linalg.solve(scores.T @ scores + 1e-8 * np.eye(3), scores.T @ y[:, None])
+        expected_f = np.linalg.solve(scores[:-1].T @ scores[:-1] + 1e-8 * np.eye(3), scores[:-1].T @ scores[1:]).T
+        np.testing.assert_allclose(first.B_, expected_b, atol=1e-8)
+        np.testing.assert_allclose(first.F_, expected_f, atol=1e-8)
+
+    def test_oklmpls_nested_featurizer_parameters(self):
+        from sklearn.base import clone
+
+        from nirs4all.operators.models.sklearn.oklmpls import OKLMPLS, PolynomialFeaturizer
+        model = OKLMPLS(featurizer=PolynomialFeaturizer(degree=2))
+        assert model.get_params(deep=True)["featurizer__degree"] == 2
+        assert "featurizer__degree" not in model.get_params(deep=False)
+        assert model.set_params(featurizer__degree=3) is model
+        assert model.featurizer.degree == 3
+        replica = clone(model)
+        assert replica.featurizer is not model.featurizer
+        assert replica.get_params()["featurizer__degree"] == 3
+        with pytest.raises(ValueError, match="degre"):
+            model.set_params(featurizer__degre=4)
+
+    @pytest.mark.parametrize("name", ["IKPLS", "SIMPLS", "OPLS", "OPLSDA", "PLSDA", "RecursivePLS", "OKLMPLS"])
+    def test_other_estimators_validate_parameters_and_unfitted_prediction(self, name):
+        from sklearn.exceptions import NotFittedError
+
+        from nirs4all.operators.models import sklearn as models
+        estimator = getattr(models, name)()
+        with pytest.raises(ValueError, match="n_componets"):
+            estimator.set_params(n_componets=2)
+        assert estimator.set_params(n_components=2) is estimator
+        with pytest.raises(NotFittedError):
+            estimator.predict(np.zeros((3, 8)))
+
+    @pytest.mark.parametrize("scale", [False, True])
+    def test_opls_jax_respects_scale(self, scale):
+        pytest.importorskip("jax")
+        rng = np.random.default_rng(16)
+        X = rng.normal(size=(50, 8)) * np.arange(1, 9)
+        y = X[:, 0] + X[:, 2]
+        jax_model = OPLS(n_components=2, scale=scale, backend="jax").fit(X, y)
+        numpy_model = OPLS(n_components=2, scale=scale, backend="numpy").fit(X, y)
+        np.testing.assert_allclose(jax_model.predict(X), numpy_model.predict(X), atol=1e-6)
+        np.testing.assert_allclose(jax_model._X_std, X.std(axis=0, ddof=1)[None, :] if scale else np.ones((1, X.shape[1])), atol=1e-8)
+
+    @pytest.mark.parametrize("backend", ["numpy", "jax"])
+    def test_recursive_pls_fixed_offsets_are_documented(self, backend):
+        if backend == "jax":
+            pytest.importorskip("jax")
+        rng = np.random.default_rng(19)
+        X = rng.normal(size=(40, 6))
+        y = 50 + X[:, 0]
+        model = RecursivePLS(n_components=2, backend=backend, forgetting_factor=0.9).fit(X, y)
+        means = model.x_mean_.copy(), model.y_mean_.copy()
+        model.partial_fit(X[:10] + 5, y[:10] + 10)
+        np.testing.assert_array_equal(model.x_mean_, means[0])
+        np.testing.assert_array_equal(model.y_mean_, means[1])
+        assert "fixed" in RecursivePLS.__doc__.lower()

@@ -8,9 +8,10 @@ import numpy as np
 
 class JaxModelWrapper:
     """Wrapper to hold Flax model definition and trained state."""
-    def __init__(self, model, state):
+    def __init__(self, model, state, is_classification: bool = False):
         self.model = model
         self.state = state
+        self.is_classification = is_classification
 
     def predict(self, X):
         variables = {'params': self.state.params}
@@ -22,8 +23,9 @@ class JaxModelWrapper:
 
     def __getstate__(self):
         # For pickling
-        return {'model': self.model, 'state': self.state}
+        return {'model': self.model, 'state': self.state, 'is_classification': self.is_classification}
 
     def __setstate__(self, state):
         self.model = state['model']
         self.state = state['state']
+        self.is_classification = state.get('is_classification', False)

@@ -791,7 +791,7 @@ def _lwpls_predict_torch(
     # Convert back to NumPy
     return np.asarray(predictions_torch.cpu().numpy())
 
-class LWPLS(BaseEstimator, RegressorMixin):
+class LWPLS(RegressorMixin, BaseEstimator):
     """Locally-Weighted Partial Least Squares (LWPLS) regressor.
 
     LWPLS builds a local PLS model for each query sample, weighting
@@ -1187,8 +1187,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
         self : LWPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

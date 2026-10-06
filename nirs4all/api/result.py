@@ -2104,7 +2104,8 @@ class RunResult:
         Returns:
             Best refit prediction dict, or empty dict if no refit entries.
         """
-        results = self.predictions.top(n=1, score_scope="refit")
+        refit_predictions = self._refit_predictions()
+        results = refit_predictions.top(n=1, score_scope="refit")
         top = cast("list[dict[str, Any]]", results)
         if top:
             return top[0]
@@ -2113,18 +2114,27 @@ class RunResult:
         # holdout score for intentional full-training runs.  Only a singleton
         # is safe to expose as ``best``; variants still require an explicit
         # source selection from the caller.
-        final_entries: list[dict[str, Any]] = []
-        for ds_info in self.per_dataset.values():
-            ds_preds = ds_info.get("run_predictions")
-            if ds_preds is not None:
-                final_entries.extend(ds_preds.filter_predictions(fold_id="final"))
-        if not final_entries:
-            final_entries = self.predictions.filter_predictions(fold_id="final")
+        final_entries = refit_predictions.filter_predictions(fold_id="final")
         return dict(final_entries[0]) if len(final_entries) == 1 else {}
+
+    def _refit_predictions(self) -> Predictions:
+        """Combine global and per-dataset refit evidence for selection."""
+        entries: list[dict[str, Any]] = []
+        for ds_info in self.per_dataset.values():
+            ds_preds = ds_info.get("run_predictions") if isinstance(ds_info, dict) else None
+            if ds_preds is not None:
+                entries.extend(ds_preds.filter_predictions(fold_id="final"))
+        if not entries:
+            return self.predictions
+        from nirs4all.data.predictions import Predictions
+
+        combined = Predictions()
+        combined.extend_from_list([*self.predictions.filter_predictions(fold_id="final"), *entries])
+        return combined
 
     @property
     def final(self) -> dict[str, Any] | None:
-        """Get the refit model prediction entry (``fold_id="final"``).
+        """Get the CV-selected refit prediction entry (``fold_id="final"``).
 
         Searches the per-dataset prediction stores where refit entries
         are stored (they are not merged into the global predictions
@@ -2134,21 +2144,7 @@ class RunResult:
             Prediction dict for the refit model, or ``None`` if refit
             was not performed or no refit entries exist.
         """
-        # Search per-dataset prediction stores (refit entries live here)
-        for ds_info in self.per_dataset.values():
-            ds_preds = ds_info.get("run_predictions")
-            if ds_preds is None:
-                continue
-            entries = ds_preds.filter_predictions(fold_id="final")
-            for entry in entries:
-                if str(entry.get("fold_id")) == "final":
-                    return dict(entry)
-        # Fallback: check global predictions (when refit entries were merged there)
-        entries = self.predictions.filter_predictions(fold_id="final")
-        for entry in entries:
-            if str(entry.get("fold_id")) == "final":
-                return dict(entry)
-        return None
+        return self.best_final or None
 
     @property
     def final_score(self) -> float | None:
@@ -2234,27 +2230,38 @@ class RunResult:
             return result
 
         # Eager fallback: use already-executed refit entries
-        final_entry = self.final
-        if final_entry is None:
-            return {}
-
-        model_name = final_entry.get("model_name", "unknown")
-        cv_entry = self.cv_best
-        metric = final_entry.get("metric", "")
-
-        final_score_val = final_entry.get("test_score")
-        cv_score_val = cv_entry.get("val_score") if cv_entry else None
-
-        return {
-            model_name: ModelRefitResult(
+        refit_predictions = self._refit_predictions()
+        result = {}
+        for model_name in refit_predictions.get_models():
+            ranked = cast(list[dict[str, Any]], refit_predictions.top(n=1, score_scope="refit", model_name=model_name))
+            if ranked:
+                final_entry = ranked[0]
+            else:
+                entries = refit_predictions.filter_predictions(fold_id="final", model_name=model_name)
+                if len(entries) != 1:
+                    continue
+                final_entry = entries[0]
+            filters: dict[str, Any] = {key: final_entry[key] for key in ("model_name", "dataset_name", "preprocessings", "branch_id") if key in final_entry}
+            config_name = final_entry.get("config_name")
+            if config_name:
+                filters["config_name"] = config_name.rsplit("_refit", 1)[0]
+            cv_ranked = cast(list[dict[str, Any]], self.predictions.top(n=1, score_scope="folds", fold_id="avg", **filters))
+            if not cv_ranked:
+                cv_ranked = cast(list[dict[str, Any]], self.predictions.top(n=1, score_scope="folds", **filters))
+            cv_entry = cv_ranked[0] if cv_ranked else {}
+            final_score_val = final_entry.get("test_score")
+            cv_score_val = final_entry.get("selection_score", final_entry.get("val_score"))
+            if cv_score_val is None:
+                cv_score_val = cv_entry.get("val_score")
+            result[model_name] = ModelRefitResult(
                 model_name=model_name,
                 final_entry=final_entry,
                 cv_entry=cv_entry,
                 final_score=float(final_score_val) if final_score_val is not None else None,
                 cv_score=float(cv_score_val) if cv_score_val is not None else None,
-                metric=metric,
+                metric=final_entry.get("metric", ""),
             )
-        }
+        return result
 
     # --- Metadata accessors ---
 

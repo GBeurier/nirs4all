@@ -17,7 +17,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.utils.validation import check_is_fitted
 
 
-class PCR(BaseEstimator, RegressorMixin):
+class PCR(RegressorMixin, BaseEstimator):
     """Principal Component Regression.
 
     Fits a PCA on X then regresses Y on the retained scores using

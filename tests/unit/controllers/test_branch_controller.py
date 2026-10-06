@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from nirs4all.controllers.data.branch import BranchController
+from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
 from nirs4all.pipeline.execution.result import StepOutput, StepResult
@@ -162,8 +163,9 @@ class TestBranchControllerExecution:
 
     @pytest.fixture
     def mock_dataset(self):
-        dataset = Mock()
-        dataset.name = "test_dataset"
+        dataset = SpectroDataset("test_dataset")
+        dataset.add_samples(np.ones((4, 2)), {"partition": "train"})
+        dataset.add_targets(np.arange(4))
         return dataset
 
     @pytest.fixture
@@ -329,7 +331,7 @@ class TestBranchContextIsolation:
 
         result_context, _ = controller.execute(
             step_info=step_info,
-            dataset=Mock(name="test"),
+            dataset=SpectroDataset("test"),
             context=context,
             runtime_context=runtime,
             mode="train"

@@ -18,9 +18,6 @@ from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Suppress warnings for cleaner output
-warnings.filterwarnings('ignore')
-
 try:
     from sklearn import metrics as sklearn_metrics
     from sklearn.metrics import (
@@ -123,7 +120,7 @@ HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({
     "recall", "balanced_recall", "recall_micro", "recall_macro",
     "f1", "f1_score", "f1_micro", "f1_macro",
     "specificity", "roc_auc", "auc",
-    "matthews_corrcoef", "mcc", "cohen_kappa", "kappa", "jaccard",
+    "matthews_corrcoef", "mcc", "cohen_kappa", "kappa", "jaccard", "jaccard_score",
     # Regression metrics (higher is better)
     "r2", "r2_score", "rpd", "rpiq",
     "explained_variance", "explained_variance_score",

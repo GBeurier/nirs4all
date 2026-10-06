@@ -175,7 +175,7 @@ class FeatureSelectionController(OperatorController):
                 train_2d = train_x[:, processing_idx, :]  # Training data
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
-                new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
+                new_operator_name = f"{operator_name}_{sd_idx}_{processing_idx}"
 
                 if mode == "predict" or mode == "explain":
                     selector = None

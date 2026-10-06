@@ -295,7 +295,7 @@ class MultiSourceGenerator:
         library = None
         if config.components:
             library = ComponentLibrary.from_predefined(
-                config.components, random_state=self._random_state
+                config.components, random_state=int(self.rng.integers(0, 2**32))
             )
 
         generator = SyntheticNIRSGenerator(
@@ -304,7 +304,7 @@ class MultiSourceGenerator:
             wavelength_step=wl_step,
             component_library=library,
             complexity=config.complexity,
-            random_state=self._random_state,
+            random_state=int(self.rng.integers(0, 2**32)),
         )
 
         # Generate spectra
@@ -447,25 +447,14 @@ class MultiSourceGenerator:
         train_indices = indices[:n_train]
         test_indices = indices[n_train:]
 
-        # Prepare multi-source data and headers
-        # Combine all sources into feature arrays (concatenated)
-        X_combined = result.get_combined_features()
-
-        # Get headers from first NIR source if available, else simple feature names
-        headers = None
-        header_unit = None
-        for source_name in result.source_names:
-            if source_name in result.wavelengths:
-                headers = [str(int(wl)) for wl in result.wavelengths[source_name]]
-                header_unit = "nm"
-                break
-
-        if headers is None:
-            headers = [f"feature_{i}" for i in range(X_combined.shape[1])]
+        features = [result.sources[source] for source in result.source_names]
+        headers = [[str(float(wl)) for wl in result.wavelengths[source]] if source in result.wavelengths
+                   else [f"feature_{i}" for i in range(result.sources[source].shape[1])] for source in result.source_names]
+        header_unit = ["nm" if source in result.wavelengths else "none" for source in result.source_names]
 
         # Add training samples
         dataset.add_samples(
-            X_combined[train_indices],
+            [x[train_indices] for x in features],
             indexes={"partition": "train"},
             headers=headers,
             header_unit=header_unit,
@@ -474,7 +463,7 @@ class MultiSourceGenerator:
         # Add test samples
         if len(test_indices) > 0:
             dataset.add_samples(
-                X_combined[test_indices],
+                [x[test_indices] for x in features],
                 indexes={"partition": "test"},
                 headers=headers,
                 header_unit=header_unit,

@@ -41,14 +41,14 @@ from nirs4all.utils import framework
 @framework('tensorflow')
 def UNet_NIRS(input_shape, params):
     """
-    Builds a U-Net model for NIRS data.
+    Builds the legacy VGG11 NIRS model (the historical function name is retained).
 
     Parameters:
         input_shape (tuple): Shape of the input data.
         params (dict): Dictionary of parameters for model configuration.
 
     Returns:
-        keras.Model: Compiled U-Net model.
+        keras.Model: VGG11 model.
     """
     length = input_shape[0]
     num_channel = input_shape[1]
@@ -168,12 +168,15 @@ def UNET(input_shape, params):
     Builds a U-Net architecture for regression.
 
     Parameters:
-        input_shape (tuple): Shape of the input data.
+        input_shape (tuple): Shape of the input data; spectrum length must
+            be a positive multiple of 25 for the pooled encoder branches.
         params (dict): Dictionary of parameters for model configuration.
 
     Returns:
         keras.Model: Compiled U-Net model.
     """
+    if input_shape[0] is None or input_shape[0] < 25 or input_shape[0] % 25:
+        raise ValueError("UNET requires a known spectrum length divisible by 25 and at least 25.")
     layer_n = params.get('layer_n', 64)
     kernel_size = params.get('kernel_size', 7)
     depth = params.get('depth', 2)
@@ -670,6 +673,22 @@ def Custom_VG_Residuals(input_shape, params):
     Returns:
         keras.Model: Compiled model.
     """
+    length = input_shape[0]
+    if length is None:
+        raise ValueError("Custom_VG_Residuals requires a known spectrum length.")
+    stages = [(params.get('kernel_size1', 3), params.get('strides1', 3))]
+    for stride in (2, 2, 2, 1, 1, 1):
+        stages.extend([(params.get('block_kernel_size1', 3), stride),
+                       (params.get('block_kernel_size2', 5), 1),
+                       (params.get('block_kernel_size3', 5), 1)])
+    stages.append((params.get('kernel_size2', 8), params.get('strides2', 8)))
+    for kernel, stride in stages:
+        if kernel < 1 or stride < 1:
+            raise ValueError("Custom_VG_Residuals kernel sizes and strides must be positive.")
+        length = (length - kernel) // stride + 1
+        if length < 1:
+            raise ValueError("Custom_VG_Residuals spectrum length is too short for the configured valid convolutions.")
+
     def block(x, strides):
         x = DepthwiseConv1D(
             kernel_size=params.get('block_kernel_size1', 3),
@@ -743,9 +762,9 @@ def inception1D(input_shape, params):
     Returns:
         keras.Model: Compiled Inception-like model.
     """
-    length = input_shape[1]
+    length = input_shape[0]
     model_width = params.get('model_width', 16)
-    num_channel = params.get('num_channel', 1)
+    num_channel = params.get('num_channel', input_shape[-1])
     problem_type = params.get('problem_type', 'Regression')
     output_number = params.get('output_number', 1)
 

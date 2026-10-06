@@ -1,11 +1,11 @@
 """
 Artifact management CLI commands for nirs4all.
 
-Provides commands for managing binary artifacts stored in workspace/binaries/:
+Provides commands for managing binary artifacts stored in workspace/artifacts/:
 - list-orphaned: Show artifacts not referenced by any manifest
 - cleanup: Delete orphaned artifacts
 - stats: Show storage statistics and deduplication info
-- purge: Delete all artifacts for a dataset
+- purge: Delete known-owned unpublished artifacts for a dataset
 """
 
 import argparse
@@ -28,241 +28,80 @@ def _format_bytes(size_bytes: int) -> str:
     else:
         return f"{size_bytes / 1024 / 1024 / 1024:.2f} GB"
 
-def _get_all_datasets(workspace: Path) -> list[str]:
-    """Get all datasets with artifacts in the workspace."""
-    binaries_dir = workspace / "binaries"
-    if not binaries_dir.exists():
-        return []
+def _registry(args):
+    """Inspect the shared artifact tree without creating workspace state."""
+    from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 
-    return [
-        d.name for d in binaries_dir.iterdir()
-        if d.is_dir()
-    ]
+    workspace = Path(args.workspace).resolve()
+    if not (workspace / "artifacts").is_dir():
+        logger.info("No artifacts found (artifacts/ directory does not exist)")
+        return None
+    return ArtifactRegistry(workspace=workspace, dataset=args.dataset or "")
+
 
 def artifacts_list_orphaned(args):
-    """List orphaned artifacts not referenced by any manifest."""
-    from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-
-    workspace_path = Path(args.workspace).resolve()
-    binaries_dir = workspace_path / "binaries"
-
-    if not binaries_dir.exists():
-        logger.info("No artifacts found (binaries/ directory does not exist)")
+    """List unreferenced shared artifacts across the entire workspace."""
+    registry = _registry(args)
+    if registry is None:
         return
+    if args.dataset:
+        logger.info("Shared orphan blobs have no dataset identity; listing workspace-wide orphans")
+    orphans = registry.find_orphaned_artifacts(scan_all_manifests=True)
+    for relative in orphans:
+        logger.info(f"  * {relative} ({_format_bytes((registry.binaries_dir / relative).stat().st_size)})")
+    logger.info(f"Total orphaned: {len(orphans)} files")
 
-    # Get datasets to check
-    datasets = [args.dataset] if args.dataset else _get_all_datasets(workspace_path)
-
-    if not datasets:
-        logger.info("No datasets with artifacts found")
-        return
-
-    total_orphans = 0
-    total_size = 0
-
-    for dataset in datasets:
-        registry = ArtifactRegistry(
-            workspace=workspace_path,
-            dataset=dataset
-        )
-
-        orphans = registry.find_orphaned_artifacts(scan_all_manifests=True)
-
-        if orphans:
-            logger.info(f"\nDataset: {dataset}")
-            logger.info("-" * 60)
-
-            for filename in orphans:
-                filepath = registry.binaries_dir / filename
-                if filepath.exists():
-                    size = filepath.stat().st_size
-                    total_size += size
-                    logger.info(f"  * {filename} ({_format_bytes(size)})")
-                else:
-                    logger.info(f"  * {filename} (file missing)")
-
-            total_orphans += len(orphans)
-
-    if total_orphans == 0:
-        logger.success("No orphaned artifacts found")
-    else:
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Total orphaned: {total_orphans} files ({_format_bytes(total_size)})")
-        logger.info("\nRun 'nirs4all artifacts cleanup' to remove orphaned artifacts")
 
 def artifacts_cleanup(args):
-    """Delete orphaned artifacts."""
-    from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-
-    workspace_path = Path(args.workspace).resolve()
-    binaries_dir = workspace_path / "binaries"
-
-    if not binaries_dir.exists():
-        logger.info("No artifacts found (binaries/ directory does not exist)")
+    """Delete only workspace-wide blobs unreferenced by any dataset or store row."""
+    registry = _registry(args)
+    if registry is None:
         return
-
-    # Get datasets to clean
-    datasets = [args.dataset] if args.dataset else _get_all_datasets(workspace_path)
-
-    if not datasets:
-        logger.info("No datasets with artifacts found")
+    if args.dataset:
+        logger.info("Cannot attribute shared orphan blobs to a dataset; omit --dataset for workspace-wide cleanup")
         return
+    deleted, freed = registry.delete_orphaned_artifacts(dry_run=not args.force, scan_all_manifests=True)
+    action = "Deleted" if args.force else "Would delete"
+    logger.info(f"{action} {len(deleted)} orphaned artifacts ({_format_bytes(freed)})")
+    if args.verbose:
+        for relative in deleted:
+            logger.info(f"   * {relative}")
 
-    dry_run = not args.force
-    total_deleted = 0
-    total_freed = 0
-
-    if dry_run:
-        logger.info("DRY RUN - No files will be deleted")
-        logger.info("   Use --force to actually delete files\n")
-
-    for dataset in datasets:
-        registry = ArtifactRegistry(
-            workspace=workspace_path,
-            dataset=dataset
-        )
-
-        deleted, bytes_freed = registry.delete_orphaned_artifacts(
-            dry_run=dry_run,
-            scan_all_manifests=True
-        )
-
-        if deleted:
-            action = "Would delete" if dry_run else "Deleted"
-            logger.info(f"\nDataset: {dataset}")
-            logger.info(f"   {action} {len(deleted)} orphaned artifacts ({_format_bytes(bytes_freed)})")
-
-            if args.verbose:
-                for filename in deleted:
-                    logger.info(f"   * {filename}")
-
-            total_deleted += len(deleted)
-            total_freed += bytes_freed
-
-    if total_deleted == 0:
-        logger.success("No orphaned artifacts to clean up")
-    else:
-        action = "Would free" if dry_run else "Freed"
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Total: {total_deleted} files, {action} {_format_bytes(total_freed)}")
 
 def artifacts_stats(args):
-    """Show artifact storage statistics."""
-    from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-
-    workspace_path = Path(args.workspace).resolve()
-    binaries_dir = workspace_path / "binaries"
-
-    if not binaries_dir.exists():
-        logger.info("No artifacts found (binaries/ directory does not exist)")
+    """Show shared workspace storage statistics once, without double-counting datasets."""
+    registry = _registry(args)
+    if registry is None:
         return
+    stats = registry.get_stats(scan_all_manifests=True)
+    logger.info("Artifact Storage Statistics (shared workspace)")
+    logger.info(f"   Artifacts path: {stats['binaries_path']}")
+    logger.info(f"   Files on disk: {stats['disk_file_count']}")
+    logger.info(f"   Disk usage: {_format_bytes(stats['disk_usage_bytes'])}")
+    logger.info(f"   Orphaned: {stats['orphaned_count']} files ({_format_bytes(stats['orphaned_size_bytes'])})")
 
-    # Get datasets to report on
-    datasets = [args.dataset] if args.dataset else _get_all_datasets(workspace_path)
-
-    if not datasets:
-        logger.info("No datasets with artifacts found")
-        return
-
-    logger.info("Artifact Storage Statistics")
-    logger.info("=" * 70)
-
-    grand_total_files = 0
-    grand_total_size = 0
-    grand_total_orphans = 0
-    grand_orphan_size = 0
-
-    for dataset in datasets:
-        registry = ArtifactRegistry(
-            workspace=workspace_path,
-            dataset=dataset
-        )
-
-        stats = registry.get_stats(scan_all_manifests=True)
-
-        logger.info(f"\nDataset: {dataset}")
-        logger.info("-" * 60)
-        logger.info(f"   Binaries path:     {stats['binaries_path']}")
-        logger.info(f"   Files on disk:     {stats['disk_file_count']}")
-        logger.info(f"   Disk usage:        {_format_bytes(stats['disk_usage_bytes'])}")
-
-        if stats['total_artifacts'] > 0:
-            logger.info(f"   Registered refs:   {stats['total_artifacts']}")
-            logger.info(f"   Unique files:      {stats['unique_files']}")
-            dedup_pct = stats['deduplication_ratio'] * 100
-            logger.info(f"   Deduplication:     {dedup_pct:.1f}%")
-
-        if stats['by_type']:
-            logger.info("   By type:")
-            for type_name, count in sorted(stats['by_type'].items()):
-                logger.info(f"      {type_name}: {count}")
-
-        if stats['orphaned_count'] > 0:
-            logger.warning(f"   Orphaned:       {stats['orphaned_count']} files ({_format_bytes(stats['orphaned_size_bytes'])})")
-            grand_total_orphans += stats['orphaned_count']
-            grand_orphan_size += stats['orphaned_size_bytes']
-
-        grand_total_files += stats['disk_file_count']
-        grand_total_size += stats['disk_usage_bytes']
-
-    # Print grand totals if multiple datasets
-    if len(datasets) > 1:
-        logger.info(f"\n{'='*70}")
-        logger.info("Grand Total")
-        logger.info(f"   Datasets:          {len(datasets)}")
-        logger.info(f"   Total files:       {grand_total_files}")
-        logger.info(f"   Total disk usage:  {_format_bytes(grand_total_size)}")
-        if grand_total_orphans > 0:
-            logger.warning(f"   Total orphaned:  {grand_total_orphans} files ({_format_bytes(grand_orphan_size)})")
 
 def artifacts_purge(args):
-    """Delete ALL artifacts for a dataset."""
-    from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
-
-    workspace_path = Path(args.workspace).resolve()
-    dataset = args.dataset
-
-    if not dataset:
+    """Purge known-owned unpublished artifacts; preserve every durable reference."""
+    if not args.dataset:
         logger.error("--dataset is required for purge command")
         sys.exit(1)
-
-    registry = ArtifactRegistry(
-        workspace=workspace_path,
-        dataset=dataset
-    )
-
-    if not registry.binaries_dir.exists():
-        logger.info(f"No artifacts found for dataset '{dataset}'")
+    registry = _registry(args)
+    if registry is None:
         return
-
-    # Count files that would be deleted
-    file_count = sum(1 for f in registry.binaries_dir.iterdir() if f.is_file())
-    total_size = sum(
-        f.stat().st_size for f in registry.binaries_dir.iterdir() if f.is_file()
-    )
-
-    if file_count == 0:
-        logger.info(f"No artifacts to purge for dataset '{dataset}'")
+    candidates = registry.get_purge_candidates()
+    if not candidates:
+        logger.info("No unpublished artifacts with known dataset ownership; live references and shared blobs are preserved")
         return
-
     if not args.force:
-        logger.warning(f"This will delete ALL {file_count} artifacts for dataset '{dataset}'")
-        logger.info(f"   Total size: {_format_bytes(total_size)}")
-        logger.info("\n   This action cannot be undone!")
-        logger.info("\n   Use --force to confirm deletion")
+        logger.info(f"Would purge {len(candidates)} unpublished artifacts; use --force to confirm")
         return
-
-    # Confirm with user if interactive
     if not args.yes:
-        response = input(f"\nDelete all {file_count} artifacts for '{dataset}'? [y/N]: ")
+        response = input(f"Delete {len(candidates)} unpublished artifacts for '{args.dataset}'? [y/N]: ")
         if response.lower() not in ('y', 'yes'):
-            logger.info("Aborted")
             return
-
-    files_deleted, bytes_freed = registry.purge_dataset_artifacts(confirm=True)
-
-    logger.success(f"Purged {files_deleted} artifacts for dataset '{dataset}'")
-    logger.info(f"   Freed: {_format_bytes(bytes_freed)}")
+    deleted, freed = registry.purge_dataset_artifacts(confirm=True)
+    logger.success(f"Purged {deleted} unpublished artifacts for dataset '{args.dataset}' ({_format_bytes(freed)})")
 
 def add_artifacts_commands(subparsers):
     """Add artifact management commands to CLI."""
@@ -325,7 +164,7 @@ def add_artifacts_commands(subparsers):
     # artifacts purge
     purge_parser = artifacts_subparsers.add_parser(
         'purge',
-        help='Delete ALL artifacts for a dataset (destructive!)'
+        help='Purge unpublished dataset artifacts while preserving live references'
     )
     purge_parser.add_argument(
         '--workspace', '-w',

@@ -788,6 +788,15 @@ class BundleLoader:
 
         return cast(np.ndarray, np.asarray(X).copy())
 
+    def _cv_preprocessing_start(self, model_step: int | None, branch_path: list[int] | None = None) -> int | None:
+        from nirs4all.pipeline.execution.preprocessing import FoldPreprocessedModel
+
+        if model_step is not None and self.artifact_provider is not None:
+            for _, model in self.artifact_provider.get_artifacts_for_step(model_step, branch_path):
+                if isinstance(model, FoldPreprocessedModel):
+                    return model.preprocessing.start_step
+        return None
+
     def _predict_with_trace(
         self,
         X: np.ndarray,
@@ -806,6 +815,7 @@ class BundleLoader:
         model_step = self.metadata.model_step_index if self.metadata else None
         y_processing_step_idx = None  # Track y_processing step for inverse_transform
 
+        cv_start = self._cv_preprocessing_start(model_step, branch_path)
         # Get steps up to model from trace
         assert self.trace is not None
         steps = self.trace.get_steps_up_to_model() if model_step is not None else self.trace.steps
@@ -838,6 +848,8 @@ class BundleLoader:
                 y_processing_step_idx = step_idx
                 continue
 
+            elif cv_start is not None and model_step is not None and cv_start <= step_idx < model_step:
+                continue
             elif op_type == "feature_augmentation":
                 # Feature augmentation: apply each transformer and concatenate with original
                 X_current = self._transform_feature_augmentation(X_current, step_idx, branch_path)
@@ -1064,6 +1076,11 @@ class BundleLoader:
         assert self.artifact_provider is not None
         artifacts = self.artifact_provider.get_artifacts_for_step(step_idx, branch_path)
 
+        from nirs4all.pipeline.execution.executor import _StepArtifactValue
+
+        for _, transformer in artifacts:
+            if isinstance(transformer, _StepArtifactValue) and transformer.replay is not None:
+                return np.asarray(transformer.replay.transform(X))
         for _, transformer in artifacts:
             if hasattr(transformer, 'transform'):
                 X = normalize_transform_output(transformer.transform(X), type(transformer).__name__)
@@ -1177,6 +1194,7 @@ class BundleLoader:
                     with contextlib.suppress(ValueError):
                         step_indices.add(int(parts[1]))
 
+        cv_start = self._cv_preprocessing_start(model_step)
         # Process each step
         for step_idx in sorted(step_indices):
             is_model = (step_idx == model_step)
@@ -1197,6 +1215,8 @@ class BundleLoader:
             if is_model:
                 y_pred = self._predict_model_step(X_current, step_idx)
                 return self._apply_y_inverse_transform(y_pred, y_processing_step_idx)
+            elif cv_start is not None and model_step is not None and cv_start <= step_idx < model_step:
+                continue
             elif op_type == "feature_augmentation":
                 # Feature augmentation: apply each transformer and concatenate with original
                 X_current = self._transform_feature_augmentation(X_current, step_idx)

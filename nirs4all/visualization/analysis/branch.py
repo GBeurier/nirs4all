@@ -329,6 +329,8 @@ class BranchAnalyzer:
         """Generate summary statistics for each branch.
 
         Computes mean, std, min, max for each metric across branches.
+        Uses rows from the requested partition and CV folds when available;
+        otherwise uses refit rows. Ensemble rows are excluded from samples.
 
         Args:
             metrics: List of metrics to compute (default: ['rmse', 'r2']).
@@ -358,6 +360,9 @@ class BranchAnalyzer:
         summary_data = []
 
         for branch_name, preds in sorted(branch_groups.items()):
+            preds = self._select_score_predictions(preds, partition)
+            if not preds:
+                continue
             branch_id = preds[0].get('branch_id') if preds else None
 
             row = {
@@ -451,8 +456,8 @@ class BranchAnalyzer:
         p_value = result.pvalue
 
         # Compute effect size (Cohen's d)
-        var1 = (len(scores1) - 1) * np.var(scores1)
-        var2 = (len(scores2) - 1) * np.var(scores2)
+        var1 = (len(scores1) - 1) * np.var(scores1, ddof=1)
+        var2 = (len(scores2) - 1) * np.var(scores2, ddof=1)
         n_total = len(scores1) + len(scores2) - 2
         pooled_std = np.sqrt((var1 + var2) / n_total)
         effect_size = (
@@ -642,7 +647,7 @@ class BranchAnalyzer:
 
         scores = []
 
-        for pred in predictions:
+        for pred in self._select_score_predictions(predictions, partition):
             score = None
 
             # Try 1: partitions dict (from top method)
@@ -691,3 +696,26 @@ class BranchAnalyzer:
                     scores.append(score_float)
 
         return scores
+
+    @staticmethod
+    def _select_score_predictions(predictions: list[dict[str, Any]], partition: str) -> list[dict[str, Any]]:
+        """Select one partition and one fold level, without ensemble samples.
+
+        Joined partition dictionaries from ``top`` are already one prediction
+        unit; raw rows must match their own partition. Prefer CV folds to refit
+        scores rather than mixing the two populations in a statistical test.
+        """
+        candidates = []
+        for pred in predictions:
+            partitions = pred.get('partitions')
+            if isinstance(partitions, dict) and partitions:
+                if partition not in partitions:
+                    continue
+            elif pred.get('partition') != partition:
+                continue
+            fold = str(pred.get('fold_id', ''))
+            if fold in {'avg', 'w_avg', 'fold_avg', 'fold_w_avg'} or fold.endswith('_agg'):
+                continue
+            candidates.append(pred)
+        cv = [pred for pred in candidates if pred.get('refit_context') is None and pred.get('fold_id') not in {'final', 'fold_final'}]
+        return cv or candidates

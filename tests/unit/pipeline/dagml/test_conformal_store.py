@@ -14,12 +14,43 @@ from nirs4all.pipeline.dagml.conformal_store import (
     MANIFEST_FILENAME,
     RESULT_FILENAME,
     ConformalStoreManifest,
+    attach_conformal_result_to_bundle,
     export_conformal_result_bundle,
     load_conformal_result_archive,
     load_conformal_result_bundle,
     load_conformal_result_store,
     save_conformal_result_store,
 )
+
+
+def test_rejected_attachment_preserves_destination(tmp_path):
+    source = tmp_path / "already-calibrated.n4a"
+    target = tmp_path / "output.n4a"
+    result = _calibrated_result()
+    export_conformal_result_bundle(result, source)
+    with pytest.raises(ValueError, match="already contains"):
+        attach_conformal_result_to_bundle(source, result, target)
+    assert not target.exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_failed_attachment_and_export_preserve_existing_bundle(tmp_path, monkeypatch):
+    import zipfile
+
+    source = tmp_path / "model.n4a"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("model.txt", "model")
+    target = tmp_path / "output.n4a"
+    result = _calibrated_result()
+    export_conformal_result_bundle(result, target)
+    before = target.read_bytes()
+    monkeypatch.setattr(zipfile.ZipFile, "write", lambda *a, **kw: (_ for _ in ()).throw(OSError("disk write failed")))
+    for operation in (lambda: attach_conformal_result_to_bundle(source, result, target, overwrite=True),
+                      lambda: export_conformal_result_bundle(result, target, overwrite=True)):
+        with pytest.raises(OSError, match="disk write failed"):
+            operation()
+        assert target.read_bytes() == before
+        assert not list(tmp_path.glob("*.tmp"))
 
 
 def _calibrated_result():

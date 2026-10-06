@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+from nirs4all.core.metrics import is_higher_better
+from nirs4all.data.ensemble_utils import EnsembleUtils
 from nirs4all.operators.models.meta import (
     BranchScope,
     CoverageStrategy,
@@ -27,7 +29,9 @@ from nirs4all.operators.models.meta import (
     TestAggregation,
 )
 from nirs4all.operators.models.selection import ModelCandidate
+from nirs4all.pipeline.config.context import ExecutionPhase
 
+from .classification import validate_scalar_prediction_targets
 from .config import ReconstructorConfig
 
 if TYPE_CHECKING:
@@ -36,6 +40,23 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext
 
     from .classification import ClassificationInfo, MetaFeatureInfo
+
+
+def aggregate_test_fold_predictions(predictions: np.ndarray, scores: np.ndarray, aggregation: TestAggregation, metric: str) -> np.ndarray:
+    """Aggregate folds using finite validation scores in the stored metric direction."""
+    scores = np.asarray(scores, dtype=float)
+    finite = np.isfinite(scores)
+    higher_better = is_higher_better(metric)
+    if aggregation == TestAggregation.BEST_FOLD and finite.any():
+        ranked = np.where(finite, scores, -np.inf if higher_better else np.inf)
+        index = np.argmax(ranked) if higher_better else np.argmin(ranked)
+        return np.asarray(predictions[index])
+    if aggregation == TestAggregation.WEIGHTED_MEAN and finite.any():
+        weights = np.zeros(len(scores))
+        weights[finite] = EnsembleUtils._scores_to_weights(scores[finite], higher_is_better=higher_better)
+        return np.asarray(np.average(predictions, axis=0, weights=weights))
+    return np.asarray(np.mean(predictions, axis=0))
+
 
 @dataclass
 class ValidationError:
@@ -489,6 +510,7 @@ class TrainingSetReconstructor:
             ValueError: If no source models found or critical validation fails.
         """
         # Validate inputs
+        validate_scalar_prediction_targets(dataset)
         if not self.source_model_names:
             raise ValueError("No source model names provided for reconstruction")
 
@@ -497,7 +519,15 @@ class TrainingSetReconstructor:
 
         # Validate fold alignment if configured
         validation_result = ValidationResult()
-        if self.reconstructor_config.validate_fold_alignment:
+        runtime_context = getattr(context, 'custom', {}).get('_runtime_context')
+        is_refit = getattr(runtime_context, 'phase', None) == ExecutionPhase.REFIT
+        in_sample = not is_refit and self.stacking_config.allow_no_cv and not dataset.folds
+        if in_sample:
+            message = "allow_no_cv=True uses in-sample training predictions for stacking; these are not OOF features."
+            validation_result.add_warning("IN_SAMPLE_STACKING", message)
+            if self.reconstructor_config.log_warnings:
+                warnings.warn(message, stacklevel=2)
+        if self.reconstructor_config.validate_fold_alignment and not (is_refit or in_sample):
             # Pass branch_id_override to respect ALL_BRANCHES scope
             branch_id_override = None if branch_scope == BranchScope.ALL_BRANCHES else -1
             validation_result = self.fold_validator.validate(
@@ -535,7 +565,10 @@ class TrainingSetReconstructor:
             n_total_features=n_total_features,
             use_proba=use_proba,
             classification_info=classification_info,
+            training_partition='train' if is_refit or in_sample else 'val',
         )
+        if in_sample:
+            n_folds = 0
 
         # Trim, compute coverage, and apply coverage strategy / test NaN handling
         (
@@ -624,7 +657,8 @@ class TrainingSetReconstructor:
         n_test: int,
         n_total_features: int,
         use_proba: bool,
-        classification_info: 'ClassificationInfo'
+        classification_info: 'ClassificationInfo',
+        training_partition: str = 'val'
     ) -> tuple[np.ndarray, np.ndarray, int, int]:
         """Build train/test meta-feature matrices from per-model predictions.
 
@@ -669,7 +703,8 @@ class TrainingSetReconstructor:
                 id_to_pos=train_id_to_pos,
                 n_samples=n_train,
                 use_proba=use_proba,
-                classification_info=classification_info
+                classification_info=classification_info,
+                partition=training_partition
             )
             n_folds = max(n_folds, model_n_folds)
 
@@ -882,7 +917,7 @@ class TrainingSetReconstructor:
             )
             if aligned is not None:
                 all_preds_list.append(aligned)
-                all_scores.append(pred.get('val_score', 0.0) or 0.0)
+                all_scores.append(pred.get('val_score', np.nan))
 
         if not all_preds_list:
             return np.zeros(n_samples)
@@ -890,17 +925,8 @@ class TrainingSetReconstructor:
         all_preds = np.array(all_preds_list)
         scores_arr = np.array(all_scores)
 
-        # Apply aggregation strategy
-        if aggregation == TestAggregation.BEST_FOLD:
-            best_idx = int(np.argmax(scores_arr)) if np.any(scores_arr > 0) else 0
-            return np.asarray(all_preds[best_idx])
-        elif aggregation == TestAggregation.WEIGHTED_MEAN:
-            weights = np.clip(scores_arr, 0, None)
-            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds)) / len(all_preds)
-            return np.asarray(np.average(all_preds, axis=0, weights=weights))
-        else:
-            # Default: MEAN
-            return np.asarray(np.mean(all_preds, axis=0))
+        metric = next((pred['metric'] for pred in fold_predictions if pred.get('metric')), 'rmse')
+        return aggregate_test_fold_predictions(all_preds, scores_arr, aggregation, metric)
 
     def _align_predictions_to_positions(
         self,
@@ -960,6 +986,11 @@ class TrainingSetReconstructor:
         """
         nan_mask = np.isnan(X_meta)
         strategy = self.stacking_config.coverage_strategy
+        if strategy in (CoverageStrategy.IMPUTE_MEAN, CoverageStrategy.IMPUTE_FOLD_MEAN) and nan_mask.all(axis=0).any():
+            raise ValueError(
+                "Cannot impute mean prediction features with zero eligible training coverage. "
+                "Provide OOF predictions from a CV splitter or explicitly opt into in-sample stacking."
+            )
 
         if strategy == CoverageStrategy.STRICT:
             if nan_mask.any():
@@ -1228,7 +1259,8 @@ class TrainingSetReconstructor:
         id_to_pos: dict[int, int],
         n_samples: int,
         use_proba: bool,
-        classification_info: 'ClassificationInfo'
+        classification_info: 'ClassificationInfo',
+        partition: str = 'val'
     ) -> tuple[np.ndarray, int]:
         """Collect out-of-fold predictions with classification support.
 
@@ -1257,7 +1289,7 @@ class TrainingSetReconstructor:
 
         filter_kwargs: dict[str, Any] = {
             'model_name': model_name,
-            'partition': 'val',
+            'partition': partition,
             'load_arrays': True,
         }
         if branch_id is not None:
@@ -1273,7 +1305,7 @@ class TrainingSetReconstructor:
         if not val_predictions and branch_id is not None:
             filter_kwargs_no_branch: dict[str, Any] = {
                 'model_name': model_name,
-                'partition': 'val',
+                'partition': partition,
                 'load_arrays': True,
             }
             val_predictions = self.prediction_store.filter_predictions(**filter_kwargs_no_branch)
@@ -1429,7 +1461,8 @@ class TrainingSetReconstructor:
 
         # Apply aggregation strategy (or empty fallback)
         return self._aggregate_test_fold_features(
-            all_preds_list, all_scores, aggregation, n_features, n_samples
+            all_preds_list, all_scores, aggregation, n_features, n_samples,
+            metric=next((pred['metric'] for pred in fold_predictions if pred.get('metric')), 'rmse')
         )
 
     def _empty_test_features(self, n_features: int, n_samples: int) -> np.ndarray:
@@ -1487,7 +1520,7 @@ class TrainingSetReconstructor:
                 )
                 if aligned is not None:
                     all_preds_list.append(aligned)
-                    all_scores.append(pred.get('val_score', 0.0) or 0.0)
+                    all_scores.append(pred.get('val_score', np.nan))
             else:
                 # For multiclass, align each column
                 sample_indices = pred.get('sample_indices')
@@ -1506,7 +1539,7 @@ class TrainingSetReconstructor:
                                     aligned[pos, :] = features[i, :] if i < features.shape[0] else 0.0
 
                     all_preds_list.append(aligned)
-                    all_scores.append(pred.get('val_score', 0.0) or 0.0)
+                    all_scores.append(pred.get('val_score', np.nan))
 
         return all_preds_list, all_scores
 
@@ -1516,7 +1549,8 @@ class TrainingSetReconstructor:
         all_scores: list[float],
         aggregation: TestAggregation,
         n_features: int,
-        n_samples: int
+        n_samples: int,
+        metric: str = 'rmse'
     ) -> np.ndarray:
         """Aggregate aligned per-fold test features into a single array.
 
@@ -1540,17 +1574,7 @@ class TrainingSetReconstructor:
         all_preds = np.array(all_preds_list)
         scores_arr = np.array(all_scores)
 
-        # Apply aggregation strategy
-        if aggregation == TestAggregation.BEST_FOLD:
-            best_idx = int(np.argmax(scores_arr)) if np.any(scores_arr > 0) else 0
-            return np.asarray(all_preds[best_idx])
-        elif aggregation == TestAggregation.WEIGHTED_MEAN:
-            weights = np.clip(scores_arr, 0, None)
-            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds)) / len(all_preds)
-            return np.asarray(np.average(all_preds, axis=0, weights=weights))
-        else:
-            # Default: MEAN
-            return np.asarray(np.mean(all_preds, axis=0))
+        return aggregate_test_fold_predictions(all_preds, scores_arr, aggregation, metric)
 
     def _generate_feature_names_with_classification(
         self,

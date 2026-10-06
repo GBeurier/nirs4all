@@ -9,6 +9,14 @@ from nirs4all.api.dataset_documents import DatasetDocumentLimits, normalize_data
 from nirs4all.data.parsers.normalizer import ConfigNormalizer
 
 
+def test_tab_indented_json_is_not_preflighted_as_yaml(tmp_path):
+    path = tmp_path / "dataset.json"
+    path.write_text(json.dumps({"train_x": "X.csv", "name": "tabbed"}, indent="\t"))
+    result = normalize_dataset_document(path)
+    assert result["name"] == "tabbed"
+    assert result["train_x"] == str(tmp_path / "X.csv")
+
+
 def test_folder_only_scans_names_and_preserves_multisource_metadata(tmp_path, monkeypatch):
     for name in ("Xcal_NIR.csv", "Xcal_MIR.csv", "Ycal.csv", "Mcal.csv", "Xval_NIR.csv", "Xval_MIR.csv", "Yval.csv"):
         (tmp_path / name).write_text("deliberately not tabular data")
@@ -42,7 +50,8 @@ def test_small_benign_yaml_aliases_remain_supported(tmp_path):
 
 @pytest.mark.parametrize("document", [
     {"sources": [{"name": "NIR", "train_x": "nir.csv"}, {"name": "MIR", "train_x": "mir.csv"}], "targets": "y.csv"},
-    {"variations": [{"name": "raw", "train_x": "raw.csv"}, {"name": "snv", "train_x": "snv.csv"}], "targets": "y.csv"},
+    # Explicit concat exercises supported normalization; separate/compare would silently lose a variation before DT2-12.
+    {"variations": [{"name": "raw", "train_x": "raw.csv"}, {"name": "snv", "train_x": "snv.csv"}], "variation_mode": "concat", "targets": "y.csv"},
 ])
 def test_sources_and_variations_use_existing_normalizer(document, tmp_path):
     expected, _ = ConfigNormalizer().normalize(document)

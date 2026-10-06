@@ -5,6 +5,7 @@ This module provides a dedicated interface for all feature-related
 operations, including data retrieval, augmentation, and wavelength conversions.
 """
 
+import copy
 from typing import Any, Optional, Union, cast
 
 import numpy as np
@@ -186,8 +187,12 @@ class FeatureAccessor:
             ... )
         """
         num_samples = get_num_samples(data)
-        self._indexer.add_samples_dict(num_samples, indexes)
+        # Stage the complete index frame, then publish it after all feature
+        # sources append successfully. Indexer delegates keep their live store.
+        staged_indexer = copy.deepcopy(self._indexer)
+        staged_indexer.add_samples_dict(num_samples, indexes)
         self._block.add_samples(data, headers, header_unit)
+        self._indexer._store._df = staged_indexer.df
 
     def add_samples_batch(
         self,
@@ -248,8 +253,9 @@ class FeatureAccessor:
         unique_partitions = set(partitions)
         partition = partitions[0] if len(unique_partitions) == 1 else partitions  # Will be handled by indexer
 
-        # Single batch add to indexer
-        self._indexer.add_samples(
+        # Stage index rows until the feature append succeeds for every source.
+        staged_indexer = copy.deepcopy(self._indexer)
+        staged_indexer.add_samples(
             count=n_samples,
             partition=cast(Any, partition),
             origin_indices=cast(Any, origins),
@@ -260,6 +266,7 @@ class FeatureAccessor:
 
         # Single batch add to feature storage
         self._block.add_samples_batch_3d(data)
+        self._indexer._store._df = staged_indexer.df
 
     def add_features(self,
                      features: InputFeatures,

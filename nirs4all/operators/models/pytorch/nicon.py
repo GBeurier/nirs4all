@@ -97,9 +97,9 @@ class LayerNorm1D(nn.Module):
     def forward(self, x):
         return self.norm(x)
 
-def get_activation(name: str):
+def get_activation(name: str | None):
     if name is None:
-        return None
+        return nn.Identity()
     name = name.lower()
     if name == "swish":
         return nn.SiLU()
@@ -116,7 +116,7 @@ def get_activation(name: str):
     elif name == "tanh":
         return nn.Tanh()
     else:
-        return nn.ReLU()
+        raise ValueError(f"Unknown activation: {name}")
 
 def get_norm(method: str, num_features: int):
     if method == "LayerNormalization":

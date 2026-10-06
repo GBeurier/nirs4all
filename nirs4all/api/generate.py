@@ -20,7 +20,6 @@ Example:
 
 from __future__ import annotations
 
-import contextlib
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, overload
 
 import numpy as np
@@ -97,8 +96,8 @@ def generate(
     Generate a synthetic NIRS dataset.
 
     This is the primary function for creating synthetic spectroscopic data.
-    It provides a simple interface for common use cases while allowing
-    full customization through keyword arguments.
+    It provides a simple interface for common use cases. Use the builder API
+    for instrument, noise and other advanced feature configuration.
 
     Args:
         n_samples: Number of samples to generate.
@@ -107,7 +106,8 @@ def generate(
             Options: 'simple' (fast, minimal noise), 'realistic' (typical NIR),
             'complex' (challenging scenarios).
         wavelength_range: Tuple of (start, end) wavelengths in nm.
-            Defaults to (1000, 2500) which covers the full NIR range.
+            Defaults to (350, 2500), covering the visible and NIR range,
+            with a 2 nm step.
         components: List of predefined component names to use.
             Options: 'water', 'protein', 'lipid', 'starch', 'cellulose',
             'chlorophyll', 'oil', 'nitrogen_compound'.
@@ -115,7 +115,9 @@ def generate(
         train_ratio: Proportion of samples for training partition.
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y) tuple.
         name: Dataset name.
-        **kwargs: Additional arguments passed to SyntheticDatasetBuilder.  The
+        **kwargs: ``distribution`` configures target concentrations and
+            ``batch_effects`` enables batch effects. Other generation options
+            raise TypeError; use ``generate.builder`` for advanced controls. The
             stable catch-all also accepts the API-005 control keys ``engine``,
             ``plugin``, and ``allow_fallback``.  The in-package Python
             synthesizer requires ``engine="legacy"`` explicitly during the V1
@@ -156,6 +158,11 @@ def generate(
         plugin=requested_plugin,
         allow_fallback=allow_fallback,
     ).require()
+
+    unknown = set(kwargs) - {"distribution", "batch_effects"}
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise TypeError(f"Unsupported generate() keyword arguments: {names}. Use generate.builder() for advanced configuration.")
 
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
@@ -906,8 +913,8 @@ def from_template(
 
         template_ds = datasets[0]
         template_array = np.asarray(template_ds.x({}, layout="2d"))
-        with contextlib.suppress(AttributeError, TypeError):
-            wavelengths = getattr(template_ds, 'wavelengths', None)
+        if wavelengths is None and template_ds.header_unit() in {"nm", "cm-1"}:
+            wavelengths = template_ds.wavelengths_nm()
         builder.fit_to(template_array, wavelengths=wavelengths)
     else:
         builder.fit_to(template, wavelengths=wavelengths)

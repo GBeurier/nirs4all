@@ -60,7 +60,7 @@ class TopKComparisonChart(BaseChart):
                aggregate: bool | str | None = None,
                aggregate_method: str | None = None,
                aggregate_exclude_outliers: bool | None = None,
-               score_scope: str = 'refit',
+               score_scope: str = 'cv',
                task_type: str | None = None,
                **filters) -> Figure | list[Figure]:
         """Plot top K models with predicted vs true and residuals.
@@ -72,6 +72,8 @@ class TopKComparisonChart(BaseChart):
             k: Number of top models to show (default: 5).
             rank_metric: Metric for ranking models (default: auto-detect from task type).
             rank_partition: Partition used for ranking (default: 'val').
+            score_scope: Defaults to ``"cv"`` for fold ranking. Explicit
+                ``"refit"`` uses the artifact's saved selection metric.
             display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition(s) to display ('all' for train/val/test, or 'test', 'val', 'train').
             show_scores: If True, show scores in chart titles (default: True).

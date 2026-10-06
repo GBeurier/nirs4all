@@ -701,21 +701,21 @@ APPLICATION_DOMAINS: dict[str, DomainConfig] = {
         category=DomainCategory.BIOMEDICAL,
         description="NIR spectroscopy of biological tissues",
         typical_components=[
-            "water", "lipid", "protein", "glucose", "hemoglobin"
+            "water", "lipid", "protein", "glucose", "hemoglobin_oxy", "hemoglobin_deoxy"
         ],
         component_weights={
             "water": 0.35,
             "lipid": 0.20,
             "protein": 0.25,
             "glucose": 0.10,
-            "hemoglobin": 0.10
+            "hemoglobin_oxy": 0.05, "hemoglobin_deoxy": 0.05
         },
         wavelength_range=(700, 1100),  # Optical window
         n_components_range=(3, 5),
         noise_level="high",
         measurement_mode="reflectance",
         typical_sample_types=["skin", "muscle", "fat tissue"],
-        additional_params={"hemoglobin": "simulated with carotenoid"},
+        additional_params={"hemoglobin": "oxygenated and deoxygenated spectral components"},
     ),
 }
 

@@ -123,14 +123,16 @@ class TargetGenerator:
             concentrations: Component concentration matrix (n_samples, n_components).
                 If None, generates random base values.
             distribution: Target value distribution.
-            range: (min, max) for scaling targets.
+            range: (min, max) for scaling base targets before additive noise.
+                Final noisy targets can exceed these bounds.
             component: Which component(s) to use as target:
                 - None: Weighted combination of all components
                 - int: Use component at that index
                 - str: Use component with that name (requires component_names)
                 - List[int]: Multi-output using specified component indices
             component_names: Names of components (for string component selection).
-            correlation: Correlation between concentrations and targets (0-1).
+            correlation: Signal/noise mixing control (0-1), combined with noise;
+                this is not an exact final Pearson correlation guarantee.
             noise: Noise level to add.
             transform: Optional transformation ('log', 'sqrt').
 
@@ -463,7 +465,7 @@ class TargetGenerator:
         thresholds = [np.percentile(values, p) for p in percentiles]
 
         # Add noise to thresholds based on separation
-        threshold_noise = (1 - separation / 3) * np.std(values) * 0.5
+        threshold_noise = max(0.0, 1 - separation / 3) * np.std(values) * 0.5
 
         # Assign labels
         labels = np.zeros(n_samples, dtype=np.int32)
@@ -1000,12 +1002,16 @@ class NonLinearTargetProcessor:
         if self.config.regime_method == "random":
             return np.asarray(self.rng.integers(0, n_regimes, size=n_samples))
 
-        elif self.config.regime_method == "concentration":
+        elif self.config.regime_method == "concentration" or (self.config.regime_method == "spectral" and spectra is None):
             # Use first principal direction of concentrations
             C_centered = C - C.mean(axis=0)
             if C.shape[1] > 1:
-                # Simple projection onto first component
-                projection = C_centered.sum(axis=1)
+                # Centered compositions sum to zero; use an actual principal direction.
+                _u, _s, directions = np.linalg.svd(C_centered, full_matrices=False)
+                direction = directions[0]
+                if direction[np.argmax(np.abs(direction))] < 0:
+                    direction = -direction
+                projection = C_centered @ direction
             else:
                 projection = C_centered[:, 0]
 
@@ -1018,9 +1024,7 @@ class NonLinearTargetProcessor:
             return assignments
 
         elif self.config.regime_method == "spectral":
-            if spectra is None:
-                # Fall back to concentration-based
-                return self._assign_regimes(C, None)
+            assert spectra is not None
 
             # Use spectral intensity for regime assignment
             intensity = spectra.mean(axis=1)

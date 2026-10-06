@@ -15,7 +15,7 @@ runs:
       uses: actions/checkout@v6
       with:
         repository: GBeurier/dag-ml
-        ref: 867f3576592ec390e2a16ced53cc027c022cde27
+        ref: 9095e5640c53b02dd91dc4de7a20d1a7d501bbdb
         path: dag-ml-cli-src
 
     - uses: dtolnay/rust-toolchain@stable
@@ -73,10 +73,11 @@ runs:
         assert Path(n4m.__file__).resolve() == methods / 'bindings/python/src/n4m/__init__.py'
         assert Path(n4m.library_path()).resolve() == library.resolve()
         assert library.is_file() and n4m.abi_version() == (2, 17, 0)
+        assert n4m.version() == '1.3.2+abi.2.17.0', n4m.version()
         assert callable(n4m.MultimodalPipeline)
         assert callable(RolePipeline.close)
         assert callable(n4m.MultimodalClassifierPipeline)
-        assert version('dag-ml') == dag_ml.version() == '0.3.34'
+        assert version('dag-ml') == dag_ml.version() == '0.3.37'
         assert 'site-packages' in Path(native.__file__).resolve().parts
         assert callable(dag_ml.prepare_host_hpo_structural_catalogue)
         assert callable(dag_ml.prepare_host_hpo_topology_catalogue)

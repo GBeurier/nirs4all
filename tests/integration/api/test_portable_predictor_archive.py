@@ -113,6 +113,53 @@ def capture() -> dict[str, Any]:
     return data
 
 
+@pytest.mark.parametrize("producer", ["model:image", "model:metadata", "model:nir", "model:series", "model:meta"])
+@pytest.mark.parametrize("fold_id", ["avg", "w_avg"])
+def test_capture_oof_reports_match_independent_metrics(capture: dict[str, Any], producer: str, fold_id: str) -> None:
+    from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score
+
+    outcome = json.loads(capture["outcome_json"])
+    [average] = [entry for entry in outcome["oof_averages"] if entry["predictions"]["producer_node"] == producer and entry["predictions"]["fold_id"] == fold_id]
+    predictions = average["predictions"]
+    truth = average["y_true"]
+    assert truth["unit_ids"] == predictions["unit_ids"]
+    y_true, y_pred = np.asarray(truth["values"]).ravel(), np.asarray(predictions["values"]).ravel()
+    # Rust's round uses half-away-from-zero for the integer class identities.
+    true_labels = np.sign(y_true) * np.floor(np.abs(y_true) + 0.5)
+    predicted_labels = np.sign(y_pred) * np.floor(np.abs(y_pred) + 0.5)
+    reference = {
+        "mse": mean_squared_error(y_true, y_pred), "rmse": np.sqrt(mean_squared_error(y_true, y_pred)),
+        "mae": mean_absolute_error(y_true, y_pred), "r2": r2_score(y_true, y_pred),
+        "accuracy": accuracy_score(true_labels, predicted_labels),
+        "balanced_accuracy": balanced_accuracy_score(true_labels, predicted_labels),
+        "f1": f1_score(true_labels, predicted_labels, average="weighted"),
+    }
+    for score_set in (outcome["score_set"], outcome["execution_bundle"]["scores"]):
+        [report] = [entry for entry in score_set["reports"] if entry["producer_node"] == producer and entry["fold_id"] == fold_id]
+        assert report["variant_id"] == outcome["selected_variant_id"]
+        assert report["row_count"] == len(y_true)
+        for name, value in reference.items():
+            assert report["metrics"][name] == pytest.approx(value, rel=1e-12, abs=1e-12)
+            assert report["metrics"][f"{name}:y"] == pytest.approx(value, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("resign", [False, True], ids=["integrity", "semantic"])
+def test_native_outcome_rejects_inconsistent_oof_accuracy(capture: dict[str, Any], resign: bool) -> None:
+    from nirs4all.pipeline.dagml.training_contracts import tcv1_fingerprint_without
+
+    dag_ml, _core, _role_pipeline = _live_runtime()
+    outcome = json.loads(capture["outcome_json"])
+    dag_ml.TrainingOutcome(outcome)
+    assert tcv1_fingerprint_without(outcome, "outcome_fingerprint") == outcome["outcome_fingerprint"]
+    [report] = [entry for entry in outcome["score_set"]["reports"] if entry["producer_node"] == "model:nir" and entry["fold_id"] == "avg"]
+    report["metrics"]["accuracy"] += 0.05
+    if resign:
+        outcome["outcome_fingerprint"] = tcv1_fingerprint_without(outcome, "outcome_fingerprint")
+    message = "OOF average values disagree with selected score report" if resign else "fingerprint does not match original TCV1 JSON"
+    with pytest.raises(Exception, match=message):
+        dag_ml.TrainingOutcome(outcome)
+
+
 @pytest.fixture
 def archive_path(tmp_path: Path, capture: dict[str, Any]) -> Path:
     dag_ml, _core, _role_pipeline = _live_runtime()

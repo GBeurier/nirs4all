@@ -4,7 +4,7 @@ This module handles _or_ nodes that define choices with various selection modes:
 - Basic choice: Pick one from alternatives
 - pick: Unordered selection (combinations)
 - arrange: Ordered arrangement (permutations)
-- Second-order: then_pick, then_arrange, or [outer, inner] syntax
+- Second-order: explicit then_pick or then_arrange
 - Constraints: _mutex_, _requires_, _exclude_ for filtering combinations
 
 Syntax examples:
@@ -301,11 +301,13 @@ class OrStrategy(ExpansionStrategy):
         """
         # Handle second-order with then_pick
         if then_pick is not None:
-            return self._handle_pick_then_pick(choices, pick_spec, then_pick)
+            primary = self._primary_items(choices, pick_spec, False, expand_nested)
+            return self._handle_pick_then_pick(primary, 1, then_pick)
 
         # Handle second-order with then_arrange
         if then_arrange is not None:
-            return self._handle_pick_then_arrange(choices, pick_spec, then_arrange)
+            primary = self._primary_items(choices, pick_spec, False, expand_nested)
+            return self._handle_pick_then_arrange(primary, 1, then_arrange)
 
         # Standard pick expansion
         # pick_spec can be: int (exact), tuple/list of 2 ints (range from, to)
@@ -344,24 +346,19 @@ class OrStrategy(ExpansionStrategy):
         Returns:
             Number of combinations.
         """
-        n = len(choices)
+        primary_count = self._count_selected(choices, pick_spec, False, count_nested)
 
         # Handle second-order with then_pick
         if then_pick is not None:
-            return self._count_pick_then_pick(n, pick_spec, then_pick)
+            return self._count_pick_then_pick(primary_count, 1, then_pick)
 
         # Handle second-order with then_arrange
         if then_arrange is not None:
-            return self._count_pick_then_arrange(n, pick_spec, then_arrange)
+            return self._count_pick_then_arrange(primary_count, 1, then_arrange)
 
         # Standard count
         # pick_spec can be: int (exact), tuple/list of 2 ints (range from, to)
-        from_size, to_size = self._normalize_spec(pick_spec)
-        total = 0
-        for s in range(from_size, to_size + 1):
-            if s <= n:
-                total += comb(n, s)
-        return total
+        return primary_count
 
     # -------------------------------------------------------------------------
     # Arrange Expansion (Permutations)
@@ -391,11 +388,13 @@ class OrStrategy(ExpansionStrategy):
         """
         # Handle second-order with then_pick
         if then_pick is not None:
-            return self._handle_arrange_then_pick(choices, arrange_spec, then_pick)
+            primary = self._primary_items(choices, arrange_spec, True, expand_nested)
+            return self._handle_arrange_then_pick(primary, 1, then_pick)
 
         # Handle second-order with then_arrange
         if then_arrange is not None:
-            return self._handle_arrange_then_arrange(choices, arrange_spec, then_arrange)
+            primary = self._primary_items(choices, arrange_spec, True, expand_nested)
+            return self._handle_arrange_then_arrange(primary, 1, then_arrange)
 
         # Standard arrange expansion
         # arrange_spec can be: int (exact), tuple/list of 2 ints (range from, to)
@@ -434,24 +433,36 @@ class OrStrategy(ExpansionStrategy):
         Returns:
             Number of permutations.
         """
-        n = len(choices)
+        primary_count = self._count_selected(choices, arrange_spec, True, count_nested)
 
         # Handle second-order with then_pick
         if then_pick is not None:
-            return self._count_arrange_then_pick(n, arrange_spec, then_pick)
+            return self._count_arrange_then_pick(primary_count, 1, then_pick)
 
         # Handle second-order with then_arrange
         if then_arrange is not None:
-            return self._count_arrange_then_arrange(n, arrange_spec, then_arrange)
+            return self._count_arrange_then_arrange(primary_count, 1, then_arrange)
 
         # Standard count: P(n, k) = n! / (n-k)!
         # arrange_spec can be: int (exact), tuple/list of 2 ints (range from, to)
-        from_size, to_size = self._normalize_spec(arrange_spec)
-        total = 0
-        for s in range(from_size, to_size + 1):
-            if s <= n:
-                total += factorial(n) // factorial(n - s)
-        return total
+        return primary_count
+
+    def _primary_items(self, choices: list[Any], spec: SizeSpec, ordered: bool, expand_nested: Callable | None) -> list[Any]:
+        """Expand the primary alternatives before selecting among them again."""
+        expand = self._expand_with_arrange if ordered else self._expand_with_pick
+        primary = expand(choices, spec, None, None, expand_nested, None)
+        return [item[0] if len(item) == 1 else item for item in primary]
+
+    def _count_selected(self, choices: list[Any], spec: SizeSpec, ordered: bool, count_nested: Callable | None) -> int:
+        """Count weighted subsets without materializing combinations."""
+        start, stop = self._normalize_spec(spec)
+        limit = min(stop, len(choices))
+        counts = [1] + [0] * limit
+        for choice in choices:
+            weight = count_nested(choice) if count_nested else 1
+            for size in range(limit, 0, -1):
+                counts[size] += counts[size - 1] * weight
+        return sum(counts[size] * (factorial(size) if ordered else 1) for size in range(start, limit + 1))
     # -------------------------------------------------------------------------
     # Second-Order (then_pick / then_arrange)
     # -------------------------------------------------------------------------

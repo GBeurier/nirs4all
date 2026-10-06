@@ -83,14 +83,14 @@ def test_residual_prediction_feature_join_without_splitter_uses_training_only_oo
         {"merge": "predictions"},
         {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=False)},
     ]
-    legacy = nirs4all.run(
-        pipeline, source, engine="legacy", refit=False,
-        workspace_path=tmp_path / "legacy", save_artifacts=False,
-        save_charts=False, verbose=0,
-    )
-    assert np.isfinite(legacy.cv_best_score)
-    legacy_cv_score = legacy.cv_best_score
-    legacy.close()
+    # The legacy safe merge has neither declared folds nor an in-sample opt-in.
+    # It must refuse absent OOF features before a downstream model can fit zeros.
+    with pytest.raises(RuntimeError, match="eligible OOF training predictions.*CV splitter"):
+        nirs4all.run(
+            pipeline, source, engine="legacy", refit=False,
+            workspace_path=tmp_path / "legacy", save_artifacts=False,
+            save_charts=False, verbose=0,
+        )
 
     native = nirs4all.run(
         pipeline, source, engine="dag-ml", refit=True,
@@ -99,7 +99,6 @@ def test_residual_prediction_feature_join_without_splitter_uses_training_only_oo
     )
     assert np.isfinite(native.cv_best_score)
     assert np.isfinite(native.best_rmse)
-    assert native.cv_best_score != pytest.approx(legacy_cv_score)
     dataset = DatasetConfigs(source).get_dataset_at(0)
     features = dataset.x({"partition": "test"}, layout="2d")
     targets = np.asarray(dataset.y({"partition": "test"})).ravel()

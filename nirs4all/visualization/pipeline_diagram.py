@@ -189,8 +189,8 @@ class PipelineDiagram:
         fig, ax = plt.subplots(figsize=effective_figsize)
 
         # Draw the diagram
-        self._draw_edges(ax, layout)
         self._draw_nodes(ax, layout, effective_show_shapes)
+        self._draw_edges(ax, layout)
 
         # Configure axes
         ax.set_aspect('equal')
@@ -1456,8 +1456,16 @@ class PipelineDiagram:
             return {'type': 'concat_transform', 'label': label, 'keyword': keyword}
 
         elif keyword == 'branch':
-            branches = {}
+            branches: dict[str, Any] = {}
             if isinstance(value, dict):
+                separation_key = next((key for key in ('by_metadata', 'by_tag', 'by_filter') if key in value), None)
+                if separation_key is not None:
+                    steps = value.get('steps', [])
+                    branches = steps if isinstance(steps, dict) else {'Each group': steps if isinstance(steps, list) else [steps]}
+                    return {
+                        'type': 'branch', 'label': f"Separate {separation_key}: {value[separation_key]}",
+                        'branches': branches, 'keyword': keyword,
+                    }
                 for k, v in value.items():
                     if not k.startswith('_'):
                         branches[k] = v if isinstance(v, list) else [v]
@@ -1467,7 +1475,7 @@ class PipelineDiagram:
             return {'type': 'branch', 'label': 'Branch', 'branches': branches, 'keyword': keyword}
 
         elif keyword == 'merge':
-            merge_type = 'features' if value == 'features' else 'predictions'
+            merge_type = 'features' if value == 'features' or isinstance(value, dict) and 'features' in value else 'predictions'
             return {'type': 'merge', 'label': f"Merge ({merge_type})", 'merge_type': merge_type, 'keyword': keyword}
 
         elif keyword == 'merge_predictions':
@@ -1713,6 +1721,15 @@ class PipelineDiagram:
                 node_type="model",
                 parent_ids=[current_id],
             )
+            metric = self.config.get('metric')
+            partition = self.config.get('partition', 'test')
+            if metric and self.config.get('show_metrics', True):
+                ranked = self.predictions.top(
+                    n=1, rank_metric=metric, rank_partition=partition,
+                    display_partition=partition, display_metrics=[metric], score_scope='all',
+                )
+                if ranked:
+                    model_node.metadata.update(best_score=ranked[0].get(metric), score_label=f'{metric} [{partition}]')
             self.nodes[model_node.id] = model_node
             self.edges.append((current_id, model_node.id))
 
@@ -1949,8 +1966,9 @@ class PipelineDiagram:
 
             # Add score for model nodes
             score = node.metadata.get('best_score')
-            if score is not None and node.node_type == 'model':
-                label_lines.append(f"★ {score:.2f}")
+            if score is not None and node.node_type == 'model' and self.config.get('show_metrics', True):
+                score_label = node.metadata.get('score_label', '')
+                label_lines.append(f"★ {score_label} {score:.2f}".strip())
 
             n_lines = len(label_lines)
 
@@ -2058,8 +2076,8 @@ class PipelineDiagram:
             to_height = to_pos.get('height', self._node_height)
 
             # Calculate connection points
-            from_x, from_y = from_pos['x'], from_pos['y'] - from_height / 2
-            to_x, to_y = to_pos['x'], to_pos['y'] + to_height / 2
+            from_x, from_y = from_pos['x'], from_pos['y'] - from_height / 2 - 0.1
+            to_x, to_y = to_pos['x'], to_pos['y'] + to_height / 2 + 0.1
 
             # Determine curve based on horizontal offset
             dx = to_x - from_x

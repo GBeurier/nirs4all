@@ -153,7 +153,7 @@ class GridStrategy(ExpansionStrategy):
             if count_nested and isinstance(values, dict):
                 val_count = count_nested(values)
             elif isinstance(values, list):
-                val_count = len(values)
+                val_count = sum(count_nested(v) if count_nested and isinstance(v, dict) else 1 for v in values)
             else:
                 val_count = 1
             total *= val_count

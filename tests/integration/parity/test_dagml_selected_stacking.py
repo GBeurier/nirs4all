@@ -29,6 +29,51 @@ def _data():
     return make_regression(n_samples=48, n_features=6, noise=0.1, random_state=42)
 
 
+def _expected_branch_stacking_oof(mode):
+    """Independent sklearn oracle: outer KFold, inner identity-sorted round-robin OOF.
+
+    The native regression contract partitions each outer-training cohort into
+    two alternating folds after sorting its wire sample IDs. Candidate ranking
+    and inverse-error weights use the mean of those two inner validation RMSEs.
+    No native predictions, scores, estimators or selection helpers enter this oracle.
+    """
+    from sklearn.base import clone
+
+    x, y = _data()
+    x, y = x.astype(np.float32), y.astype(np.float32).astype(float)
+    models = [[PLSRegression(n_components=2), Ridge(alpha=10000)],
+              [Ridge(alpha=1), Ridge(alpha=1000)]]
+    expected = np.empty(len(y))
+    for outer_train, outer_val in KFold(3, shuffle=True, random_state=42).split(x):
+        ordered = np.asarray(sorted(outer_train, key=lambda sample: f"s{sample}"))
+        train_features, val_features = [], []
+        for branch in models:
+            inner_oof = np.empty((len(ordered), len(branch)))
+            outer_predictions, errors = [], []
+            for column, template in enumerate(branch):
+                fold_errors = []
+                for fold in range(2):
+                    held_out = np.arange(len(ordered)) % 2 == fold
+                    fitted = clone(template).fit(x[ordered[~held_out]], y[ordered[~held_out]])
+                    prediction = fitted.predict(x[ordered[held_out]]).ravel()
+                    inner_oof[held_out, column] = prediction
+                    fold_errors.append(np.sqrt(np.mean((y[ordered[held_out]] - prediction) ** 2)))
+                errors.append(np.mean(fold_errors))
+                outer_predictions.append(clone(template).fit(x[outer_train], y[outer_train]).predict(x[outer_val]).ravel())
+            outer_predictions = np.column_stack(outer_predictions)
+            if mode in ("mean", "weighted_mean"):
+                weights = np.ones(len(branch)) if mode == "mean" else 1.0 / (np.asarray(errors) + 1e-10)
+                train_features.append(np.average(inner_oof, axis=1, weights=weights).reshape(-1, 1))
+                val_features.append(np.average(outer_predictions, axis=1, weights=weights).reshape(-1, 1))
+            else:
+                selected = np.argsort(errors, kind="stable")[:1 if mode == "best" else 2]
+                train_features.append(inner_oof[:, selected])
+                val_features.append(outer_predictions[:, selected])
+        meta = Ridge(alpha=0.1).fit(np.column_stack(train_features), y[ordered])
+        expected[outer_val] = meta.predict(np.column_stack(val_features)).ravel()
+    return expected, float(np.sqrt(np.mean((y - expected) ** 2)))
+
+
 def test_legacy_all_previous_selector_fails_during_set_serialization():
     pipeline = [
         KFold(2, shuffle=True, random_state=42),
@@ -396,12 +441,27 @@ def test_branch_numeric_prediction_aggregation(tmp_path):
         legacy = nirs4all.run(pipeline, _data(), engine="legacy", refit=False,
                              save_artifacts=False, save_charts=False, verbose=0)
         assert np.isfinite(legacy.cv_best_score)
-        native = nirs4all.run(pipeline, _data(), engine="dag-ml", refit=False,
+        from nirs4all.pipeline.dagml.rt import RtError
+
+        with pytest.raises(RtError, match="requires CV-only lowering") as refused:
+            nirs4all.run(pipeline, _data(), engine="dag-ml", refit=False,
+                         save_artifacts=False, save_charts=False, verbose=0)
+        assert refused.value.cause == "unsupported_shape"
+        expected, expected_rmse = _expected_branch_stacking_oof(aggregate)
+        native = nirs4all.run(pipeline, _data(), engine="dag-ml", refit=True,
                              allow_fallback=False, workspace_path=tmp_path / aggregate,
                              save_artifacts=False, save_charts=False, verbose=0)
         try:
             assert native.execution_engine == "dag-ml"
-            assert np.isfinite(native.cv_best_score)
+            assert native.cv_best_score == pytest.approx(expected_rmse, rel=1e-6, abs=1e-5)
+            covered = []
+            for node in native._dagml_node_results:
+                for block in node.get("predictions", []):
+                    if block.get("producer_node") == "merge:stack" and block.get("partition") == "validation":
+                        samples = [int(sample.rsplit(".s", 1)[1]) for sample in block["sample_ids"]]
+                        covered.extend(samples)
+                        np.testing.assert_allclose(np.asarray(block["values"]).ravel(), expected[samples], rtol=1e-6, atol=1e-5)
+            assert sorted(covered) == list(range(len(expected))), "OOF must cover every base sample exactly once"
             meta_by_aggregate[aggregate] = {
                 block["fold_id"]: np.asarray(block["values"], dtype=float)
                 for node in native._dagml_node_results
@@ -411,6 +471,7 @@ def test_branch_numeric_prediction_aggregation(tmp_path):
             }
         finally:
             native.close()
+            legacy.close()
     assert meta_by_aggregate["mean"].keys() == meta_by_aggregate["weighted_mean"].keys()
     assert any(
         not np.allclose(meta_by_aggregate["mean"][fold], meta_by_aggregate["weighted_mean"][fold])
@@ -440,15 +501,31 @@ def test_branch_model_selection_feeds_native_stacking(tmp_path, selection):
         save_artifacts=False, save_charts=False, verbose=0,
     )
     assert np.isfinite(legacy.cv_best_score)
+    from nirs4all.pipeline.dagml.rt import RtError
+
+    with pytest.raises(RtError, match="requires CV-only lowering") as refused:
+        nirs4all.run(pipeline, _data(), engine="dag-ml", refit=False,
+                     save_artifacts=False, save_charts=False, verbose=0)
+    assert refused.value.cause == "unsupported_shape"
+    expected, expected_rmse = _expected_branch_stacking_oof("best" if selection == "best" else "top_k")
     native = nirs4all.run(
-        pipeline, _data(), engine="dag-ml", refit=False, allow_fallback=False,
+        pipeline, _data(), engine="dag-ml", refit=True, allow_fallback=False,
         workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0,
     )
     try:
         assert native.execution_engine == "dag-ml"
-        assert np.isfinite(native.cv_best_score)
+        assert native.cv_best_score == pytest.approx(expected_rmse, rel=1e-6, abs=1e-5)
+        covered = []
+        for node in native._dagml_node_results:
+            for block in node.get("predictions", []):
+                if block.get("producer_node") == "merge:stack" and block.get("partition") == "validation":
+                    samples = [int(sample.rsplit(".s", 1)[1]) for sample in block["sample_ids"]]
+                    covered.extend(samples)
+                    np.testing.assert_allclose(np.asarray(block["values"]).ravel(), expected[samples], rtol=1e-6, atol=1e-5)
+        assert sorted(covered) == list(range(len(expected))), "OOF must cover every base sample exactly once"
     finally:
         native.close()
+        legacy.close()
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])

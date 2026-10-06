@@ -432,10 +432,10 @@ class MetaModel(BaseModelOperator):
 
         # Set operator params
         for key, value in operator_params.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            elif key == 'name':
+            if key == 'name':
                 self._name = value
+            elif key in self.get_params(deep=False):
+                setattr(self, key, value)
             else:
                 raise ValueError(f"Unknown parameter: {key}")
 

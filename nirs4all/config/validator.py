@@ -325,6 +325,8 @@ def _load_config_content(config_path: str) -> tuple[dict[str, Any], str]:
         if config is None:
             raise ValueError(f"Configuration file is empty or null: {config_path}")
 
+        if isinstance(config, list):
+            config = {"pipeline": config}
         if not isinstance(config, dict):
             raise ValueError(
                 f"Configuration must be a dictionary/object.\n"
@@ -447,7 +449,7 @@ def _check_file_paths(config: dict[str, Any], base_path: Path | None = None) -> 
     return warnings
 
 def validate_pipeline_config(
-    config_source: str | dict[str, Any],
+    config_source: str | dict[str, Any] | list[Any],
     check_class_paths: bool = False
 ) -> tuple[bool, list[str], list[str]]:
     """Validate a pipeline configuration.
@@ -463,6 +465,7 @@ def validate_pipeline_config(
     warnings: list[str] = []
 
     # Load config if path
+    config: dict[str, Any] | list[Any]
     if isinstance(config_source, str):
         try:
             config, _ = _load_config_content(config_source)
@@ -470,6 +473,12 @@ def validate_pipeline_config(
             return False, [str(exc)], []
     else:
         config = config_source
+
+    # Match the three forms supported by PipelineConfigs._load_steps.
+    if isinstance(config, list):
+        config = {"pipeline": config}
+    elif isinstance(config, dict) and "pipeline" not in config and "steps" in config:
+        config = {**config, "pipeline": config["steps"]}
 
     # Validate against schema
     schema_errors = _validate_against_schema(config, PIPELINE_SCHEMA, 'pipeline')
@@ -564,7 +573,7 @@ def validate_config_file(
 
     # Auto-detect type if not specified
     if config_type is None:
-        if 'pipeline' in config:
+        if 'pipeline' in config or 'steps' in config:
             config_type = 'pipeline'
         elif any(k in config for k in ['train_x', 'test_x', 'folder']):
             config_type = 'dataset'

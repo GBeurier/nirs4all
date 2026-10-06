@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,19 @@ ARTIFACT_FILENAME = "artifact.json"
 RESULT_FILENAME = "calibrated_result.json"
 MANIFEST_FILENAME = "manifest.json"
 BUNDLE_ROOT = "conformal/"
+
+
+@contextmanager
+def _atomic_bundle(target: Path) -> Iterator[zipfile.ZipFile]:
+    """Publish a ZIP only once every member has been written successfully."""
+    with tempfile.NamedTemporaryFile(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent, delete=False) as stream:
+        staged = Path(stream.name)
+    try:
+        with zipfile.ZipFile(staged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            yield archive
+        os.replace(staged, target)
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -161,7 +176,7 @@ def export_conformal_result_bundle(
     with tempfile.TemporaryDirectory(prefix="n4a-conformal-") as tmp:
         store_dir = Path(tmp) / "store"
         save_conformal_result_store(result, store_dir)
-        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        with _atomic_bundle(target) as archive:
             for filename in (MANIFEST_FILENAME, ARTIFACT_FILENAME, RESULT_FILENAME):
                 archive.write(store_dir / filename, arcname=f"{BUNDLE_ROOT}{filename}")
     return target
@@ -198,7 +213,7 @@ def attach_conformal_result_to_bundle(
     with tempfile.TemporaryDirectory(prefix="n4a-conformal-attach-") as tmp:
         store_dir = Path(tmp) / "store"
         save_conformal_result_store(result, store_dir)
-        with zipfile.ZipFile(source, "r") as src, zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+        with zipfile.ZipFile(source, "r") as src, _atomic_bundle(target) as dst:
             existing_conformal = [name for name in src.namelist() if name.startswith(BUNDLE_ROOT)]
             if existing_conformal and not overwrite:
                 raise ValueError("model bundle already contains a conformal sidecar; pass overwrite=True to replace it")

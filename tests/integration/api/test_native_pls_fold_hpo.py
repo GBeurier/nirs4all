@@ -164,7 +164,8 @@ from n4m._ffi import lib
 from n4m.roles import RolePipeline
 data = json.loads(sys.stdin.read())
 assert pathlib.Path(lib._name).resolve() == pathlib.Path(sys.argv[1]).resolve()
-assert n4m.version() in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0"}, "this gate qualifies the selected public ABI 2.14/2.15/2.16/2.17 runtime"
+# The canonical pls4all 1.3.2 wheel must carry native Methods 1.3.2 / ABI 2.17.
+assert n4m.version() in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0", "1.3.2+abi.2.17.0"}, "this gate qualifies the selected public ABI 2.14/2.15/2.16/2.17 runtime"
 X, y = np.asarray(data["X"]), np.asarray(data["y"])
 row_of = {identifier: row for row, identifier in enumerate(data["sample_ids"])}
 def positions(ids): return [row_of[identifier] for identifier in ids]

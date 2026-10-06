@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 from pathlib import Path
@@ -248,9 +249,9 @@ def write_launcher_shim(path: Path, venv_python: str) -> Path:
     path.write_text(
         "#!/bin/sh\n"
         'if [ "$1" = "--describe" ]; then\n'
-        f'  exec {venv_python} {adapter_file} "$@"\n'
+        f'  exec {shlex.quote(venv_python)} {shlex.quote(str(adapter_file))} "$@"\n'
         "fi\n"
-        f'exec {venv_python} -m nirs4all.pipeline.dagml.process_adapter "$@"\n'
+        f'exec {shlex.quote(venv_python)} -m nirs4all.pipeline.dagml.process_adapter "$@"\n'
     )
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IRUSR)
     return path
@@ -364,6 +365,7 @@ def run_cv_refit_bundle(
             "--dsl", str(workdir / "dsl.json"), "--controllers", str(workdir / "controllers.json"),
             "--envelope", str(workdir / "envelope.json"), "--adapter", str(shim), "--persistent",
             "--selection-metric", selection_metric,
+            *(["--root-seed", str(dsl["root_seed"])] if dsl.get("root_seed") is not None else []),
             *([] if refit else ["--no-refit"]),
             *([] if refit_top_k == 1 else ["--refit-top-k", str(refit_top_k)]),
             "--oof-average-output", str(oof_average_path),

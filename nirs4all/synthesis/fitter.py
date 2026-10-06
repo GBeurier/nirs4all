@@ -520,12 +520,52 @@ class FittedParameters:
             >>> params = fitter.fit(X_real)
             >>> generator = SyntheticNIRSGenerator(**params.to_generator_kwargs())
         """
-        return {
+        kwargs: dict[str, Any] = {
             "wavelength_start": self.wavelength_start,
             "wavelength_end": self.wavelength_end,
             "wavelength_step": self.wavelength_step,
             "complexity": self.complexity,
+            "custom_params": {key: getattr(self, key) for key in (
+                "noise_base", "noise_signal_dep", "scatter_alpha_std", "scatter_beta_std",
+                "path_length_std", "baseline_amplitude", "tilt_std", "global_slope_mean", "global_slope_std",
+            )},
+            "instrument": self.inferred_instrument if self.inferred_instrument not in {"", "unknown"} else None,
         }
+        from .components import ComponentLibrary
+        from .environmental import EnvironmentalEffectsConfig, MoistureConfig, TemperatureConfig
+        from .instruments import EdgeArtifactsConfig
+        from .measurement_modes import MeasurementMode
+        from .scattering import EMSCConfig, ParticleSizeConfig, ParticleSizeDistribution, ScatteringEffectsConfig
+
+        if self.detected_components:
+            kwargs["component_library"] = ComponentLibrary.from_predefined(self.detected_components)
+        if self.measurement_mode in {mode.value for mode in MeasurementMode}:
+            kwargs["measurement_mode"] = self.measurement_mode
+        if self.temperature_config or self.moisture_config:
+            kwargs["environmental_config"] = EnvironmentalEffectsConfig(
+                temperature=TemperatureConfig(**self.temperature_config), moisture=MoistureConfig(**self.moisture_config),
+                enable_temperature=bool(self.temperature_config), enable_moisture=bool(self.moisture_config),
+            )
+        if self.particle_size_config or self.emsc_config:
+            particle = dict(self.particle_size_config)
+            distribution = ParticleSizeDistribution(**{key: particle.pop(key) for key in ("mean_size_um", "std_size_um") if key in particle})
+            kwargs["scattering_effects_config"] = ScatteringEffectsConfig(
+                particle_size=ParticleSizeConfig(distribution=distribution, **particle), emsc=EMSCConfig(**self.emsc_config),
+                enable_particle_size=bool(self.particle_size_config), enable_emsc=bool(self.emsc_config),
+            )
+        if self.edge_artifacts_config:
+            edge = self.edge_artifacts_config
+            rolloff, stray, curvature, peaks = (edge.get(key, {}) for key in ("detector_rolloff", "stray_light", "edge_curvature", "truncated_peaks"))
+            kwargs["edge_artifacts_config"] = EdgeArtifactsConfig(
+                enable_detector_rolloff=rolloff.get("enabled", False), detector_model=rolloff.get("detector_model", "generic_nir"),
+                rolloff_severity=rolloff.get("severity", .3), enable_stray_light=stray.get("enabled", False),
+                stray_fraction=stray.get("stray_fraction", .001), stray_wavelength_dependent=stray.get("wavelength_dependent", True),
+                enable_edge_curvature=curvature.get("enabled", False), curvature_type=curvature.get("curvature_type", "concave"),
+                left_curvature_severity=curvature.get("left_severity", .3), right_curvature_severity=curvature.get("right_severity", .3),
+                enable_truncated_peaks=peaks.get("enabled", False), left_peak_amplitude=peaks.get("left_amplitude", .05),
+                right_peak_amplitude=peaks.get("right_amplitude", .05),
+            )
+        return kwargs
 
     def to_full_config(self) -> dict[str, Any]:
         """
@@ -657,6 +697,8 @@ class FittedParameters:
             # Phase 6: Edge artifacts
             edge_artifacts_config=data.get("edge_artifacts_config", {}),
             boundary_components_config=data.get("boundary_components_config", {}),
+            preprocessing_type=data.get("preprocessing_type", "raw_absorbance"),
+            is_preprocessed=data.get("is_preprocessed", False),
         )
 
     def save(self, path: str) -> None:
@@ -747,6 +789,7 @@ def compute_spectral_properties(
     wavelengths: np.ndarray | None = None,
     name: str = "dataset",
     n_pca_components: int = 20,
+    random_state: int | None = None,
 ) -> SpectralProperties:
     """
     Compute comprehensive spectral properties of a dataset.
@@ -760,6 +803,7 @@ def compute_spectral_properties(
         wavelengths: Optional wavelength grid.
         name: Dataset identifier.
         n_pca_components: Maximum PCA components to compute.
+        random_state: Local seed for stochastic spectral diagnostics.
 
     Returns:
         SpectralProperties with computed metrics.
@@ -887,7 +931,7 @@ def compute_spectral_properties(
     props.baseline_convexity = _compute_baseline_convexity(props.mean_spectrum, wavelengths)
 
     # Kubelka-Munk linearity score (reflectance indicator)
-    props.kubelka_munk_linearity = _compute_km_linearity(X)
+    props.kubelka_munk_linearity = _compute_km_linearity(X, random_state=random_state)
 
     # Sample-to-sample scatter indicators
     sample_means = X.mean(axis=1)
@@ -1021,7 +1065,7 @@ def _compute_baseline_convexity(
     except Exception:
         return 0.0
 
-def _compute_km_linearity(X: np.ndarray) -> float:
+def _compute_km_linearity(X: np.ndarray, random_state: int | None = None) -> float:
     """
     Compute Kubelka-Munk linearity score.
 
@@ -1036,7 +1080,7 @@ def _compute_km_linearity(X: np.ndarray) -> float:
 
         # Sample some spectra
         n_samples = min(100, X.shape[0])
-        indices = np.random.choice(X.shape[0], n_samples, replace=False)
+        indices = np.random.default_rng(random_state).choice(X.shape[0], n_samples, replace=False)
         X_sample = X[indices]
 
         # Compute mean intensity variation
@@ -1305,8 +1349,9 @@ class RealDataFitter:
         >>> X_synth, _, _ = generator.generate(1000)
     """
 
-    def __init__(self) -> None:
-        """Initialize the fitter."""
+    def __init__(self, random_state: int | None = None) -> None:
+        """Initialize the fitter with a local seed for stochastic diagnostics."""
+        self.random_state = random_state
         self.source_properties: SpectralProperties | None = None
         self.fitted_params: FittedParameters | None = None
         self._X_array: np.ndarray | None = None
@@ -1389,7 +1434,7 @@ class RealDataFitter:
 
         # Compute spectral properties (includes Phase 1-4 enhanced properties)
         self.source_properties = compute_spectral_properties(
-            X_array, wavelengths, name
+            X_array, wavelengths, name, random_state=self.random_state
         )
 
         # Estimate basic parameters
@@ -2307,13 +2352,7 @@ class RealDataFitter:
 
         params = self.fitted_params
 
-        generator = SyntheticNIRSGenerator(
-            wavelength_start=params.wavelength_start,
-            wavelength_end=params.wavelength_end,
-            wavelength_step=params.wavelength_step,
-            complexity=params.complexity,
-            random_state=random_state,
-        )
+        generator = SyntheticNIRSGenerator(**params.to_generator_kwargs(), wavelengths=self._wavelengths, random_state=random_state)
 
         return generator
 
@@ -2475,7 +2514,7 @@ class RealDataFitter:
 
         # Compute synthetic properties
         synth_props = compute_spectral_properties(
-            X_synthetic, wavelengths, "synthetic"
+            X_synthetic, wavelengths, "synthetic", random_state=self.random_state
         )
 
         real_props = self.source_properties
@@ -4024,6 +4063,7 @@ class RealBandFitter:
         allow_sigma_variation: bool = True,
         sigma_margin: float = 0.3,
         n_iterations: int = 3,
+        random_state: int | None = None,
     ):
         """
         Initialize the real band fitter.
@@ -4035,6 +4075,7 @@ class RealBandFitter:
             allow_sigma_variation: Allow sigma to vary within range (default True).
             sigma_margin: How much sigma can vary from midpoint (default ±30%).
             n_iterations: Number of refinement iterations (default 3).
+            random_state: Local seed for optimization restart perturbations.
         """
         self.baseline_order = baseline_order
         self.max_bands = max_bands
@@ -4042,6 +4083,7 @@ class RealBandFitter:
         self.allow_sigma_variation = allow_sigma_variation
         self.sigma_margin = sigma_margin
         self.n_iterations = n_iterations
+        self.rng = np.random.default_rng(random_state)
 
     def _get_candidate_bands(self, wl_min: float, wl_max: float) -> list[Any]:
         """Get all bands in the wavelength range from NIR_BANDS dictionary."""
@@ -4276,7 +4318,7 @@ class RealBandFitter:
                     break
 
                 # Perturb for next iteration
-                x0 = res.x + np.random.normal(0, 0.01, len(res.x))
+                x0 = res.x + self.rng.normal(0, 0.01, len(res.x))
                 x0 = np.clip(x0, bounds_lo, bounds_hi)
 
             except Exception:

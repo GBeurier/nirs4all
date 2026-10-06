@@ -22,7 +22,9 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
     axis : int, default=1
         Axis along which to compute mean and standard deviation.
         - axis=1: Row-wise (default, standard SNV behavior for spectroscopy)
-        - axis=0: Column-wise (equivalent to StandardScaler)
+        - axis=0: Column-wise statistics recomputed within each transform batch.
+          Fit is stateless: unlike a train-fitted StandardScaler, results depend
+          on prediction batch composition. A single-row batch centers to zero.
 
     with_mean : bool, default=True
         If True, center the data before scaling.
@@ -64,7 +66,7 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
         """Fit the StandardNormalVariate transformer.
 
         For SNV, this is a no-op as the transformation is computed
-        independently for each sample.
+        within each transform batch along the configured axis.
 
         Parameters
         ----------
@@ -243,7 +245,9 @@ class RobustStandardNormalVariate(TransformerMixin, BaseEstimator):
     Parameters
     ----------
     axis : int, default=1
-        1 for row-wise (spectroscopy default). 0 for column-wise.
+        1 for row-wise (spectroscopy default). 0 for column-wise statistics
+        recomputed within each transform batch; fit does not retain calibration
+        statistics and a single-row centered batch becomes zero.
     with_center : bool, default=True
         If True, subtract median.
     with_scale : bool, default=True
@@ -315,8 +319,8 @@ class Normalize(TransformerMixin, BaseEstimator):
 
     Parameters
     ----------
-    feature_range : tuple (min, max), default=(-1, -1)
-        Desired range of transformed data. If range min and max equals -1, linalg
+    feature_range : tuple (min, max), default=(-1, 1)
+        Desired range of transformed data. If the range is (-1, 1), column L2
         normalization is applied, otherwise user defined normalization
         is applied
 
@@ -335,7 +339,10 @@ class Normalize(TransformerMixin, BaseEstimator):
     def __init__(self, feature_range=(-1, 1), *, copy=True):
         self.copy = copy
         self.feature_range = feature_range
-        self.user_defined = feature_range[0] != -1 or feature_range[1] != 1
+
+    @property
+    def user_defined(self):
+        return self.feature_range[0] != -1 or self.feature_range[1] != 1
 
     def _reset(self):
         if hasattr(self, "min_"):
@@ -396,7 +403,6 @@ class Normalize(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise TypeError("Normalization does not support scipy.sparse input")
 
-        first_pass = not hasattr(self, "min_")
         # # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
 
         if self.user_defined:
@@ -404,9 +410,11 @@ class Normalize(TransformerMixin, BaseEstimator):
             self.max_ = np.max(X, axis=0)
             imin = self.feature_range[0]
             imax = self.feature_range[1]
-            self.f_ = (imax - imin) / (self.max_ - self.min_)
+            span = self.max_ - self.min_
+            self.f_ = (imax - imin) / np.where(span == 0, 1.0, span)
         else:
             self.linalg_norm_ = np.linalg.norm(X, axis=0)
+            self.linalg_norm_[self.linalg_norm_ == 0] = 1.0
         return self
 
     def transform(self, X):
@@ -472,16 +480,16 @@ def norml(spectra, feature_range=(-1, 1)):
     spectra : numpy.ndarray
         NIRS data matrix.
     feature_range : tuple (min, max), default=(-1, 1)
-        Desired range of transformed data. If range min and max equals -1, linalg
-        normalization is applied; otherwise, user bounds-defined normalization
-        is applied.
+        (-1, 1) selects column L2 normalization. Other bounds rescale
+        the matrix-wide minimum and maximum to the requested range.
 
     Returns
     -------
     spectra : numpy.ndarray
         Normalized NIR spectra.
     """
-    if feature_range[0] != -1 and feature_range[1] != 1:
+    spectra = np.asarray(spectra, dtype=float)
+    if feature_range[0] != -1 or feature_range[1] != 1:
         imin = feature_range[0]
         imax = feature_range[1]
         if imin > imax:
@@ -495,18 +503,19 @@ def norml(spectra, feature_range=(-1, 1)):
                 f"Feature range is not correctly defined. Got {feature_range}."
             )
 
-        f = (imax - imin) / (np.max(spectra) - np.min(spectra))
-        n = spectra.shape
-        arr = np.empty((0, n[0]), dtype=float)  # create empty array for spectra
-        for i in range(0, n[1]):
-            d = spectra[:, i]
-            dnorm = imin + f * d
-            arr = np.append(arr, [dnorm], axis=0)
-        return np.transpose(arr)
-    else:
-        return spectra / np.linalg.norm(spectra, axis=0)
+        minimum = np.min(spectra)
+        span = np.max(spectra) - minimum
+        return imin + (imax - imin) * (spectra - minimum) / (span if span != 0 else 1.0)
+    norms = np.linalg.norm(spectra, axis=0)
+    return spectra / np.where(norms == 0, 1.0, norms)
 
 class Derivate(TransformerMixin, BaseEstimator):
+    """Finite-difference spectral derivative along wavelengths (axis=1).
+
+    Set axis=0 explicitly for a derivative along samples. That mode depends
+    on sample order and batch composition and requires at least two samples.
+    delta is the spacing on the selected axis; input arrays are not mutated.
+    """
 
     _webapp_meta = {
         "category": "derivatives",
@@ -516,10 +525,11 @@ class Derivate(TransformerMixin, BaseEstimator):
 
     _stateless = True
 
-    def __init__(self, order=1, delta=1, copy=True):
+    def __init__(self, order=1, delta=1, copy=True, axis=1):
         self.copy = copy
         self.order = order
         self.delta = delta
+        self.axis = axis
 
     def _reset(self):
         pass
@@ -533,19 +543,19 @@ class Derivate(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise ValueError('Sparse matrices not supported!"')
 
-        # X = self._validate_data(
-        #     X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        # )
-
+        X = check_array(X, dtype=FLOAT_DTYPES, copy=self.copy if copy is None else copy)
+        if self.axis not in (0, 1):
+            raise ValueError("axis must be 0 or 1")
+        if not isinstance(self.order, (int, np.integer)) or self.order < 0:
+            raise ValueError("order must be a non-negative integer")
         for _ in range(self.order):
-            X = np.gradient(X, self.delta, axis=0)
-
+            X = np.gradient(X, self.delta, axis=self.axis)
         return X
 
     def _more_tags(self):
         return {"allow_nan": False}
 
-def derivate(spectra, order=1, delta=1):
+def derivate(spectra, order=1, delta=1, axis=1):
     """
     Computes Nth order derivatives with the desired spacing using numpy.gradient.
 
@@ -553,19 +563,19 @@ def derivate(spectra, order=1, delta=1):
     ----------
     spectra : numpy.ndarray
         NIRS data matrix.
-    order : float, optional
+    order : int, optional
         Order of the derivation, by default 1.
     delta : int, optional
-        Delta of the derivative (in samples), by default 1.
+        Spacing along the selected axis, by default 1.
+    axis : int, default=1
+        Wavelength axis (1), or explicit sample-axis derivative (0).
 
     Returns
     -------
     spectra : numpy.ndarray
         Derived NIR spectra.
     """
-    for _ in range(order):
-        spectra = np.gradient(spectra, delta, axis=0)
-    return spectra
+    return Derivate(order=order, delta=delta, axis=axis).fit_transform(spectra)
 
 class SimpleScale(TransformerMixin, BaseEstimator):
 
@@ -582,6 +592,7 @@ class SimpleScale(TransformerMixin, BaseEstimator):
         if hasattr(self, "min_"):
             del self.min_
             del self.max_
+            del self.scale_
 
     def fit(self, X, y=None):
         self._reset()
@@ -591,12 +602,13 @@ class SimpleScale(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise TypeError("Normalization does not support scipy.sparse input")
 
-        first_pass = not hasattr(self, "min_")
         # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
         # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
 
         self.min_ = np.min(X, axis=0)
         self.max_ = np.max(X, axis=0)
+        span = self.max_ - self.min_
+        self.scale_ = np.where(span == 0, 1.0, span)
         return self
 
     def transform(self, X):
@@ -606,7 +618,7 @@ class SimpleScale(TransformerMixin, BaseEstimator):
         #     X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
         # )
 
-        X = (X - self.min_) / (self.max_ - self.min_)
+        X = (X - self.min_) / self.scale_
 
         return X
 
@@ -615,8 +627,7 @@ class SimpleScale(TransformerMixin, BaseEstimator):
 
         X = check_array(X, copy=self.copy, dtype=FLOAT_DTYPES)
 
-        f = self.max_ - self.min_
-        X = (X * f) + self.min_
+        X = (X * self.scale_) + self.min_
 
         return X
 
@@ -639,4 +650,5 @@ def spl_norml(spectra):
     """
     min_ = np.min(spectra, axis=0)
     max_ = np.max(spectra, axis=0)
-    return (spectra - min_) / (max_ - min_)
+    span = max_ - min_
+    return (spectra - min_) / np.where(span == 0, 1.0, span)

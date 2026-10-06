@@ -637,6 +637,7 @@ class ProceduralComponentGenerator:
             >>> library = generator.generate_library(10)
             >>> print(f"Created library with {library.n_components} components")
         """
+        vary_defaults = config is None
         if config is None:
             config = ProceduralComponentConfig()
 
@@ -645,12 +646,12 @@ class ProceduralComponentGenerator:
         for i in range(n_components):
             # Vary the number of functional groups per component
             component_config = ProceduralComponentConfig(
-                n_fundamental_bands=int(self.rng.integers(1, config.n_fundamental_bands + 2)),
+                n_fundamental_bands=int(self.rng.integers(1, config.n_fundamental_bands + 2)) if vary_defaults else config.n_fundamental_bands,
                 include_overtones=config.include_overtones,
                 max_overtone_order=config.max_overtone_order,
                 include_combinations=config.include_combinations,
                 max_combinations=config.max_combinations,
-                h_bond_strength=self.rng.uniform(0, 0.8),
+                h_bond_strength=self.rng.uniform(0, 0.8) if vary_defaults else config.h_bond_strength,
                 h_bond_variability=config.h_bond_variability,
                 anharmonicity=config.anharmonicity,
                 anharmonicity_variability=config.anharmonicity_variability,

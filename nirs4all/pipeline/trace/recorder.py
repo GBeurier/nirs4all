@@ -84,7 +84,7 @@ class TraceRecorder:
             pipeline_uid=pipeline_uid,
             metadata=metadata or {}
         )
-        self.pipeline_id = pipeline_id or pipeline_uid.split("_")[0] if pipeline_uid else ""
+        self.pipeline_id = pipeline_id or (pipeline_uid.split("_")[0] if pipeline_uid else "")
         self.current_step: ExecutionStep | None = None
         self.step_start_time: float = 0.0
 

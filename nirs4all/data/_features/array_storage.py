@@ -307,6 +307,8 @@ class ArrayStorage:
         if self.num_samples == 0:
             self.initialize_with_data(data)
         else:
+            if data.shape[1] != self.num_features:
+                raise ValueError(f"Feature dimension mismatch: expected {self.num_features}, got {data.shape[1]}")
             self._prepare_for_mutation()
             prepared_data = self._prepare_data_for_storage(data)
             self._blocks[0] = np.concatenate(

@@ -125,7 +125,7 @@ def test_partial_oof_coverage_ratio_matches_legacy_gate_and_replays_archive(tmp_
 @pytest.mark.parametrize("coverage_strategy", [CoverageStrategy.DROP_INCOMPLETE, CoverageStrategy.IMPUTE_MEAN,
                                                CoverageStrategy.IMPUTE_ZERO, CoverageStrategy.IMPUTE_FOLD_MEAN])
 def test_no_split_opt_in_uses_training_only_native_oof_and_replays(tmp_path, monkeypatch, mechanism, coverage_strategy):
-    """Legacy's no-CV stack runs; DAG-ML evaluates through implicit train-only folds."""
+    """DAG-ML's no-split opt-in uses implicit train-only folds and replays."""
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
 
@@ -154,9 +154,36 @@ def test_no_split_opt_in_uses_training_only_native_oof_and_replays(tmp_path, mon
         train_ids = set(dataset.index_column("sample", {"partition": "train"}))
         test_ids = set(dataset.index_column("sample", {"partition": "test"}))
         validation = [row for row in native.predictions._buffer
-                      if row.get("model_name") == "MetaModel_Ridge" and row.get("partition") == "val"]
+                      if row.get("model_name") == "MetaModel_Ridge" and row.get("partition") == "val"
+                      and str(row.get("fold_id")) in {"0", "1"}]
         assert validation and train_ids.isdisjoint(test_ids)
         assert all(set(row["sample_indices"]) <= train_ids for row in validation)
+        assert sorted(sample for row in validation for sample in row["sample_indices"]) == sorted(train_ids)
+
+        # Independent nested Ridge oracle: implicit outer KFold(2, shuffle,
+        # seed0), inner identity-sorted alternating folds, no held-out labels.
+        from sklearn.model_selection import KFold
+
+        base_ids = np.asarray(sorted(train_ids))
+        x_train = np.asarray(dataset.x_rows(base_ids.tolist(), layout="2d"))
+        y_train = np.asarray(dataset.y({"sample": base_ids.tolist()}), dtype=float).ravel()
+        expected = np.empty(len(base_ids))
+        for outer_train, outer_val in KFold(2, shuffle=True, random_state=0).split(x_train):
+            ordered = np.asarray(sorted(outer_train, key=lambda position: f"s{base_ids[position]}"))
+            inner_oof = np.empty(len(ordered))
+            for fold in range(2):
+                held_out = np.arange(len(ordered)) % 2 == fold
+                base_model = Ridge().fit(x_train[ordered[~held_out]], y_train[ordered[~held_out]])
+                inner_oof[held_out] = base_model.predict(x_train[ordered[held_out]]).ravel()
+            outer_model = Ridge().fit(x_train[outer_train], y_train[outer_train])
+            outer_features = outer_model.predict(x_train[outer_val]).reshape(-1, 1)
+            meta = Ridge().fit(inner_oof.reshape(-1, 1), y_train[ordered])
+            expected[outer_val] = meta.predict(outer_features).ravel()
+        position_of = {sample: position for position, sample in enumerate(base_ids)}
+        for row in validation:
+            positions = [position_of[sample] for sample in row["sample_indices"]]
+            np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), expected[positions], rtol=1e-10, atol=1e-8)
+        assert native.cv_best_score == pytest.approx(np.sqrt(np.mean((y_train - expected) ** 2)), rel=1e-10, abs=1e-8)
         features = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
         final = [row for row in native.predictions._buffer
                  if row.get("model_name") == "MetaModel_Ridge" and row.get("partition") == "test"

@@ -257,7 +257,11 @@ def test_integration() -> bool:
             end_time = time.time()
             elapsed = end_time - start_time
 
-            if success:
+            if success is None:
+                logger.warning(f"  {test_name} skipped ({elapsed:.2f}s)")
+                test_results.append((test_name, None, elapsed, None))
+                return None
+            elif success:
                 logger.success(f"  {test_name} completed successfully ({elapsed:.2f}s)")
                 test_results.append((test_name, True, elapsed, None))
                 return True
@@ -321,7 +325,7 @@ def test_integration() -> bool:
             from nirs4all.operators.models.tensorflow.nicon import nicon
         except ImportError:
             logger.warning("    TensorFlow/NIRS models not available, skipping test")
-            return True  # Skip but don't fail
+            return None  # Optional dependency is unavailable.
 
         # Create temporary dataset
         temp_dir = tempfile.mkdtemp()
@@ -366,7 +370,7 @@ def test_integration() -> bool:
             import optuna
         except ImportError:
             logger.warning("    Optuna not available, skipping test")
-            return True  # Skip but don't fail
+            return None  # Optional dependency is unavailable.
 
         # Create temporary dataset with more samples
         temp_dir = tempfile.mkdtemp()
@@ -433,8 +437,12 @@ def test_integration() -> bool:
     ]
 
     success_count = 0
+    required_success = False
     for test_name, test_func in tests:
-        if run_test(test_name, test_func):
+        success = run_test(test_name, test_func)
+        if test_name == tests[0][0]:
+            required_success = success is True
+        if success:
             success_count += 1
 
     # Print summary with timing
@@ -445,7 +453,9 @@ def test_integration() -> bool:
     total_time = sum(result[2] for result in test_results)
 
     for name, success, elapsed, error in test_results:
-        if success:
+        if success is None:
+            logger.warning(f"SKIP {name}: {elapsed:.2f}s")
+        elif success:
             logger.success(f"PASS {name}: {elapsed:.2f}s")
         else:
             logger.error(f"FAIL {name}: {elapsed:.2f}s")
@@ -461,7 +471,7 @@ def test_integration() -> bool:
         return True
     else:
         logger.warning(f"Partial success: {success_count}/{len(tests)} tests passed")
-        if success_count > 0:
+        if required_success:
             logger.success("Basic pipeline functionality is working")
             logger.warning("Some optional features may have issues")
             return True  # Return True for partial success
@@ -469,4 +479,3 @@ def test_integration() -> bool:
             logger.error("Integration test FAILED!")
             logger.error("Pipeline execution is not working properly")
             return False
-

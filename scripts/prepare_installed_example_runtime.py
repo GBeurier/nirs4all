@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare an isolated wheel interpreter for mandatory installed U07 replay."""
+"""Prepare an isolated wheel interpreter for mandatory installed API replay."""
 
 from __future__ import annotations
 
@@ -14,9 +14,36 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 
-SDK_VERSION = "1.4.0"
-UPSTREAMS = {"pls4all": "1.3.2", "nirs4all-methods": "1.3.2", "nirs4all-io": "0.2.4", "dag-ml": "0.3.34", "nirs4all-core": "0.4.1"}
-PRODUCT_MODULES = {"nirs4all", "n4m", "pls4all", "dag_ml", "nirs4all_io", "nirs4all_core"}
+SDK_VERSION = "1.4.1"
+UPSTREAMS = {"pls4all": "1.3.2", "nirs4all-methods": "1.3.2", "nirs4all-io": "0.2.5", "dag-ml": "0.3.37", "dag-ml-data": "0.2.13", "nirs4all-core": "0.4.2", "nirs4all-formats": "0.2.11"}
+PRODUCT_MODULES = {"nirs4all", "n4m", "pls4all", "dag_ml", "dag_ml_data", "nirs4all_io", "nirs4all_core", "nirs4all_formats"}
+INSTALLED_PYTHON_VARIABLES = (
+    "NIRS4ALL_BY_SOURCE_INSTALLED_PYTHON", "NIRS4ALL_CV_WEIGHT_INSTALLED_PYTHON", "NIRS4ALL_U07_INSTALLED_PYTHON",
+    "NIRS4ALL_EXPERIMENTAL_UNITS_INSTALLED_PYTHON", "NIRS4ALL_PARTIAL_LATE_INSTALLED_PYTHON", "NIRS4ALL_NAMED_TORCH_INSTALLED_PYTHON",
+    "NIRS4ALL_NATIVE_PLS_INSTALLED_PYTHON", "NIRS4ALL_CLASSIFICATION_INSTALLED_PYTHON", "NIRS4ALL_EARLY_LATE_INSTALLED_PYTHON",
+    "NIRS4ALL_STRUCTURAL_HPO_INSTALLED_PYTHON", "NIRS4ALL_TORCH_TOPOLOGY_INSTALLED_PYTHON", "NIRS4ALL_XL03_INSTALLED_PYTHON",
+    "NIRS4ALL_STUDIO_INSTALLED_PYTHON",
+)
+# CLI parity, native fit probes, XL03 captures and external Octave/R require
+# additional artifacts that this wheel interpreter preparation does not supply.
+INSTALLED_REQUIRE_FLAGS = (
+    "NIRS4ALL_REQUIRE_BY_SOURCE_INSTALLED", "NIRS4ALL_REQUIRE_CV_WEIGHT_INSTALLED", "NIRS4ALL_REQUIRE_EXPERIMENTAL_UNITS_INSTALLED",
+    "NIRS4ALL_REQUIRE_PARTIAL_LATE_INSTALLED", "NIRS4ALL_REQUIRE_NAMED_TORCH_INSTALLED", "NIRS4ALL_REQUIRE_CLASSIFICATION_INSTALLED",
+    "NIRS4ALL_REQUIRE_EARLY_LATE_INSTALLED", "NIRS4ALL_REQUIRE_STRUCTURAL_HPO_INSTALLED", "NIRS4ALL_REQUIRE_TORCH_TOPOLOGY_INSTALLED",
+    "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2", "NIRS4ALL_REQUIRE_NATIVE_PLS_PHASE_CONTROLS", "NIRS4ALL_REQUIRE_NATIVE_PLS_FOLD_HPO",
+    "NIRS4ALL_REQUIRE_NATIVE_METHODS_HPO", "NIRS4ALL_REQUIRE_PORTABLE_ARCHIVE_V2", "NIRS4ALL_REQUIRE_N4M",
+)
+
+
+def export_installed_interpreters(python: Path, github_env: Path) -> None:
+    """Configure cold API profiles after the installed runtime passes verification."""
+    if "\n" in str(python) or "\r" in str(python):
+        raise ValueError("Invalid GitHub interpreter path")
+    with github_env.open("a") as stream:
+        for name in INSTALLED_PYTHON_VARIABLES:
+            stream.write(f"{name}={python}\n")
+        for name in INSTALLED_REQUIRE_FLAGS:
+            stream.write(f"{name}=1\n")
 
 
 def sha256(path: Path) -> str:
@@ -110,7 +137,7 @@ def prepare(args: argparse.Namespace) -> dict[str, object]:
                 raise ValueError("Expected exactly one SDK tag wheel")
             sdk = choices[0]
         if wheel_identity(sdk) != ("nirs4all", SDK_VERSION):
-            raise ValueError("Installed U07 replay requires the exact SDK 1.4.0 wheel")
+            raise ValueError(f"Installed U07 replay requires the exact SDK {SDK_VERSION} wheel")
         payload = sdk_payload(sdk, workspace)
         artifacts = {"nirs4all": sdk}
         if args.upstream_manifest:
@@ -155,16 +182,14 @@ for name,sha in payload.items():
  assert hashlib.sha256((purelib/name).read_bytes()).hexdigest()==sha,name
 import n4m
 assert n4m.abi_version()==(2,17,0)
+assert n4m.version()=='1.3.2+abi.2.17.0',n4m.version()
 library=pathlib.Path(n4m.library_path()).resolve()
 pathlib.Path(sys.argv[3]).write_text(json.dumps({'versions':expected,'origins':origins,'sdk_payload_members':len(payload),'abi':[2,17,0],
- 'native_library':str(library),'native_library_sha256':hashlib.sha256(library.read_bytes()).hexdigest()},indent=2)+'\\n')
+ 'native_version':n4m.version(),'native_library':str(library),'native_library_sha256':hashlib.sha256(library.read_bytes()).hexdigest()},indent=2)+'\\n')
 '''
         run([str(python), "-I", "-B", "-c", "import sys\n" + code, json.dumps(expected), json.dumps(payload), str(proof)])
         if args.github_env:
-            if "\n" in str(python) or "\r" in str(python):
-                raise ValueError("Invalid GitHub interpreter path")
-            with args.github_env.open("a") as stream:
-                stream.write(f"NIRS4ALL_U07_INSTALLED_PYTHON={python}\n")
+            export_installed_interpreters(python, args.github_env)
         receipt.update(status="PASS", python=str(python), wheel_artifacts={name: {"path": str(path), "sha256": sha256(path)} for name, path in artifacts.items()},
                        sdk_payload_members=len(payload), installed_proof={"path": str(proof), "sha256": sha256(proof)})
         return receipt

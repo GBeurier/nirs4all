@@ -11,7 +11,7 @@ import tensorflow as tf
 
 def Conv_1D_Block(x, model_width, kernel, strides=1, padding="same"):
     # 1D Convolutional Block with BatchNormalization
-    x = tf.keras.layers.Conv1D(model_width, kernel, strides=strides, padding=padding, kernel_initializer="he_normal")(x)
+    x = tf.keras.layers.Conv1D(int(model_width), kernel, strides=strides, padding=padding, kernel_initializer="he_normal")(x)
     x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
 

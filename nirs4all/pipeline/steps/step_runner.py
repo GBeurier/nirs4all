@@ -166,12 +166,27 @@ class StepRunner:
             )
             return StepResult(updated_context=context, artifacts=[])
 
+        from nirs4all.pipeline.execution.preprocessing import observe_feature_step
+
+        if observe_feature_step(step, dataset, context, runtime_context):
+            return StepResult(updated_context=context, artifacts=[])
+        previous_container = getattr(runtime_context, "_cv_container", False)
+        if runtime_context is not None and parsed_step.keyword in ("feature_augmentation", "concat_transform"):
+            runtime_context._cv_container = True
+
         # Update context with step metadata
         if parsed_step.keyword:
             context = context.with_metadata(keyword=parsed_step.keyword)
 
         # Capture shape before execution for change logging
         shape_before = (dataset.num_samples, dataset.num_features)
+
+        replay = None
+        if self.mode == "train" and runtime_context is not None and runtime_context.artifact_registry is not None:
+            from nirs4all.pipeline.execution.preprocessing import PreprocessingReplay, feature_step
+            if feature_step(step)[0]:
+                replay = PreprocessingReplay.capture(dataset, context)
+                replay.steps = [(runtime_context.step_number, step)]
 
         # Execute controller
         try:
@@ -194,6 +209,15 @@ class StepRunner:
                 )
 
             updated_context, output_data = controller_result
+
+            # Tuple producers must register while their own branch/substep trace
+            # is active, before an enclosing controller completes its trace.
+            if isinstance(output_data, list) and any(isinstance(a, tuple) and len(a) >= 2 for a in output_data):
+                from nirs4all.pipeline.execution.executor import PipelineExecutor
+                executor = PipelineExecutor(self, save_artifacts=runtime_context.save_artifacts)
+                executor.step_number = runtime_context.step_number
+                output_data = executor._process_step_artifacts(output_data, runtime_context=runtime_context,
+                                                              context=updated_context, replay=replay)
 
             # Log shape changes
             shape_after = (dataset.num_samples, dataset.num_features)
@@ -221,6 +245,8 @@ class StepRunner:
         except Exception as e:
             raise RuntimeError(f"Step execution failed: {str(e)}") from e
         finally:
+            if runtime_context is not None:
+                runtime_context._cv_container = previous_container
             # Reset ephemeral metadata flags to prevent leakage between steps
             context.metadata.reset_ephemeral_flags()
 

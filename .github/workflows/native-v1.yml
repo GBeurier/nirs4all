@@ -34,6 +34,7 @@ jobs:
           python - <<'PY'
           import hashlib
           import os
+          import sys
           from importlib.metadata import version
           from pathlib import Path
           import dag_ml
@@ -42,6 +43,7 @@ jobs:
 
           library = Path(n4m.library_path()).resolve()
           assert library.is_file(), library
+          assert n4m.version().split("+abi.")[0] == version("nirs4all-methods")
           wheel_libraries = library.parents[2] / "nirs4all_methods.libs"
           print("Methods ABI:", n4m.abi_version())
           print("Methods SHA256:", hashlib.sha256(library.read_bytes()).hexdigest())
@@ -51,6 +53,7 @@ jobs:
               print(distribution, version(distribution))
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as target:
               target.write(f"NIRS4ALL_CORE_LIVE_METHODS_LIBRARY={library}\n")
+              target.write(f"NIRS4ALL_STUDIO_INSTALLED_PYTHON={sys.executable}\n")
               if wheel_libraries.is_dir():
                   loader_path = os.environ.get("LD_LIBRARY_PATH", "")
                   entries = [str(wheel_libraries)]
@@ -71,7 +74,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: GBeurier/dag-ml
-          ref: f3e6ec34fec64515e8f270b4ce391f5ab44524eb
+          ref: 9095e5640c53b02dd91dc4de7a20d1a7d501bbdb
           path: candidate-dag-ml
       - name: Install Rust toolchain for DAG-ML CLI
         if: matrix.python-version == '3.11'

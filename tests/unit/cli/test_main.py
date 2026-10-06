@@ -335,9 +335,10 @@ class TestCLISubcommandHelp:
     def test_workspace_robustness_evidence_outputs_prediction_readiness_json(self, monkeypatch, tmp_path, capsys):
         """CLI reports spectral/OOD replay readiness from stored prediction evidence."""
         from nirs4all.data.predictions import Predictions
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
         workspace = tmp_path / "workspace"
-        workspace.mkdir()
+        WorkspaceStore(workspace).close()
         records = [
             {
                 "id": "ready-pred",
@@ -413,9 +414,10 @@ class TestCLISubcommandHelp:
     def test_workspace_robustness_evidence_filters_ready_and_prediction_id(self, monkeypatch, tmp_path, capsys):
         """CLI evidence inspection can be narrowed to a single ready prediction."""
         from nirs4all.data.predictions import Predictions
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
         workspace = tmp_path / "workspace"
-        workspace.mkdir()
+        WorkspaceStore(workspace).close()
         records = [
             {
                 "id": "ready-pred",
@@ -1365,9 +1367,10 @@ class TestCLIWorkspaceNativeArtifacts:
     def test_workspace_robustness_from_prediction_outputs_summary_and_forwards_save_flags(self, monkeypatch, tmp_path, capsys):
         """CLI computes a report from one workspace prediction through the public helper."""
         import nirs4all
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
         workspace = tmp_path / "workspace"
-        workspace.mkdir()
+        WorkspaceStore(workspace).close()
         calls = []
 
         def _fake_from_prediction(workspace_path, prediction_id, **kwargs):

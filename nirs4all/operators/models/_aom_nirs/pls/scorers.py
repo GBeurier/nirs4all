@@ -178,30 +178,36 @@ def approx_press_regression(
     Xc: np.ndarray,
     yc: np.ndarray,
     coef_per_prefix: Sequence[np.ndarray],
+    scores_per_prefix: Sequence[np.ndarray] | None = None,
 ) -> List[float]:
-    """Return the approximate PRESS for each prefix length.
+    """Return PRESS from a rank-aware latent-score leverage proxy per prefix.
 
-    The approximation evaluates training-set residuals adjusted for leverage
-    via a hat-matrix proxy `h = diag(X (X^T X)^+ X^T)`. We compute the hat
-    once on the centered `Xc` and reuse it for all prefix lengths.
+    Pass the extracted score prefixes to account for the changing model size.
+    Without scores, the predicted-response subspace is used as a limited proxy.
+    This conditions on fitted scores; it does not reproduce refitted PLS LOO.
     """
     Xc = np.asarray(Xc, dtype=float)
     yc = np.asarray(yc, dtype=float)
     if yc.ndim == 1:
         yc = yc.reshape(-1, 1)
-    n, p = Xc.shape
-    # Hat matrix proxy via SVD: H = U U^T where U are left singular vectors of Xc.
-    U, _S, _Vt = np.linalg.svd(Xc, full_matrices=False)
-    h = np.einsum("ij,ij->i", U, U)
-    h = np.clip(h, 0.0, 1.0 - 1e-9)
+    n = Xc.shape[0]
     out: List[float] = []
-    for B in coef_per_prefix:
+    for idx, B in enumerate(coef_per_prefix):
         if B.ndim == 1:
             B = B.reshape(-1, 1)
         y_hat = Xc @ B
-        residuals = (yc - y_hat) / (1.0 - h.reshape(-1, 1))
-        press = float(np.sum(residuals * residuals))
-        out.append(press)
+        scores = y_hat if scores_per_prefix is None else np.asarray(scores_per_prefix[idx])
+        if scores.ndim == 1:
+            scores = scores[:, None]
+        U, singular, _ = np.linalg.svd(scores, full_matrices=False)
+        tolerance = max(scores.shape) * np.finfo(float).eps * (singular[0] if singular.size else 0.0)
+        U = U[:, singular > tolerance]
+        h = np.sum(U ** 2, axis=1) + 1.0 / n
+        if np.any(1.0 - h <= 1e-12):
+            out.append(float("inf"))
+            continue
+        residuals = (yc - y_hat) / (1.0 - h[:, None])
+        out.append(float(np.sum(residuals ** 2)))
     return out
 
 

@@ -158,6 +158,10 @@ class SampleAugmentationController(OperatorController):
             else:
                 transformers.append(as_augmenter(deserialize_component(t)))
 
+        # Validate the entire selection before any augmenter mutates the dataset.
+        for transformer in transformers:
+            TransformerMixinController.validate_target_preserving_operator(transformer)
+
         # Seed priority: an explicit operator seed (an n4m role's ``seed`` included, see
         # as_augmenter) wins; the step-level random_state, which also drives selection, derives
         # base + transformer index for unseeded stochastic augmenters only.

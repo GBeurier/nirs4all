@@ -107,6 +107,11 @@ def _class_name_from_path(class_path: Any) -> str:
 
 def _extract_step_reference(step: Any) -> tuple[str | None, dict[str, Any]]:
     """Return ``(reference, params)`` for a canonical step when possible."""
+    if isinstance(step, dict) and "split" in step:
+        reference, wrapped_params = _extract_step_reference(step["split"])
+        if "group_by" in step:
+            wrapped_params = {**wrapped_params, "group_by": step["group_by"]}
+        return reference, wrapped_params
     if isinstance(step, str):
         return step, {}
     if not isinstance(step, dict):

@@ -175,14 +175,16 @@ def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_nam
     — required for a NON-degenerate sweep (``_grid_``), where legacy expands each variant with its own
     params and refits the TRUE CV-best, so the winner's config_name is the WINNING variant's name, NOT
     ``names[0]``. We pair the winner-first ``cv_variant_ids[0]`` with it and the losers with the remaining
-    ``ordered_config_names`` (the winner's name removed, the rest kept in expand order). When ``None`` (a
-    DEGENERATE ``_range_``/``_log_range_`` sweep — legacy's native variants tie, so legacy refits index 0),
-    the winner pairs with ``names[0]`` positionally, matching legacy's index-0 refit. The per-loser
+    ``ordered_config_names`` (the winner's name removed, the rest kept in expand order). When ``None``
+    (the winner's parameters cannot be recovered), the winner pairs with ``names[0]`` positionally. The per-loser
     hash↔name pairing is positional either way (loser param recovery is impossible from the reports).
     Returns ``{fold_variant_id: config_name}`` keyed by the variant's own (non-``None``) fold-level id —
     the avg's native ``None`` tag is not a key.
     """
-    cv_variant_ids = list(dict.fromkeys(report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "validation" and report.get("fold_id") != "avg"))
+    cv_variant_ids = list(dict.fromkeys(
+        report["variant_id"] for report in (scores or {}).get("reports", [])
+        if report["partition"] == "validation" and report.get("fold_id") not in ("avg", "w_avg") and report.get("variant_id") is not None
+    ))
     if winner_config_name is not None and cv_variant_ids and winner_config_name in ordered_config_names:
         # Winner-first: pair cv_variant_ids[0] (the SELECTED variant, whose reports lead) with the
         # content-recovered winner name; the losers take the remaining names in expand order (winner removed

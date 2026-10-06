@@ -98,8 +98,8 @@ class Metadata:
         result = self.df
 
         # Filter by row indices
-        if indices is not None and len(indices) > 0:
-            result = result.filter(pl.col("row_id").is_in(indices))
+        if indices is not None:
+            result = pl.DataFrame({"row_id": pl.Series(indices, dtype=pl.Int32)}).join(result, on="row_id", how="left", maintain_order="left")
 
         # Select columns
         if columns is not None:
@@ -131,8 +131,8 @@ class Metadata:
             raise ValueError(f"Column '{column}' not found. Available: {self.columns}")
 
         result = self.df
-        if indices is not None and len(indices) > 0:
-            result = result.filter(pl.col("row_id").is_in(indices))
+        if indices is not None:
+            result = pl.DataFrame({"row_id": pl.Series(indices, dtype=pl.Int32)}).join(result, on="row_id", how="left", maintain_order="left")
 
         return result[column].to_numpy()
 
@@ -164,7 +164,7 @@ class Metadata:
         if cache_key in self._numeric_cache:
             full_numeric, encoding_info = self._numeric_cache[cache_key]
             # Filter to requested indices
-            if indices is not None and len(indices) > 0:
+            if indices is not None:
                 # Map indices to positions in full data
                 all_row_ids = self.df["row_id"].to_numpy()
                 positions = [np.where(all_row_ids == idx)[0][0] for idx in indices]
@@ -210,7 +210,7 @@ class Metadata:
         self._numeric_cache[cache_key] = (numeric.copy(), encoding_info)
 
         # Filter to requested indices
-        if indices is not None and len(indices) > 0:
+        if indices is not None:
             all_row_ids = self.df["row_id"].to_numpy()
             positions = [np.where(all_row_ids == idx)[0][0] for idx in indices]
             return numeric[positions], encoding_info

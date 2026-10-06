@@ -98,13 +98,22 @@ def _trimmed_rmse_from_residuals(residuals: np.ndarray, trim: float = 0.05) -> f
 def _summarise_alpha_scores(
     rmse_per_fold: np.ndarray, sse_per_fold: np.ndarray, count_per_fold: np.ndarray,
     scoring: str,
+    pool_residuals: dict[tuple[int, ...], list[np.ndarray]] | None = None,
 ) -> np.ndarray:
     """Reduce per-fold per-alpha scores to a 1D summary used for selection.
 
-    ``scoring`` is ``"rmse_mean"`` (mean of fold RMSEs, default) or
-    ``"mse_pooled"`` (sqrt of total SSE divided by total element count, i.e.
-    the global RMSE pooled across folds).
+    ``scoring`` is ``"rmse_mean"`` (mean of fold RMSEs, default),
+    ``"mse_pooled"`` (global RMSE pooled across folds), or
+    ``"rmse_pooled_trimmed"`` (pool residuals and discard the largest 5%
+    by magnitude). Per-fold RMSEs remain available for selection evidence.
     """
+    if scoring == "rmse_pooled_trimmed":
+        if pool_residuals is None:
+            raise ValueError("trimmed scoring requires pooled residuals")
+        summary = np.empty(rmse_per_fold.shape[1:], dtype=float)
+        for index in np.ndindex(summary.shape):
+            summary[index] = _trimmed_rmse_from_residuals(np.concatenate(pool_residuals[index]))
+        return summary
     if scoring == "rmse_mean":
         return rmse_per_fold.mean(axis=0)
     if scoring == "mse_pooled":
@@ -628,6 +637,7 @@ def cv_score_active_alphas(
     rmse_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
     sse_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
     count_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
+    pool_residuals: dict[tuple[int, ...], list[np.ndarray]] | None = {} if scoring == "rmse_pooled_trimmed" else None
     for fold_idx, (train_idx, valid_idx) in enumerate(folds):
         X_tr, X_va = X[train_idx], X[valid_idx]
         Y_tr, Y_va = Y[train_idx], Y[valid_idx]
@@ -657,8 +667,10 @@ def cv_score_active_alphas(
             sse, count = _sum_squared_error(Y_va, Y_pred)
             sse_per_fold[fold_idx, i] = sse
             count_per_fold[fold_idx, i] = count
+            if pool_residuals is not None:
+                pool_residuals.setdefault((i,), []).append((Y_va - Y_pred).ravel())
     summary = _summarise_alpha_scores(
-        rmse_per_fold, sse_per_fold, count_per_fold, scoring,
+        rmse_per_fold, sse_per_fold, count_per_fold, scoring, pool_residuals,
     )
     if return_per_fold:
         return summary, rmse_per_fold
@@ -748,6 +760,7 @@ def cv_score_alphas_mkl(
     rmse_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
     sse_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
     count_per_fold = np.zeros((n_folds, n_alphas), dtype=float)
+    pool_residuals: dict[tuple[int, ...], list[np.ndarray]] | None = {} if scoring == "rmse_pooled_trimmed" else None
     # ``block_scaling`` is preserved for API symmetry but the MKL kernel is
     # built with unit scales: see the docstring for the math invariant.
     _ = block_scaling
@@ -781,8 +794,10 @@ def cv_score_alphas_mkl(
             sse, count = _sum_squared_error(Y_va, Y_pred)
             sse_per_fold[fold_idx, i] = sse
             count_per_fold[fold_idx, i] = count
+            if pool_residuals is not None:
+                pool_residuals.setdefault((i,), []).append((Y_va - Y_pred).ravel())
     summary = _summarise_alpha_scores(
-        rmse_per_fold, sse_per_fold, count_per_fold, scoring,
+        rmse_per_fold, sse_per_fold, count_per_fold, scoring, pool_residuals,
     )
     if return_per_fold:
         return summary, rmse_per_fold
@@ -884,6 +899,7 @@ def cv_score_branch_global(
     rmse_per_fold = np.zeros((n_folds, n_branches, n_ops, n_alpha), dtype=float)
     sse_per_fold = np.zeros((n_folds, n_branches, n_ops, n_alpha), dtype=float)
     count_per_fold = np.zeros((n_folds, n_branches, n_ops, n_alpha), dtype=float)
+    pool_residuals: dict[tuple[int, ...], list[np.ndarray]] | None = {} if scoring == "rmse_pooled_trimmed" else None
     for fold_idx, (train_idx, valid_idx) in enumerate(folds):
         X_tr, X_va = X[train_idx], X[valid_idx]
         Y_tr, Y_va = Y[train_idx], Y[valid_idx]
@@ -924,15 +940,11 @@ def cv_score_branch_global(
                     sse, count = _sum_squared_error(Y_va, Y_pred)
                     sse_per_fold[fold_idx, bi, oi, ai] = sse
                     count_per_fold[fold_idx, bi, oi, ai] = count
-    if scoring == "rmse_mean":
-        rmse_table = rmse_per_fold.mean(axis=0)
-    elif scoring == "mse_pooled":
-        total_sse = sse_per_fold.sum(axis=0)
-        total_n = count_per_fold.sum(axis=0)
-        total_n = np.where(total_n > 0, total_n, 1)
-        rmse_table = np.sqrt(total_sse / total_n)
-    else:
-        raise ValueError("scoring must be 'rmse_mean' or 'mse_pooled'")
+                    if pool_residuals is not None:
+                        pool_residuals.setdefault((bi, oi, ai), []).append((Y_va - Y_pred).ravel())
+    rmse_table = _summarise_alpha_scores(
+        rmse_per_fold, sse_per_fold, count_per_fold, scoring, pool_residuals,
+    )
     grids_used = np.broadcast_to(alphas, (n_branches, n_ops, n_alpha)).copy()
     if return_per_fold:
         return rmse_table, grids_used, rmse_per_fold

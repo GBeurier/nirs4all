@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+from nirs4all.core.metrics import is_higher_better
+
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext
@@ -394,15 +396,15 @@ class TopKByMetricSelector(SourceModelSelector):
             selected = []
             for _classname, group in class_groups.items():
                 # Sort group by score
-                group.sort(key=lambda c: c.val_score or float('inf'), reverse=not ascending)
+                group.sort(key=lambda c: c.val_score if c.val_score is not None else float('inf'), reverse=not ascending)
                 selected.extend(group[:self.k])
 
             # Final sort by score
-            selected.sort(key=lambda c: c.val_score or float('inf'), reverse=not ascending)
+            selected.sort(key=lambda c: c.val_score if c.val_score is not None else float('inf'), reverse=not ascending)
         else:
             # Sort all candidates by score
             valid_candidates.sort(
-                key=lambda c: c.val_score or float('inf'),
+                key=lambda c: c.val_score if c.val_score is not None else float('inf'),
                 reverse=not ascending
             )
             selected = valid_candidates[:self.k]
@@ -470,7 +472,7 @@ class DiversitySelector(SourceModelSelector):
                 continue
             if current_branch_id is not None and candidate.branch_id != current_branch_id:
                 continue
-            if candidate.fold_id in ('avg', 'w_avg'):
+            if candidate.fold_id in ('avg', 'w_avg') or candidate.val_score is None:
                 continue
 
             classname = candidate.model_classname
@@ -485,12 +487,14 @@ class DiversitySelector(SourceModelSelector):
             if classname in class_groups:
                 group = class_groups.pop(classname)
                 # Sort by score (best first) and take up to max_per_class
-                group.sort(key=lambda c: c.val_score or float('inf'))
+                group.sort(key=lambda c: c.val_score if c.val_score is not None else float('inf'),
+                           reverse=is_higher_better(group[0].metric or "rmse"))
                 selected.extend(group[:self.max_per_class])
 
         # Then add remaining classes
         for _classname, group in sorted(class_groups.items()):
-            group.sort(key=lambda c: c.val_score or float('inf'))
+            group.sort(key=lambda c: c.val_score if c.val_score is not None else float('inf'),
+                           reverse=is_higher_better(group[0].metric or "rmse"))
             selected.extend(group[:self.max_per_class])
 
         # Sort final selection by step index for consistent feature ordering

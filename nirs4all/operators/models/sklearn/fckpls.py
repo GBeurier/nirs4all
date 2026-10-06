@@ -311,8 +311,8 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
         kernel_type: Literal['heuristic', 'grunwald'] = 'heuristic',
     ):
         """Initialize the fractional convolutional featurizer."""
-        self.alphas = list(alphas)
-        self.sigmas = list(sigmas)
+        self.alphas = alphas
+        self.sigmas = sigmas
         self.kernel_size = kernel_size
         self.mode = mode
         self.kernel_type = kernel_type
@@ -423,8 +423,8 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
 
         return {
             'n_kernels': self.n_kernels_,
-            'alphas': self.alphas,
-            'sigmas': self.sigmas if len(self.sigmas) == len(self.alphas)
+            'alphas': list(self.alphas),
+            'sigmas': list(self.sigmas) if len(self.sigmas) == len(self.alphas)
                      else [self.sigmas[0]] * len(self.alphas),
             'kernel_size': self.kernel_size,
             'kernel_type': self.kernel_type,
@@ -443,16 +443,20 @@ def _get_jax_fckpls_functions():
 
     jax.config.update("jax_enable_x64", True)
 
-    @jax.jit
-    def convolve_1d_jax(x, kernel):
+    @partial(jax.jit, static_argnames=('mode',))
+    def convolve_1d_jax(x, kernel, mode='same'):
         """1D convolution using JAX."""
         # Use lax.conv_general_dilated for 1D convolution
         # Reshape for conv: (batch, spatial, channels)
         x_reshaped = x.reshape(1, -1, 1)
-        kernel_reshaped = kernel.reshape(-1, 1, 1)
+        kernel_reshaped = kernel[::-1].reshape(-1, 1, 1)
 
         # Padding for 'same' mode
-        pad = kernel.shape[0] // 2
+        if mode not in ('same', 'valid'):
+            raise ValueError(f"mode must be 'same' or 'valid', got '{mode}'")
+        if mode == 'valid' and x.shape[0] < kernel.shape[0]:
+            raise ValueError("Input has fewer features than kernel_size; use smaller kernel or 'same' mode.")
+        pad = kernel.shape[0] // 2 if mode == 'same' else 0
 
         result = lax.conv_general_dilated(
             x_reshaped,
@@ -464,7 +468,7 @@ def _get_jax_fckpls_functions():
 
         return result.ravel()
 
-    def apply_filter_bank_jax(X, kernels):
+    def apply_filter_bank_jax(X, kernels, mode='same'):
         """Apply filter bank using JAX.
 
         Note: This function is not JIT-compiled because the number
@@ -478,7 +482,7 @@ def _get_jax_fckpls_functions():
         for h in kernels:
             h_jax = jnp.asarray(h)
             # Apply to each sample
-            convolved = jax.vmap(lambda x, h=h_jax: convolve_1d_jax(x, h))(X)
+            convolved = jax.vmap(lambda x, h=h_jax: convolve_1d_jax(x, h, mode=mode))(X)
             results.append(convolved)
 
         return jnp.hstack(results)
@@ -501,7 +505,7 @@ def _get_cached_jax_fckpls():
 # FCK-PLS Estimator Class
 # =============================================================================
 
-class FCKPLS(BaseEstimator, RegressorMixin):
+class FCKPLS(RegressorMixin, BaseEstimator):
     """Fractional Convolutional Kernel PLS (FCK-PLS).
 
     FCK-PLS builds spectral features by convolving input spectra with a bank
@@ -693,7 +697,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
             import jax.numpy as jnp
             jax_funcs = _get_cached_jax_fckpls()
             X_feat = np.asarray(
-                jax_funcs['apply_filter_bank'](X_proc, self.featurizer_.kernels_)
+                jax_funcs['apply_filter_bank'](X_proc, self.featurizer_.kernels_, mode=self.mode)
             )
         else:
             X_feat = self.featurizer_.transform(X_proc)
@@ -737,7 +741,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
             import jax.numpy as jnp
             jax_funcs = _get_cached_jax_fckpls()
             X_feat = np.asarray(
-                jax_funcs['apply_filter_bank'](X_proc, self.featurizer_.kernels_)
+                jax_funcs['apply_filter_bank'](X_proc, self.featurizer_.kernels_, mode=self.mode)
             )
         else:
             X_feat = self.featurizer_.transform(X_proc)
@@ -778,7 +782,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
             import jax.numpy as jnp
             jax_funcs = _get_cached_jax_fckpls()
             X_feat = np.asarray(
-                jax_funcs['apply_filter_bank'](X_proc, self.featurizer_.kernels_)
+                jax_funcs['apply_filter_bank'](X_proc, self.featurizer_.kernels_, mode=self.mode)
             )
         else:
             X_feat = self.featurizer_.transform(X_proc)
@@ -843,8 +847,7 @@ class FCKPLS(BaseEstimator, RegressorMixin):
 
     def set_params(self, **params) -> FCKPLS:
         """Set the parameters of this estimator."""
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

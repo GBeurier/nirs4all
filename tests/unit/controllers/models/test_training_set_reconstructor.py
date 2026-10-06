@@ -83,12 +83,16 @@ class MockIndexer:
 class MockDataset:
     """Mock SpectroDataset for testing."""
 
+    is_classification = False
+
     def __init__(self, n_train=80, n_test=20):
         self._indexer = MockIndexer(n_train, n_test)
         self._y_train = np.random.randn(n_train)
         self._y_test = np.random.randn(n_test)
 
     def y(self, selector, include_augmented=True, include_excluded=False):
+        if selector is None:
+            return np.concatenate([self._y_train, self._y_test])
         if selector.partition == "test":
             return self._y_test
         return self._y_train
@@ -685,6 +689,7 @@ class TestTestAggregationStrategies:
                 sample_indices=val_indices,
                 y_pred=np.ones(samples_per_fold),
                 val_score=val_scores[fold_id],
+                metric="r2",
             )
 
             # Test predictions vary by fold
@@ -699,6 +704,7 @@ class TestTestAggregationStrategies:
                 sample_indices=test_indices,
                 y_pred=test_pred,
                 val_score=val_scores[fold_id],
+                metric="r2",
             )
 
         return val_scores

@@ -410,6 +410,15 @@ class FoldFileLoaderController(OperatorController):
         """
         from nirs4all.pipeline.execution.result import StepOutput
 
+        if mode in ("predict", "explain"):
+            # Replay uses saved models; the original training IDs/file are irrelevant.
+            provider = runtime_context.artifact_provider
+            target_step = (runtime_context.target_model or {}).get("step_idx")
+            fold_artifacts = provider.get_fold_artifacts(int(target_step), branch_path=context.selector.branch_path) if provider is not None and target_step is not None else []
+            sample_ids = dataset._indexer.x_indices(context.with_partition(None).selector, include_augmented=False, include_excluded=False).tolist()
+            dataset.set_folds([(sample_ids, []) for _ in range(len(fold_artifacts) or 1)])
+            return context, StepOutput()
+
         file_path = step_info.operator
 
         logger.info(f"Loading folds from file: {file_path}")

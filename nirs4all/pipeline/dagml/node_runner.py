@@ -173,7 +173,7 @@ class _FrozenTransform(TransformerMixin, BaseEstimator):
 
 
 class _CoordinateTransform(TransformerMixin, BaseEstimator):
-    """Inject source-local feature coordinates into a host operator's fit."""
+    """Adapt source-local cm⁻¹ coordinates to a host operator's fit units."""
 
     def __init__(self, transformer: Any, coordinates: tuple[str, ...], source_index: int = 0) -> None:
         self.transformer = transformer
@@ -181,6 +181,7 @@ class _CoordinateTransform(TransformerMixin, BaseEstimator):
         self.source_index = source_index
 
     def fit(self, X: Any, y: Any = None) -> _CoordinateTransform:
+        from nirs4all.operators.transforms.concat import FeatureConcat
         from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
         from nirs4all.operators.transforms.resampler import Resampler
 
@@ -198,7 +199,12 @@ class _CoordinateTransform(TransformerMixin, BaseEstimator):
                 if self.source_index >= len(targets):
                     raise ValueError("Resampler target_wavelengths is missing a source grid")
                 self.transformer.set_params(target_wavelengths=np.asarray(targets[self.source_index], dtype=float))
-        self.transformer.fit(X, y, wavelengths=np.asarray(self.coordinates, dtype=float))
+        wavelengths = np.asarray(self.coordinates, dtype=float)
+        if getattr(self.transformer, "_requires_wavelengths", False) is True and not isinstance(self.transformer, FeatureConcat):
+            # FeatureConcat passes cm⁻¹ to child wrappers, which choose their
+            # own units. Strict physical operators use nm exactly once.
+            wavelengths = 1e7 / wavelengths
+        self.transformer.fit(X, y, wavelengths=wavelengths)
         return self
 
     def transform(self, X: Any) -> Any:
@@ -741,9 +747,8 @@ class _SourceConcatEstimator:
         merged = self._hstack(blocks)
         if not self._preserve_legacy_sources_after_merge:
             return merged
-        # Legacy top-level ``{"merge": {"sources": "concat"}}`` stores the merged matrix into source 0
-        # but leaves the other transformed sources present. Downstream ``concat_source=True`` therefore
-        # sees [merged, source1, source2, ...].
+        # Historical archives can retain the old source-duplication layout.
+        # New source-concat runs keep only the merged source and leave this flag false.
         return self._hstack([merged, *blocks[1:]])
 
     def fit(self, blocks: list[Any], y: Any) -> _SourceConcatEstimator:
@@ -970,6 +975,12 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     phase = task["phase"]
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"
+    lineage_id = f"lineage:{node_id}:{phase}:{variant_label}:{fold_label}"
+    if len(lineage_id.encode("utf-8")) > 128:
+        # Keep complete signed identities in the lineage fields; only its
+        # opaque record key must fit the native identifier byte limit.
+        identity = json.dumps([task["run_id"], node_id, phase, variant_label, fold_label], separators=(",", ":"))
+        lineage_id = "lineage:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
     metrics = {"nirs4all_adapter": 1.0}
     if predictions and predictions[0]["values"]:
         flat = [row[0] for row in predictions[0]["values"]]
@@ -995,7 +1006,7 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
         "artifact_handles": artifact_handles,
         "regression_targets": regression_targets or [],
         "lineage": {
-            "record_id": f"lineage:{node_id}:{phase}:{variant_label}:{fold_label}",
+            "record_id": lineage_id,
             "run_id": task["run_id"],
             "node_id": node_id,
             "phase": phase,

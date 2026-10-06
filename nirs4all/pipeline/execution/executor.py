@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -18,6 +19,36 @@ logger = get_logger(__name__)
 
 # Default RSS threshold for memory warnings (MB).
 _DEFAULT_MEMORY_WARNING_THRESHOLD_MB = 3072
+
+@dataclass
+class _StepArtifactValue:
+    """Persist a tuple producer's lookup name with its fitted value."""
+
+    name: str
+    value: Any
+    replay: Any = None
+
+    def __getattr__(self, name: str) -> Any:
+        # Unpickling probes attributes before the value field is restored.
+        if name == "value":
+            raise AttributeError(name)
+        return getattr(self.value, name)
+
+
+class _StepArtifactNames:
+    """Expose producer names for tuple artifacts while retaining chain lookup."""
+
+    def __init__(self, provider: Any) -> None:
+        self.provider = provider
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.provider, name)
+
+    def get_artifacts_for_step(self, *args: Any, **kwargs: Any) -> list[tuple[str, Any]]:
+        artifacts = self.provider.get_artifacts_for_step(*args, **kwargs)
+        return [(obj.name, obj.value) if isinstance(obj, _StepArtifactValue) else (artifact_id, obj)
+                for artifact_id, obj in artifacts]
+
 
 class PipelineExecutor:
     """Executes a single pipeline configuration on a single dataset.
@@ -666,6 +697,14 @@ class PipelineExecutor:
         Returns:
             Updated execution context and current dataset
         """
+        if self.mode in ("predict", "explain") and runtime_context is not None:
+            provider = runtime_context.artifact_provider
+            if provider is not None and not isinstance(provider, _StepArtifactNames):
+                runtime_context.artifact_provider = _StepArtifactNames(provider)
+
+        if self.mode in ("predict", "explain"):
+            self._set_cv_replay_bounds(context, runtime_context, list(range(1, len(steps) + 1)))
+
         for step in steps:
             self.step_number += 1
             self.substep_number = 0
@@ -838,18 +877,8 @@ class PipelineExecutor:
         # feature data that was produced by that branch's preprocessing steps
         features_snapshot = branch_info.get("features_snapshot")
         if features_snapshot is not None:
-            use_cow = branch_info.get("use_cow", False)
-            if use_cow:
-                # CoW restore: acquire shared references (zero-copy for read-only steps)
-                for source, (shared, proc_ids, headers, header_unit) in zip(
-                    dataset._features.sources, features_snapshot, strict=False
-                ):
-                    source._storage.restore_from_shared(shared.acquire())
-                    source._processing_mgr.reset_processings(proc_ids)
-                    source._header_mgr.set_headers(headers, unit=header_unit)
-            else:
-                import copy
-                dataset._features.sources = copy.deepcopy(features_snapshot)
+            from nirs4all.controllers.data.branch import BranchController
+            BranchController()._restore_features(dataset, features_snapshot, use_cow=branch_info.get("use_cow", False))
 
         # V3: Restore chain state from branch snapshot if available
         # This ensures each branch's post-branch steps use the correct operator chain
@@ -995,20 +1024,23 @@ class PipelineExecutor:
                     is_input=False,
                 )
 
-            # Record step end in execution trace
-            if runtime_context:
-                is_model = operator_type in ("model", "meta_model")
-                runtime_context.record_step_end(is_model=is_model)
-
             # Process artifacts
             processed_artifacts = self._process_step_artifacts(
                 step_result.artifacts,
                 runtime_context=runtime_context,
                 branch_id=branch_id,
-                branch_name=branch_name
+                branch_name=branch_name,
+                context=step_result.updated_context,
             )
             if all_artifacts is not None:
                 all_artifacts.extend(processed_artifacts)
+
+            # Record step end in execution trace
+            if runtime_context:
+                is_model = operator_type in ("model", "meta_model")
+                runtime_context.record_step_end(is_model=is_model)
+
+            from nirs4all.controllers.data.branch import BranchController
 
             # Update branch context
             updated_branch_contexts.append({
@@ -1017,7 +1049,10 @@ class PipelineExecutor:
                 "context": step_result.updated_context,
                 # Preserve any additional metadata
                 **{k: v for k, v in branch_info.items()
-                   if k not in ("branch_id", "name", "context")}
+                   if k not in ("branch_id", "name", "context", "features_snapshot")},
+                "features_snapshot": BranchController()._snapshot_features(
+                    dataset, use_cow=branch_info.get("use_cow", False)
+                ),
             })
 
         except Exception as e:
@@ -1032,6 +1067,18 @@ class PipelineExecutor:
                 raise RuntimeError(
                     f"Pipeline step {self.step_number} failed on branch {branch_id}: {str(e)}"
                 ) from e
+
+    def _set_cv_replay_bounds(self, context: ExecutionContext, runtime_context: Any, indices: list[int]) -> None:
+        from nirs4all.pipeline.execution.preprocessing import FoldPreprocessedModel
+
+        if runtime_context is None or runtime_context.artifact_provider is None:
+            return
+        for index in indices:
+            artifacts = runtime_context.artifact_provider.get_artifacts_for_step(index)
+            for _, model in artifacts:
+                if isinstance(model, FoldPreprocessedModel):
+                    context.custom["cv_replay_bounds"] = (model.preprocessing.start_step, index)
+                    return
 
     def _execute_single_step(
         self,
@@ -1093,6 +1140,13 @@ class PipelineExecutor:
             # Record input shapes before execution
             self._record_dataset_shapes(dataset, context, runtime_context, is_input=True)
 
+        from nirs4all.pipeline.execution.preprocessing import feature_step
+
+        if self.mode in ("predict", "explain") and feature_step(step)[0]:
+            bounds = context.custom.get("cv_replay_bounds")
+            if bounds and bounds[0] <= self.step_number < bounds[1]:
+                return context
+
         # --- Step cache: lookup before execution ---
         step_cache = getattr(runtime_context, 'step_cache', None) if runtime_context else None
         step_cacheable = False
@@ -1110,6 +1164,8 @@ class PipelineExecutor:
 
             cached_state = step_cache.get(step_hash, pre_step_data_hash, selector)
             if cached_state is not None:
+                from nirs4all.pipeline.execution.preprocessing import observe_feature_step
+                observe_feature_step(step, dataset, context, runtime_context)
                 # Cache hit: restore and skip execution (CoW — near-free)
                 step_cache.restore(cached_state, dataset)
                 if cached_state.processing_names:
@@ -1152,7 +1208,8 @@ class PipelineExecutor:
             # Process artifacts (persist via store if needed)
             processed_artifacts = self._process_step_artifacts(
                 step_result.artifacts,
-                runtime_context=runtime_context
+                runtime_context=runtime_context,
+                context=step_result.updated_context,
             )
             if all_artifacts is not None:
                 all_artifacts.extend(processed_artifacts)
@@ -1215,7 +1272,9 @@ class PipelineExecutor:
         artifacts: list[Any],
         runtime_context: Any = None,
         branch_id: int | None = None,
-        branch_name: str | None = None
+        branch_name: str | None = None,
+        context: ExecutionContext | None = None,
+        replay: Any = None,
     ) -> list[Any]:
         """Process and persist step artifacts via WorkspaceStore.
 
@@ -1234,6 +1293,8 @@ class PipelineExecutor:
         store = runtime_context.store if runtime_context else self.store
 
         processed_artifacts: list[Any] = []
+        if replay is not None:
+            replay.artifacts[self.step_number] = [(a[1], a[0]) for a in artifacts if isinstance(a, tuple) and len(a) >= 3]
         for artifact in artifacts:
             if isinstance(artifact, ArtifactRecord):
                 # v2 system: ArtifactRecord from registry.register()
@@ -1253,7 +1314,21 @@ class PipelineExecutor:
                 obj, name = artifact[0], artifact[1]
                 format_hint = artifact[2] if len(artifact) > 2 else None
 
-                # Add branch prefix to name if branching
+                registry = getattr(runtime_context, "artifact_registry", None) if runtime_context else self.artifact_registry
+                if registry is not None and self.save_artifacts and runtime_context is not None:
+                    from nirs4all.controllers.transforms.transformer import TransformerMixinController
+                    record = TransformerMixinController()._persist_transformer(
+                        runtime_context=runtime_context,
+                        transformer=_StepArtifactValue(name, obj, replay),
+                        name=name,
+                        context=context or ExecutionContext(),
+                        processing_index=runtime_context.next_processing_index(),
+                        format_hint="joblib",
+                    )
+                    processed_artifacts.append(record.to_dict())
+                    continue
+
+                # Preserve the store-only path for executors without a registry.
                 if branch_id is not None:
                     name = f"{name}_b{branch_id}"
 
@@ -1785,6 +1860,12 @@ class PipelineExecutor:
             that provides artifacts by step index from the MinimalPipeline.
         """
         logger.info(f"Executing minimal pipeline: {len(steps)} steps")
+        self._set_cv_replay_bounds(context, runtime_context, [s.step_index for s in minimal_pipeline.steps])
+        if runtime_context is not None and runtime_context.artifact_provider is not None:
+            provider = runtime_context.artifact_provider
+            if not isinstance(provider, _StepArtifactNames):
+                runtime_context.artifact_provider = _StepArtifactNames(provider)
+
 
         # Reset state
         self.step_number = 0

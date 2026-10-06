@@ -1324,7 +1324,10 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "operator_kind": "model",
             "priority": 20,
             "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
-            "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "input_ports": [
+                {"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+                {"name": "y", "kind": "target", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
             "output_ports": [
                 {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
                 {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
@@ -1365,10 +1368,16 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "operator_kind": "prediction_join",
             "priority": 10,
             "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
-            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
-            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
+            "output_ports": [
+                {"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+                {"name": "prediction", "kind": "prediction", "representation": None, "cardinality": "one"},
+            ],
             "data_requirements": None,
-            "capabilities": ["deterministic", "thread_safe", "process_safe", "consumes_oof_predictions"],
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "consumes_oof_predictions", "emits_predictions"],
             "operator_selectors": [],
             "fit_scope": "fold_train",
             "rng_policy": "uses_core_seed",
@@ -1387,7 +1396,10 @@ def _fallback_controller_manifests() -> list[dict[str, Any]]:
             "operator_kind": "model",
             "priority": 20,
             "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
-            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
             "output_ports": [
                 {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
                 {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
@@ -1459,6 +1471,10 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "operator_kind": "model",
             "priority": 20,
             "data_requirements": _MODEL_DATA_REQUIREMENTS,
+            "input_ports": [
+                {"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+                {"name": "y", "kind": "target", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
         },
         {
             "controller_id": "controller:nirs4all.merge_concat",
@@ -1471,9 +1487,15 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "controller_version": _NIRS4ALL_VERSION,
             "operator_kind": "prediction_join",
             "priority": 10,
-            "added_capabilities": ["consumes_oof_predictions"],
-            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
-            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "added_capabilities": ["consumes_oof_predictions", "emits_predictions"],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
+            "output_ports": [
+                {"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+                {"name": "prediction", "kind": "prediction", "representation": None, "cardinality": "one"},
+            ],
         },
         {
             "controller_id": "controller:nirs4all.meta_model",
@@ -1481,7 +1503,10 @@ def _controller_manifest_specs() -> list[dict[str, Any]]:
             "operator_kind": "model",
             "priority": 20,
             "added_capabilities": ["consumes_oof_predictions"],
-            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "input_ports": [
+                {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"},
+                {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            ],
             "operator_selectors": [{"refs": [_META_MODEL_REF]}],
         },
         {

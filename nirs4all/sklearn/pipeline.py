@@ -79,14 +79,15 @@ class NIRSPipeline:
         >>> print(f"R²: {pipe.score(X_test, y_test):.4f}")
     """
 
-    def __init__(self) -> None:
+    def __init__(self, fold: int = 0) -> None:
         """Private constructor - use from_result() or from_bundle() instead."""
         # Core state
         self._bundle_loader: BundleLoader | None = None
         self._runner: Any | None = None
         self._prediction_source: dict[str, Any] | None = None
         self._is_fitted: bool = False
-        self._fold: int = 0
+        self._fold: int = fold
+        self._export_directory: Any | None = None
 
         # Cached model for SHAP access
         self._cached_model: Any | None = None
@@ -152,8 +153,8 @@ class NIRSPipeline:
                 )
 
         # Export to temporary bundle
-        temp_dir = tempfile.mkdtemp(prefix="nirs4all_sklearn_")
-        bundle_path = Path(temp_dir) / "model.n4a"
+        export_directory = tempfile.TemporaryDirectory(prefix="nirs4all_sklearn_")
+        bundle_path = Path(export_directory.name) / "model.n4a"
 
         try:
             if dagml_result:
@@ -161,12 +162,14 @@ class NIRSPipeline:
             else:
                 result.export(bundle_path, source=source)
         except Exception as e:
+            export_directory.cleanup()
             raise RuntimeError(f"Failed to export model to bundle: {e}") from e
 
         # Create instance from bundle
         instance = cls._from_bundle_internal(bundle_path, fold=fold)
         instance._runner = result._runner
         instance._prediction_source = source
+        instance._export_directory = export_directory
 
         return instance
 
@@ -312,6 +315,14 @@ class NIRSPipeline:
         X = np.asarray(X)
 
         if self._bundle_loader is not None:
+            from nirs4all.api.result import _DagmlExportedModel
+
+            model = self._selected_bundle_model()
+            if isinstance(model, _DagmlExportedModel):
+                estimator = model.estimator
+                if hasattr(estimator, "steps") and len(estimator.steps) > 1:
+                    return np.asarray(estimator[:-1].transform(X))
+                return X.copy()
             # Apply transformers from bundle
             X_current = X.copy()
 
@@ -407,6 +418,15 @@ class NIRSPipeline:
 
         self._check_is_fitted()
 
+        model = self._selected_bundle_model()
+        if model is not None:
+            self._cached_model = self._model_for_access(model)
+            return self._cached_model
+
+        raise RuntimeError("Could not access underlying model. Bundle has no model artifacts.")
+
+    def _selected_bundle_model(self) -> Any:
+        """Get the selected fitted artifact with its captured preprocessing intact."""
         if self._bundle_loader is not None and self._bundle_loader.artifact_provider is not None:
             model_step = self._model_step_index
 
@@ -419,12 +439,10 @@ class NIRSPipeline:
                     # Find the requested fold
                     for fold_id, model in fold_artifacts:
                         if fold_id == self._fold:
-                            self._cached_model = self._model_for_access(model)
-                            return self._cached_model
+                            return model
                     # Fall back to first available fold
                     _, model = fold_artifacts[0]
-                    self._cached_model = self._model_for_access(model)
-                    return self._cached_model
+                    return model
 
                 # Try single model (no CV)
                 artifacts = self._bundle_loader.artifact_provider.get_artifacts_for_step(
@@ -432,13 +450,9 @@ class NIRSPipeline:
                 )
                 if artifacts:
                     _, model = artifacts[0]
-                    self._cached_model = self._model_for_access(model)
-                    return self._cached_model
+                    return model
 
-        raise RuntimeError(
-            "Could not access underlying model. "
-            "This may happen if the bundle doesn't contain model artifacts."
-        )
+        return None
 
     @staticmethod
     def _model_for_access(model: Any) -> Any:
@@ -535,6 +549,9 @@ class NIRSPipeline:
         Returns:
             self
         """
+        unknown = set(params) - {"fold"}
+        if unknown:
+            raise ValueError(f"Invalid parameters for NIRSPipeline: {sorted(unknown)}")
         if "fold" in params:
             self._fold = params["fold"]
             self._cached_model = None  # Invalidate cache

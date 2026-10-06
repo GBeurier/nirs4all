@@ -116,6 +116,7 @@ def test_vertical_slice_controller_manifests_validate() -> None:
     meta = next(m for m in manifests if m["controller_id"] == "controller:nirs4all.meta_model")
     assert "consumes_oof_predictions" in meta["capabilities"]
     base = next(m for m in manifests if m["controller_id"] == "controller:nirs4all.model")
+    assert {port["name"] for port in base["input_ports"]} == {"x", "y"}
     model_port = base["data_requirements"]["ports"][0]
     assert model_port["multi_source"] is True
     assert "tabular_numeric" in model_port["accepted_representations"]

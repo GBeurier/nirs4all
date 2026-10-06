@@ -107,6 +107,10 @@ def _expand_iter_internal(
         yield node
         return
 
+    from .core import _normalize_param_grid, _normalize_param_sweep
+
+    node = _normalize_param_grid(_normalize_param_sweep(dict(node)))
+
     # Try strategy dispatch for pure generator nodes
     strategy = get_strategy(node)
     if strategy:
@@ -157,7 +161,7 @@ def _expand_list_iter(
         return
 
     # Special case: single element that expands to lists
-    if len(node) == 1:
+    if len(node) == 1 and not isinstance(node[0], list):
         for result in _expand_iter_internal(node[0], seed):
             if isinstance(result, list):
                 yield result
@@ -188,9 +192,9 @@ def _expand_mixed_or_node_iter(
         Merged dict variants.
     """
     # Extract modifiers that go with _or_
-    or_modifier_keys = {
-        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
-    }
+    from .keywords import PURE_OR_KEYS
+
+    or_modifier_keys = PURE_OR_KEYS
 
     # Separate base keys from OR-related keys
     base = {k: v for k, v in node.items() if k not in or_modifier_keys}

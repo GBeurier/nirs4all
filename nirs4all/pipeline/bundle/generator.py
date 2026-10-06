@@ -37,9 +37,13 @@ Example:
 """
 
 import base64
+import contextlib
 import json
 import logging
+import os
+import tempfile
 import zipfile
+from collections.abc import Generator
 from datetime import UTC, datetime, timezone
 from enum import Enum, StrEnum
 from pathlib import Path
@@ -52,6 +56,19 @@ logger = logging.getLogger(__name__)
 
 # Bundle format version for compatibility checking
 BUNDLE_FORMAT_VERSION = "1.0"
+
+
+@contextlib.contextmanager
+def _atomic_output_path(output_path: Path) -> Generator[Path, None, None]:
+    """Stage an export beside its destination and replace it only on success."""
+    with tempfile.NamedTemporaryFile(dir=output_path.parent, prefix=f".{output_path.name}.", suffix=".tmp", delete=False) as staged:
+        staged_path = Path(staged.name)
+    try:
+        yield staged_path
+        os.replace(staged_path, output_path)
+    finally:
+        staged_path.unlink(missing_ok=True)
+
 
 class BundleFormat(StrEnum):
     """Supported bundle export formats.
@@ -180,7 +197,7 @@ def write_single_model_bundle(
         manifest["artifact_integrity"] = {artifact_member: file_fingerprint(artifact_path)[0]}
         if host_artifacts:
             manifest["host_artifacts"] = host_artifacts
-        with zipfile.ZipFile(output_path, "w", compression=compression) as zf:
+        with _atomic_output_path(output_path) as staged_path, zipfile.ZipFile(staged_path, "w", compression=compression) as zf:
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))
             zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
             if train_steps is not None:
@@ -281,6 +298,7 @@ class BundleGenerator:
             else:
                 raise ValueError(f"Unsupported bundle format: {fmt}")
 
+        self.store._validate_chain_export(chain_id)
         if fmt == BundleFormat.N4A:
             return Path(self.store.export_chain(chain_id, output_path, format="n4a"))
 
@@ -316,14 +334,19 @@ class BundleGenerator:
         # Collect artifacts
         artifacts_data: dict[str, str] = {}
         step_info: dict[int, dict[str, str]] = {}
+        artifact_keys: dict[str, str] = {}
 
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
         model_step_idx = chain["model_step_idx"]
+        pipeline = self.store.get_pipeline(chain["pipeline_id"]) or {}
+        expanded = pipeline.get("expanded_config") or []
+        configs = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+        target_steps = {idx + 1 for idx, config in enumerate(configs) if isinstance(config, dict) and "y_processing" in config}
 
         # Shared (preprocessing) artifacts
         for str_idx, artifact_ids_val in shared_artifacts.items():
-            if not artifact_ids_val:
+            if str(str_idx).startswith("_") or not artifact_ids_val:
                 continue
             idx = int(str_idx)
             # shared_artifacts values are lists of artifact IDs
@@ -333,9 +356,10 @@ class BundleGenerator:
                 encoded = self._encode_artifact(obj)
                 key = f"step_{idx}" if len(aid_list) == 1 else f"step_{idx}_sub{sub_idx}"
                 artifacts_data[key] = encoded
+                artifact_keys[artifact_id] = key
                 if idx not in step_info:
                     step_info[idx] = {
-                        "operator_type": "transform",
+                        "operator_type": "y_processing" if idx in target_steps else "transform",
                         "operator_class": type(obj).__name__,
                     }
 
@@ -345,7 +369,8 @@ class BundleGenerator:
                 continue
             obj = self.store.load_artifact(artifact_id)
             encoded = self._encode_artifact(obj)
-            artifacts_data[f"step_{model_step_idx}_fold{fold_id}"] = encoded
+            fold = str(fold_id).removeprefix("fold_")
+            artifacts_data[f"step_{model_step_idx}_fold{fold}"] = encoded
             if model_step_idx not in step_info:
                 step_info[model_step_idx] = {
                     "operator_type": "model",
@@ -364,9 +389,14 @@ class BundleGenerator:
             nirs4all_version=getattr(_nirs4all, "__version__", "unknown"),
             created_at=datetime.now(UTC).isoformat(),
             include_metadata=True,
+            source_artifact_keys={
+                int(idx): {int(source): [artifact_keys[aid] for aid in aids] for source, aids in sources.items()}
+                for idx, sources in shared_artifacts.get("_source_map", {}).items()
+            },
         )
 
-        output_path.write_text(script, encoding="utf-8")
+        with _atomic_output_path(output_path) as staged_path:
+            staged_path.write_text(script, encoding="utf-8")
         return output_path
 
     @staticmethod
@@ -421,6 +451,29 @@ class BundleGenerator:
         # Resolve the prediction source
         resolved = self.resolver.resolve(source, verbose=self.verbose)
 
+        # A selected prediction must export its own fitted model, never an
+        # earlier base model left behind by incomplete artifact resolution.
+        target = resolved.target_model
+        target_artifact_id = target.get("model_artifact_id")
+        if target_artifact_id:
+            artifacts = (
+                resolved.artifact_provider.get_artifacts_for_step(resolved.model_step_index)
+                if resolved.artifact_provider is not None and resolved.model_step_index is not None else []
+            )
+            if target_artifact_id not in {artifact_id for artifact_id, _ in artifacts}:
+                raise ValueError(f"Cannot export selected model: target artifact {target_artifact_id!r} is unavailable.")
+
+        is_final_meta = str(target.get("fold_id")) == "final" and (
+            target.get("model_classname") == "MetaModel"
+            or (target.get("metadata") or {}).get("stacking_role") == "meta_model"
+        )
+        if is_final_meta and resolved.trace is None:
+            raise NotImplementedError(
+                "Cannot export selected final legacy stacking meta-model: its fitted base-model "
+                "raw-input dependency closure was not captured. Final-meta bundles are unsupported "
+                "without that closure; numerical training and refit predictions remain available."
+            )
+
         if self.verbose > 0:
             logger.info(f"Exporting bundle from {resolved.source_type} source")
 
@@ -471,7 +524,7 @@ class BundleGenerator:
 
         compression = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
 
-        with zipfile.ZipFile(output_path, 'w', compression=compression) as zf:
+        with _atomic_output_path(output_path) as staged_path, zipfile.ZipFile(staged_path, 'w', compression=compression) as zf:
             # 1. Write manifest.json
             manifest = self._create_bundle_manifest(resolved, include_metadata)
             zf.writestr('manifest.json', json.dumps(manifest, indent=2))
@@ -503,7 +556,7 @@ class BundleGenerator:
             if self.verbose > 0:
                 logger.info(f"Bundle created: {output_path}")
                 logger.info(f"  Artifacts: {artifacts_written}")
-                logger.info(f"  Size: {output_path.stat().st_size / 1024:.1f} KB")
+                logger.info(f"  Size: {staged_path.stat().st_size / 1024:.1f} KB")
 
         return output_path
 
@@ -538,8 +591,8 @@ class BundleGenerator:
         script_content = self._generate_portable_script(resolved, include_metadata)
 
         # Write script
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(script_content)
+        with _atomic_output_path(output_path) as staged_path:
+            staged_path.write_text(script_content, encoding='utf-8')
 
         # Make executable on Unix
         try:
@@ -734,7 +787,7 @@ class BundleGenerator:
         for step_index in sorted(step_indices):
             artifacts = resolved.artifact_provider.get_artifacts_for_step(step_index)
 
-            for artifact_id, artifact_obj in artifacts:
+            for sub_idx, (artifact_id, artifact_obj) in enumerate(artifacts):
                 try:
                     # Serialize artifact
                     artifact_bytes = self._serialize_artifact(artifact_obj)
@@ -748,7 +801,7 @@ class BundleGenerator:
                     artifact_name = self._artifact_filename(
                         artifact_id, artifact_obj, record, step_index=step_index
                     )
-                    archive_path = f"artifacts/{artifact_name}"
+                    archive_path = f"artifacts/{artifact_name.removesuffix('.joblib')}_sub{sub_idx}.joblib"
 
                     # Write to ZIP
                     zf.writestr(archive_path, artifact_bytes)
@@ -758,7 +811,7 @@ class BundleGenerator:
                         logger.debug(f"  Added artifact: {archive_path}")
 
                 except Exception as e:
-                    logger.warning(f"Failed to serialize artifact {artifact_id}: {e}")
+                    raise RuntimeError(f"Failed to serialize artifact {artifact_id}: {e}") from e
 
         return count
 
@@ -853,9 +906,18 @@ class BundleGenerator:
         # Track substep counters for multiple artifacts per step
         step_substep_counter = {}
 
-        if resolved.trace and resolved.artifact_provider:
-            for step in resolved.trace.steps:
-                step_index = step.step_index
+        artifact_keys: dict[str, str] = {}
+        steps = {step.step_index: step for step in resolved.trace.steps} if resolved.trace else {}
+        step_indices = set(steps)
+        if not steps and resolved.artifact_provider is not None:
+            step_indices = set(getattr(resolved.artifact_provider, "artifact_map", {}))
+        chain_id = resolved.target_model.get("chain_id")
+        chain = self.store.get_chain(chain_id) if self.store is not None and chain_id else None
+        fold_by_id = {aid: str(fold).removeprefix("fold_") for fold, aid in (chain.get("fold_artifacts") or {}).items()} if chain else {}
+
+        if resolved.artifact_provider:
+            for step_index in sorted(step_indices):
+                step = steps.get(step_index)
                 artifacts = resolved.artifact_provider.get_artifacts_for_step(step_index)
 
                 for artifact_id, artifact_obj in artifacts:
@@ -864,7 +926,9 @@ class BundleGenerator:
 
                     # Parse fold info from artifact_id
                     parts = artifact_id.split(":")
-                    fold_part = parts[-1] if len(parts) >= 3 else "all"
+                    fold_part = parts[-1].removeprefix("fold_") if len(parts) >= 2 else "all"
+                    if step_index == resolved.model_step_index and artifact_id in fold_by_id:
+                        fold_part = fold_by_id[artifact_id]
 
                     if fold_part != "all":
                         key = f"step_{step_index}_fold{fold_part}"
@@ -882,12 +946,23 @@ class BundleGenerator:
                             key = base_key
 
                     artifacts_data[key] = encoded
+                    artifact_keys[artifact_id] = key
 
                     if step_index not in step_info:
                         step_info[step_index] = {
-                            "operator_type": step.operator_type,
-                            "operator_class": step.operator_class,
+                            "operator_type": step.operator_type if step else ("model" if step_index == resolved.model_step_index else "transform"),
+                            "operator_class": step.operator_class if step else type(artifact_obj).__name__,
                         }
+                        if step is None and 0 < step_index <= len(resolved.minimal_pipeline):
+                            config = resolved.minimal_pipeline[step_index - 1]
+                            if isinstance(config, dict) and "y_processing" in config:
+                                step_info[step_index]["operator_type"] = "y_processing"
+
+        if not artifacts_data:
+            raise ValueError("No fitted artifacts available for portable export")
+        source_artifact_keys: dict[int, dict[int, list[str]]] = {}
+        for (idx, source), artifacts in getattr(resolved.artifact_provider, "source_artifact_map", {}).items():
+            source_artifact_keys.setdefault(idx, {})[source] = [artifact_keys[aid] for aid, _ in artifacts]
 
         # Generate fold weights
         fold_weights_code = ""
@@ -903,7 +978,8 @@ class BundleGenerator:
             pipeline_uid=resolved.pipeline_uid,
             nirs4all_version=getattr(nirs4all, '__version__', 'unknown'),
             created_at=datetime.now(UTC).isoformat(),
-            include_metadata=include_metadata
+            include_metadata=include_metadata,
+            source_artifact_keys=source_artifact_keys,
         )
 
         return script
@@ -918,7 +994,8 @@ class BundleGenerator:
         pipeline_uid: str,
         nirs4all_version: str,
         created_at: str,
-        include_metadata: bool
+        include_metadata: bool,
+        source_artifact_keys: dict[int, dict[int, list[str]]] | None = None,
     ) -> str:
         """Build the portable script from template.
 
@@ -932,6 +1009,7 @@ class BundleGenerator:
             nirs4all_version: nirs4all version used
             created_at: Creation timestamp
             include_metadata: Whether to include metadata
+            source_artifact_keys: Per-step source indices and their embedded artifact keys.
 
         Returns:
             Complete script content
@@ -998,6 +1076,7 @@ STEP_INFO: Dict[int, Dict[str, str]] = {step_info_str}
 FOLD_WEIGHTS: Dict[int, float] = {fold_weights}
 
 MODEL_STEP_INDEX: Optional[int] = {model_step_index}
+SOURCE_ARTIFACT_KEYS = {source_artifact_keys or {}}
 
 # =============================================================================
 # Artifact Loading
@@ -1055,6 +1134,9 @@ def get_fold_artifacts(step_index: int) -> List[Tuple[int, Any]]:
     """
     results = []
 
+    refit_key = f"step_{{step_index}}_foldfinal"
+    if refit_key in ARTIFACTS:
+        return [(0, load_artifact(refit_key))]
     for key in ARTIFACTS:
         if key.startswith(f"step_{{step_index}}_fold"):
             fold_id = int(key.split("_fold")[1])
@@ -1113,7 +1195,10 @@ def predict(X: np.ndarray) -> np.ndarray:
         Predictions as numpy array, shape (n_samples,) or (n_samples, n_outputs)
     """
     # Process through each step
-    X_current = X.copy()
+    sources = [np.asarray(source).copy() for source in X] if isinstance(X, (list, tuple)) else None
+    if SOURCE_ARTIFACT_KEYS and sources is None:
+        raise ValueError("This predictor requires a list of source arrays")
+    X_current = X.copy() if sources is None else np.hstack(sources)
     y_processing_step_idx = None  # Track y_processing step for inverse_transform
 
     # Get sorted step indices
@@ -1130,6 +1215,14 @@ def predict(X: np.ndarray) -> np.ndarray:
         # Handle y_processing - skip but track for inverse_transform
         if op_type == "y_processing":
             y_processing_step_idx = step_idx
+            continue
+
+        source_keys = SOURCE_ARTIFACT_KEYS.get(step_idx)
+        if source_keys:
+            for source_idx, keys in source_keys.items():
+                for key in keys:
+                    sources[source_idx] = load_artifact(key).transform(sources[source_idx])
+            X_current = np.hstack(sources)
             continue
 
         # Check if this is the model step

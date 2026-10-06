@@ -316,6 +316,7 @@ def _oklmpls_fit_numpy(
     tol: float,
     W_init: NDArray[np.floating] | None = None,
     B_init: NDArray[np.floating] | None = None,
+    random_state: int | None = None,
 ) -> tuple[
     NDArray[np.floating],  # W (projection weights)
     NDArray[np.floating],  # F (dynamics matrix)
@@ -365,7 +366,7 @@ def _oklmpls_fit_numpy(
         W = W_init.copy()
     else:
         # Random initialization with orthogonalization
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(random_state)
         W = rng.normal(size=(d, r))
         W, _ = np.linalg.qr(W)
 
@@ -463,6 +464,12 @@ def _oklmpls_fit_numpy(
             break
         prev_loss = loss
 
+    # The last projection update invalidates the preceding conditional solves.
+    T = Z @ W
+    if lambda_reg_y > 0:
+        B = np.linalg.solve(T.T @ T + 1e-8 * np.eye(r), T.T @ Y)
+    if lambda_dyn > 0 and n_samples > 1:
+        F = np.linalg.solve(T[:-1].T @ T[:-1] + 1e-8 * np.eye(r), T[:-1].T @ T[1:]).T
     return W, F, B, iteration + 1
 
 def _oklmpls_predict_numpy(
@@ -596,6 +603,7 @@ def _oklmpls_fit_jax(
     tol: float,
     W_init: NDArray[np.floating] | None = None,
     B_init: NDArray[np.floating] | None = None,
+    random_state: int | None = None,
 ) -> tuple[
     NDArray[np.floating],
     NDArray[np.floating],
@@ -619,7 +627,7 @@ def _oklmpls_fit_jax(
     if W_init is not None:
         W = jnp.asarray(W_init)
     else:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(random_state)
         W_np = rng.normal(size=(d, r))
         W_np, _ = np.linalg.qr(W_np)
         W = jnp.asarray(W_np)
@@ -661,13 +669,18 @@ def _oklmpls_fit_jax(
             break
         prev_loss = loss
 
+    T = jax_funcs['compute_scores'](Z_jax, W)
+    if lambda_reg_y > 0:
+        B = jax_funcs['update_regression'](T, Y_jax, r)
+    if lambda_dyn > 0 and n_samples > 1:
+        F = jax_funcs['update_dynamics'](T, r)
     return np.asarray(W), np.asarray(F), np.asarray(B), iteration + 1
 
 # =============================================================================
 # OKLMPLS Estimator Class
 # =============================================================================
 
-class OKLMPLS(BaseEstimator, RegressorMixin):
+class OKLMPLS(RegressorMixin, BaseEstimator):
     """Online Koopman Latent-Mode Partial Least Squares (OKLM-PLS).
 
     OKLM-PLS combines Koopman operator theory with PLS for time-series
@@ -929,6 +942,7 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
                 self.lambda_dyn, self.lambda_reg_y,
                 self.max_iter, self.tol,
                 W_init, B_init,
+                random_state=self.random_state,
             )
         else:
             W, F, B, n_iter = _oklmpls_fit_numpy(
@@ -936,6 +950,7 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
                 self.lambda_dyn, self.lambda_reg_y,
                 self.max_iter, self.tol,
                 W_init, B_init,
+                random_state=self.random_state,
             )
 
         self.W_ = W
@@ -1059,23 +1074,12 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
 
     def get_params(self, deep: bool = True) -> dict:
         """Get parameters for this estimator."""
-        return {
-            'n_components': self.n_components,
-            'featurizer': self.featurizer,
-            'lambda_dyn': self.lambda_dyn,
-            'lambda_reg_y': self.lambda_reg_y,
-            'max_iter': self.max_iter,
-            'tol': self.tol,
-            'warm_start_pls': self.warm_start_pls,
-            'standardize': self.standardize,
-            'backend': self.backend,
-            'random_state': self.random_state,
-        }
+        params: dict = super().get_params(deep=deep)
+        return params
 
     def set_params(self, **params) -> OKLMPLS:
         """Set the parameters of this estimator."""
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

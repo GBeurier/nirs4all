@@ -143,9 +143,9 @@ class AcceleratedArrays:
     # Transfer
     to_numpy: Callable
 
-def _create_numpy_arrays() -> AcceleratedArrays:
+def _create_numpy_arrays(seed: int = 42) -> AcceleratedArrays:
     """Create NumPy-based array operations."""
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
 
     return AcceleratedArrays(
         backend=AcceleratorBackend.NUMPY,
@@ -253,7 +253,7 @@ def create_accelerated_arrays(
     elif backend == AcceleratorBackend.CUPY:
         return _create_cupy_arrays(seed)
     else:
-        return _create_numpy_arrays()
+        return _create_numpy_arrays(seed)
 
 # ============================================================================
 # Accelerated Generation Functions
@@ -346,7 +346,7 @@ def generate_spectra_batch_accelerated(
 
     # Add noise
     noise = arrays.random_normal((n_samples, len(wavelengths)))
-    noise = noise * noise_level * (arrays.sqrt(arrays.sum(X ** 2, axis=1, keepdims=True)) / len(wavelengths))
+    noise = noise * noise_level * arrays.sqrt(arrays.sum(X ** 2, axis=1, keepdims=True) / len(wavelengths))
     X = X + noise
 
     return np.asarray(arrays.to_numpy(X))

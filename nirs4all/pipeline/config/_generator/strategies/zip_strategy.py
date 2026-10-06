@@ -103,7 +103,7 @@ class ZipStrategy(ExpansionStrategy):
         min_len = min(len(v) for v in expanded_zip.values())
 
         if min_len == 0:
-            return [{}]
+            return []
 
         # Generate zipped results
         keys = list(expanded_zip.keys())

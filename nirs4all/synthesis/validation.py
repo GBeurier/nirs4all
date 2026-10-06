@@ -569,7 +569,8 @@ def compute_snr(
 
     Args:
         spectra: Array of shape (n_samples, n_wavelengths).
-        noise_region_fraction: Fraction of spectrum to use for noise estimation.
+        noise_region_fraction: Width of the quietest contiguous residual region
+            used for noise estimation, as a fraction of the spectrum.
 
     Returns:
         Array of SNR estimates for each spectrum.
@@ -579,6 +580,9 @@ def compute_snr(
         >>> snr = compute_snr(X)
     """
     n_samples, n_wavelengths = spectra.shape
+    if not 0 < noise_region_fraction <= 1:
+        raise ValueError("noise_region_fraction must be in (0, 1]")
+    region_width = min(n_wavelengths, max(2, int(np.ceil(n_wavelengths * noise_region_fraction))))
     snr_values = np.zeros(n_samples)
 
     for i in range(n_samples):
@@ -589,7 +593,7 @@ def compute_snr(
 
         # Noise power: variance of residual after smoothing
         residual = spectrum - smoothed
-        noise_power = np.var(residual)
+        noise_power = np.min(np.var(np.lib.stride_tricks.sliding_window_view(residual, region_width), axis=-1))
 
         if noise_power > 1e-10:
             snr_values[i] = signal_power / noise_power
@@ -816,6 +820,7 @@ def compute_spectral_realism_scorecard(
         ))
     except Exception as e:
         warnings.append(f"Correlation length computation failed: {e}")
+        metric_results.append(MetricResult(RealismMetric.CORRELATION_LENGTH, float("nan"), thresholds["correlation_length_overlap"], False, {"error": str(e)}))
         corr_overlap = 0.0
         corr_passed = False
 
@@ -843,6 +848,7 @@ def compute_spectral_realism_scorecard(
         ))
     except Exception as e:
         warnings.append(f"Derivative statistics computation failed: {e}")
+        metric_results.append(MetricResult(RealismMetric.DERIVATIVE_STATISTICS, float("nan"), thresholds["derivative_ks_pvalue"], False, {"error": str(e)}))
         ks_pvalue = 0.0
         deriv_passed = False
 
@@ -871,6 +877,7 @@ def compute_spectral_realism_scorecard(
         ))
     except Exception as e:
         warnings.append(f"Peak density computation failed: {e}")
+        metric_results.append(MetricResult(RealismMetric.PEAK_DENSITY, float("nan"), thresholds["peak_density_ratio_max"], False, {"error": str(e)}))
         peak_ratio = 0.0
         peak_passed = False
 
@@ -892,6 +899,7 @@ def compute_spectral_realism_scorecard(
         ))
     except Exception as e:
         warnings.append(f"Baseline curvature computation failed: {e}")
+        metric_results.append(MetricResult(RealismMetric.BASELINE_CURVATURE, float("nan"), thresholds["baseline_curvature_overlap"], False, {"error": str(e)}))
         curvature_overlap = 0.0
         curvature_passed = False
 
@@ -917,7 +925,8 @@ def compute_spectral_realism_scorecard(
         ))
     except Exception as e:
         warnings.append(f"SNR computation failed: {e}")
-        snr_match = True  # Default to pass on failure
+        metric_results.append(MetricResult(RealismMetric.SNR_DISTRIBUTION, float("nan"), thresholds["snr_order_of_magnitude"], False, {"error": str(e)}))
+        snr_match = False
         log_snr_diff = 0.0
 
     # 6. Adversarial Validation AUC
@@ -945,6 +954,7 @@ def compute_spectral_realism_scorecard(
             ))
         except Exception as e:
             warnings.append(f"Adversarial validation failed: {e}")
+            metric_results.append(MetricResult(RealismMetric.ADVERSARIAL_AUC, float("nan"), thresholds["adversarial_auc"], False, {"error": str(e)}))
 
     # Compute overall pass
     # All metrics must pass for overall pass
@@ -1070,8 +1080,9 @@ def validate_against_benchmark(
             pred_synth = pls.predict(synthetic_spectra)
             trts_r2 = float(r2_score(synthetic_targets, pred_synth))
 
-        except Exception:
-            pass  # TSTR/TRTS evaluation failed, leave as None
+        except Exception as e:
+            realism_score.warnings.append(f"TSTR/TRTS evaluation failed: {e}")
+            realism_score.overall_pass = False
 
     return DatasetComparisonResult(
         dataset_name=benchmark_name,

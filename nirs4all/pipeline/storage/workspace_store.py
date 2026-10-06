@@ -73,7 +73,6 @@ from nirs4all.pipeline.storage.store_queries import (
     COMPLETE_RUN,
     DECREMENT_ARTIFACT_REF,
     DELETE_CHAIN,
-    DELETE_GC_ARTIFACTS,
     DELETE_PIPELINE,
     DELETE_PREDICTION,
     DELETE_PROJECT,
@@ -200,6 +199,8 @@ def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
             try:
                 return func(self, *args, **kwargs)
             except sqlite3.OperationalError as e:
+                if not any(word in str(e).lower() for word in ("locked", "busy")):
+                    raise
                 last_error = e
                 if attempt < _MAX_RETRIES:
                     delay = _jittered_delay(_BASE_DELAY, attempt)
@@ -542,6 +543,8 @@ class WorkspaceStore:
                     conn.execute(sql, params or [])
                     return
                 except sqlite3.OperationalError as e:
+                    if not any(word in str(e).lower() for word in ("locked", "busy")):
+                        raise
                     last_error = e
                     if attempt < max_retries:
                         delay = _jittered_delay(base_delay, attempt)
@@ -622,7 +625,7 @@ class WorkspaceStore:
             try:
                 yield
                 conn.execute("COMMIT")
-            except Exception:
+            except BaseException:
                 conn.execute("ROLLBACK")
                 raise
 
@@ -2360,9 +2363,8 @@ class WorkspaceStore:
             params.append(status)
 
         if dataset is not None:
-            # JSON contains check -- search for dataset name in the JSON text
-            conditions.append("CAST(datasets AS TEXT) LIKE ?")
-            params.append(f"%{dataset}%")
+            conditions.append("EXISTS (SELECT 1 FROM json_each(runs.datasets) WHERE json_extract(value, '$.name') = ?)")
+            params.append(dataset)
 
         if project_id is not None:
             conditions.append("project_id = ?")
@@ -2634,6 +2636,7 @@ class WorkspaceStore:
             dataset_name=dataset_name,
             model_class=model_class,
             metric=metric,
+            score_scope=score_scope,
         )
         return self._fetch_pl(sql, params)
 
@@ -2692,7 +2695,7 @@ class WorkspaceStore:
             score_scope: Which predictions to include.
                 ``'cv'`` (default) uses CV-only entries,
                 ``'all'`` includes both CV and refit entries,
-                ``'final'`` includes only refit entries.
+                ``'final'`` includes only refit entries. Its default ranking uses test scores.
             **filters: Additional filters passed to the query builder
                 (``run_id``, ``pipeline_id``, ``dataset_name``,
                 ``model_class``).
@@ -2714,6 +2717,7 @@ class WorkspaceStore:
             pipeline_id=filters.get("pipeline_id"),
             dataset_name=filters.get("dataset_name"),
             model_class=filters.get("model_class"),
+            score_scope=score_scope,
         )
         return self._fetch_pl(sql, params)
 
@@ -2926,6 +2930,22 @@ class WorkspaceStore:
     # Export operations (produce files on demand)
     # =====================================================================
 
+    def _validate_chain_export(self, chain_id: str) -> None:
+        """Reject final stacking chains without a captured raw-input recipe.
+
+        Chain storage records fitted artifacts but does not capture the ordered
+        base-model dependency closure required to replay final legacy stacking.
+        Inspect persisted prediction roles rather than guessing sibling pipelines.
+        """
+        rows = self.get_chain_predictions(chain_id, fold_id="final")
+        for row in rows.iter_rows(named=True):
+            if row.get("refit_context") == "stacking" or row.get("model_class") == "MetaModel":
+                raise NotImplementedError(
+                    "Cannot export selected final legacy stacking meta-model: its fitted base-model "
+                    "raw-input dependency closure was not captured. Final-meta bundles are unsupported "
+                    "without that closure; numerical training and refit predictions remain available."
+                )
+
     def export_chain(
         self,
         chain_id: str,
@@ -2963,6 +2983,16 @@ class WorkspaceStore:
             KeyError: If the chain does not exist.
             FileNotFoundError: If any referenced artifact file is missing.
         """
+        from nirs4all.pipeline.bundle.generator import BundleGenerator, _atomic_output_path
+
+        self._validate_chain_export(chain_id)
+        if format == "n4a.py":
+            if relation_replay_manifest is not None:
+                raise ValueError("Relational replay manifests require the n4a archive format")
+            return BundleGenerator(self.workspace_path, store=self).export_from_chain(chain_id, output_path, fmt=format)
+        if format != "n4a":
+            raise ValueError(f"Unsupported bundle format: {format}")
+
         chain = self.get_chain(chain_id)
         if chain is None:
             raise KeyError(f"Chain not found: {chain_id}")
@@ -3020,7 +3050,7 @@ class WorkspaceStore:
         pipeline_config = expanded if isinstance(expanded, dict) else {"steps": expanded or []}
 
         # Write ZIP bundle
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with _atomic_output_path(output_path) as staged_path, zipfile.ZipFile(staged_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))
             zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2, default=str))
             zf.writestr(
@@ -3237,18 +3267,15 @@ class WorkspaceStore:
             if run_exists and run_exists[0] > 0:
                 total += 1
 
-            if delete_artifacts:
-                self._decrement_artifact_refs_for_run(run_id)
-
-            # Manual cascade: delete in reverse dependency order. SQLite first, then
-            # tombstone the arrays — a crash in between can only orphan arrays
-            # (harmless: reads resolve through SQLite), never leave live rows whose
-            # arrays a later compaction would remove.
-            conn.execute(CASCADE_DELETE_RUN_LOGS, [run_id])
-            conn.execute(CASCADE_DELETE_RUN_PREDICTIONS, [run_id])
-            conn.execute(CASCADE_DELETE_RUN_CHAINS, [run_id])
-            conn.execute(CASCADE_DELETE_RUN_PIPELINES, [run_id])
-            conn.execute(DELETE_RUN, [run_id])
+            with self.transaction():
+                total += self._delete_auxiliary_results(conn, run_id=run_id)
+                if delete_artifacts:
+                    self._decrement_artifact_refs_for_run(run_id)
+                conn.execute(CASCADE_DELETE_RUN_LOGS, [run_id])
+                conn.execute(CASCADE_DELETE_RUN_PREDICTIONS, [run_id])
+                conn.execute(CASCADE_DELETE_RUN_CHAINS, [run_id])
+                conn.execute(CASCADE_DELETE_RUN_PIPELINES, [run_id])
+                conn.execute(DELETE_RUN, [run_id])
 
             # Tombstone arrays in the Parquet store (physical removal at compaction)
             if pred_ids:
@@ -3400,17 +3427,18 @@ class WorkspaceStore:
 
             # SQLite delete first, then tombstone — a crash in between can only
             # orphan arrays, never leave live rows pointing at removable arrays.
-            conn.execute(f"DELETE FROM predictions WHERE {where_sql}", params)
+            with self.transaction():
+                self._delete_auxiliary_results(conn, prediction_ids=pred_ids)
+                conn.execute(f"DELETE FROM predictions WHERE {where_sql}", params)
+                deleted_chains, updated_chains, pruned_pipeline_ids = self._prune_empty_chains(
+                    conn,
+                    affected_chain_ids,
+                )
+                deleted_pipelines = self._prune_empty_pipelines(
+                    conn,
+                    affected_pipeline_ids | pruned_pipeline_ids,
+                )
             self._array_store.delete_batch(pred_ids)
-
-            deleted_chains, updated_chains, pruned_pipeline_ids = self._prune_empty_chains(
-                conn,
-                affected_chain_ids,
-            )
-            deleted_pipelines = self._prune_empty_pipelines(
-                conn,
-                affected_pipeline_ids | pruned_pipeline_ids,
-            )
             deleted_artifacts = self.gc_artifacts() if deleted_chains > 0 else 0
 
             self._auto_compact_if_needed()
@@ -3506,6 +3534,7 @@ class WorkspaceStore:
                 permanent_fold_ids,
             )
 
+            self._ensure_chain_artifact_refcounts(conn)
             self._cleanup_apply_decrements(conn, artifacts_to_decrement)
 
         # Run garbage collection to remove orphaned files
@@ -3715,10 +3744,17 @@ class WorkspaceStore:
         self._require_writable()
         with self._lock:
             conn = self._ensure_open()
+            if conn.in_transaction:
+                # A rollback could resurrect references; physical deletion must wait.
+                return 0
             orphans = conn.execute(GC_ARTIFACTS).fetchall()
 
             # Keep files that are still referenced by at least one live row.
             live_paths = {row[0] for row in conn.execute("SELECT DISTINCT artifact_path FROM artifacts WHERE ref_count > 0").fetchall()}
+            from .artifacts.artifact_registry import ArtifactRegistry
+
+            manifest_paths = ArtifactRegistry(self._workspace_path, "")._scan_all_manifest_references(include_memory=False, include_store=False)
+            live_paths.update(manifest_paths)
 
             removed_paths: set[str] = set()
             count = 0
@@ -3738,7 +3774,10 @@ class WorkspaceStore:
                 removed_paths.add(artifact_path)
                 count += 1
 
-            conn.execute(DELETE_GC_ARTIFACTS)
+            conn.executemany(
+                "DELETE FROM artifacts WHERE artifact_id = ? AND ref_count <= 0",
+                [(_artifact_id,) for _artifact_id, artifact_path in orphans if artifact_path not in manifest_paths],
+            )
             return count
 
     def vacuum(self) -> None:
@@ -3863,6 +3902,12 @@ class WorkspaceStore:
         target_transformers: list[Any] = []
         X_current = X.copy()
 
+        from nirs4all.pipeline.execution.preprocessing import FoldPreprocessedModel
+
+        models = {key: self.load_artifact(artifact_id) for key, artifact_id in fold_artifacts.items()}
+        cv_start = next((model.preprocessing.start_step for model in models.values()
+                         if isinstance(model, FoldPreprocessedModel)), None)
+
         def _restore_targets(prediction: Any) -> np.ndarray:
             values = np.asarray(prediction)
             original_shape = values.shape
@@ -3899,13 +3944,12 @@ class WorkspaceStore:
                 # Refit model: single canonical refit artifact, direct prediction
                 refit_artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 if refit_artifact_id:
-                    model = self.load_artifact(refit_artifact_id)
+                    model = models["fold_final"] if "fold_final" in models else models["final"]
                     return _restore_targets(model.predict(X_current))
 
                 # Legacy: load all fold models, predict, average
                 fold_preds = []
-                for _fold_id, artifact_id in fold_artifacts.items():
-                    model = self.load_artifact(artifact_id)
+                for model in models.values():
                     fold_preds.append(model.predict(X_current))
                 if not fold_preds:
                     raise RuntimeError("Chain has no fold model artifacts")
@@ -3913,6 +3957,10 @@ class WorkspaceStore:
                     from nirs4all.data.ensemble_utils import EnsembleUtils
                     return _restore_targets(EnsembleUtils.compute_hard_voting(fold_preds))
                 return _restore_targets(np.mean(fold_preds, axis=0))
+
+            if cv_start is not None and cv_start <= idx < model_step_idx and idx not in target_steps:
+                # The fitted fold model owns these stages and expects their raw input.
+                continue
 
             str_idx = str(idx)
             if str_idx in shared_artifacts:
@@ -3925,6 +3973,10 @@ class WorkspaceStore:
                     if idx in target_steps:
                         target_transformers.append(transformer)
                     else:
+                        from nirs4all.pipeline.execution.executor import _StepArtifactValue
+                        if isinstance(transformer, _StepArtifactValue) and transformer.replay is not None:
+                            X_current = transformer.replay.transform(X_current)
+                            break
                         X_current = _transform_with_optional_wavelengths(transformer, X_current)
             elif step.get("stateless", False):
                 # Stateless step -- skip (no artifact needed)
@@ -3935,6 +3987,57 @@ class WorkspaceStore:
     # =====================================================================
     # Private helpers for artifact reference management
     # =====================================================================
+
+    def _delete_auxiliary_results(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        run_id: str | None = None,
+        pipeline_ids: set[str] | None = None,
+        chain_ids: set[str] | None = None,
+        prediction_ids: set[str] | None = None,
+    ) -> int:
+        """Cascade linked analysis results before removing their referenced rows."""
+        conditions = []
+        params: list[str] = []
+        if run_id is not None:
+            conditions.extend([
+                "run_id = ?",
+                "pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = ?)",
+                "chain_id IN (SELECT chain_id FROM chains WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = ?))",
+            ])
+            params.extend([run_id] * 3)
+            prediction_ids = {row[0] for row in conn.execute(
+                "SELECT prediction_id FROM predictions WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = ?)", [run_id],
+            )}
+        for column, ids in (("pipeline_id", pipeline_ids), ("chain_id", chain_ids)):
+            if ids:
+                conditions.append(f"{column} IN ({', '.join('?' for _ in ids)})")
+                params.extend(sorted(ids))
+        common_where = " OR ".join(conditions) or "0"
+        if prediction_ids:
+            conditions.append(f"prediction_id IN ({', '.join('?' for _ in prediction_ids)})")
+        where = " OR ".join(conditions) or "0"
+        all_params = [*params, *sorted(prediction_ids or ())]
+        total = conn.execute(
+            f"DELETE FROM robustness_results WHERE {where} OR conformal_id IN (SELECT conformal_id FROM conformal_results WHERE {where})",
+            all_params * 2,
+        ).rowcount
+        total += conn.execute(f"DELETE FROM conformal_results WHERE {where}", all_params).rowcount
+        total += conn.execute(f"DELETE FROM tuning_results WHERE {common_where}", params).rowcount
+        return total
+
+    def _ensure_chain_artifact_refcounts(self, conn: sqlite3.Connection) -> None:
+        """Repair historical registration undercounts before releasing chain references."""
+        from collections import Counter
+
+        counts: Counter[str] = Counter()
+        for row in conn.execute("SELECT fold_artifacts, shared_artifacts FROM chains"):
+            counts.update(self._collect_artifact_ids_from_chain_row(dict(row)))
+        conn.executemany(
+            "UPDATE artifacts SET ref_count = MAX(ref_count, ?) WHERE artifact_id = ?",
+            [(count, aid) for aid, count in counts.items()],
+        )
 
     def _collect_artifact_ids_from_chain_row(self, row: dict) -> set[str]:
         """Extract all artifact IDs referenced by a chain row."""
@@ -3967,6 +4070,7 @@ class WorkspaceStore:
         deleted = 0
         updated = 0
         affected_pipeline_ids: set[str] = set()
+        self._ensure_chain_artifact_refcounts(conn)
 
         for chain_id in chain_ids:
             remaining = conn.execute(
@@ -3995,6 +4099,7 @@ class WorkspaceStore:
             if pipeline_id:
                 affected_pipeline_ids.add(str(pipeline_id))
 
+            self._delete_auxiliary_results(conn, chain_ids={chain_id})
             for aid in self._collect_artifact_ids_from_chain_row(row_dict):
                 conn.execute(DECREMENT_ARTIFACT_REF, [aid])
 
@@ -4021,6 +4126,7 @@ class WorkspaceStore:
             if pred_count > 0 or chain_count > 0:
                 continue
 
+            self._delete_auxiliary_results(conn, pipeline_ids={pipeline_id})
             conn.execute(CASCADE_DELETE_PIPELINE_LOGS, [pipeline_id])
             conn.execute(DELETE_PIPELINE, [pipeline_id])
             deleted += 1
@@ -4031,6 +4137,7 @@ class WorkspaceStore:
         """Decrement ref counts for all artifacts referenced by chains in a pipeline."""
         with self._lock:
             conn = self._ensure_open()
+            self._ensure_chain_artifact_refcounts(conn)
             result = conn.execute("SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id = ?", [pipeline_id])
             desc = result.description
             chains = result.fetchall()
@@ -4046,6 +4153,7 @@ class WorkspaceStore:
         """Decrement ref counts for all artifacts referenced by chains in a run."""
         with self._lock:
             conn = self._ensure_open()
+            self._ensure_chain_artifact_refcounts(conn)
             sql = "SELECT fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = ?)"
             result = conn.execute(sql, [run_id])
             desc = result.description

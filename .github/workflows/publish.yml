@@ -527,6 +527,7 @@ jobs:
           assert version("nirs4all") == expected
           assert nirs4all.__version__ == expected
           assert n4m.abi_version()[:2] == (2, 17)
+          assert n4m.version().split("+abi.")[0] == version("nirs4all-methods")
 
           rng = np.random.default_rng(42)
           X = rng.normal(size=(30, 8))

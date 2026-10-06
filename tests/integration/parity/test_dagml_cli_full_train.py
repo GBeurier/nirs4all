@@ -275,9 +275,8 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
 
 @pytest.mark.parity
 def test_legacy_by_source_auto_archive_has_no_replayable_model(tmp_path) -> None:
-    """Legacy writes an archive for independent source outputs, but it cannot replay it."""
+    """Independent source outputs fail export before creating or replacing an archive."""
     import nirs4all
-    from nirs4all.pipeline.bundle.loader import BundleLoader
 
     from .test_dagml_cli_runner import _two_source_distinct_dataset
 
@@ -293,11 +292,21 @@ def test_legacy_by_source_auto_archive_has_no_replayable_model(tmp_path) -> None
         pipeline, dataset, engine="legacy", workspace_path=tmp_path / "workspace",
         save_charts=False, verbose=0,
     )
-    archive = legacy.export(tmp_path / "independent_sources.n4a")
-    source_x = dataset.x({"partition": "test"}, "2d", concat_source=False)[0]
-    with pytest.raises(RuntimeError, match="No model step found in bundle"):
-        BundleLoader(archive).predict(np.asarray(source_x))
-    legacy.close()
+    try:
+        for suffix, archive_format in ((".n4a", "n4a"), (".n4a.py", "n4a.py")):
+            destination = tmp_path / f"independent_sources{suffix}"
+            error = r"Cannot export selected model: target artifact .+ is unavailable\."
+            with pytest.raises(ValueError, match=error):
+                legacy.export(destination, format=archive_format)
+            assert not destination.exists()
+
+            previous_bytes = b"previous archive bytes must survive a refused export"
+            destination.write_bytes(previous_bytes)
+            with pytest.raises(ValueError, match=error):
+                legacy.export(destination, format=archive_format)
+            assert destination.read_bytes() == previous_bytes
+    finally:
+        legacy.close()
 
 
 @pytest.mark.parity

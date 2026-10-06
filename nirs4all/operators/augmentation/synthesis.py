@@ -26,6 +26,7 @@ from scipy.ndimage import gaussian_filter1d
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from ..base import SpectraTransformerMixin
+from .spectral import _ordered_warp_inputs
 
 
 class PathLengthAugmenter(TransformerMixin, BaseEstimator):
@@ -212,8 +213,8 @@ class InstrumentalBroadeningAugmenter(SpectraTransformerMixin):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples = X.shape[0]
 
-        wl = wavelengths if wavelengths is not None else np.arange(X.shape[1])
-        wl_step = np.median(np.diff(wl)) if len(wl) > 1 else 1.0
+        X, wl, inverse = _ordered_warp_inputs(X, wavelengths)
+        wl_step = np.median(np.diff(wl))
 
         if self.fwhm_range is not None:
             if self.variation_scope == "batch":
@@ -222,21 +223,21 @@ class InstrumentalBroadeningAugmenter(SpectraTransformerMixin):
                 result = np.empty_like(X)
                 for i in range(n_samples):
                     result[i] = gaussian_filter1d(X[i], sigma_pts)
-                return result
+                return result[:, inverse] if inverse is not None else result
             else:  # "sample"
                 fwhms = rng.uniform(*self.fwhm_range, size=n_samples)
                 result = np.empty_like(X)
                 for i in range(n_samples):
                     sigma_pts = fwhms[i] / (2 * np.sqrt(2 * np.log(2))) / wl_step
                     result[i] = gaussian_filter1d(X[i], sigma_pts)
-                return result
+                return result[:, inverse] if inverse is not None else result
         else:
             # Fixed FWHM for all samples
             sigma_pts = self.fwhm / (2 * np.sqrt(2 * np.log(2))) / wl_step
             result = np.empty_like(X)
             for i in range(n_samples):
                 result[i] = gaussian_filter1d(X[i], sigma_pts)
-            return result
+            return result[:, inverse] if inverse is not None else result
 
 class HeteroscedasticNoiseAugmenter(TransformerMixin, BaseEstimator):
     """Simulates signal-dependent (heteroscedastic) detector noise.

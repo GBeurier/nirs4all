@@ -162,7 +162,7 @@ class ScoreHistogramChart(BaseChart):
             )
 
         # --- POLARS OPTIMIZATION START ---
-        df = self.predictions.to_dataframe()
+        df = self._filter_score_scope(self.predictions.to_dataframe(), score_scope)
 
         # Filter by task_type if specified
         if task_type is not None and 'task_type' in df.columns:
@@ -192,13 +192,13 @@ class ScoreHistogramChart(BaseChart):
 
         # Extract score (Vectorized)
         col_score = f"{display_partition}_score"
-        regex = f'"{display_partition}"\\s*:\\s*\\{{[^}}]*"{display_metric}"\\s*:\\s*([\\d\\.]+)'
+        score_path = f'$["{display_partition}"]["{display_metric}"]'
 
         df = df.with_columns(
             pl.when(pl.col("metric") == display_metric)
             .then(pl.col(col_score))
             .otherwise(
-                pl.col("scores").str.extract(regex, 1).cast(pl.Float64, strict=False)
+                pl.col("scores").str.replace_all(r'(:\s*)(?:NaN|-?Infinity)(\s*[,}])', '${1}null${2}').str.json_path_match(score_path).cast(pl.Float64, strict=False)
             )
             .alias("score")
         )

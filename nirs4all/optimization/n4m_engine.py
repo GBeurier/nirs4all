@@ -32,6 +32,8 @@ from nirs4all.core.logging import get_logger
 # Reuse the exact result types the controller refit path expects.
 from nirs4all.optimization.optuna import FinetuneResult, TrialSummary
 
+from .preprocessing import finetune_fold, finetune_inputs
+
 logger = get_logger(__name__)
 
 try:
@@ -136,6 +138,7 @@ class N4MFinetuneManager:
 
         params = self._normalize(finetune_params)
         params = self._resolve_metric_direction(params, dataset)
+        X_train, context = finetune_inputs(dataset, context, controller, X_train)
 
         approach = params.get("approach", "grouped")
         n_trials = int(params.get("n_trials", 50))
@@ -158,7 +161,9 @@ class N4MFinetuneManager:
         # (matches the Optuna path).
         from sklearn.model_selection import train_test_split
 
-        Xtr, Xva, ytr, yva = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+        tr, va = train_test_split(np.arange(len(X_train)), test_size=0.2, random_state=42)
+        Xtr, Xva = finetune_fold(dataset, context, X_train, tr, va)
+        ytr, yva = y_train[tr], y_train[va]
         return self._optimize(dataset, model_config, Xtr, ytr, [(None, None)], params, n_trials, eval_mode, context, controller, verbose, holdout=(Xva, yva))
 
     # -- validation / metric -------------------------------------------------
@@ -217,8 +222,8 @@ class N4MFinetuneManager:
             if "direction" not in params:
                 p["direction"] = "maximize" if is_higher_better(metric) else "minimize"
         else:
-            task = getattr(dataset, "task_type", "regression")
-            p.setdefault("direction", "maximize" if "classification" in task else "minimize")
+            # Controller defaults are losses, including negative accuracy.
+            p.setdefault("direction", "minimize")
         return p
 
     # -- search-space compilation -------------------------------------------
@@ -525,8 +530,8 @@ class N4MFinetuneManager:
                     X_tr, y_tr = X, y
                     X_va, y_va = holdout
                 else:
-                    X_tr, y_tr = X[tr_idx], y[tr_idx]
-                    X_va, y_va = X[va_idx], y[va_idx]
+                    X_tr, X_va = finetune_fold(dataset, context, X, tr_idx, va_idx)
+                    y_tr, y_va = y[tr_idx], y[va_idx]
                 model = controller._get_model_instance(dataset, model_config, force_params=model_params)
                 X_tr_p, y_tr_p = controller._prepare_data(X_tr, y_tr, context)
                 X_va_p, y_va_p = controller._prepare_data(X_va, y_va, context)

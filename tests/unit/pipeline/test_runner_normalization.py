@@ -361,15 +361,10 @@ class TestErrorHandling:
             runner.orchestrator._normalize_pipeline(12345)  # Invalid type
 
     def test_invalid_dataset_type(self):
-        """Test that invalid dataset path returns DatasetConfigs (even if empty)."""
+        """DT2-17: invalid paths retain their parse error instead of empty configs."""
         runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
-
-        # Invalid path string doesn't raise, but returns DatasetConfigs
-        # It will have 1 config entry but with None values (folder doesn't exist)
-        result = runner.orchestrator._normalize_dataset("not_a_valid_path_or_config")
-        assert isinstance(result, DatasetConfigs)
-        # Should have 1 config entry (even though the folder doesn't exist)
-        assert len(result.configs) >= 0  # May be 0 or 1 depending on parser behavior
+        with pytest.raises(ValueError, match="Folder does not exist: not_a_valid_path_or_config"):
+            runner.orchestrator._normalize_dataset("not_a_valid_path_or_config")
 
     def test_tuple_with_non_array(self):
         """Test that tuple with non-arrays raises error."""

@@ -27,6 +27,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from nirs4all.pipeline.config.component_serialization import deserialize_component
+
 # Step keywords that indicate a model step
 _MODEL_KEYWORDS = {"model", "meta_model"}
 
@@ -164,6 +166,7 @@ def _walk_steps(
     last_had_branch = False  # True after a branch step (before merge)
 
     for idx, step in enumerate(steps):
+        step = deserialize_component(step) if isinstance(step, str) else step
         if not isinstance(step, dict):
             # Non-dict step: check if it looks like a model or splitter
             if _is_model_instance(step):

@@ -829,7 +829,7 @@ pipeline = [
 pipeline = [
     {"feature_augmentation": {
         "_or_": preprocessing_options,
-        "pick": [2, (1, 2)]  # 2 sub-pipelines, each with 1-2 items
+        "pick": [1, 2], "then_pick": 2  # 2 sub-pipelines, each with 1-2 items
     }}
 ]
 ```
@@ -989,6 +989,15 @@ Pipeline branching creates parallel processing paths, and merging combines their
 ---
 
 ### `source_branch` - Per-Source Preprocessing
+
+For a plain sequential pipeline on multiple sources, `engine="dag-ml"`
+concatenates the sources before applying its preprocessing chain. For example,
+`[SNV(), KFold(3), {"model": Ridge()}]` normalizes each sample across the
+combined channels. This differs from the legacy engine's source-by-source SNV,
+including when the sources have unequal widths. Keep this early-fusion contract
+when migrating an existing DAG pipeline; source-specific preprocessing requires
+explicit source routing supported by the selected engine. The `source_branch`
+syntax below describes that routing rather than an implicit default.
 
 **Syntax**: Dict with `source_branch` key for source-specific pipelines.
 
@@ -1264,7 +1273,7 @@ pipeline:
 | **Generator (_range_)** | `{"_range_": [1, 10, 2], "param": "n", "model": ...}` | Param sweep | Expands to M pipelines |
 | **Generator + pick** | `{"_or_": [...], "pick": 2}` | Combinations | C(n, k) pipelines |
 | **Generator + count** | `{"_or_": [...], "count": 5}` | Random sample | 5 pipelines |
-| **Nested generator** | `{"_or_": [...], "pick": [2, (1,2)]}` | Sub-pipelines | Complex expansion |
+| **Nested generator** | `{"_or_": [...], "pick": [1,2], "then_pick": 2}` | Sub-pipelines | Complex expansion |
 | **Branch** | `{"branch": [[A], [B]]}` | Parallel paths | Creates N branches |
 | **Branch (named)** | `{"branch": {"a": [A], "b": [B]}}` | Named parallel | Creates named branches |
 | **Merge features** | `{"merge": "features"}` | Combine X | Exits branch mode |

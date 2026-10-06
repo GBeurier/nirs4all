@@ -11,9 +11,11 @@ Supports two modes for preprocessing generation:
 """
 
 import time
+from copy import deepcopy
 from typing import Any, Optional
 
 import numpy as np
+from sklearn.pipeline import make_pipeline
 
 from nirs4all.analysis.presets import PRESETS
 from nirs4all.analysis.results import TransferResult, TransferSelectionResults
@@ -325,7 +327,7 @@ class TransferPreprocessingSelector:
                     ]
                     # Store actual transforms
                     actual_transforms = [
-                        c if not isinstance(c, str) else self.preprocessings.get(c)
+                        c if not isinstance(c, str) else make_pipeline(*(deepcopy(self.preprocessings[name]) for name in c.split('>')))
                         for c in components
                     ]
                 elif pipeline_type == "stacked":
@@ -1121,6 +1123,7 @@ class TransferPreprocessingSelector:
                     metrics=result.metrics,
                     improvement_pct=result.improvement_pct,
                     signal_score=signal_score,
+                    transforms=result.transforms,
                 )
                 validated_results.append(validated_result)
 

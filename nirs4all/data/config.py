@@ -8,14 +8,17 @@ name resolution, loader calls, and caching to avoid reloading the same dataset.
 import copy
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Optional, Union
+
+import pandas as pd
 
 from nirs4all.core.logging import get_logger
 from nirs4all.data.dataset import SpectroDataset
 
 logger = get_logger(__name__)
-from nirs4all.data.config_parser import parse_config
-from nirs4all.data.loaders.loader import handle_data
+from nirs4all.data.config_parser import _load_config_from_file, parse_config
+from nirs4all.data.loaders.loader import _reject_unloadable_relation_config, _reject_unsupported_positional_options, handle_data
 from nirs4all.data.signal_type import SignalType, SignalTypeInput, normalize_signal_type
 
 
@@ -144,7 +147,7 @@ class DatasetConfigs:
                 self._config_aggregate_exclude_outliers.append(config_aggregate_exclude_outliers)
                 self._config_repetitions.append(config_repetition)
             else:
-                logger.error(f"Skipping invalid dataset config: {config}")
+                raise ValueError(f"Invalid dataset configuration type: {type(config).__name__}")
 
         self.max_cache_bytes: int = 2 * 1024 ** 3  # 2 GB default
         self.cache: dict[str, Any] = {}
@@ -520,7 +523,18 @@ class DatasetConfigs:
         JSON/YAML config file. Directories, file lists and in-memory arrays carry
         none, so every value is ``None`` (matching ``__init__`` for those forms).
         """
-        parsed = parse_config(inp)[0]
+        # IO has already validated/materialized its own schema. Read only the
+        # root settings; positional schema validation does not apply to IO joins,
+        # conventions, or inference plans.
+        parsed: dict[str, Any] | None
+        if isinstance(inp, dict):
+            parsed = inp
+        elif isinstance(inp, (str, Path)) and Path(inp).suffix.lower() in {".json", ".yaml", ".yml"}:
+            parsed = _load_config_from_file(str(inp))[0]
+        elif hasattr(inp, "model_dump"):
+            parsed = inp.model_dump(exclude_none=True)
+        else:
+            parsed = None
         if not isinstance(parsed, dict):
             return None, None, None, None, None
         cfg_tt = parsed.get("task_type")
@@ -657,6 +671,8 @@ class DatasetConfigs:
             dataset: SpectroDataset = copy.deepcopy(config["_preloaded_dataset"])
             return dataset
 
+        _reject_unloadable_relation_config(config)
+        _reject_unsupported_positional_options(config)
         cache_key = self._make_cache_key(name, config)
 
         dataset = SpectroDataset(name=name)
@@ -664,28 +680,43 @@ class DatasetConfigs:
             (x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
              x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type) = self.cache[cache_key]
         else:
-            # Try to load train data
-            try:
+            if config.get("train_x") is not None:
                 x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type = handle_data(config, "train")
-            except (ValueError, FileNotFoundError) as e:
-                if "x_path is None" in str(e) or "train_x" in str(e):
-                    x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type = None, None, None, None, None, None, None
-                else:
-                    raise
+            else:
+                x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type = None, None, None, None, None, None, None
 
-            # Try to load test data
-            try:
+            if config.get("test_x") is not None:
                 x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type = handle_data(config, "test")
-            except (ValueError, FileNotFoundError) as e:
-                if "x_path is None" in str(e) or "test_x" in str(e):
-                    x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type = None, None, None, None, None, None, None
-                else:
-                    raise
+            else:
+                x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type = None, None, None, None, None, None, None
 
             self._cache_set(cache_key, (
                 x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
                 x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type
             ))
+
+        if x_train is not None and x_test is not None:
+            train_sources = x_train if isinstance(x_train, list) else [x_train]
+            test_sources = x_test if isinstance(x_test, list) else [x_test]
+            if len(train_sources) != len(test_sources):
+                raise ValueError("Train/test source count mismatch")
+            for source, (train, test) in enumerate(zip(train_sources, test_sources, strict=True)):
+                if train.shape[1] != test.shape[1]:
+                    raise ValueError(f"Feature dimension mismatch for source {source}: train has {train.shape[1]}, test has {test.shape[1]}")
+
+        # Metadata row ids follow sample ids even when only one partition has
+        # auxiliary data. Reserve null rows for the other partition before append.
+        if x_train is not None and x_test is not None:
+            if m_train is None and m_test is not None:
+                rows = (x_train[0] if isinstance(x_train, list) else x_train).shape[0]
+                m_train = pd.DataFrame(index=range(rows), columns=m_test.columns)
+                m_train_headers = m_test_headers
+            elif m_test is None and m_train is not None:
+                rows = (x_test[0] if isinstance(x_test, list) else x_test).shape[0]
+                m_test = pd.DataFrame(index=range(rows), columns=m_train.columns)
+                m_test_headers = m_train_headers
+            if (y_train is None or not y_train.size) and y_test is not None and y_test.size:
+                raise ValueError("Labeled test with unlabeled train is not supported: target rows would not align with sample ids. Provide training targets or a test-only dataset.")
 
         # Add samples and targets only if they exist
         if x_train is not None:
@@ -700,13 +731,15 @@ class DatasetConfigs:
                 else:
                     dataset.set_signal_type(train_signal_type, src=0, forced=False)
 
-            if y_train is not None:
+            if y_train is not None and y_train.size:
                 dataset.add_targets(y_train)
             if m_train is not None:
                 dataset.add_metadata(m_train, headers=m_train_headers)
 
         if x_test is not None:
-            dataset.add_samples(x_test, {"partition": "test"}, headers=test_headers, header_unit=test_unit)
+            # Existing source coordinates belong to the training matrix. A
+            # headerless/generated test matrix must not overwrite that metadata.
+            dataset.add_samples(x_test, {"partition": "test"}, headers=test_headers if x_train is None else None, header_unit=test_unit if x_train is None else None)
 
             # Apply signal types from config (per source if multi-source)
             # Note: test data adds to existing sources, so signal types should already match
@@ -719,7 +752,7 @@ class DatasetConfigs:
                 else:
                     dataset.set_signal_type(test_signal_type, src=0, forced=False)
 
-            if y_test is not None:
+            if y_test is not None and y_test.size:
                 dataset.add_targets(y_test)
             if m_test is not None:
                 dataset.add_metadata(m_test, headers=m_test_headers)
@@ -736,8 +769,8 @@ class DatasetConfigs:
         For proper per-dataset task_type handling, use iter_datasets() or get_dataset_at().
         """
         # Find the index of this config to get the right task_type, signal_type, and aggregate
-        for idx, (_cfg, cfg_name) in enumerate(self.configs):
-            if cfg_name == name:
+        for idx, (cfg, cfg_name) in enumerate(self.configs):
+            if cfg is config and cfg_name == name:
                 return self._get_dataset_with_types(
                     config, name, self._task_types[idx], self._signal_type_overrides[idx],
                     self._aggregates[idx], self._aggregate_methods[idx],

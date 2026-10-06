@@ -66,8 +66,8 @@ from .instruments import (
 )
 from .measurement_modes import (
     MeasurementMode,
+    MeasurementModeConfig,
     MeasurementModeSimulator,
-    create_transmittance_simulator,
 )
 from .scattering import (
     EMSCConfig,
@@ -264,7 +264,8 @@ class SyntheticNIRSGenerator:
             raise ValueError(f"complexity must be one of {valid}, got '{complexity}'")
 
         self.complexity = complexity
-        self.rng = np.random.default_rng(random_state)
+        self._seed_sequence = np.random.SeedSequence(random_state)
+        self.rng = np.random.default_rng(self._seed_sequence.spawn(1)[0])
         self._random_state = random_state
 
         # Phase 6: Custom wavelength grid support
@@ -308,7 +309,7 @@ class SyntheticNIRSGenerator:
 
             # Create instrument simulator
             self.instrument_simulator = InstrumentSimulator(
-                self.instrument, random_state=random_state
+                self.instrument, random_state=self._next_seed()
             )
 
         # Generate or use provided wavelength grid
@@ -325,9 +326,10 @@ class SyntheticNIRSGenerator:
             self.wavelength_start = wavelength_start
             self.wavelength_end = wavelength_end
             self.wavelength_step = wavelength_step
-            self.wavelengths = np.arange(
-                wavelength_start, wavelength_end + wavelength_step, wavelength_step
-            )
+            if wavelength_step <= 0 or wavelength_end < wavelength_start:
+                raise ValueError("Wavelength step must be positive and end must not precede start")
+            n_steps = int(np.floor((wavelength_end - wavelength_start) / wavelength_step + 1e-10))
+            self.wavelengths = wavelength_start + np.arange(n_steps + 1) * wavelength_step
 
         self.n_wavelengths = len(self.wavelengths)
 
@@ -342,8 +344,8 @@ class SyntheticNIRSGenerator:
                 self.measurement_mode = measurement_mode
 
             # Create measurement mode simulator
-            self.measurement_mode_simulator = create_transmittance_simulator(
-                random_state=random_state
+            self.measurement_mode_simulator = MeasurementModeSimulator(
+                MeasurementModeConfig(mode=self.measurement_mode), random_state=self._next_seed()
             )
 
         # Phase 2: Detector simulator
@@ -356,7 +358,14 @@ class SyntheticNIRSGenerator:
                 noise_model=noise_config,
                 apply_response_curve=True,
             )
-            self.detector_simulator = DetectorSimulator(detector_config, random_state)
+            self.detector_simulator = DetectorSimulator(detector_config, self._next_seed())
+
+        self._sensor_detectors: list[tuple[SensorConfig, DetectorSimulator]] = []
+        if self.multi_sensor_config is not None and self.multi_sensor_config.enabled:
+            for sensor in self.multi_sensor_config.sensors:
+                config = DetectorConfig(detector_type=sensor.detector_type,
+                                        noise_model=get_default_noise_config(sensor.detector_type), apply_response_curve=True)
+                self._sensor_detectors.append((sensor, DetectorSimulator(config, self._next_seed())))
 
         # Set up component library
         if component_library is not None:
@@ -366,11 +375,11 @@ class SyntheticNIRSGenerator:
             if complexity in ("realistic", "complex"):
                 self.library = ComponentLibrary.from_predefined(
                     DEFAULT_REALISTIC_COMPONENTS,
-                    random_state=random_state,
+                    random_state=self._next_seed(),
                 )
             else:
                 # Generate random components for simple mode
-                self.library = ComponentLibrary(random_state=random_state)
+                self.library = ComponentLibrary(random_state=self._next_seed())
                 self.library.generate_random_library(n_components=5)
 
         # Precompute component spectra (pure component matrix E)
@@ -381,7 +390,7 @@ class SyntheticNIRSGenerator:
         if custom_params is not None:
             # Merge custom params, allowing override of complexity defaults
             for key, value in custom_params.items():
-                if key in self.params:
+                if key in self.params or key in {"batch_offset_std", "batch_gain_std"}:
                     self.params[key] = value
 
         # Phase 3: Environmental effects configuration (uses operators)
@@ -440,7 +449,7 @@ class SyntheticNIRSGenerator:
                     enable_intensity=temp_config.enable_intensity,
                     enable_broadening=temp_config.enable_broadening,
                     region_specific=temp_config.region_specific,
-                    random_state=self._random_state,
+                    random_state=self._next_seed(),
                 )
 
         # Initialize moisture operator
@@ -453,7 +462,7 @@ class SyntheticNIRSGenerator:
                     free_water_fraction=moisture_config.free_water_fraction,
                     bound_water_shift=moisture_config.bound_water_shift,
                     moisture_content=moisture_config.moisture_content,
-                    random_state=self._random_state,
+                    random_state=self._next_seed(),
                 )
 
     def _init_scattering_operators(self) -> None:
@@ -483,7 +492,7 @@ class SyntheticNIRSGenerator:
                     size_effect_strength=particle_config.size_effect_strength,
                     include_path_length=particle_config.include_path_length_effect,
                     path_length_sensitivity=particle_config.path_length_sensitivity,
-                    random_state=self._random_state,
+                    random_state=self._next_seed(),
                 )
 
         # Initialize EMSC distortion operator
@@ -499,7 +508,7 @@ class SyntheticNIRSGenerator:
                     additive_range=(-add_half_range, add_half_range),
                     polynomial_order=emsc_config.polynomial_order,
                     polynomial_strength=emsc_config.wavelength_coef_std,
-                    random_state=self._random_state,
+                    random_state=self._next_seed(),
                 )
 
     def _init_edge_artifact_operators(self) -> None:
@@ -524,14 +533,14 @@ class SyntheticNIRSGenerator:
             self._detector_rolloff_op = DetectorRollOffAugmenter(
                 detector_model=config.detector_model,
                 effect_strength=config.rolloff_severity,
-                random_state=self._random_state,
+                random_state=self._next_seed(),
             )
 
         # Initialize stray light operator
         if config.enable_stray_light:
             self._stray_light_op = StrayLightAugmenter(
                 stray_light_fraction=config.stray_fraction,
-                random_state=self._random_state,
+                random_state=self._next_seed(),
             )
 
         # Initialize edge curvature operator
@@ -549,7 +558,7 @@ class SyntheticNIRSGenerator:
                 curvature_type=config.curvature_type,
                 curvature_strength=avg_severity * 0.1,  # Scale to appropriate range
                 asymmetry=asymmetry,
-                random_state=self._random_state,
+                random_state=self._next_seed(),
             )
 
         # Initialize truncated peak operator
@@ -564,7 +573,7 @@ class SyntheticNIRSGenerator:
                 amplitude_range=(min_amp, max_amp),
                 left_edge=config.left_peak_amplitude > 0,
                 right_edge=config.right_peak_amplitude > 0,
-                random_state=self._random_state,
+                random_state=self._next_seed(),
             )
 
     def _init_synthesis_operators(self) -> None:
@@ -584,14 +593,14 @@ class SyntheticNIRSGenerator:
         self._path_length_op = PathLengthAugmenter(
             path_length_std=params["path_length_std"],
             min_path_length=0.5,
-            random_state=self._random_state,
+            random_state=self._next_seed(),
             variation_scope="sample",
         )
 
         # Instrumental broadening operator (fixed FWHM, deterministic)
         self._instrumental_broadening_op = InstrumentalBroadeningAugmenter(
             fwhm=params["instrumental_fwhm"],
-            random_state=self._random_state,
+            random_state=self._next_seed(),
             variation_scope="sample",
         )
 
@@ -599,9 +608,32 @@ class SyntheticNIRSGenerator:
         self._noise_op = HeteroscedasticNoiseAugmenter(
             noise_base=params["noise_base"],
             noise_signal_dep=params["noise_signal_dep"],
-            random_state=self._random_state,
+            random_state=self._next_seed(),
             variation_scope="sample",
         )
+        for operator in (self._path_length_op, self._instrumental_broadening_op, self._noise_op):
+            operator.fit(np.zeros((1, self.n_wavelengths)))
+
+    def _next_seed(self) -> int:
+        """Derive an independent reproducible stream for a child simulator."""
+        return int(self._seed_sequence.spawn(1)[0].generate_state(1)[0])
+
+    def _apply_temperature(self, spectra: np.ndarray, temperatures: np.ndarray) -> np.ndarray:
+        """Apply precisely the per-sample temperatures recorded in metadata."""
+        from copy import copy
+
+        temperatures = np.asarray(temperatures, dtype=float)
+        if temperatures.shape != (len(spectra),) or not np.all(np.isfinite(temperatures)):
+            raise ValueError("temperatures must contain one finite value per sample")
+        assert self._temperature_op is not None
+        result = spectra.copy()
+        for temperature in np.unique(temperatures):
+            mask = temperatures == temperature
+            operator = copy(self._temperature_op)
+            operator.temperature_range = None
+            operator.temperature_delta = float(temperature - operator.reference_temperature)
+            result[mask] = operator.transform(spectra[mask], wavelengths=self.wavelengths)
+        return result
 
     def generate_concentrations(
         self,
@@ -623,7 +655,8 @@ class SyntheticNIRSGenerator:
             alpha: Dirichlet concentration parameters (only for 'dirichlet' method).
                 Shape: (n_components,). Higher values = more uniform distribution.
             correlation_matrix: Correlation structure for 'correlated' method.
-                Shape: (n_components, n_components).
+                Shape: (n_components, n_components), in latent Gaussian log-abundance
+                space; final simplex Pearson correlations need not match.
 
         Returns:
             Concentration matrix of shape (n_samples, n_components).
@@ -668,7 +701,7 @@ class SyntheticNIRSGenerator:
         correlation_matrix: np.ndarray | None = None,
     ) -> np.ndarray:
         """
-        Generate correlated concentrations using Cholesky decomposition.
+        Generate logistic-normal compositions from latent Gaussian correlations.
 
         Args:
             n_samples: Number of samples.
@@ -676,7 +709,7 @@ class SyntheticNIRSGenerator:
             correlation_matrix: Desired correlation structure.
 
         Returns:
-            Concentration matrix with specified correlations.
+            Positive normalized concentrations; closure changes Pearson correlations.
         """
         if correlation_matrix is None:
             # Create default correlation structure
@@ -686,21 +719,26 @@ class SyntheticNIRSGenerator:
                     corr = self.rng.uniform(-0.3, 0.5)
                     correlation_matrix[i, j] = corr
                     correlation_matrix[j, i] = corr
+            values, vectors = np.linalg.eigh(correlation_matrix)
+            correlation_matrix = (vectors * np.maximum(values, .01)) @ vectors.T
+            diagonal = np.sqrt(np.diag(correlation_matrix))
+            correlation_matrix /= diagonal[:, None] * diagonal[None, :]
 
-        # Ensure positive definiteness
+        correlation_matrix = np.asarray(correlation_matrix, dtype=float)
+        if (correlation_matrix.shape != (n_components, n_components)
+                or not np.all(np.isfinite(correlation_matrix))
+                or not np.allclose(correlation_matrix, correlation_matrix.T)
+                or not np.allclose(np.diag(correlation_matrix), 1)):
+            raise ValueError("correlation_matrix must be finite, symmetric, square, with unit diagonal")
         eigvals, eigvecs = np.linalg.eigh(correlation_matrix)
-        eigvals = np.maximum(eigvals, 0.01)
-        correlation_matrix = eigvecs @ np.diag(eigvals) @ eigvecs.T
-
-        L = np.linalg.cholesky(correlation_matrix)
-        Z = self.rng.standard_normal((n_samples, n_components))
-        C = Z @ L.T
-
-        # Transform to positive values and normalize
-        C = np.abs(C)
-        C = C / C.sum(axis=1, keepdims=True)
-
-        return np.asarray(C)
+        if eigvals.min() < -1e-8:
+            raise ValueError("correlation_matrix must be positive semidefinite")
+        # Correlations describe the latent Gaussian log abundances. Simplex
+        # closure cannot preserve an arbitrary Pearson correlation matrix.
+        latent = self.rng.standard_normal((n_samples, n_components)) @ (eigvecs * np.sqrt(np.maximum(eigvals, 0))).T
+        latent -= latent.max(axis=1, keepdims=True)
+        C = np.exp(latent)
+        return np.asarray(C / C.sum(axis=1, keepdims=True))
 
     def _apply_beer_lambert(self, C: np.ndarray) -> np.ndarray:
         """
@@ -892,7 +930,7 @@ class SyntheticNIRSGenerator:
                 artifact_types.append(artifact_type)
 
                 if artifact_type == "spike":
-                    n_spikes = self.rng.integers(1, 4)
+                    n_spikes = self.rng.integers(1, min(3, self.n_wavelengths) + 1)
                     spike_indices = self.rng.choice(
                         self.n_wavelengths, n_spikes, replace=False
                     )
@@ -902,8 +940,8 @@ class SyntheticNIRSGenerator:
                     )
 
                 elif artifact_type == "dead_band":
-                    start_idx = int(self.rng.integers(0, self.n_wavelengths - 20))
-                    width = int(self.rng.integers(10, 30))
+                    start_idx = int(self.rng.integers(0, self.n_wavelengths))
+                    width = int(self.rng.integers(1, min(29, self.n_wavelengths) + 1))
                     end_idx = min(start_idx + width, self.n_wavelengths)
                     A[i, start_idx:end_idx] += self.rng.normal(
                         0, 0.05, end_idx - start_idx
@@ -947,11 +985,12 @@ class SyntheticNIRSGenerator:
         for _ in range(n_batches):
             # Baseline offset per batch (slow drift)
             x = (self.wavelengths - self.wavelengths.mean()) / np.ptp(self.wavelengths)
-            offset = self.rng.normal(0, 0.02) + self.rng.normal(0, 0.01) * x
+            offset_std = self.params.get("batch_offset_std", 0.02)
+            offset = self.rng.normal(0, offset_std) + self.rng.normal(0, offset_std / 2) * x
             batch_offsets.append(offset)
 
             # Gain variation per batch
-            gain = self.rng.normal(1.0, 0.03)
+            gain = self.rng.normal(1.0, self.params.get("batch_gain_std", 0.03))
             batch_gains.append(gain)
 
         return np.array(batch_offsets), np.array(batch_gains)
@@ -1199,8 +1238,18 @@ class SyntheticNIRSGenerator:
             # Mask outlier scans
             valid_scans = z_scores < threshold
 
-            if np.sum(valid_scans) >= 2:  # Need at least 2 valid scans
-                result[i] = np.mean(all_scans[i, valid_scans], axis=0)
+            if not np.all(valid_scans) and np.sum(valid_scans) >= 2:
+                scans = all_scans[i, valid_scans]
+                method = self.multi_scan_config.averaging_method.lower() if self.multi_scan_config else "mean"
+                if method == "median":
+                    result[i] = np.median(scans, axis=0)
+                elif method == "weighted":
+                    weights = 1 / (np.var(scans, axis=1, keepdims=True) + 1e-10)
+                    result[i] = np.sum(scans * weights / weights.sum(), axis=0)
+                elif method == "savgol" and n_wl >= 11:
+                    result[i] = savgol_filter(scans.mean(axis=0), window_length=11, polyorder=3)
+                else:
+                    result[i] = scans.mean(axis=0)
 
         return result
 
@@ -1226,7 +1275,23 @@ class SyntheticNIRSGenerator:
         if self.detector_simulator is None:
             return spectra
 
-        return self.detector_simulator.apply(spectra, wavelengths)
+        if not self._sensor_detectors:
+            return self.detector_simulator.apply(spectra, wavelengths)
+        # Assign each channel to the most responsive detector covering it.
+        responses = np.full((len(self._sensor_detectors), len(wavelengths)), -np.inf)
+        for index, (sensor, simulator) in enumerate(self._sensor_detectors):
+            covered = (wavelengths >= sensor.wavelength_range[0]) & (wavelengths <= sensor.wavelength_range[1])
+            responses[index, covered] = simulator.response.get_response_at(wavelengths[covered])
+        assignment = responses.argmax(axis=0)
+        uncovered = ~np.isfinite(responses.max(axis=0))
+        result = spectra.copy()
+        for index, (_, simulator) in enumerate(self._sensor_detectors):
+            mask = (assignment == index) & ~uncovered
+            if np.any(mask):
+                result[:, mask] = simulator.apply(spectra[:, mask], wavelengths[mask])
+        if np.any(uncovered):
+            result[:, uncovered] = self.detector_simulator.apply(spectra[:, uncovered], wavelengths[uncovered])
+        return result
 
     def generate(
         self,
@@ -1336,6 +1401,10 @@ class SyntheticNIRSGenerator:
         # 2. Apply Beer-Lambert law
         A = self._apply_beer_lambert(C)
 
+        if self.measurement_mode_simulator is not None:
+            A = self.measurement_mode_simulator.apply(A, self.wavelengths)
+            metadata["measurement_mode"] = self.measurement_mode_simulator.config.mode.value
+
         # 3. Apply path length variation
         A = self._apply_path_length(A)
 
@@ -1413,8 +1482,10 @@ class SyntheticNIRSGenerator:
 
             # Apply temperature and moisture operators
             if self._temperature_op is not None:
-                A = self._temperature_op.transform(A, wavelengths=self.wavelengths)
+                assert temperatures is not None
+                A = self._apply_temperature(A, temperatures)
             if self._moisture_op is not None:
+                self._moisture_op.random_state = self._next_seed()
                 A = self._moisture_op.transform(A, wavelengths=self.wavelengths)
 
             metadata["environmental_config"] = {
@@ -1427,8 +1498,10 @@ class SyntheticNIRSGenerator:
         if include_scattering_effects and self.scattering_effects_config is not None:
             # Apply particle size and EMSC operators
             if self._particle_op is not None:
+                self._particle_op.random_state = self._next_seed()
                 A = self._particle_op.transform(A, wavelengths=self.wavelengths)
             if self._emsc_op is not None:
+                self._emsc_op.random_state = self._next_seed()
                 A = self._emsc_op.transform(A, wavelengths=self.wavelengths)
 
             metadata["scattering_effects_config"] = {
@@ -1440,12 +1513,16 @@ class SyntheticNIRSGenerator:
         if include_edge_artifacts and self.edge_artifacts_config is not None:
             # Apply edge artifact operators
             if self._detector_rolloff_op is not None:
+                self._detector_rolloff_op.random_state = self._next_seed()
                 A = self._detector_rolloff_op.transform(A, wavelengths=self.wavelengths)
             if self._stray_light_op is not None:
+                self._stray_light_op.random_state = self._next_seed()
                 A = self._stray_light_op.transform(A, wavelengths=self.wavelengths)
             if self._edge_curvature_op is not None:
+                self._edge_curvature_op.random_state = self._next_seed()
                 A = self._edge_curvature_op.transform(A, wavelengths=self.wavelengths)
             if self._truncated_peak_op is not None:
+                self._truncated_peak_op.random_state = self._next_seed()
                 A = self._truncated_peak_op.transform(A, wavelengths=self.wavelengths)
 
             metadata["edge_artifacts_config"] = {
@@ -1528,6 +1605,10 @@ class SyntheticNIRSGenerator:
         # 2. Apply Beer-Lambert law
         A = self._apply_beer_lambert(C)
 
+        if self.measurement_mode_simulator is not None:
+            A = self.measurement_mode_simulator.apply(A, self.wavelengths)
+            metadata["measurement_mode"] = self.measurement_mode_simulator.config.mode.value
+
         # 3. Apply path length variation
         A = self._apply_path_length(A)
 
@@ -1583,8 +1664,10 @@ class SyntheticNIRSGenerator:
                     temperatures = np.asarray(self.rng.normal(base_temp, variation, n_samples)) if variation > 0 else np.full(n_samples, base_temp)
 
             if self._temperature_op is not None:
-                A = self._temperature_op.transform(A, wavelengths=self.wavelengths)
+                assert temperatures is not None
+                A = self._apply_temperature(A, temperatures)
             if self._moisture_op is not None:
+                self._moisture_op.random_state = self._next_seed()
                 A = self._moisture_op.transform(A, wavelengths=self.wavelengths)
 
             metadata["temperatures"] = temperatures
@@ -1592,19 +1675,25 @@ class SyntheticNIRSGenerator:
         # 12. Apply scattering effects
         if include_scattering_effects and self.scattering_effects_config is not None:
             if self._particle_op is not None:
+                self._particle_op.random_state = self._next_seed()
                 A = self._particle_op.transform(A, wavelengths=self.wavelengths)
             if self._emsc_op is not None:
+                self._emsc_op.random_state = self._next_seed()
                 A = self._emsc_op.transform(A, wavelengths=self.wavelengths)
 
         # 13. Apply edge artifacts
         if include_edge_artifacts and self.edge_artifacts_config is not None:
             if self._detector_rolloff_op is not None:
+                self._detector_rolloff_op.random_state = self._next_seed()
                 A = self._detector_rolloff_op.transform(A, wavelengths=self.wavelengths)
             if self._stray_light_op is not None:
+                self._stray_light_op.random_state = self._next_seed()
                 A = self._stray_light_op.transform(A, wavelengths=self.wavelengths)
             if self._edge_curvature_op is not None:
+                self._edge_curvature_op.random_state = self._next_seed()
                 A = self._edge_curvature_op.transform(A, wavelengths=self.wavelengths)
             if self._truncated_peak_op is not None:
+                self._truncated_peak_op.random_state = self._next_seed()
                 A = self._truncated_peak_op.transform(A, wavelengths=self.wavelengths)
 
         # 14. Add artifacts
@@ -1665,7 +1754,7 @@ class SyntheticNIRSGenerator:
         dataset = SpectroDataset(name="synthetic_nirs")
 
         # Create wavelength headers
-        headers = [str(int(wl)) for wl in self.wavelengths]
+        headers = [str(float(wl)) for wl in self.wavelengths]
 
         # Add training samples
         dataset.add_samples(
@@ -1716,4 +1805,3 @@ class SyntheticNIRSGenerator:
                 scatter_effects.append("emsc")
             parts.append(f"scattering=True({'+'.join(scatter_effects)})")
         return f"SyntheticNIRSGenerator({', '.join(parts)})"
-

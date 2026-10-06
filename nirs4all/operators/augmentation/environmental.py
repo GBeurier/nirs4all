@@ -27,6 +27,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
 from ..base import SpectraTransformerMixin
+from .spectral import _ordered_warp_inputs
 
 # =============================================================================
 # Temperature Effect Parameters by Spectral Region
@@ -173,6 +174,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
             Spectra with temperature effects applied.
         """
         rng = np.random.default_rng(self.random_state)
+        X, wavelengths, inverse = _ordered_warp_inputs(X, wavelengths)
         n_samples = X.shape[0]
         result = X.copy()
 
@@ -192,7 +194,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
             else:
                 result[i] = self._apply_uniform(result[i], wavelengths, delta_t)
 
-        return result
+        return result[:, inverse] if inverse is not None else result
 
     def _apply_region_specific(
         self,
@@ -410,6 +412,7 @@ class MoistureAugmenter(SpectraTransformerMixin):
             Spectra with moisture effects applied.
         """
         rng = np.random.default_rng(self.random_state)
+        X, wavelengths, inverse = _ordered_warp_inputs(X, wavelengths)
         n_samples = X.shape[0]
         result = X.copy()
 
@@ -427,7 +430,7 @@ class MoistureAugmenter(SpectraTransformerMixin):
                 result[i], wavelengths, effective_fraction
             )
 
-        return result
+        return result[:, inverse] if inverse is not None else result
 
     def _compute_free_water_fraction(self, water_activity: float) -> float:
         """Compute effective free water fraction based on water activity."""

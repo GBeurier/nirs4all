@@ -672,7 +672,7 @@ class ProductGenerator:
         # Create component library from template components
         self.library = ComponentLibrary.from_predefined(
             self.template.component_names,
-            random_state=random_state,
+            random_state=int(self.rng.integers(0, 2**32)),
         )
 
     def _sample_compositions(self, n_samples: int) -> np.ndarray:
@@ -749,45 +749,27 @@ class ProductGenerator:
             source_idx = comp_names.index(source_name)
             source_values = concentrations[:, source_idx]
 
-            # Get source component variation for normalization
-            source_comp = None
-            for cv in self.template.components:
-                if cv.component == source_name:
-                    source_comp = cv
-                    break
-
-            # Normalize source to [0, 1] range
-            if source_comp is not None:
-                if source_comp.min_value is not None and source_comp.max_value is not None:
-                    source_range = source_comp.max_value - source_comp.min_value
-                    source_normalized = (source_values - source_comp.min_value) / source_range
-                else:
-                    source_normalized = source_values / source_values.max()
-            else:
-                source_normalized = source_values / source_values.max()
-
-            # Generate correlated values
+            # Standardized source and independent unit-variance noise make rho
+            # a correlation coefficient before truncation/compositional closure.
+            source_std = float(np.std(source_values))
+            if source_std <= 1e-12:
+                raise ValueError("Correlated component requires a varying source")
+            source_normalized = (source_values - source_values.mean()) / source_std
             assert comp_var.correlation is not None
             correlation = comp_var.correlation
-            mean = comp_var.mean if comp_var.mean is not None else 0.5
-            std = comp_var.std if comp_var.std is not None else 0.1
-
-            # Use Cholesky decomposition for correlation
+            if not -1 <= correlation <= 1:
+                raise ValueError("correlation must be between -1 and 1")
             noise = self.rng.normal(0, 1, n_samples)
             correlated = correlation * source_normalized + np.sqrt(1 - correlation**2) * noise
-
-            # Scale to target range
+            bounded = comp_var.min_value is not None and comp_var.max_value is not None
+            center, spread = .5, .1
             if comp_var.min_value is not None and comp_var.max_value is not None:
-                target_range = comp_var.max_value - comp_var.min_value
-                target_center = (comp_var.min_value + comp_var.max_value) / 2
-
-                # Map correlated values to target range
-                values = target_center + (correlated - 0.5) * target_range
-                values = np.clip(values, comp_var.min_value, comp_var.max_value)
-            else:
-                # Use mean/std
-                values = mean + correlated * std
-                values = np.maximum(values, 0)
+                center = (comp_var.min_value + comp_var.max_value) / 2
+                spread = (comp_var.max_value - comp_var.min_value) / 6
+            mean = comp_var.mean if comp_var.mean is not None else center
+            std = comp_var.std if comp_var.std is not None else spread
+            values = mean + correlated * std
+            values = np.clip(values, comp_var.min_value, comp_var.max_value) if bounded else np.maximum(values, 0)
 
             concentrations[:, i] = values
             sampled.add(comp_var.component)
@@ -865,7 +847,7 @@ class ProductGenerator:
             instrument_wavelength_grid=self._instrument_wavelength_grid,
             component_library=self.library,
             complexity=self.complexity,
-            random_state=self._random_state,
+            random_state=int(self.rng.integers(0, 2**32)),
         )
 
         # Generate spectra from concentrations
@@ -886,7 +868,7 @@ class ProductGenerator:
         dataset = SpectroDataset(name=f"synthetic_{self.template.name}")
 
         # Create wavelength headers
-        headers = [str(int(wl)) for wl in generator.wavelengths]
+        headers = [str(float(wl)) for wl in generator.wavelengths]
 
         # Add training samples
         dataset.add_samples(
@@ -973,7 +955,7 @@ class ProductGenerator:
                     instrument_wavelength_grid=self._instrument_wavelength_grid,
                     component_library=self.library,
                     complexity=self.complexity,
-                    random_state=self._random_state,
+                    random_state=int(self.rng.integers(0, 2**32)),
                 )
 
                 # Calculate split
@@ -987,7 +969,7 @@ class ProductGenerator:
 
                 # Create new dataset with scaled y
                 new_dataset = DS(name=f"synthetic_{self.template.name}")
-                headers = [str(int(wl)) for wl in generator.wavelengths]
+                headers = [str(float(wl)) for wl in generator.wavelengths]
 
                 # Add training samples
                 new_dataset.add_samples(
@@ -1183,7 +1165,7 @@ class CategoryGenerator:
 
         # Create wavelength headers
         assert wavelengths is not None
-        headers = [str(int(wl)) for wl in wavelengths]
+        headers = [str(float(wl)) for wl in wavelengths]
 
         # Add training samples
         train_meta: dict[str, object] = {"partition": "train"}

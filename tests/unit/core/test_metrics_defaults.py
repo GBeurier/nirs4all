@@ -128,3 +128,8 @@ class TestMetricDirection:
                 f"Mismatch for '{metric_name}': is_higher_better={is_higher_better(metric_name)} "
                 f"but METRIC_METADATA says higher_is_better={meta['higher_is_better']}"
             )
+
+
+def test_jaccard_score_alias_uses_same_ranking_direction():
+    assert is_higher_better("jaccard_score")
+    assert infer_ascending("jaccard_score") == infer_ascending("jaccard")

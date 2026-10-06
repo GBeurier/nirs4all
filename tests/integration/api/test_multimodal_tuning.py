@@ -442,8 +442,8 @@ def test_stochastic_resume_refuses_changed_public_run_seed_before_fit(monkeypatc
     assert checkpoint_path.read_bytes() == before
 
 
-@pytest.mark.parametrize("direction", [None, "maximize", "minimize"])
-def test_r2_search_infers_maximization_and_preserves_explicit_direction(direction: str | None, tmp_path: Path) -> None:
+@pytest.mark.parametrize("direction", [None, "maximize"])
+def test_r2_search_infers_maximization_and_accepts_matching_direction(direction: str | None, tmp_path: Path) -> None:
     config = {
         **_tuning(tmp_path / "r2-study"), "metric": " R2 ",
         "space": {"model__alpha": [0.01, 1000.0]},
@@ -466,6 +466,21 @@ def test_r2_search_infers_maximization_and_preserves_explicit_direction(directio
         assert tuning.best_params["model.alpha"] == (0.01 if expected_direction == "maximize" else 1000.0)
     finally:
         result.close()
+
+
+@pytest.mark.parametrize("metric,direction", [("r2", "minimize"), ("rmse", "maximize"), ("mse", "maximize"), ("mae", "maximize")])
+def test_metric_direction_mismatch_refuses_before_native_hpo_or_fit(metric: str, direction: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import dag_ml
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("contradictory native metric direction reached HPO or fit")
+
+    monkeypatch.setattr(dag_ml, "run_host_hpo_search_in_process", forbidden)
+    monkeypatch.setattr(MultimodalRegressor, "fit", forbidden)
+    config = {**_tuning(tmp_path / "invalid-direction"), "metric": metric, "direction": direction}
+    with pytest.raises(ValueError, match="direction must match the native metric objective"):
+        _run(_cohort(), config, tmp_path / "workspace")
+    assert not (tmp_path / "invalid-direction" / "multimodal.n4mopt.json").exists()
 
 
 def test_rmse_search_keeps_implicit_minimization(tmp_path: Path) -> None:

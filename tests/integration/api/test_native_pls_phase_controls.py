@@ -110,7 +110,8 @@ def _oracle(dataset: dict[str, Any], library: str, tmp_path: Path, *, train: dic
     )
     result = json.loads(completed.stdout)
     assert result["library"] == library
-    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0"}
+    # The canonical pls4all 1.3.2 wheel must carry native Methods 1.3.2 / ABI 2.17.
+    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0", "1.3.2+abi.2.17.0"}
     return result
 
 

@@ -68,6 +68,9 @@ def test_real_native_encoder_and_ridge_oracle(seed: int, components: int, weight
     from n4m import MultimodalPipeline
 
     cohort = example.make_cohort(seed)
+    # The direct public binding requires storage matching IO's object schema.
+    # SDK tests below retain raw Unicode arrays to exercise its host boundary.
+    cohort = _replace(cohort, "metadata", cohort.sources["metadata"].values.astype(object))
     train = np.flatnonzero(np.asarray(cohort.partitions) == "train")
     test = np.flatnonzero(np.asarray(cohort.partitions) == "test")
     model = _model(transformers__image__n_components=components, source_weights__image=weight, model__alpha=alpha)

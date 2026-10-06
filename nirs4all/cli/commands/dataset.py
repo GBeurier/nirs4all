@@ -23,7 +23,10 @@ def dataset_validate(args):
         ConfigValidator,
         DiagnosticBuilder,
         DiagnosticReport,
+        ErrorCategory,
+        ErrorCode,
         ErrorRegistry,
+        ErrorSeverity,
     )
 
     config_path = args.config_file
@@ -66,12 +69,12 @@ def dataset_validate(args):
                     location=config_path
                 ))
 
-            for _ in result.warnings:
-                report.add(DiagnosticBuilder().create(
-                    ErrorRegistry.E204,
-                    path=config_path,
-                    encoding="",
-                    location=config_path
+            for warning in result.warnings:
+                report.add(builder.create(
+                    ErrorCode(warning.code, ErrorCategory.SCHEMA, ErrorSeverity.WARNING, "{message}"),
+                    message=warning.message,
+                    field=warning.field,
+                    location=f"{config_path}:{warning.field}" if warning.field else config_path,
                 ))
 
             if verbose and config:

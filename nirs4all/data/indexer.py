@@ -111,6 +111,8 @@ class Indexer:
         selector_dict = self._ensure_selector_dict(selector)
 
         # Build base condition from selector dict
+        tag_filters = dict(selector_dict.get("tag_filters") or tag_filters)
+        self._query_builder._valid_columns = set(self._store.columns)
         condition = self._query_builder.build(selector_dict, exclude_columns=["processings", "tag_filters"])
 
         # Apply tag filters if present
@@ -518,7 +520,7 @@ class Indexer:
             "row": pl.Series(row_ids, dtype=pl.Int32),
             "sample": pl.Series(sample_ids, dtype=pl.Int32),
             "origin": pl.Series(origins, dtype=pl.Int32),
-            "partition": pl.Series([partition] * count, dtype=pl.Categorical),
+            "partition": pl.Series(self._normalize_single_or_list(partition, count, "partition"), dtype=pl.Categorical),
             "group": pl.Series(groups, dtype=pl.Int8),
             "branch": pl.Series(branches, dtype=pl.Int8),
             "processings": pl.Series(processings_list, dtype=pl.List(pl.Utf8)),  # Native list!
@@ -959,7 +961,7 @@ class Indexer:
             processings_list.extend([sample_row["processings"]] * sample_count)
 
         # Create augmented samples using _append
-        partition_val = partitions[0] if partitions else "train"
+        partition_val = partitions if partitions else "train"
 
         augmented_ids = self._append(
             total_augmentations,

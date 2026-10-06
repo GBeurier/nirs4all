@@ -210,7 +210,8 @@ class ConfusionMatrixChart(BaseChart):
                         y_pred = (y_pred > 0.5).astype(int)
 
                 # Compute confusion matrix
-                cm = sk_confusion_matrix(y_true, y_pred)
+                labels = np.union1d(y_true, y_pred)
+                cm = sk_confusion_matrix(y_true, y_pred, labels=labels)
 
                 # Display confusion matrix
                 im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
@@ -224,8 +225,8 @@ class ConfusionMatrixChart(BaseChart):
                 tick_marks = np.arange(n_classes)
                 ax.set_xticks(tick_marks)
                 ax.set_yticks(tick_marks)
-                ax.set_xticklabels(tick_marks, fontsize=self.config.tick_fontsize)
-                ax.set_yticklabels(tick_marks, fontsize=self.config.tick_fontsize)
+                ax.set_xticklabels(labels, fontsize=self.config.tick_fontsize)
+                ax.set_yticklabels(labels, fontsize=self.config.tick_fontsize)
 
                 # Add text annotations
                 thresh = cm.max() / 2.

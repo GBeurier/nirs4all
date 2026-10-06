@@ -237,7 +237,10 @@ class JaxModelController(BaseModelController):
 
                 if is_classification:
                     # Handle classification loss
-                    if batch_y.ndim == 1 or (batch_y.ndim == 2 and batch_y.shape[1] == 1):
+                    if logits.shape[-1] == 1:
+                        labels = batch_y[..., 1] if batch_y.ndim == 2 and batch_y.shape[1] > 1 else batch_y.reshape(-1)
+                        loss = optax.sigmoid_binary_cross_entropy(logits.reshape(-1), labels)
+                    elif batch_y.ndim == 1 or (batch_y.ndim == 2 and batch_y.shape[1] == 1):
                          # Integer labels
                          labels = batch_y.squeeze().astype(jnp.int32)
                          loss = optax.softmax_cross_entropy_with_integer_labels(logits, labels)
@@ -268,7 +271,10 @@ class JaxModelController(BaseModelController):
 
             logits = state.apply_fn(variables, batch_X, train=False)
             if is_classification:
-                if batch_y.ndim == 1 or (batch_y.ndim == 2 and batch_y.shape[1] == 1):
+                if logits.shape[-1] == 1:
+                    labels = batch_y[..., 1] if batch_y.ndim == 2 and batch_y.shape[1] > 1 else batch_y.reshape(-1)
+                    loss = optax.sigmoid_binary_cross_entropy(logits.reshape(-1), labels)
+                elif batch_y.ndim == 1 or (batch_y.ndim == 2 and batch_y.shape[1] == 1):
                         labels = batch_y.squeeze().astype(jnp.int32)
                         loss = optax.softmax_cross_entropy_with_integer_labels(logits, labels)
                 else:
@@ -343,7 +349,7 @@ class JaxModelController(BaseModelController):
 
         # Attach state to model wrapper for prediction
         # Since Flax models are stateless, we need to return a wrapper that holds the state
-        return JaxModelWrapper(model, state)
+        return JaxModelWrapper(model, state, is_classification=bool(is_classification))
 
     def _predict_model(self, model: Any, X: Any) -> np.ndarray:
         """Generate predictions with JAX model."""
@@ -354,8 +360,10 @@ class JaxModelController(BaseModelController):
             preds: np.ndarray = np.asarray(model.predict(X))
 
             # Handle multiclass classification (convert logits/probs to labels)
-            if preds.ndim == 2 and preds.shape[1] > 1:
+            if model.is_classification and preds.ndim == 2 and preds.shape[1] > 1:
                  return np.asarray(np.argmax(preds, axis=-1)).reshape(-1, 1)
+            if model.is_classification and preds.ndim == 2 and preds.shape[1] == 1:
+                return (preds >= 0).astype(int)
 
             # Ensure 2D shape for regression/binary
             if preds.ndim == 1:

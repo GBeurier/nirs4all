@@ -488,7 +488,7 @@ class Targets:
 
         data = self._data[processing]
 
-        if indices is None or len(indices) == 0 or data.shape[0] == 0:
+        if indices is None:
             return data.copy()
 
         indices = np.asarray(indices, dtype=int)
@@ -516,7 +516,10 @@ class Targets:
         if len(self._data) == 0:
             return np.array([])
 
-        return self.get_targets(processing, indices)
+        # Unlabeled trailing samples have no stored target row. Preserve the
+        # requested order of the labeled samples, including repeated origins.
+        indices = np.asarray(indices, dtype=int)
+        return self.get_targets(processing, indices[indices < self.num_samples])
 
     def get_processing_ancestry(self, processing: str) -> list[str]:
         """

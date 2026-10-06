@@ -11,7 +11,7 @@ import pandas as pd
 from nirs4all.data.config_parser import parse_config
 
 # Import the new loader system
-from nirs4all.data.loaders.base import FormatNotSupportedError, LoaderRegistry
+from nirs4all.data.loaders.base import FormatNotSupportedError, LoaderRegistry, apply_na_policy
 from nirs4all.data.loaders.csv_loader_new import load_csv
 from nirs4all.data.signal_type import SignalType, normalize_signal_type
 
@@ -41,7 +41,8 @@ def _merge_params(local_params, handler_params, global_params):
 # Known loading parameter keys that can appear at root level of config
 _LOADING_PARAM_KEYS = frozenset({
     'delimiter', 'decimal_separator', 'has_header',
-    'na_policy', 'na_fill_config', 'header_unit', 'categorical_mode'
+    'na_policy', 'na_fill_config', 'header_unit', 'categorical_mode', 'signal_type',
+    'encoding', 'keep_default_na', 'na_values', 'na_filter'
 })
 
 def _get_effective_global_params(config: dict[str, Any]) -> dict[str, Any] | None:
@@ -95,18 +96,46 @@ def _load_file_with_registry(
     Returns:
         Tuple of (DataFrame, report, na_mask, headers, header_unit).
     """
+    if isinstance(file_path, (np.ndarray, pd.DataFrame, pd.Series)):
+        # In-memory and disk inputs share positional alignment. Preserve the
+        # historical array NA default; explicitly requested policies still apply.
+        if isinstance(file_path, np.ndarray):
+            if file_path.ndim not in (1, 2):
+                raise ValueError("In-memory input must be one- or two-dimensional")
+            frame = pd.DataFrame(file_path.reshape(-1, 1) if file_path.ndim == 1 else file_path)
+            prefix = "feature" if data_type == "x" else "meta" if data_type == "metadata" else "target"
+            frame.columns = [f"{prefix}_{i}" for i in range(frame.shape[1])]
+        else:
+            frame = pd.DataFrame(file_path).copy()
+            frame.columns = frame.columns.astype(str)
+        frame = frame.reset_index(drop=True)
+        initial_shape = frame.shape
+        na_mask = frame.isna().any(axis=1)
+        frame, na_report = apply_na_policy(frame, params.get("na_policy", "ignore"), params.get("na_fill_config"))
+        return frame, {"initial_shape": initial_shape, "na_handling": na_report}, na_mask, frame.columns.tolist(), header_unit
+
     path = Path(file_path) if isinstance(file_path, str) else file_path
 
     # Try to use the registry for format detection
     try:
         registry = LoaderRegistry.get_instance()
         loader = registry.get_loader(path)
+        if path.suffix.lower() in {".parquet", ".pq"}:
+            params.pop("encoding", None)
         result = loader.load(
             path,
             header_unit=header_unit,
             data_type=data_type,
             **params,
         )
+        # This entrypoint aligns files positionally. Stored DataFrame index
+        # labels (e.g. in Parquet) must not accidentally become join keys.
+        if result.data is not None:
+            if result.report.get("na_handling", {}).get("strategy") == "remove_sample" and result.na_mask is not None:
+                result.data = result.data.copy()
+                result.data.index = np.flatnonzero(~result.na_mask.to_numpy(dtype=bool))
+            else:
+                result.data = result.data.reset_index(drop=True)
         return (
             result.data,
             result.report,
@@ -125,7 +154,7 @@ def _load_file_with_registry(
             # If CSV also fails, re-raise the original error
             raise e from None
 
-def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | None, y_filter: Any, y_params: dict[str, Any], m_path: str | None = None, m_filter: Any = None, m_params: dict[str, Any] | None = None) -> tuple[np.ndarray, np.ndarray, Any, list[str], list[str], str, SignalType | None]:
+def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | None, y_filter: Any, y_params: dict[str, Any], m_path: str | None = None, m_filter: Any = None, m_params: dict[str, Any] | None = None, *, row_info: dict[str, Any] | None = None) -> tuple[np.ndarray, np.ndarray, Any, list[str], list[str], str, SignalType | None]:
     """
     Load X, Y, and metadata from single paths. For multi-source, this will be called multiple times.
 
@@ -142,6 +171,7 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
     - m_path (str): Path to metadata file (can be None).
     - m_filter: Filter to apply to metadata (not implemented yet).
     - m_params (dict): Parameters for loading metadata.
+    - row_info (dict): Optional output for original row count and retained indices.
 
     Returns:
     - tuple: (x, y, m, x_headers, m_headers, x_header_unit, x_signal_type) where:
@@ -156,6 +186,7 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
     if x_path is None:
         raise ValueError("Invalid x definition: x_path is None")
 
+    x_params = x_params.copy()
     # Set default parameters
     if 'categorical_mode' not in x_params:
         x_params['categorical_mode'] = 'auto'
@@ -184,6 +215,8 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
     if x_filter is not None:
         raise NotImplementedError("Auto-filtering not implemented yet")
 
+    initial_rows = x_report["initial_shape"][0]
+
     # Load Y data
     if y_path is None and y_filter is None:
         # No Y data to extract - create empty Y array with same number of rows as X
@@ -211,6 +244,13 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
             y_df, y_report, y_na_mask, _, _ = _load_file_with_registry(y_path, **y_params_copy)
             if y_report.get("error") is not None or y_df is None:
                 raise ValueError(f"Failed to load Y data from {y_path}: {y_report.get('error', 'Unknown error')}")
+            if initial_rows != y_report["initial_shape"][0]:
+                raise ValueError(f"Row count mismatch: X({initial_rows}) Y({y_report['initial_shape'][0]})")
+            # Targets fits one encoder on original training labels and reuses
+            # it for held-out labels, instead of retaining file-local codes.
+            for column, info in y_report.get("categorical_info", {}).items():
+                if column in y_df:
+                    y_df[column] = y_df[column].map(dict(enumerate(info["categories"])))
         except Exception as e:
             raise ValueError(f"Error loading Y data from {y_path}: {str(e)}") from e
 
@@ -220,10 +260,6 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
             if y_df.shape[1] <= max(y_filter):
                 raise ValueError(f"Y filter indices {y_filter} exceed Y columns ({y_df.shape[1]})")
             y_df = y_df.iloc[:, y_filter]
-
-    # Ensure same number of rows (only check if Y has data)
-    if not y_df.empty and x_df.shape[0] != y_df.shape[0]:
-        raise ValueError(f"Row count mismatch: X({x_df.shape[0]}) Y({y_df.shape[0]})")
 
     # Load metadata if provided
     m_df = pd.DataFrame()
@@ -237,32 +273,12 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
                 m_params_copy['categorical_mode'] = 'preserve'  # Keep original types for metadata
             if 'data_type' not in m_params_copy:
                 m_params_copy['data_type'] = 'metadata'
-            # Metadata must never abort on NAs — we want to keep all rows even if
-            # some columns have missing values. Override any inherited na_policy.
-            m_params_copy['na_policy'] = 'ignore'
+            # Metadata permits missing values by default, but participates in
+            # joint row removal when that policy is explicitly requested.
+            if m_params_copy.get('na_policy') != 'remove_sample':
+                m_params_copy['na_policy'] = 'ignore'
 
-            m_df_temp, m_report, m_na_mask, m_headers, _ = _load_file_with_registry(m_path, **m_params_copy)
-
-            # For metadata, we want to keep ALL rows including those with NAs
-            # So we reload the data without NA row removal if rows were removed
-            if len(m_report.get('na_handling', {}).get('removed_samples', [])) > 0:
-                # Rows were removed - reload with explicit na_filter=False to keep everything
-                m_params_no_na_removal = m_params_copy.copy()
-                # We can't directly disable NA removal in load_csv, so we use pandas directly
-                import csv
-                read_csv_kwargs = {
-                    'sep': m_report['delimiter'],
-                    'decimal': m_report['decimal_separator'],
-                    'header': 0 if m_report['has_header'] else None,
-                    'na_filter': True,  # Still detect NAs but don't remove them
-                    'keep_default_na': True,
-                    'engine': 'python',
-                }
-                m_df = pd.read_csv(m_path, **read_csv_kwargs)
-                m_df.columns = m_df.columns.astype(str)
-                m_headers = m_df.columns.tolist()
-            else:
-                m_df = m_df_temp
+            m_df, m_report, m_na_mask, m_headers, _ = _load_file_with_registry(m_path, **m_params_copy)
 
             if m_report.get("error") is not None or m_df is None:
                 raise ValueError(f"Failed to load metadata from {m_path}: {m_report.get('error', 'Unknown error')}")
@@ -272,9 +288,19 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
         if m_filter is not None:
             raise NotImplementedError("Metadata filtering not implemented yet")
 
-        # Ensure metadata has same number of rows as X
-        if not m_df.empty and x_df.shape[0] != m_df.shape[0]:
-            raise ValueError(f"Row count mismatch: X({x_df.shape[0]}) Metadata({m_df.shape[0]})")
+        if initial_rows != m_report["initial_shape"][0]:
+            raise ValueError(f"Row count mismatch: X({initial_rows}) Metadata({m_report['initial_shape'][0]})")
+
+    # Retain original row identity after independent NA removal. Pair only
+    # rows present in every frame, in the original spectrum order.
+    common_rows = x_df.index.intersection(y_df.index, sort=False)
+    if m_path is not None:
+        common_rows = common_rows.intersection(m_df.index, sort=False)
+        m_df = m_df.loc[common_rows]
+    x_df = x_df.loc[common_rows]
+    y_df = y_df.loc[common_rows]
+    if row_info is not None:
+        row_info.update(initial_rows=initial_rows, indices=common_rows)
 
     # Update x_headers after potential column removal (if Y was extracted from X)
     x_headers = x_df.columns.tolist()
@@ -282,7 +308,7 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
     # Convert to numpy arrays
     try:
         x = x_df.astype(np.float32).values if not x_df.empty else np.empty((0, x_df.shape[1]), dtype=np.float32)
-        y = y_df.values if not y_df.empty else np.empty((x_df.shape[0], 0))  # Match X rows but 0 columns
+        y = y_df.values
         # Keep metadata as DataFrame (don't convert to numeric)
         m = m_df if not m_df.empty else None
     except Exception as e:
@@ -290,7 +316,7 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
 
     return x, y, m, x_headers, m_headers, x_unit, x_signal_type
 
-def _audit_multisource_lengths(config: dict[str, Any], x_arrays: list[np.ndarray]) -> None:
+def _audit_multisource_lengths(config: dict[str, Any], x_arrays: list[np.ndarray], *, original_lengths: list[int] | None = None) -> None:
     """Reject heterogeneous multi-source feature blocks loaded positionally.
 
     Compares the row count of every loaded source. Equal counts pass through
@@ -301,10 +327,11 @@ def _audit_multisource_lengths(config: dict[str, Any], x_arrays: list[np.ndarray
     Args:
         config: The dataset configuration dict (carries ``_sources`` / link_by).
         x_arrays: The per-source loaded feature arrays.
+        original_lengths: Row counts before NA removal, when available.
     """
     from nirs4all.data.relations import audit_source_lengths, parse_relation_config
 
-    lengths = [int(arr.shape[0]) for arr in x_arrays if hasattr(arr, "shape") and arr.ndim >= 1]
+    lengths = original_lengths if original_lengths is not None else [int(arr.shape[0]) for arr in x_arrays if hasattr(arr, "shape") and arr.ndim >= 1]
     if len(lengths) <= 1:
         return
 
@@ -431,6 +458,42 @@ def _reject_unloadable_relation_config(config: dict[str, Any]) -> None:
     )
 
 
+
+def _reject_unsupported_positional_options(config: dict[str, Any]) -> None:
+    """Reject declarations this loader cannot execute, before caching or mutation.
+
+    Config folds are not materialized here; callers may set validated folds on
+    a loaded SpectroDataset, or use a pipeline splitter/FoldFileLoader.
+    Key joins remain available through the explicit relation materialization API.
+    """
+    if config.get("folds") is not None:
+        raise ValueError("Dataset-config folds are not supported by the positional loader. Use dataset.set_folds() after loading, or a pipeline splitter/FoldFileLoader.")
+    for key in ("shared_targets", "shared_metadata", "targets", "metadata"):
+        definitions = config.get(key)
+        if not definitions:
+            continue
+        definitions = definitions if isinstance(definitions, list) else [definitions]
+        partitions: set[str] = set()
+        for definition in definitions:
+            if not isinstance(definition, dict):
+                continue
+            for option in ("columns", "rows", "link_by"):
+                if definition.get(option) is not None:
+                    raise ValueError(f"{key}.{option} is not supported by the positional dataset loader. Use explicit inputs or the relation materialization API.")
+            for partition in ([definition["partition"]] if definition.get("partition") else ["train", "test"]):
+                if partition in partitions:
+                    raise ValueError(f"Multiple {key} files for partition '{partition}' are not supported by the positional dataset loader")
+                partitions.add(partition)
+    for key in ("_sources", "sources", "_variations", "variations", "files"):
+        for definition in config.get(key) or []:
+            if not isinstance(definition, dict):
+                continue
+            for item in [definition, *(definition.get("files") or [])]:
+                if isinstance(item, dict):
+                    for option in ("columns", "rows", "link_by"):
+                        if item.get(option) is not None:
+                            raise ValueError(f"{key}.{option} is not supported by the positional dataset loader. Use the relation materialization API for key joins.")
+
 def handle_data(config, t_set):
     """
     Handle data loading for a given dataset type (train, test).
@@ -459,6 +522,7 @@ def handle_data(config, t_set):
     # Experimental source-aware relation configs are not loadable by the legacy
     # positional loader; fail loudly instead of returning an empty dataset.
     _reject_unloadable_relation_config(config)
+    _reject_unsupported_positional_options(config)
 
     # Get effective global params (includes root-level loading params)
     effective_global_params = _get_effective_global_params(config)
@@ -468,44 +532,22 @@ def handle_data(config, t_set):
     y_path = config.get(f'{t_set}_y')
     m_path = config.get(f'{t_set}_group')  # Metadata uses 'group' key
 
-    # Check if we already have numpy arrays (not file paths)
-    if isinstance(x_path, np.ndarray):
-        # Data is already loaded as numpy arrays
-        x_array = x_path
-        y_array = y_path if isinstance(y_path, np.ndarray) else None
-        m_data = m_path if isinstance(m_path, (pd.DataFrame, np.ndarray)) else None
-
-        # Generate simple headers
-        x_headers = [f"feature_{i}" for i in range(x_array.shape[1] if x_array.ndim > 1 else 1)] if isinstance(x_array, np.ndarray) else []
-
-        m_headers = []
-        if isinstance(m_data, pd.DataFrame):
-            m_headers = list(m_data.columns)
-        elif isinstance(m_data, np.ndarray) and m_data.ndim > 1:
-            m_headers = [f"meta_{i}" for i in range(m_data.shape[1])]
-
-        # For pre-loaded arrays, use defaults or config values
-        from nirs4all.data._features import HeaderUnit
-        x_header_unit = HeaderUnit.WAVENUMBER.value
-
-        # Check for signal_type in config params for pre-loaded arrays
-        x_params = config.get(f'{t_set}_x_params') or effective_global_params or {}
-        x_signal_type = None
-        if 'signal_type' in x_params:
-            x_signal_type = normalize_signal_type(x_params['signal_type'])
-
-        return x_array, y_array, m_data, x_headers, m_headers, x_header_unit, x_signal_type
-
     x_filter = config.get(f'{t_set}_x_filter')
     y_filter = config.get(f'{t_set}_y_filter')
     m_filter = config.get(f'{t_set}_group_filter')
 
     # Handle multi-source X data
     if isinstance(x_path, list):
+        if not x_path:
+            raise ValueError("Feature sources must be a nonempty list")
+        declared_params = config.get(f'{t_set}_x_params')
+        if isinstance(declared_params, list) and len(declared_params) != len(x_path):
+            raise ValueError("Per-source parameter count must match feature source count")
         x_arrays = []
         headers_arrays = []
         header_units = []
         signal_types = []
+        source_rows: list[dict[str, Any]] = []
         y_array = None
         m_data = None
         m_headers = []
@@ -545,25 +587,27 @@ def handle_data(config, t_set):
             m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), effective_global_params)
 
             try:
+                row_info: dict[str, Any] = {}
                 # For multi-source, only the first source should handle Y and metadata extraction
                 if i == 0:
                     x_single, y_array, m_data, x_headers, m_headers, x_unit, x_sig_type = load_XY(
                         single_x_path, x_filter, source_x_params,
                         y_path, y_filter, y_params,
-                        m_path, m_filter, m_params
+                        m_path, m_filter, m_params, row_info=row_info
                     )
                 else:
                     # For additional sources, don't extract Y or metadata
                     x_single, _, _, x_headers, _, x_unit, x_sig_type = load_XY(
                         single_x_path, x_filter, source_x_params,
                         None, None, y_params,
-                        None, None, None
+                        None, None, None, row_info=row_info
                     )
 
                 x_arrays.append(x_single)
                 headers_arrays.append(x_headers)
                 header_units.append(x_unit)
                 signal_types.append(x_sig_type)
+                source_rows.append(row_info)
             except Exception as e:
                 raise ValueError(f"Error loading X source {i} from {single_x_path}: {str(e)}") from e
 
@@ -572,7 +616,20 @@ def handle_data(config, t_set):
         # same number of rows. Heterogeneous repetitions (e.g. MIR=2N/RAMAN=3N)
         # must be joined via a declared relation plan (experimental, phase N3),
         # not loaded by accident as positionally-aligned sources.
-        _audit_multisource_lengths(config, x_arrays)
+        # Original lengths must agree before NA filtering. Then remove the
+        # union of missing rows from every source and shared targets/metadata.
+        _audit_multisource_lengths(config, x_arrays, original_lengths=[rows["initial_rows"] for rows in source_rows])
+        common_rows = source_rows[0]["indices"]
+        for rows in source_rows[1:]:
+            common_rows = common_rows.intersection(rows["indices"], sort=False)
+        for i, rows in enumerate(source_rows):
+            positions = rows["indices"].get_indexer(common_rows)
+            x_arrays[i] = x_arrays[i][positions]
+            if i == 0:
+                if y_array is not None:
+                    y_array = y_array[positions]
+                if m_data is not None:
+                    m_data = m_data.iloc[positions]
 
         return x_arrays, y_array, m_data, headers_arrays, m_headers, header_units, signal_types
     else:

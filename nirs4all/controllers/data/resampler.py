@@ -187,7 +187,7 @@ class ResamplerController(OperatorController):
 
         n_sources = len(train_data)
         fitted_resamplers = []
-        transformed_features_list = []
+        transformed_features_list: list[list[np.ndarray]] = []
         new_processing_names = []
         processing_names = []
         new_headers_list = []
@@ -212,7 +212,7 @@ class ResamplerController(OperatorController):
             source_transformed_features = []
             source_new_processing_names = []
             source_processing_names = []
-            source_resamplers = []  # Track resamplers to determine final wavelengths
+            source_resamplers: list[Resampler] = []  # Track resamplers to determine final wavelengths
 
             # Loop through each processing in the 3D data (samples, processings, features)
             for processing_idx in range(train_x.shape[1]):
@@ -224,7 +224,7 @@ class ResamplerController(OperatorController):
                 train_2d = train_x[:, processing_idx, :]  # Training data
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
-                new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
+                new_operator_name = f"{operator_name}_{sd_idx}_{processing_idx}"
 
                 if mode == "predict" or mode == "explain":
                     resampler = None
@@ -239,9 +239,18 @@ class ResamplerController(OperatorController):
                         )
                         # Find artifact by name matching
                         for artifact_id, obj in step_artifacts:
-                            if new_operator_name in artifact_id:
+                            if new_operator_name == artifact_id:
                                 resampler = obj
                                 break
+                        if resampler is None:
+                            # Older tuple producers named objects with a mutable
+                            # operation counter. Preserve their ordered replay.
+                            candidates = [obj for _, obj in step_artifacts if isinstance(obj, type(op))]
+                            local_index = len(source_resamplers)
+                            legacy_index = sum(len(values) for values in transformed_features_list) + local_index
+                            artifact_index = legacy_index if len(candidates) > train_x.shape[1] else local_index
+                            if artifact_index < len(candidates):
+                                resampler = candidates[artifact_index]
 
                     if resampler is None:
                         raise ValueError(
@@ -277,7 +286,7 @@ class ResamplerController(OperatorController):
             final_wavelengths = original_wavelengths if target_wavelengths is None else target_wavelengths
             for resampler in source_resamplers:
                 if hasattr(resampler, 'interpolator_params_') and resampler.interpolator_params_ is not None:
-                    final_wavelengths = resampler.interpolator_params_['target_wavelengths']
+                    final_wavelengths = np.asarray(resampler.interpolator_params_['target_wavelengths'])
                     break
 
             new_headers = [f"{wl:.2f}" for wl in final_wavelengths]
@@ -292,6 +301,8 @@ class ResamplerController(OperatorController):
         for sd_idx, (source_features, src_new_processing_names, new_headers) in enumerate(
             zip(transformed_features_list, new_processing_names, new_headers_list, strict=False)
         ):
+            if not source_features:
+                continue
             # Replace features first (resampling changes the wavelength grid)
             # Note: When feature count changes, the dataset system will handle it properly
             dataset.replace_features(

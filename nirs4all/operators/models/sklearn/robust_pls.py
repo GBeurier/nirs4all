@@ -237,6 +237,20 @@ def _weighted_simpls_fit(
 
     return T, U, W, P, Q, R, B
 
+def _weighted_location_scale(values, sample_weights, center, scale):
+    """Weighted location and sample variance for IRLS preprocessing."""
+    weighted_mean = np.average(values, axis=0, weights=sample_weights)
+    mean = weighted_mean if center else np.zeros(values.shape[1])
+    std = np.ones(values.shape[1])
+    if scale:
+        normalized = sample_weights / sample_weights.sum()
+        correction = max(1.0 - np.sum(normalized ** 2), 1e-10)
+        variance = np.average((values - weighted_mean) ** 2, axis=0, weights=sample_weights) / correction
+        std = np.sqrt(variance)
+        std = np.where(std < 1e-10, 1.0, std)
+    return mean, std
+
+
 def _compute_irls_weights(
     X: NDArray[np.floating],
     Y: NDArray[np.floating],
@@ -245,6 +259,8 @@ def _compute_irls_weights(
     max_iter: int = 100,
     tol: float = 1e-6,
     c: float | None = None,
+    center: bool = True,
+    scale: bool = True,
 ) -> NDArray[np.floating]:
     """Compute IRLS sample weights for Robust PLS.
 
@@ -287,9 +303,13 @@ def _compute_irls_weights(
     prev_weights = sample_weights.copy()
 
     for _ in range(max_iter):
+        x_mean, x_std = _weighted_location_scale(X, sample_weights, center, scale)
+        y_mean, y_std = _weighted_location_scale(Y, sample_weights, center, scale)
+        X_centered = (X - x_mean) / x_std
+        Y_centered = (Y - y_mean) / y_std
         # Fit weighted SIMPLS
         _, _, W_mat, P_mat, Q_mat, _, _ = _weighted_simpls_fit(
-            X, Y, n_components, sample_weights
+            X_centered, Y_centered, n_components, sample_weights
         )
 
         # Compute regression coefficients
@@ -302,17 +322,17 @@ def _compute_irls_weights(
         B_current = R @ Q_mat.T  # (n_features, n_targets)
 
         # Compute residuals
-        Y_pred = X @ B_current
-        residuals = Y - Y_pred  # (n_samples, n_targets)
+        Y_pred = X_centered @ B_current
+        residuals = Y_centered - Y_pred  # (n_samples, n_targets)
 
         # Compute combined residuals (handle multivariate Y)
         res_combined = np.sqrt(np.sum(residuals ** 2, axis=1)) if n_targets > 1 else residuals.ravel()
 
         # Robust scale estimate
-        scale = _mad_scale(res_combined)
+        residual_scale = _mad_scale(res_combined)
 
         # Standardize residuals
-        std_residuals = res_combined / scale
+        std_residuals = res_combined / residual_scale
 
         # Compute new weights
         sample_weights = weight_func(std_residuals, c)
@@ -495,7 +515,7 @@ def _get_cached_jax_robust_pls():
 # RobustPLS Estimator Class
 # =============================================================================
 
-class RobustPLS(BaseEstimator, RegressorMixin):
+class RobustPLS(RegressorMixin, BaseEstimator):
     """Robust Partial Least Squares (Robust PLS) regressor.
 
     Robust PLS uses iteratively reweighted least squares (IRLS) to down-weight
@@ -702,27 +722,6 @@ class RobustPLS(BaseEstimator, RegressorMixin):
         max_components = min(n_samples - 1, n_features, n_samples)
         self.n_components_ = min(self.n_components, max_components)
 
-        # Center and scale
-        if self.center:
-            self.x_mean_ = X.mean(axis=0)
-            self.y_mean_ = y.mean(axis=0)
-        else:
-            self.x_mean_ = np.zeros(n_features, dtype=np.float64)
-            self.y_mean_ = np.zeros(n_targets, dtype=np.float64)
-
-        if self.scale:
-            self.x_std_ = X.std(axis=0, ddof=1)
-            self.y_std_ = y.std(axis=0, ddof=1)
-            # Avoid division by zero
-            self.x_std_ = np.where(self.x_std_ < 1e-10, 1.0, self.x_std_)
-            self.y_std_ = np.where(self.y_std_ < 1e-10, 1.0, self.y_std_)
-        else:
-            self.x_std_ = np.ones(n_features, dtype=np.float64)
-            self.y_std_ = np.ones(n_targets, dtype=np.float64)
-
-        X_centered = (X - self.x_mean_) / self.x_std_
-        Y_centered = (y - self.y_mean_) / self.y_std_
-
         # Set tuning constant
         c = self.c
         if c is None:
@@ -731,9 +730,13 @@ class RobustPLS(BaseEstimator, RegressorMixin):
         # Step 1: Compute IRLS weights using NumPy (always)
         # This ensures identical weights regardless of backend
         self.sample_weights_ = _compute_irls_weights(
-            X_centered, Y_centered, self.n_components_,
-            self.weighting, self.max_iter, self.tol, c
+            X, y, self.n_components_,
+            self.weighting, self.max_iter, self.tol, c, center=self.center, scale=self.scale
         )
+        self.x_mean_, self.x_std_ = _weighted_location_scale(X, self.sample_weights_, self.center, self.scale)
+        self.y_mean_, self.y_std_ = _weighted_location_scale(y, self.sample_weights_, self.center, self.scale)
+        X_centered = (X - self.x_mean_) / self.x_std_
+        Y_centered = (y - self.y_mean_) / self.y_std_
 
         # Step 2: Final fit with converged weights using selected backend
         if self.backend == 'jax':
@@ -916,8 +919,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
         self : RobustPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

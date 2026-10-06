@@ -38,7 +38,9 @@ class ToAbsorbance(TransformerMixin, BaseEstimator):
     epsilon : float, default=1e-10
         Small value to add to avoid log(0)
     clip_negative : bool, default=True
-        If True, clips negative values to epsilon before log transform
+        If True, clips values below epsilon before log transform.
+        If False, non-positive input raises ValueError and positive values
+        are transformed without clipping.
 
     Attributes
     ----------
@@ -89,6 +91,8 @@ class ToAbsorbance(TransformerMixin, BaseEstimator):
         -------
         self
         """
+        if not np.isfinite(self.epsilon) or self.epsilon <= 0:
+            raise ValueError("epsilon must be finite and positive")
         self.source_type_ = normalize_signal_type(self.source_type)
 
         # Validate source type
@@ -126,7 +130,10 @@ class ToAbsorbance(TransformerMixin, BaseEstimator):
             X = X / 100.0
 
         # Handle edge cases
-        X = np.clip(X, self.epsilon, None) if self.clip_negative else np.maximum(X, self.epsilon)
+        if self.clip_negative:
+            X = np.clip(X, self.epsilon, None)
+        elif np.any(X <= 0):
+            raise ValueError("Non-positive reflectance/transmittance requires clip_negative=True")
 
         # Apply log transform: A = -log10(X) = log10(1/X)
         A = -np.log10(X)

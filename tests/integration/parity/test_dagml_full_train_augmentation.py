@@ -841,12 +841,18 @@ def test_augmentation_with_by_metadata_separation_matches_group_oracle(tmp_path,
             result = nirs4all.run(pipeline, configs, engine="dag-ml", save_artifacts=False)
 
     dataset = configs.get_dataset_at(0)
+    original_ids = [int(value) for value in dataset.index_column("sample", {})]
+    original_groups = dict(zip(original_ids, dataset.metadata_column("group", {}, include_augmented=False), strict=True))
     _apply_sample_augmentation(augmentation, dataset)
     samples = [int(value) for value in dataset.index_column("sample", {})]
     origins = [int(value) for value in dataset.index_column("origin", {})]
     base = [sample for sample, origin in zip(samples, origins, strict=True) if sample == origin]
-    base_group = dict(zip(base, dataset.metadata_column("group", {}), strict=True))
+    assert base == original_ids, "augmentation must preserve the physical base sample IDs"
+    base_group = dict(zip(base, dataset.metadata_column("group", {"sample": base}, include_augmented=False), strict=True))
+    assert base_group == original_groups
     group_of = {sample: base_group[origin] for sample, origin in zip(samples, origins, strict=True)}
+    assert len(samples) > len(base), "the group oracle must exercise synthetic children"
+    np.testing.assert_array_equal(dataset.metadata_column("group", {}), [group_of[sample] for sample in samples])
     train = [int(value) for value in dataset.index_column("sample", {"partition": "train"})]
     test = [int(value) for value in dataset.index_column("sample", {"partition": "test"})]
     predictions: dict[int, float] = {}

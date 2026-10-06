@@ -4,9 +4,10 @@ See pls.py for full documentation and usage examples.
 """
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_is_fitted
 
 
-class DiPLS(BaseEstimator, RegressorMixin):
+class DiPLS(RegressorMixin, BaseEstimator):
     """Dynamic PLS (DiPLS) regressor.
 
     DiPLS extends PLS to handle dynamic systems by including time-lagged
@@ -166,6 +167,7 @@ class DiPLS(BaseEstimator, RegressorMixin):
         input samples. This implementation pads the beginning with the first
         predicted value to maintain compatibility with sklearn cross-validation.
         """
+        check_is_fitted(self, ['_model'])
         X = np.asarray(X)
         n_samples = X.shape[0]
 
@@ -224,6 +226,5 @@ class DiPLS(BaseEstimator, RegressorMixin):
         self : DiPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self

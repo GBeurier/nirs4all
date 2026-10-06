@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-10-06
+
+### Added
+
+- Expose the local public experiment, native tuning and portable predictor
+  helpers through the Python API and results/tuning/workflow CLI commands.
+- Record the reviewed October bug audit and reproducible regression witnesses.
+
+### Changed
+
+- Require DAG-ML 0.3.37, DAG-ML Data 0.2.13, IO 0.2.5 and Core 0.4.2;
+  retain Methods/pls4all 1.3.2 and ABI 2.17. Declare feature-block and target
+  ports explicitly for the stricter DAG planner.
+- Reject dataset declarations whose folds, selectors or variation modes would
+  otherwise be silently ignored. Preserve explicitly supported parser modes.
+
+### Fixed
+
+- Preserve model selection identity, finite optimization scores, scoring
+  direction, refit scopes and stable sample identities across data filtering.
+- Fit supervised legacy preprocessing within each CV and tuning split and
+  retain fitted preprocessing for workspace and bundle replay.
+- Repair dataset/schema alignment, target and metadata selections, source
+  dimensions, parsing controls and cache configuration propagation.
+- Make workspace transactions, artifact publication and conformal bundle
+  replacement preserve existing data when an operation fails.
+- Correct scientific preprocessing and PLS/AOM projections, numerical
+  references, sklearn estimator contracts and optional neural builders.
+- Replay DAG preprocessing in sklearn inference adapters; preserve generator
+  syntax and cardinality, logging rotation and read-only workspace inspection.
+- Keep visualization populations, stored metric directions, branch statistics
+  and transfer diagnostics consistent with their documented contracts.
+- Isolate parallel branch artifact and trace coordinators, then collect their
+  results deterministically for CV, refit and fitted prediction replay.
+- Marshal mixed metadata losslessly at the public Methods boundary while
+  preserving captured source schemas and fixed-width mismatch refusals.
+- Prepare declared Torch runtimes before framework seeding and preserve
+  constructor seed order for cold training and fitted archive replay.
+- Refuse unsupported legacy multi-target prediction joins before mutation,
+  retaining scalar regression and classification probability contracts.
+- Retain final fitted meta-model artifacts through workspace cleanup and
+  refuse incomplete stacking exports before replacing existing files.
+
 ## [1.4.0] — 2026-10-04
 
 ### Added

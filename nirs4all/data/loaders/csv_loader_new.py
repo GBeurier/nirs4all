@@ -365,13 +365,13 @@ class CSVLoader(FileLoader):
                 "na_values": ["NA", "N/A", ""],
                 "keep_default_na": True,
                 "engine": "python",
-                "skip_blank_lines": True,
+                "skip_blank_lines": False,
                 "quoting": csv.QUOTE_MINIMAL,
             }
 
             # Add user-provided read_csv args
             for k, v in user_params.items():
-                if k not in ["delimiter", "decimal_separator", "has_header"]:
+                if k not in ["delimiter", "decimal_separator", "has_header", "signal_type"]:
                     read_csv_kwargs[k] = v
 
             try:
@@ -389,6 +389,11 @@ class CSVLoader(FileLoader):
 
             # Ensure column names are strings
             data.columns = data.columns.astype(str)
+            if data_type == "x" and header_unit in {"cm-1", "nm"} and decimal_sep != ".":
+                headers = [h.replace(decimal_sep, ".") if _can_be_float(h, decimal_sep) else h for h in data.columns]
+                if len(set(headers)) != len(headers):
+                    raise ValueError("Spectral headers collide after decimal-separator normalization")
+                data.columns = headers
             report["shape_after_all_na_col_removal"] = data.shape
 
             if data.empty:
@@ -422,8 +427,8 @@ class CSVLoader(FileLoader):
                                     f"Column '{col}' detected as categorical but has a numeric header"
                                 )
 
-                            codes, categories = pd.factorize(original_col_series.astype(str))
-                            data[col] = codes
+                            codes, categories = pd.factorize(original_col_series)
+                            data[col] = pd.Series(codes, index=data.index).where(original_col_series.notna(), np.nan)
                             local_categorical_mappings[col] = {"categories": categories.tolist()}
                         else:
                             data[col] = numeric_representation
@@ -441,6 +446,8 @@ class CSVLoader(FileLoader):
             na_mask_before = data.isna().any(axis=1)
 
             try:
+                if isinstance(na_fill_config, dict):
+                    na_fill_config = NAFillConfig(**na_fill_config)
                 data, na_report = apply_na_policy(data, na_policy, na_fill_config)
             except NAError:
                 # For abort policy, set error in report and return

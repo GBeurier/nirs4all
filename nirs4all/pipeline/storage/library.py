@@ -72,11 +72,11 @@ class PipelineLibrary:
             raise ValueError(f"Invalid template name: {name}")
 
         # Create category directory
-        category_path = self.library_path / category
+        category_path = self._category_path(category)
         category_path.mkdir(exist_ok=True)
 
         # Create template directory
-        template_path = category_path / safe_name
+        template_path = self._template_path(category_path, safe_name)
         if template_path.exists() and not overwrite:
             raise FileExistsError(
                 f"Template '{name}' already exists in category '{category}'. "
@@ -181,17 +181,18 @@ class PipelineLibrary:
         templates = []
 
         # Determine which categories to search
-        categories = [category] if category else [d.name for d in self.library_path.iterdir() if d.is_dir()]
+        categories = [category] if category is not None else [d.name for d in self.library_path.iterdir() if d.is_dir()]
 
         # Search each category
         for cat in categories:
-            cat_path = self.library_path / cat
+            cat_path = self._category_path(cat)
             if not cat_path.exists():
                 continue
 
             for template_dir in cat_path.iterdir():
                 if not template_dir.is_dir():
                     continue
+                template_dir = self._template_path(cat_path, template_dir.name)
 
                 metadata_file = template_dir / "metadata.json"
                 if not metadata_file.exists():
@@ -340,9 +341,9 @@ class PipelineLibrary:
         safe_name = self._sanitize_name(name)
 
         # Create destination
-        category_path = self.library_path / category
+        category_path = self._category_path(category)
         category_path.mkdir(exist_ok=True)
-        template_path = category_path / safe_name
+        template_path = self._template_path(category_path, safe_name)
 
         if template_path.exists() and not overwrite:
             raise FileExistsError(
@@ -363,8 +364,8 @@ class PipelineLibrary:
         safe_name = self._sanitize_name(name)
 
         # Search in specific category
-        if category:
-            template_path = self.library_path / category / safe_name
+        if category is not None:
+            template_path = self._template_path(self._category_path(category), safe_name)
             if template_path.exists():
                 return template_path
             return None
@@ -374,11 +375,27 @@ class PipelineLibrary:
             if not cat_dir.is_dir():
                 continue
 
-            template_path = cat_dir / safe_name
+            template_path = self._template_path(self._category_path(cat_dir.name), safe_name)
             if template_path.exists():
                 return template_path
 
         return None
+
+    def _category_path(self, category: str) -> Path:
+        """Validate a single category component and its resolved containment."""
+        if not category.strip() or category in {".", ".."} or any(char in category for char in ("/", "\\", "\0")) or Path(category).is_absolute():
+            raise ValueError(f"Invalid template category: {category!r}")
+        path = self.library_path / category
+        if not path.resolve().is_relative_to(self.library_path.resolve()):
+            raise ValueError(f"Template category escapes library: {category!r}")
+        return path
+
+    def _template_path(self, category_path: Path, safe_name: str) -> Path:
+        """Reject existing template symlinks that escape library storage."""
+        path = category_path / safe_name
+        if not path.resolve().is_relative_to(self.library_path.resolve()):
+            raise ValueError(f"Template path escapes library: {safe_name!r}")
+        return path
 
     def _sanitize_name(self, name: str) -> str:
         """Sanitize a template name for filesystem use.
@@ -389,6 +406,8 @@ class PipelineLibrary:
         Returns:
             Sanitized name safe for filesystem
         """
+        if not name.strip() or name in {".", ".."} or any(char in name for char in ("/", "\\", "\0")) or Path(name).is_absolute():
+            raise ValueError(f"Invalid template name: {name!r}")
         # Replace spaces with underscores
         safe_name = name.replace(' ', '_')
 
@@ -400,6 +419,8 @@ class PipelineLibrary:
         # Convert to lowercase for consistency
         safe_name = safe_name.lower()
 
+        if not safe_name or safe_name in {".", ".."}:
+            raise ValueError(f"Invalid template name: {name!r}")
         return safe_name
 
     def _generate_readme(

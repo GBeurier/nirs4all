@@ -128,6 +128,8 @@ def run_multimodal_tuning(pipeline: Any, cohort: Any, tuning: Any, *, run_option
     spec = parse_tuning_spec(controls)
     if "direction" not in controls:
         spec = replace(spec, direction="maximize" if is_higher_better(spec.metric) else "minimize")
+    elif spec.direction != ("maximize" if is_higher_better(spec.metric) else "minimize"):
+        raise ValueError("durable multimodal tuning direction must match the native metric objective")
     if spec.engine != "n4m":
         raise ValueError("durable multimodal tuning requires engine='n4m'")
     sampler = spec.sampler or "tpe"

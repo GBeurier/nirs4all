@@ -591,7 +591,8 @@ class BaseModelController(OperatorController, ABC):
         self,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        mode: str
+        mode: str,
+        include_augmented: bool = False,
     ) -> tuple[list[int], list[int]]:
         """Get sample IDs for train and test partitions.
 
@@ -610,7 +611,7 @@ class BaseModelController(OperatorController, ABC):
             # In predict mode, there's no train/test split - all data is "test"
             pred_context = context.with_partition(None)
             all_ids = dataset._indexer.x_indices(
-                pred_context.selector, include_augmented=False, include_excluded=False
+                pred_context.selector, include_augmented=include_augmented, include_excluded=False
             )
             return [], list(all_ids)
 
@@ -619,10 +620,10 @@ class BaseModelController(OperatorController, ABC):
         test_context = context.with_partition("test")
 
         train_sample_ids = dataset._indexer.x_indices(
-            train_context.selector, include_augmented=False, include_excluded=False
+            train_context.selector, include_augmented=include_augmented, include_excluded=False
         )
         test_sample_ids = dataset._indexer.x_indices(
-            test_context.selector, include_augmented=False, include_excluded=False
+            test_context.selector, include_augmented=include_augmented, include_excluded=False
         )
 
         # Check for sample partition filtering
@@ -699,6 +700,8 @@ class BaseModelController(OperatorController, ABC):
 
         # Get actual sample IDs for train and test partitions (for stacking/OOF reconstruction)
         train_sample_ids, test_sample_ids = self._get_partition_sample_indices(dataset, context, mode)
+        if len(train_sample_ids) != len(X_train) or len(test_sample_ids) != len(X_test):
+            train_sample_ids, test_sample_ids = self._get_partition_sample_indices(dataset, context, mode, include_augmented=True)
 
         # Convert fold sample IDs to positional indices
         # Folds now store absolute sample IDs, which remain valid even after sample filtering
@@ -1044,6 +1047,12 @@ class BaseModelController(OperatorController, ABC):
             List of ArtifactMeta objects for persisted models.
         """
 
+        plan = None if context.custom.get("meta_operator") is not None else context.custom.get("cv_preprocessing")
+        if plan is not None and plan.active and mode not in ("predict", "explain"):
+            layout = context.selector.layout or "2d"
+            X_train = plan.raw_features(train_sample_ids, layout)
+            X_test = plan.raw_features(test_sample_ids, layout)
+
         verbose = model_config.get('train_params', {}).get('verbose', 0)
         n_jobs = model_config.get('train_params', {}).get('n_jobs', 1)
 
@@ -1070,13 +1079,14 @@ class BaseModelController(OperatorController, ABC):
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
                 best_params, loaded_binaries, mode, test_sample_ids,
-                binaries, verbose, n_jobs
+                binaries, verbose, n_jobs, train_sample_ids=train_sample_ids
             )
         else:
             self._train_single_model(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled,
-                best_params, loaded_binaries, mode, test_sample_ids, binaries
+                best_params, loaded_binaries, mode, test_sample_ids, binaries,
+                train_sample_ids=train_sample_ids
             )
 
         return binaries
@@ -1147,7 +1157,7 @@ class BaseModelController(OperatorController, ABC):
         self, dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         best_params, loaded_binaries, mode, test_sample_ids,
-        binaries, verbose, n_jobs
+        binaries, verbose, n_jobs, train_sample_ids=None
     ):
         """Cross-validation training path of train().
 
@@ -1195,6 +1205,7 @@ class BaseModelController(OperatorController, ABC):
                 loaded_binaries, mode,
                 test_sample_ids,  # Added for proper test sample indexing
                 pipeline_folds_for_aom,
+                train_sample_ids,
             ))
 
         if verbose > 0:
@@ -1243,7 +1254,7 @@ class BaseModelController(OperatorController, ABC):
                 base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
                 folds_models, fold_val_indices, scores,
                 X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params,
-                test_sample_ids=test_sample_ids
+                test_sample_ids=test_sample_ids, train_sample_ids=train_sample_ids
             )
             # Collect ALL predictions (folds + averages) and add them in one shot with same weights
             all_fold_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
@@ -1253,7 +1264,7 @@ class BaseModelController(OperatorController, ABC):
     def _train_single_model(
         self, dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled,
-        best_params, loaded_binaries, mode, test_sample_ids, binaries
+        best_params, loaded_binaries, mode, test_sample_ids, binaries, train_sample_ids=None
     ):
         """No-folds training path of train(): use the test set as validation.
 
@@ -1270,7 +1281,7 @@ class BaseModelController(OperatorController, ABC):
             y_train_unscaled, y_test_unscaled, y_test_unscaled,
             best_params=best_params,
             loaded_binaries=loaded_binaries, mode=mode,
-            test_sample_ids=test_sample_ids
+            test_sample_ids=test_sample_ids, train_sample_ids=train_sample_ids
         )
         artifact = self._persist_model(
             runtime_context, model, model_id,
@@ -1389,7 +1400,7 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_val, y_val, X_test,
         y_train_unscaled, y_val_unscaled, y_test_unscaled,
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
-        loaded_binaries=None, mode="train", test_sample_ids=None, pipeline_folds=None):
+        loaded_binaries=None, mode="train", test_sample_ids=None, pipeline_folds=None, train_sample_ids=None):
         """Execute single model training or prediction.
 
         This refactored method uses modular components to handle:
@@ -1434,18 +1445,32 @@ class BaseModelController(OperatorController, ABC):
                 context, runtime_context, identifiers, fold_idx, mode
             )
         else:
+            plan = None if context.custom.get("meta_operator") is not None else context.custom.get("cv_preprocessing")
+            replay = None
+            fit_train, fit_val, fit_test = X_train, X_val, X_test
+            if plan is not None and plan.active:
+                from nirs4all.pipeline.execution.preprocessing import FoldPreprocessedModel
+
+                ids = np.asarray(train_sample_ids)
+                fold_ids = ids[train_indices] if train_indices is not None else ids
+                replay = plan.prepare_fold(dataset, context, fold_ids)
+                fit_train = replay.transform(X_train)
+                fit_val = replay.transform(X_val)
+                fit_test = replay.transform(X_test)
             trained_model = self._build_and_train_model(
                 dataset, model_config, context, runtime_context, identifiers,
-                X_train, y_train, X_val, y_val, X_test, best_params, train_indices,
+                fit_train, y_train, fit_val, y_val, fit_test, best_params, train_indices,
                 pipeline_folds=pipeline_folds,
             )
+            if replay is not None:
+                trained_model = FoldPreprocessedModel(trained_model, replay)
 
         # === 4-8. PREDICT, TRANSFORM, SCORE, ASSEMBLE ===
         return self._assemble_prediction_result(
             dataset, context, runtime_context, identifiers, trained_model,
             X_train, y_train, X_val, y_val, X_test,
             y_train_unscaled, y_val_unscaled, y_test_unscaled,
-            train_indices, val_indices, best_params, test_sample_ids
+            train_indices, val_indices, best_params, test_sample_ids, train_sample_ids
         )
 
     def _load_model_for_prediction(
@@ -1772,7 +1797,7 @@ class BaseModelController(OperatorController, ABC):
         self, dataset, context, runtime_context, identifiers, trained_model,
         X_train, y_train, X_val, y_val, X_test,
         y_train_unscaled, y_val_unscaled, y_test_unscaled,
-        train_indices, val_indices, best_params, test_sample_ids
+        train_indices, val_indices, best_params, test_sample_ids, train_sample_ids=None
     ):
         """Run predictions with ``trained_model`` and build the prediction record.
 
@@ -1856,6 +1881,13 @@ class BaseModelController(OperatorController, ABC):
             'val': self.index_normalizer.normalize(val_indices, n_samples['val']),
             'test': test_indices_normalized
         }
+        if train_sample_ids is not None:
+            sample_ids = np.asarray(train_sample_ids)
+            indices['train'] = sample_ids[indices['train']].tolist()
+            if val_indices is not None:
+                indices['val'] = sample_ids[indices['val']].tolist()
+            elif test_sample_ids is not None:
+                indices['val'] = list(test_sample_ids)[:n_samples['val']]
 
         # === 8. ASSEMBLE PREDICTION DATA ===
         scores_dict: dict[str, float | str | None] = {
@@ -1877,6 +1909,8 @@ class BaseModelController(OperatorController, ABC):
             best_params=best_params,
             context=context
         )
+        if train_sample_ids is not None:
+            prediction_data['partition_metadata'] = self._metadata_for_sample_ids(dataset, indices)
 
         # Add full scores to prediction data
         prediction_data['scores'] = full_scores
@@ -1888,6 +1922,19 @@ class BaseModelController(OperatorController, ABC):
             prediction_data["fit_influence_manifest"] = fit_influence_manifest
 
         return trained_model, identifiers.model_id, partition_scores.val, identifiers.name, prediction_data
+
+    def _metadata_for_sample_ids(self, dataset, partition_ids):
+        """Select metadata by stored sample identity, including augmented origins."""
+        result = {}
+        with contextlib.suppress(KeyError, AttributeError, ValueError, TypeError, IndexError):
+            for partition, sample_ids in partition_ids.items():
+                if not len(sample_ids):
+                    continue
+                origins = dataset._indexer.get_origins_for_samples(list(sample_ids))
+                metadata = dataset._metadata.get(origins)
+                if metadata is not None and len(metadata):
+                    result[partition] = {column: metadata[column].to_list() for column in metadata.columns}
+        return result
 
     def _should_capture_for_explanation(self, runtime_context, identifiers) -> bool:
         """Check if current model should be captured for SHAP explanation.
@@ -2078,7 +2125,7 @@ class BaseModelController(OperatorController, ABC):
         base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
         folds_models, fold_val_indices, scores,
         X_train, X_test, y_train_unscaled, y_test_unscaled,
-        mode="train", best_params=None, test_sample_ids=None
+        mode="train", best_params=None, test_sample_ids=None, train_sample_ids=None
     ) -> tuple[dict, dict]:
         """Create simple and weighted fold-averaged predictions.
 
@@ -2186,7 +2233,7 @@ class BaseModelController(OperatorController, ABC):
             dataset, runtime_context, context, base_model_name, model_classname,
             avg_preds, avg_scores, true_values, all_val_indices,
             "avg", best_params, mode, X_train.shape,
-            test_sample_ids=test_sample_ids
+            test_sample_ids=test_sample_ids, train_sample_ids=train_sample_ids
         )
         avg_predictions['scores'] = avg_full_scores
         avg_predictions['probabilities'] = avg_probs
@@ -2195,7 +2242,7 @@ class BaseModelController(OperatorController, ABC):
             dataset, runtime_context, context, base_model_name, model_classname,
             w_avg_preds, w_avg_scores, true_values, all_val_indices,
             "w_avg", best_params, mode, X_train.shape, weights,
-            test_sample_ids=test_sample_ids
+            test_sample_ids=test_sample_ids, train_sample_ids=train_sample_ids
         )
         w_avg_predictions['scores'] = w_avg_full_scores
         w_avg_predictions['probabilities'] = w_avg_probs
@@ -2517,7 +2564,7 @@ class BaseModelController(OperatorController, ABC):
 
     def _assemble_avg_prediction(self, dataset, runner, context, model_name, model_classname,
                                   predictions, scores, true_values, val_indices, fold_id, best_params, mode, X_shape, weights=None,
-                                  test_sample_ids=None):
+                                  test_sample_ids=None, train_sample_ids=None):
         """Assemble prediction dictionary for averaged model.
 
         Creates a complete prediction record with all metadata, scores, and partition data
@@ -2548,12 +2595,14 @@ class BaseModelController(OperatorController, ABC):
         # Build partitions with actual sample IDs (not range indices)
         # For test: use test_sample_ids if provided, otherwise fallback to range
         test_indices = test_sample_ids if test_sample_ids is not None else list(range(len(true_values['test'])))
+        train_ids = list(train_sample_ids) if train_sample_ids is not None else list(range(len(true_values['train'])))
+        val_ids = np.asarray(train_ids)[val_indices].tolist() if train_sample_ids is not None else val_indices.tolist()
 
         partitions = [
-            ("train", list(range(len(true_values['train']))), true_values['train'], predictions['train'])
+            ("train", train_ids, true_values['train'], predictions['train'])
         ]
         if mode not in ("predict", "explain"):
-            partitions.append(("val", val_indices.tolist(), true_values['val'], predictions['val']))
+            partitions.append(("val", val_ids, true_values['val'], predictions['val']))
         partitions.append(("test", test_indices, true_values['test'], predictions['test']))
 
         # Extract metadata for each partition
@@ -2602,6 +2651,9 @@ class BaseModelController(OperatorController, ABC):
                             partition_metadata[partition_name] = metadata_dict
                 except (KeyError, AttributeError, ValueError, TypeError, IndexError):
                     pass
+
+        if train_sample_ids is not None:
+            partition_metadata = self._metadata_for_sample_ids(dataset, {name: ids for name, ids, _, _ in partitions})
 
         # Get trace_id from runtime context (Phase 2)
         trace_id = runner.get_trace_id() if hasattr(runner, 'get_trace_id') else None
