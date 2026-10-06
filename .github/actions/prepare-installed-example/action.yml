@@ -1,5 +1,5 @@
 name: Prepare installed SDK archive replay
-description: Install the tag wheel and exact public upstreams in an isolated interpreter for mandatory U07 replay.
+description: Align the parent with exact public upstreams and install the tag wheel in an isolated interpreter for mandatory replay.
 
 runs:
   using: composite
@@ -15,4 +15,5 @@ runs:
         python -B "$GITHUB_ACTION_PATH/../../../scripts/prepare_installed_example_runtime.py" \
           --workspace "$GITHUB_WORKSPACE" \
           --output "$RUNNER_TEMP/nirs4all-installed-example" \
-          --github-env "$GITHUB_ENV"
+          --github-env "$GITHUB_ENV" \
+          --align-parent-public-upstreams

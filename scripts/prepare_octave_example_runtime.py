@@ -2,8 +2,10 @@
 """Prepare real U15 prerequisites after the candidate-native CI action.
 
 Uses released npm modules, the public Core crate and the pinned Methods/DAG
-checkouts. The existing DAG witness performs the fits and records its capture;
-this helper implements no models, fixture generator or archive protocol.
+checkouts. An isolated DAG tooling checkout supplies the Octave hydration fix;
+its production sources must match the qualified runtime. The existing DAG
+witness performs the fits and records its capture; this helper implements no
+models, fixture generator or archive protocol.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ from pathlib import Path
 
 METHODS_COMMIT = "dcc570b3647f77cf0428dd346078f442ed5cd032"
 DAG_COMMIT = "9095e5640c53b02dd91dc4de7a20d1a7d501bbdb"
+DAG_HELPER_COMMIT = "337522ee9627f48f54a51aa00120c4b85d733a8b"
+DAG_HELPER_PATHS = ("scripts/qualify_multimodal_methods_hpo_octave.py", "tests/test_octave_methods_role_adapter.py")
 CORE_VERSION = "0.4.2"
 NPM_PACKAGES = {"@nirs4all/methods": "1.3.2", "dag-ml-wasm": "0.3.37"}
 
@@ -62,12 +66,36 @@ def require_public_core_install(prefix: Path) -> Path:
     return binary.resolve(strict=True)
 
 
+def require_dag_helper(repo: Path) -> dict[str, object]:
+    """Allow exactly the pinned tooling fix, with every other Git blob unchanged."""
+    actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    dirty = subprocess.check_output(["git", "diff", "--name-only", "HEAD", "--"], cwd=repo, text=True).splitlines()
+    if actual != DAG_HELPER_COMMIT or dirty:
+        raise ValueError(f"U15 DAG helper source origin mismatch: expected clean {DAG_HELPER_COMMIT}, got {actual}; dirty={dirty}")
+    changes = subprocess.check_output(
+        ["git", "diff", "--name-status", "--no-renames", DAG_COMMIT, actual, "--"], cwd=repo, text=True,
+    ).splitlines()
+    if sorted(changes) != sorted(f"M\t{path}" for path in DAG_HELPER_PATHS):
+        raise ValueError(f"U15 DAG helper must change only the two declared tooling files: {changes}")
+    unchanged_trees = []
+    for commit in (DAG_COMMIT, actual):
+        tree = subprocess.check_output(["git", "ls-tree", "-r", "--full-tree", commit], cwd=repo)
+        unchanged_trees.append(b"\n".join(line for line in tree.splitlines() if line.split(b"\t", 1)[1].decode() not in DAG_HELPER_PATHS))
+    if unchanged_trees[0] != unchanged_trees[1]:
+        raise ValueError("U15 DAG helper production tree differs from the qualified runtime")
+    return {"dag_release_commit": DAG_COMMIT, "dag_helper_commit": DAG_HELPER_COMMIT, "dag_commit": actual,
+            "dag_helper_changed_paths": list(DAG_HELPER_PATHS), "dag_unchanged_tree_sha256": hashlib.sha256(unchanged_trees[0]).hexdigest(),
+            "dag_helper_artifacts": {path: sha256(repo / path) for path in DAG_HELPER_PATHS}}
+
+
 def prepare(args: argparse.Namespace) -> dict[str, object]:
     workspace = args.workspace.resolve(strict=True)
     methods = (args.methods_root or workspace / "nirs4all-methods-src").resolve(strict=True)
-    dag = (args.dag_root or workspace / "dag-ml-cli-src").resolve(strict=True)
+    dag = (args.dag_root or workspace / ".octave-example-dag-helper").resolve(strict=True)
     methods_head = require_commit(methods, METHODS_COMMIT)
-    dag_head = require_commit(dag, DAG_COMMIT)
+    dag_runtime = (workspace / "dag-ml-cli-src").resolve(strict=True)
+    dag_runtime_head = require_commit(dag_runtime, DAG_COMMIT)
+    dag_proof = require_dag_helper(dag)
     octave = args.octave.resolve(strict=True)
     if not os.access(octave, os.X_OK):
         raise ValueError("Octave must be an executable runtime")
@@ -78,7 +106,8 @@ def prepare(args: argparse.Namespace) -> dict[str, object]:
     commands: list[dict[str, object]] = []
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
     receipt: dict[str, object] = {"status": "RUNNING", "commands": commands, "methods_release_commit": METHODS_COMMIT,
-                               "methods_actual_commit": methods_head, "dag_commit": dag_head}
+                               "methods_actual_commit": methods_head, "dag_runtime_actual_commit": dag_runtime_head,
+                               "dag_runtime_root": str(dag_runtime), "dag_helper_root": str(dag), **dag_proof}
     try:
         library = args.library.resolve(strict=True) if args.library else methods / "build/dev-release/cpp/src/libn4m.so"
         generated = methods / "build/dev-release/generated"
@@ -142,7 +171,7 @@ def main() -> None:
     parser.add_argument("--github-env", type=Path)
     parser.add_argument("--core-prefix", type=Path, help="Reuse an exact existing Cargo registry installation during qualification")
     parser.add_argument("--methods-root", type=Path, help="Existing qualified Methods checkout (default: candidate-native layout)")
-    parser.add_argument("--dag-root", type=Path, help="Existing qualified DAG checkout (default: candidate-native layout)")
+    parser.add_argument("--dag-root", type=Path, help="Pinned tooling-only DAG checkout (default: .octave-example-dag-helper)")
     parser.add_argument("--library", type=Path, help="Matching released libn4m (default: candidate-native build)")
     print(json.dumps(prepare(parser.parse_args()), indent=2))
 

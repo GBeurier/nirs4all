@@ -89,6 +89,8 @@ class PipelineConfigs:
                 self.steps = [config for config, choices in expanded_with_choices]
                 self.generator_choices = [choices for config, choices in expanded_with_choices]
                 was_expanded = True
+            if not was_expanded or not self.steps:
+                raise ValueError("Generator expansion produced no pipeline configurations")
 
         if not was_expanded:
             self.steps = [self.steps]  # Wrap single configuration in a list

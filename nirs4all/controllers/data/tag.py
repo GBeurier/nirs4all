@@ -6,7 +6,7 @@ on samples without removing them. Tags can later be used for branching,
 analysis, or conditional processing.
 """
 
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import numpy as np
 
@@ -143,10 +143,10 @@ class TagController(OperatorController):
 
         # Get X and y data for samples
         selector = context.selector.with_augmented(include_augmented)
-        X_data = dataset.x(selector, layout="2d", concat_source=True)
+        X_data = dataset.x(selector, layout="2d", concat_source=True, include_augmented=include_augmented)
         assert isinstance(X_data, np.ndarray), "concat_source=True should return a single ndarray"
         X = X_data
-        y = dataset.y(selector)
+        y = dataset.y(selector, include_augmented=include_augmented)
 
         if y is not None:
             y = filter_targets(y)
@@ -164,8 +164,11 @@ class TagController(OperatorController):
                     if isinstance(loaded_filter, SampleFilter):
                         filter_obj = loaded_filter
                 else:
-                    # Fit the filter in training mode
-                    filter_obj.fit(X, y)
+                    # Learn from base training rows; apply the mask to the original selection.
+                    fit_selector = context.with_partition("train").selector.with_augmented(False) if mode == "train" else selector
+                    fit_y = dataset.y(fit_selector, include_augmented=fit_selector.include_augmented)
+                    filter_obj.fit(cast(np.ndarray, dataset.x(fit_selector, layout="2d", concat_source=True, include_augmented=fit_selector.include_augmented)),
+                                   filter_targets(fit_y) if fit_y is not None else None)
 
                 # Get the mask (True = keep = False for outlier tag)
                 if isinstance(filter_obj, MetadataFilter):

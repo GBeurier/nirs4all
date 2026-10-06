@@ -13,8 +13,9 @@ import venv
 import zipfile
 from email.parser import BytesParser
 from pathlib import Path
+from typing import Any
 
-SDK_VERSION = "1.4.1"
+SDK_VERSION = "1.4.2"
 UPSTREAMS = {"pls4all": "1.3.2", "nirs4all-methods": "1.3.2", "nirs4all-io": "0.2.5", "dag-ml": "0.3.37", "dag-ml-data": "0.2.13", "nirs4all-core": "0.4.2", "nirs4all-formats": "0.2.11"}
 PRODUCT_MODULES = {"nirs4all", "n4m", "pls4all", "dag_ml", "dag_ml_data", "nirs4all_io", "nirs4all_core", "nirs4all_formats"}
 INSTALLED_PYTHON_VARIABLES = (
@@ -77,6 +78,72 @@ def sdk_payload(path: Path, workspace: Path) -> dict[str, str]:
     if not members or "nirs4all/__init__.py" not in members:
         raise ValueError("SDK runtime payload absent")
     return members
+
+
+def public_binding_payloads(artifacts: dict[str, Path]) -> dict[str, dict[str, str]]:
+    """Read binding identities from the selected public artifacts, never the parent."""
+    payloads = {}
+    for distribution, module, prefix in (
+        ("dag-ml", "dag_ml._dag_ml", "dag_ml/_dag_ml."),
+        ("nirs4all-methods", "n4m.roles._multimodal", "n4m/roles/_multimodal.py"),
+    ):
+        with zipfile.ZipFile(artifacts[distribution]) as wheel:
+            if distribution == "dag-ml":
+                members = [name for name in wheel.namelist() if name.startswith(prefix) and name.endswith((".so", ".pyd"))]
+            else:
+                members = [name for name in wheel.namelist() if name == prefix]
+            if len(members) != 1:
+                raise ValueError(f"Public wheel must contain exactly one {module} binding")
+            payloads[module] = {"wheel_member": members[0], "sha256": hashlib.sha256(wheel.read(members[0])).hexdigest()}
+    return payloads
+
+
+def verify_public_binding_proof(path: Path, payloads: dict[str, dict[str, str]]) -> dict[str, Any]:
+    """Reject stale loaded bindings and proof digests that disagree with actual files."""
+    proof: dict[str, Any] = json.loads(path.read_text())
+    for module, expected in payloads.items():
+        record = proof["public_bindings"][module]
+        actual = sha256(Path(record["origin"]).resolve(strict=True))
+        if actual != expected["sha256"] or record["sha256"] != actual:
+            raise ValueError(f"Public upstream binding payload mismatch: {module}")
+    return proof
+
+
+def public_upstream_payloads(artifacts: dict[str, Path]) -> dict[str, str]:
+    """Capture public Python and native runtime bytes for both installed prefixes."""
+    payloads: dict[str, str] = {}
+    for distribution in UPSTREAMS:
+        with zipfile.ZipFile(artifacts[distribution]) as wheel:
+            for name in wheel.namelist():
+                if ".dist-info/" in name or not (name.endswith((".py", ".so", ".pyd", ".dll", ".dylib")) or ".so." in Path(name).name):
+                    continue
+                parts = name.split("/")
+                if parts[0].endswith(".data"):
+                    if len(parts) < 3 or parts[1] not in {"purelib", "platlib"}:
+                        continue
+                    name = "/".join(parts[2:])
+                digest = hashlib.sha256(wheel.read("/".join(parts))).hexdigest()
+                if name in payloads and payloads[name] != digest:
+                    raise ValueError(f"Conflicting public upstream runtime payload: {name}")
+                payloads[name] = digest
+    return payloads
+
+
+def public_parent_environment(environment: dict[str, str]) -> dict[str, str]:
+    """Remove known Methods source overrides only in the opted-in CI process."""
+    result = dict(environment)
+    paths = []
+    for entry in result.get("PYTHONPATH", "").split(os.pathsep):
+        path = Path(entry)
+        methods_source = (path.name == "src" and path.parent.name in {"python", "python_nirs4all_methods"}
+                          and path.parent.parent.name == "bindings" and (path / "n4m/__init__.py").is_file())
+        if not methods_source:
+            paths.append(entry)
+    if "PYTHONPATH" in result:
+        result["PYTHONPATH"] = os.pathsep.join(paths)
+    result.pop("N4M_LIB_PATH", None)
+    result.pop("NIRS4ALL_CORE_LIVE_METHODS_LIBRARY", None)
+    return result
 
 
 def project_dependencies(roots: list[Path], output: Path) -> dict[str, str]:
@@ -158,6 +225,49 @@ def prepare(args: argparse.Namespace) -> dict[str, object]:
         for name, version in UPSTREAMS.items():
             if name not in artifacts or wheel_identity(artifacts[name]) != (name, version):
                 raise ValueError(f"Missing exact public upstream wheel: {name}=={version}")
+        artifact_hashes = {name: sha256(path) for name, path in artifacts.items()}
+        binding_payloads = public_binding_payloads(artifacts)
+        upstream_payloads = public_upstream_payloads(artifacts)
+        receipt["public_binding_payloads"] = binding_payloads
+        parent_proof = output / "parent-public-origins.json"
+        align_parent = getattr(args, "align_parent_public_upstreams", False)
+        receipt["parent_alignment"] = {"requested": align_parent, "status": "NOT_REQUESTED"}
+        if align_parent:
+            # Install precisely the same seven public artifacts as the child.
+            # Keep the SDK, Torch profile and physical CLI/native source builds.
+            run([sys.executable, "-B", "-m", "pip", "install", "--no-deps", "--force-reinstall", *(str(artifacts[name]) for name in UPSTREAMS)])
+            environment = public_parent_environment(environment)
+            parent_code = '''import hashlib, importlib, importlib.metadata, json, pathlib, sys, sysconfig
+expected=json.loads(sys.argv[1]);payloads=json.loads(sys.argv[2])
+versions={name:importlib.metadata.version(name) for name in expected}
+assert versions==expected,(versions,expected)
+purelib=pathlib.Path(sysconfig.get_path('purelib')).resolve()
+origins={}
+for name in ['n4m','pls4all','dag_ml','dag_ml_data','nirs4all_io','nirs4all_core','nirs4all_formats']:
+ p=pathlib.Path(importlib.import_module(name).__file__).resolve();assert purelib in p.parents,(name,p);origins[name]=str(p)
+for name,digest in json.loads(sys.argv[4]).items():
+ assert hashlib.sha256((purelib/name).read_bytes()).hexdigest()==digest,('Public upstream runtime payload mismatch',name)
+bindings={}
+for name,item in payloads.items():
+ p=pathlib.Path(importlib.import_module(name).__file__).resolve()
+ assert purelib in p.parents,(name,p)
+ digest=hashlib.sha256(p.read_bytes()).hexdigest()
+ assert digest==item['sha256'],('Public upstream binding payload mismatch',name,p,digest,item['sha256'])
+ bindings[name]={'origin':str(p),'sha256':digest}
+import n4m
+assert n4m.abi_version()==(2,17,0) and n4m.version()=='1.3.2+abi.2.17.0'
+library=pathlib.Path(n4m.library_path()).resolve();assert purelib in library.parents,library
+pathlib.Path(sys.argv[3]).write_text(json.dumps({'versions':versions,'origins':origins,'public_bindings':bindings,
+ 'native_library':str(library),'native_library_sha256':hashlib.sha256(library.read_bytes()).hexdigest(),
+ 'upstream_payload_members':len(json.loads(sys.argv[4]))},indent=2)+'\\n')
+'''
+            run([sys.executable, "-B", "-c", parent_code, json.dumps(UPSTREAMS), json.dumps(binding_payloads), str(parent_proof), json.dumps(upstream_payloads)])
+            parent_record = verify_public_binding_proof(parent_proof, binding_payloads)
+            parent_exports = {"N4M_LIB_PATH": parent_record["native_library"], "NIRS4ALL_CORE_LIVE_METHODS_LIBRARY": parent_record["native_library"]}
+            if "PYTHONPATH" in environment:
+                parent_exports["PYTHONPATH"] = environment["PYTHONPATH"]
+            receipt["parent_alignment"] = {"requested": True, "status": "PASS", "environment": parent_exports,
+                                           "proof": {"path": str(parent_proof), "sha256": sha256(parent_proof)}}
         child = output / "child"
         venv.EnvBuilder(with_pip=True).create(child)
         python = child / "bin/python"
@@ -176,19 +286,42 @@ expected=json.loads(sys.argv[1]);payload=json.loads(sys.argv[2])
 for name,version in expected.items():
  assert importlib.metadata.version(name)==version,(name,importlib.metadata.version(name))
 origins={}
-for name in ['nirs4all','n4m','dag_ml','dag_ml._dag_ml','nirs4all_io','nirs4all_core']:
+for name in ['nirs4all','n4m','pls4all','dag_ml','dag_ml._dag_ml','dag_ml_data','nirs4all_io','nirs4all_core','nirs4all_formats']:
  p=pathlib.Path(importlib.import_module(name).__file__).resolve();assert purelib in p.parents,(name,p);origins[name]=str(p)
 for name,sha in payload.items():
  assert hashlib.sha256((purelib/name).read_bytes()).hexdigest()==sha,name
+for name,sha in json.loads(sys.argv[5]).items():
+ assert hashlib.sha256((purelib/name).read_bytes()).hexdigest()==sha,('Public upstream runtime payload mismatch',name)
+bindings={}
+for name,item in json.loads(sys.argv[4]).items():
+ p=pathlib.Path(importlib.import_module(name).__file__).resolve();assert purelib in p.parents,(name,p)
+ digest=hashlib.sha256(p.read_bytes()).hexdigest()
+ assert digest==item['sha256'],('Public upstream binding payload mismatch',name,p,digest,item['sha256'])
+ bindings[name]={'origin':str(p),'sha256':digest}
 import n4m
 assert n4m.abi_version()==(2,17,0)
 assert n4m.version()=='1.3.2+abi.2.17.0',n4m.version()
 library=pathlib.Path(n4m.library_path()).resolve()
-pathlib.Path(sys.argv[3]).write_text(json.dumps({'versions':expected,'origins':origins,'sdk_payload_members':len(payload),'abi':[2,17,0],
- 'native_version':n4m.version(),'native_library':str(library),'native_library_sha256':hashlib.sha256(library.read_bytes()).hexdigest()},indent=2)+'\\n')
+pathlib.Path(sys.argv[3]).write_text(json.dumps({'versions':expected,'origins':origins,'public_bindings':bindings,'sdk_payload_members':len(payload),'abi':[2,17,0],
+ 'native_version':n4m.version(),'native_library':str(library),'native_library_sha256':hashlib.sha256(library.read_bytes()).hexdigest(),
+ 'upstream_payload_members':len(json.loads(sys.argv[5]))},indent=2)+'\\n')
 '''
-        run([str(python), "-I", "-B", "-c", "import sys\n" + code, json.dumps(expected), json.dumps(payload), str(proof)])
+        run([str(python), "-I", "-B", "-c", "import sys\n" + code, json.dumps(expected), json.dumps(payload), str(proof), json.dumps(binding_payloads), json.dumps(upstream_payloads)])
+        child_record = verify_public_binding_proof(proof, binding_payloads)
+        if align_parent:
+            parent_record = verify_public_binding_proof(parent_proof, binding_payloads)
+            receipt["parent_child_binding_sha256_equal"] = all(parent_record["public_bindings"][name]["sha256"] == child_record["public_bindings"][name]["sha256"] for name in binding_payloads)
+            if not receipt["parent_child_binding_sha256_equal"]:
+                raise ValueError("Parent/child public binding payload mismatch")
+        if any(sha256(path) != artifact_hashes[name] for name, path in artifacts.items()):
+            raise ValueError("Selected wheel artifact changed during runtime preparation")
         if args.github_env:
+            if align_parent:
+                if any("\n" in value or "\r" in value for value in parent_exports.values()):
+                    raise ValueError("Invalid GitHub parent runtime path")
+                with args.github_env.open("a") as stream:
+                    for name, value in parent_exports.items():
+                        stream.write(f"{name}={value}\n")
             export_installed_interpreters(python, args.github_env)
         receipt.update(status="PASS", python=str(python), wheel_artifacts={name: {"path": str(path), "sha256": sha256(path)} for name, path in artifacts.items()},
                        sdk_payload_members=len(payload), installed_proof={"path": str(proof), "sha256": sha256(proof)})
@@ -208,6 +341,7 @@ def main() -> None:
     parser.add_argument("--sdk-wheel", type=Path)
     parser.add_argument("--upstream-manifest", type=Path, help="Already downloaded public wheels with version/SHA/origin receipts")
     parser.add_argument("--shared-site-packages", type=Path, action="append")
+    parser.add_argument("--align-parent-public-upstreams", action="store_true", help="Explicitly reinstall only the seven selected public upstream wheels in the parent before any training")
     args = parser.parse_args()
     receipt = prepare(args)
     print(json.dumps({"status": receipt["status"], "python": receipt["python"], "receipt": str(args.output / "prerequisites.json")}))
