@@ -54,7 +54,7 @@ class KeywordEffectsDirective(SphinxDirective):
 
     def run(self) -> list[nodes.Node]:
         registry = get_keyword_registry()
-        entries = registry["entries"]
+        entries = sorted(registry["entries"], key=lambda entry: entry["path"])
 
         table = nodes.table(classes=["keyword-effects", "colwidths-auto"])
         table["ids"].append("keyword-effects-registry-v1")
