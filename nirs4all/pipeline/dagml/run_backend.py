@@ -35,7 +35,7 @@ from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
 from nirs4all.data.predictions import Predictions
 
-from .dataset import _dataset_inputs, _materialize_dataset
+from .dataset import _DATASET_TRANSPORT_PREPARED, _dataset_inputs, _materialize_dataset, _reloadable_path
 from .detect import (
     _detect_all_branches_metamodel,
     _detect_branch_only_model_comparison,
@@ -509,15 +509,20 @@ def run_via_dagml(
         if any(_is_augmentation_step(step) for step in pipeline):
             chart_original_spectro = copy.deepcopy(spectro)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
-    # `dataset_arg` is the reloadable path (clean file-path datasets, no pickle — fast); `host_pickle`
-    # is set only when the adapter cannot faithfully reload from a path (in-memory inputs, or a path
-    # whose re-load diverges from the host identity), and ships the byte-identical host dataset.
+    from .in_process_runner import _dagml_extension_loads, in_process_enabled
+
+    # Native execution receives this working dataset directly. Only subprocess
+    # execution needs a second identity-checked reload or a serialized copy.
+    transport_prepared = generated_view_store is not None or not in_process_enabled() or not _dagml_extension_loads()
     if generated_view_store is not None:
         # The wrapper retains this cohort, so remove the live callback while
         # serializing the PLAN dataset for the legacy subprocess channel.
         del dataset._generated_view_store
     try:
-        dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
+        if transport_prepared:
+            dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
+        else:
+            dataset_arg, host_pickle = _reloadable_path(dataset) or str(base_dir / "host" / "host_dataset.pkl"), None
     finally:
         if generated_view_store is not None:
             dataset._generated_view_store = generated_view_store
@@ -541,6 +546,7 @@ def run_via_dagml(
 
     cancellation_token = SHOULD_STOP.set(should_stop)
     resource_token = bind_execution_resources(execution_resources)
+    transport_token = _DATASET_TRANSPORT_PREPARED.set(transport_prepared)
     try:
         result = _dispatch_run(
             execution_pipeline,
@@ -643,6 +649,7 @@ def run_via_dagml(
             logger.info("DAG-ML completed: %s=%s", metric_names["cv_score"], result.cv_best_score)
         return result
     finally:
+        _DATASET_TRANSPORT_PREPARED.reset(transport_token)
         if generated_view_store is not None:
             if getattr(dataset, "_generated_view_store", None) is generated_view_store:
                 del dataset._generated_view_store

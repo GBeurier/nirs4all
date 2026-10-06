@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from nirs4all.pipeline.dagml_bridge import build_dagml_plan, controller_manifests, named_model_input_spec, pipeline_to_dsl
 
+from .dataset import _require_prepared_dataset_transport
 from .envelope import build_fold_set
 
 if TYPE_CHECKING:
@@ -300,6 +301,7 @@ def run_cv_refit_bundle(
     """
     if named_model_input_spec(dsl) is not None:
         raise NotImplementedError("named Torch requires attested fixed-cohort views from the in-process binding; ordinary CLI execution is unsupported")
+    _require_prepared_dataset_transport()
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "dsl.json").write_text(json.dumps(dsl))
     manifests = controller_manifests(dsl)
@@ -401,6 +403,7 @@ def run_refit_phase_cli(
     """Run one no-splitter REFIT in the native CLI with attested row order."""
     if named_model_input_spec(dsl) is not None:
         raise NotImplementedError("named Torch requires attested fixed-cohort views from the in-process binding; ordinary CLI execution is unsupported")
+    _require_prepared_dataset_transport()
     workdir.mkdir(parents=True, exist_ok=True)
     for name, payload in (
         ("dsl", dsl), ("controllers", controller_manifests(dsl)),
