@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.4.3] — 2026-10-06
+
+### Fixed
+
+- Hash dataset index state with the row-hash API supported by Polars 1 and 2.
+- Reject preprocessing cache operations when index hashing fails, preventing
+  reuse after partition, group, branch, tag, row-order or exclusion changes.
+
+
 ## [1.4.2] — 2026-10-06
 
 ### Fixed
