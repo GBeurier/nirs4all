@@ -24,7 +24,7 @@ def prepare_source_inventory(app: Sphinx) -> None:
         # A source export cannot prove that local files are published. Keep
         # unresolved references visible to the normal Sphinx diagnostics.
         revision, tracked = "", []
-    app.env.legacy_source_links = {"root": str(root), "revision": revision, "tracked": set(tracked)}
+    setattr(app.env, "legacy_source_links", {"root": str(root), "revision": revision, "tracked": set(tracked)})
 
 
 class RepositoryExampleLinks(SphinxPostTransform):
@@ -33,7 +33,7 @@ class RepositoryExampleLinks(SphinxPostTransform):
     default_priority = 8  # MyST resolves ordinary Markdown references at 9.
 
     def run(self, **kwargs: Any) -> None:
-        inventory = self.env.legacy_source_links
+        inventory = getattr(self.env, "legacy_source_links")
         if not inventory["revision"]:
             return
         root = Path(inventory["root"])
