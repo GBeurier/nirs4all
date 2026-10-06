@@ -1,5 +1,11 @@
 # 11. Follow a complete recipe
 
+```{toctree}
+:hidden:
+
+interop
+```
+
 A tutorial should run from a clean installed package plus explicitly declared optional runtimes. It must identify its input provenance, training/evaluation protocol, output artifacts and the profile required by the replay consumer.
 
 | Recipe | Executable guide | What to retain |
@@ -13,6 +19,7 @@ A tutorial should run from a clean installed package plus explicitly declared op
 | Optimize, resume, refit and export | {doc}`/user_guide/models/native_pls_fold_hpo` and {doc}`/user_guide/models/structural_hpo` | Search contract, parent/checkpoint identity and refit state |
 | Conformal intervals | {doc}`/user_guide/models/native_tuning_conformal` | Calibration cohort, calibrator and observed coverage |
 | Reuse/deploy a selected model | {doc}`/examples/user/deployment` | Frozen input schema and portable/host-specific artifact profile |
+| Native pipeline, SDK workspace and browser/CPU transport | {doc}`interop` | Profile/version, masks, native state, SDK snapshot and closeable sessions |
 
 The {doc}`examples index </examples/index>` connects runnable examples with guides. Synthetic datasets illustrate behavior and support deterministic qualification; they do not substitute for evidence on a real acquisition or instrument. Label that distinction in reports and charts.
 

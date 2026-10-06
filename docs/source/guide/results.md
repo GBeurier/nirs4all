@@ -28,3 +28,39 @@ Use export/import to move a durable bundle. After relocation, validate member in
 A session reuses execution configuration and runtime resources. A loaded prediction session imports saved state and must not train or run HPO. Close native objects and workers when finished, including on exceptions. A prediction cache, checkpoint and selected-model archive have distinct lifecycles and should not be silently substituted.
 
 Read {doc}`/reference/workspace`, {doc}`/reference/storage`, {doc}`/reference/predictions_api`, {doc}`/user_guide/predictions/session_api` and {doc}`/user_guide/predictions/analyzing_results` for exact SDK accessors, query semantics and persistence layouts.
+
+## Modern workspace bridge (candidate cohort)
+
+Core 0.4.4 exposes `save_workspace([experiment_path], destination)`,
+`open_workspace(path)` and `import_workspace(archive, destination)`. The returned
+`Workspace` queries the actual SDK SQLite store and its Parquet arrays through
+`runs()` and `query_predictions(native_run_id)`. `session(native_run_id)` opens
+a closeable SDK native prediction session; `export(destination)` publishes an
+immutable snapshot. The supported profile contains portable native predictors;
+it does not convert foreign host-model weights or import arbitrary old DuckDB
+workspaces.
+
+Opening verifies a closed file inventory and hashes, relational links, native
+result/score identity and Parquet prediction projection. Active or unlisted
+SQLite WAL/SHM files are refused. Altered metrics, model references or orphaned
+chains remain invalid even if a file hash is recomputed. Export/import retain
+sample, target, fold, variant/refit and provenance identity and reject unsafe
+member paths. Writes publish atomically without replacing an existing target.
+
+R uses `nirs4all_workspace_runs`, `nirs4all_workspace_predictions`,
+`nirs4all_workspace_session`, `nirs4all_workspace_predict`,
+`nirs4all_workspace_export` and `nirs4all_workspace_close`. MATLAB/Octave exposes
+`Workspace.runs`, `.predictions`, `.session`, `.export` and `.close`. Both are
+stateless JSON-command bridges requiring a Python executable with Core **and
+the full SDK** installed. Each command reopens and validates the workspace;
+a path handle does not hold a database snapshot between calls. Prediction
+loads native state without FIT, and the Python command closes its resources
+on completion or error. Closing the facade also invalidates its child sessions.
+
+Browser `openWorkspace(indexBytes, members)` preserves the exact SDK bytes and
+validates hashes plus native experiments. Its `predictions`/`compare` read native
+experiment results; `predictMethods` uses the qualified native model profile.
+It does not decode or independently validate SQLite/Parquet relational content.
+The Python gateway performs that validation before exporting the snapshot.
+
+Follow {doc}`interop` for a relocation and session lifecycle recipe.
