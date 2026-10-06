@@ -86,6 +86,20 @@ support window, examples, and FAQ.
 
 ---
 
+```{toctree}
+:maxdepth: 3
+:caption: Documentation
+
+../getting_started/index
+../concepts/index
+../user_guide/index
+../reference/index
+../developer/index
+../examples/index
+../api/modules
+../migration/native_v1
+```
+
 ## Quick Start
 
 ```python
@@ -136,19 +150,7 @@ print(f"RMSE: {result.best_rmse:.4f}")
 See {doc}`/examples/index` for 50+ working examples organized by topic.
 :::
 
-```{toctree}
-:maxdepth: 3
-:caption: Documentation
 
-../getting_started/index
-../concepts/index
-../user_guide/index
-../reference/index
-../developer/index
-../examples/index
-../api/modules
-../migration/native_v1
-```
 
 ## What is Near-Infrared Spectroscopy (NIRS)?
 
