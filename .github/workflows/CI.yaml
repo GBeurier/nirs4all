@@ -119,20 +119,23 @@ jobs:
           cmake --build --preset dev-release --target n4m_c --parallel 2
         working-directory: nirs4all-methods-src
 
-      - name: Prepare installed SDK for mandatory cold replay tests
-        uses: ./.github/actions/prepare-installed-example
-
-      - name: Gate real library usability
+      - name: Gate source candidate library usability
         timeout-minutes: 5
+        env:
+          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
+          N4M_LIB_PATH: ${{ github.workspace }}/nirs4all-methods-src/build/dev-release/cpp/src/libn4m.so
+          NIRS4ALL_CORE_LIVE_METHODS_LIBRARY: ${{ github.workspace }}/nirs4all-methods-src/build/dev-release/cpp/src/libn4m.so
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/nirs4all-methods-src/bindings/python/src
         uses: ./.github/actions/library-usability
+
+      - name: Align public parent and prepare mandatory installed SDK replay
+        uses: ./.github/actions/prepare-installed-example
 
       - name: Run fast DAG-ML unit, API, and parity smoke tests
         shell: bash
         env:
           N4A_ENGINE: dag-ml
           N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
-          N4M_LIB_PATH: ${{ github.workspace }}/nirs4all-methods-src/build/dev-release/cpp/src/libn4m.so
-          PYTHONPATH: ${{ github.workspace }}/nirs4all-methods-src/bindings/python/src
           CUDA_VISIBLE_DEVICES: ''
           OMP_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'
@@ -140,6 +143,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import json
           from pathlib import Path
           import dag_ml
           import dag_ml.multimodal_topology as topology_controller
@@ -151,7 +155,12 @@ jobs:
           from n4m.roles import NativeEstimator, RolePipeline
 
           assert n4m.abi_version() == (2, 17, 0)
-          assert "nirs4all-methods-src" in n4m.__file__
+          proof = json.loads((Path(os.environ['RUNNER_TEMP']) / 'nirs4all-installed-example/parent-public-origins.json').read_text())
+          library = Path(n4m.library_path()).resolve()
+          assert Path(n4m.__file__).resolve() == Path(proof['origins']['n4m']).resolve()
+          assert library == Path(proof['native_library']).resolve()
+          assert Path(os.environ['N4M_LIB_PATH']).resolve() == library
+          assert Path(os.environ['NIRS4ALL_CORE_LIVE_METHODS_LIBRARY']).resolve() == library
           assert callable(RolePipeline.close)
           assert callable(n4m.MultimodalClassifierPipeline)
           assert callable(dag_ml.prepare_host_hpo_topology_catalogue)
@@ -189,8 +198,6 @@ jobs:
         env:
           N4A_ENGINE: dag-ml
           N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
-          N4M_LIB_PATH: ${{ github.workspace }}/nirs4all-methods-src/build/dev-release/cpp/src/libn4m.so
-          PYTHONPATH: ${{ github.workspace }}/nirs4all-methods-src/bindings/python/src
           CUDA_VISIBLE_DEVICES: ''
           OMP_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'
