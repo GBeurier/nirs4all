@@ -166,15 +166,24 @@ The `RunResult` object distinguishes between CV results and refit results:
 
 | Property          | Scope                                         |
 |-------------------|-----------------------------------------------|
-| `result.best_score` | Best pooled OOF score from CV (RMSECV)     |
+| `result.best_score` | Primary `test_score` of the selected entry |
+| `result.cv_best_score` | Validation score of the best CV entry |
 | `result.cv_best`    | Best CV entry (all fold details)            |
 | `result.final`      | Refit entry (`fold_id="final"`)             |
 | `result.final_score`| Refit model's test score (RMSEP)            |
 | `result.top(n)`     | Top N variants, ranked by CV or final score |
 
-`result.best` tells you which pipeline configuration generalises best during
-cross-validation. `result.final` tells you how the deployed model performs on
-fresh data.
+`result.best` prefers the selected refit entry when available and otherwise
+returns the best CV entry. Its `best_score` reads that entry's `test_score`;
+use `result.cv_best_score` for the CV validation score instead. The native
+pooled OOF report averages held-out predictions per physical sample before
+scoring unique samples. With overlapping validation folds, the explicit legacy
+lane's concatenation weights repeated samples repeatedly, so its pooled CV
+score can differ despite identical per-fold predictions.
+
+`result.final` identifies the refit entry. Read its scored partition and
+metadata to distinguish held-out evaluation from training resubstitution;
+its presence alone does not establish evaluation on fresh data.
 
 ---
 

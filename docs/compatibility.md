@@ -145,6 +145,18 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 | `generator_chain_model_configs` | same SELECT semantic over `_chain_` of distinct models | dag-ml | **PASS** parity-note; `num_predictions` pinned | `cross_impl_score` (winner) | **49**(legacy)/**47**(dag-ml) | `:196-201` |
 | *(contract-wide)* `best_rmse` / `best_r2` / `best_accuracy` re-anchored on the **SELECTED** model | 0.9.x **bugfix**: the scalar shortcuts previously re-ranked per metric and could each report a *different, non-selected* CV fold; they now read from `best` | dag-ml / post-fix nirs4all | enforced (not xfail) by `assert_runresult_contract` (`best_score` = selected-metric value) | `cross_impl_score` | e.g. `best_r2` returned fold R² `0.5426` instead of selected `0.5499` | `CHANGELOG.md:44-57`; `_conformance_helpers.py:286-300` |
 
+Overlapping validation folds use the same sample-level OOF rule throughout the
+DAG-ML result contract: average the held-out predictions for each physical
+sample first, then evaluate the metric once per unique sample. The explicit
+legacy lane concatenates held-out predictions and counts repeated samples
+repeatedly. This distinction also applies to overlapping splitters in generator
+sweeps, beyond the replication cases above. Equal per-fold predictions and
+equal selected-model `best_rmse` therefore do not establish equal
+`cv_best_score`; retain each engine's measured score and aggregation rule.
+See `nirs4all/pipeline/dagml/result.py` (`_scores_to_run_result`) for this
+projection contract. This does not waive score-equality checks in profiles
+whose documented contracts require them.
+
 > **Parity-note discipline:** Tier-2 legacy-bug cases are **not** xfail when
 > dag-ml is authoritative. The two rep-fusion `cv_best_score` values are pinned
 > by `LEGACY_CV_SCORE_DIVERGENCE` / `_assert_legacy_cv_score_divergence`, and the
