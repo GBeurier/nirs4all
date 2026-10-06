@@ -30,3 +30,32 @@ New sample IDs differ from training IDs but must be unique and aligned across so
 6. Check rejection of wrong units, reordered columns, forged inventories and unsupported profiles.
 
 Persist results and provenance when predictions must be audited. Use {doc}`/user_guide/deployment/export_bundles`, {doc}`/user_guide/deployment/prediction_model_reuse`, {doc}`/user_guide/deployment/retrain_transfer` and {doc}`/user_guide/predictions/exporting_models` for detailed tasks.
+
+## Browser and CPU state transport (candidate cohort)
+
+The bounded browser SNV/Savitzky–Golay/PLS tuning producer exports
+`nirs4all.browser-tuning.v1` with an initial-full-refit package. Python Core
+`load_browser_tuning(record_or_path).predict(prediction_dataset)` validates its
+native package, HPO request/search/checkpoint provenance and frozen source
+binding, then rehydrates Methods state and predicts on CPU without FIT.
+Target-free prediction rows must retain the trained source schema. Loading this
+record does not resume its browser optimizer on CPU.
+
+In the reverse direction, a supported CPU Archive V2 with C-native Methods
+state can be loaded by the browser consumer. The `methods.pls` replay profile
+also supports browser conformal calibration from real calibration inputs via
+DAG's controller replay. Calibration predicts with the frozen model and fits a
+calibrator; it does not refit the predictor. Use disjoint calibration and test
+cohorts with explicit IDs. The initial browser HPO role-pipeline package and a
+CPU Archive V2 remain separate contracts.
+
+Generic N4ME operator replay and these bounded tuning/calibration profiles have
+separate qualification evidence. Neither implies support for arbitrary host
+weights, every optimizer, every operator or every cross-language archive path.
+
+For the native PLS-LDA classification profile, the independent reference uses
+sklearn PLS scores followed by NumPy class statistics and pooled covariance
+normalized by `(n - k)` (observations minus classes). It is not exact parity
+with sklearn LDA's SVD solver. This profile does not expose `predict_proba`.
+Class identity, masks and predictions require their own classification checks;
+regression parity alone does not qualify them.
