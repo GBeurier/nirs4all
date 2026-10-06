@@ -1,4 +1,31 @@
-# Workspace CLI Commands
+# CLI reference
+
+
+The installed `nirs4all` command exposes task groups. Python API names do not automatically become top-level CLI commands.
+
+| Group | Purpose | Discover commands |
+|---|---|---|
+| `workflow` | Native run, predict, retrain, export and reload | `nirs4all workflow --help` |
+| `results` | Checked experiment/result views | `nirs4all results --help` |
+| `tuning` | Native search, resume and saved tuning state | `nirs4all tuning --help` |
+| `dataset` | Load/inspect/validate datasets | `nirs4all dataset --help` |
+| `config` | Validate configuration and portable pipeline definitions | `nirs4all config --help` |
+| `workspace` | Initialize, query and manage workspace contents | `nirs4all workspace --help` |
+| `artifacts` | Inspect stored artifacts | `nirs4all artifacts --help` |
+
+## Native workflow commands
+
+```bash
+nirs4all workflow run dataset.json --components 1 2 --archive model.n4a
+nirs4all workflow predict --archive model.n4a --input predict.json
+nirs4all workflow retrain dataset.json saved-workflow --archive new-model.n4a
+nirs4all workflow export saved-workflow copied-workflow
+nirs4all workflow load saved-workflow
+```
+
+`run`/`retrain` read an IO JSON/YAML dataset declaration and publish a new archive plus native results. `predict` requires a JSON object with exactly `x` and `sample_ids`; it does not fit. `load`, `retrain` and `export` read the exported workflow directory. Optional `--native-cli`, `--methods-library`, `--results-directory`, `--run-id` and `--output` are available where shown by the operation's help. JSON output destinations are new files and must not overlap archive/results publication destinations. See the downloadable input and full language lifecycle in {doc}`/guide/start`.
+
+## Workspace commands
 
 The `nirs4all` CLI provides workspace management commands for organizing experiments, querying results, and managing saved models.
 

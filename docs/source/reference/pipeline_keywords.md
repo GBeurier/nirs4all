@@ -1,6 +1,6 @@
 # Pipeline Keywords Reference
 
-Pipeline steps in nirs4all can be plain operators (class or instance) or **dict-wrapped steps** with special keywords that control how the operator is applied. This page documents the core workflow keywords and the versioned lifecycle vocabulary used for tuning, training, retraining, and planned conformal calibration.
+Pipeline steps in nirs4all can be plain operators (class or instance) or **dict-wrapped steps** with special keywords that control how the operator is applied. This page documents the core workflow keywords and the versioned lifecycle vocabulary used for tuning, training, retraining, and conformal calibration.
 
 ## Quick Reference
 
@@ -23,7 +23,7 @@ Pipeline steps in nirs4all can be plain operators (class or instance) or **dict-
 
 ## Lifecycle keyword and effect registry
 
-The following table is generated from the machine-readable
+The following alphabetical index includes nested lifecycle paths, their complete value schemas, effects, aliases and per-engine availability. It is generated from the machine-readable
 `nirs4all.pipeline.keyword_registry` module. Documentation and future Studio
 forms consume the same descriptive records. The runtime parser and execution
 engines do **not** import the registry, so adding this table does not change
