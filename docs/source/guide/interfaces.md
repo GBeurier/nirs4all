@@ -42,7 +42,7 @@ See {doc}`/reference/public_interfaces` for the SDK API and runtime contracts, {
 
 The additions below describe the reviewed release candidate. Core 0.4.4 and
 R 0.7.1 publication is still pending; this draft does not establish installed
-availability. IO 0.2.6 is already public. The candidate pairs it with DAG 0.3.38
+availability. IO 0.2.6 is already public. The candidate pairs it with DAG 0.3.39
 and Methods 1.3.4. See {doc}`interop` for input and runtime requirements.
 
 The native pipeline facade is Python `run_pipeline` / `NativePipeline`, R
