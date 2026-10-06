@@ -8,9 +8,8 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
-  # Exact digest of the locally built 1.4.2 release candidate source distribution.
-  # Verify against PyPI before updating the feedstock; publication is pending.
-  sha256: ea730f129791546227fe782026a8ad0fd9138fe467b4a0bf821de3e7202b7552
+  # Verified against the published PyPI 1.4.2 source distribution.
+  sha256: 36adb0c1dc678af46a3a47f71beae616812df1713547e6774eac8e5c67d669d5
 
 build:
   noarch: python
