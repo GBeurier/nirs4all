@@ -103,6 +103,7 @@ extensions = [
     "sphinxcontrib.mermaid",
     "sphinxext.opengraph",  # Social / OpenGraph cards
     "keyword_registry",  # Machine-readable lifecycle keyword table
+    "legacy_links",  # Tracked source examples and generated API navigation
 ]
 
 templates_path = ["_templates"]
