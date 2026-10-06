@@ -10,6 +10,7 @@ from urllib.parse import quote, urlsplit
 from docutils import nodes
 from sphinx import addnodes
 from sphinx.application import Sphinx
+from sphinx.ext.viewcode import viewcode_anchor
 from sphinx.transforms.post_transforms import SphinxPostTransform
 
 
@@ -51,9 +52,16 @@ class RepositoryExampleLinks(SphinxPostTransform):
                 continue
             relative = Path(*parts[start:])
             source = (root / relative).resolve()
-            if not source.is_relative_to(examples) or not source.is_file() or relative.as_posix() not in inventory["tracked"]:
+            if not source.is_relative_to(examples):
                 continue
-            uri = f"https://github.com/GBeurier/nirs4all/blob/{inventory['revision']}/{quote(relative.as_posix(), safe='/')}"
+            name = relative.as_posix()
+            if source.is_file() and name in inventory["tracked"]:
+                route = "blob"
+            elif source.is_dir() and any(path.startswith(name + "/") for path in inventory["tracked"]):
+                route = "tree"
+            else:
+                continue
+            uri = f"https://github.com/GBeurier/nirs4all/{route}/{inventory['revision']}/{quote(name, safe='/')}"
             reference = nodes.reference("", "", *[child.deepcopy() for child in node.children], refuri=uri)
             node.replace_self(reference)
 
@@ -89,9 +97,31 @@ def add_no_index_source_anchors(app: Sphinx, doctree: nodes.document) -> None:
             doctree.note_explicit_target(node)
 
 
+def add_imported_source_anchors(app: Sphinx, doctree: nodes.document) -> None:
+    """Preserve viewcode backlinks when an object is described via two modules.
+
+    Viewcode keeps one module-prefix per source file, while the destination
+    description can come from an alias module. Its own source-link node proves
+    which real signature it selected; add that exact backlink ID to the same
+    description without dropping its existing IDs or changing object indexes.
+    """
+    modules = getattr(app.env, "_viewcode_modules", {})
+    for signature in doctree.findall(addnodes.desc_signature):
+        for link in signature.findall(viewcode_anchor):
+            module = link["reftarget"].removeprefix("_modules/").replace("/", ".")
+            entry = modules.get(module)
+            if not entry:
+                continue
+            anchor = f"{entry[3]}.{link['refid']}"
+            if anchor not in doctree.ids:
+                signature["ids"].append(anchor)
+                doctree.note_explicit_target(signature)
+
+
 def setup(app: Sphinx) -> dict[str, Any]:
     app.connect("builder-inited", prepare_source_inventory)
     app.connect("doctree-read", preserve_generated_api_text, priority=400)
     app.connect("doctree-read", add_no_index_source_anchors, priority=400)
+    app.connect("doctree-read", add_imported_source_anchors, priority=600)
     app.add_post_transform(RepositoryExampleLinks)
     return {"version": "1.0", "parallel_read_safe": True, "parallel_write_safe": True}
