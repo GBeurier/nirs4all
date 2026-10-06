@@ -15,7 +15,7 @@ from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
 
-SDK_VERSION = "1.4.3"
+SDK_VERSION = "1.4.4"
 UPSTREAMS = {"pls4all": "1.3.2", "nirs4all-methods": "1.3.2", "nirs4all-io": "0.2.5", "dag-ml": "0.3.37", "dag-ml-data": "0.2.13", "nirs4all-core": "0.4.2", "nirs4all-formats": "0.2.11"}
 PRODUCT_MODULES = {"nirs4all", "n4m", "pls4all", "dag_ml", "dag_ml_data", "nirs4all_io", "nirs4all_core", "nirs4all_formats"}
 INSTALLED_PYTHON_VARIABLES = (
