@@ -5,9 +5,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import polars as pl
+import pytest
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.execution.executor import PipelineExecutor
+from nirs4all.pipeline.execution.step_cache import StepCache
 from nirs4all.pipeline.steps.parser import StepParser
 
 
@@ -87,3 +90,57 @@ def test_step_cache_data_hash_changes_when_exclusions_change():
     h_after = executor._step_cache_data_hash(ds)
 
     assert h_before != h_after
+
+
+@pytest.mark.parametrize("column,value", [("partition", "test"), ("group", 1), ("branch", 1)])
+def test_index_mutations_cannot_reuse_a_preprocessing_snapshot(column: str, value: str | int):
+    executor = _make_executor()
+    ds = _make_dataset()
+    feature_hash = ds.content_hash()
+    before = executor._step_cache_data_hash(ds)
+    assert before == executor._step_cache_data_hash(ds)
+    cache = StepCache(max_size_mb=1)
+    cache.put("preprocessing", before, ds)
+    assert cache.get("preprocessing", before) is not None
+
+    ds._indexer.update_by_indices([0], {column: value})
+
+    assert ds.content_hash() == feature_hash
+    after = executor._step_cache_data_hash(ds)
+    assert after != before
+    assert cache.get("preprocessing", after) is None
+
+
+def test_tag_mutation_changes_cache_key_without_changing_features():
+    executor = _make_executor()
+    ds = _make_dataset()
+    ds.add_tag("selected", "bool")
+    before = executor._step_cache_data_hash(ds)
+    feature_hash = ds.content_hash()
+
+    ds.set_tag("selected", [0], True)
+
+    assert ds.content_hash() == feature_hash
+    assert executor._step_cache_data_hash(ds) != before
+
+
+def test_index_row_order_changes_cache_key_without_changing_features():
+    executor = _make_executor()
+    ds = _make_dataset()
+    before = executor._step_cache_data_hash(ds)
+    feature_hash = ds.content_hash()
+
+    ds._indexer._store._df = ds._indexer.df.reverse()
+
+    assert ds.content_hash() == feature_hash
+    assert executor._step_cache_data_hash(ds) != before
+
+
+def test_unhashable_index_refuses_feature_only_cache_key(monkeypatch: pytest.MonkeyPatch):
+    def broken_hash_rows(self, seed=0):
+        raise ValueError("index hashing failed")
+
+    monkeypatch.setattr(pl.DataFrame, "hash_rows", broken_hash_rows)
+    with pytest.raises(RuntimeError, match="dataset index could not be hashed") as caught:
+        _make_executor()._step_cache_data_hash(_make_dataset())
+    assert isinstance(caught.value.__cause__, ValueError)
