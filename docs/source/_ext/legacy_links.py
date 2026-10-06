@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 from urllib.parse import quote, urlsplit
 
 from docutils import nodes
@@ -12,6 +12,10 @@ from sphinx import addnodes
 from sphinx.application import Sphinx
 from sphinx.ext.viewcode import viewcode_anchor
 from sphinx.transforms.post_transforms import SphinxPostTransform
+
+
+class _SourceLinksEnvironment(Protocol):
+    legacy_source_links: dict[str, Any]
 
 
 def prepare_source_inventory(app: Sphinx) -> None:
@@ -24,7 +28,7 @@ def prepare_source_inventory(app: Sphinx) -> None:
         # A source export cannot prove that local files are published. Keep
         # unresolved references visible to the normal Sphinx diagnostics.
         revision, tracked = "", []
-    setattr(app.env, "legacy_source_links", {"root": str(root), "revision": revision, "tracked": set(tracked)})
+    cast(_SourceLinksEnvironment, app.env).legacy_source_links = {"root": str(root), "revision": revision, "tracked": set(tracked)}
 
 
 class RepositoryExampleLinks(SphinxPostTransform):
@@ -33,7 +37,7 @@ class RepositoryExampleLinks(SphinxPostTransform):
     default_priority = 8  # MyST resolves ordinary Markdown references at 9.
 
     def run(self, **kwargs: Any) -> None:
-        inventory = getattr(self.env, "legacy_source_links")
+        inventory = cast(_SourceLinksEnvironment, self.env).legacy_source_links
         if not inventory["revision"]:
             return
         root = Path(inventory["root"])
