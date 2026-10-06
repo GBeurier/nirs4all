@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.4.5] — 2026-10-07
+
+### Fixed
+
+- Reuse the already materialized dataset for in-process DAG execution, avoiding
+  an unused second file load or dataset pickle.
+- Preserve identity-checked path reloads and serialized datasets for subprocess
+  execution and generated providers.
+- Refuse a late switch to CLI execution after native-only dataset preparation,
+  before creating inputs or launching a worker.
+
+
 ## [1.4.4] — 2026-10-06
 
 ### Fixed
