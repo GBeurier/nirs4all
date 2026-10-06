@@ -383,7 +383,7 @@ pipeline = [
 
 **See also**: `_range_` (linear spacing), `_sample_` (random sampling)
 
-**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
+**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
 
 ---
 
@@ -429,7 +429,7 @@ pipeline = [
 
 **See also**: `_zip_` (paired iteration), `_cartesian_` (for lists, not dicts), `_sample_` (random subset)
 
-**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
+**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
 
 ---
 
@@ -479,7 +479,7 @@ pipeline = [
 
 **See also**: `_grid_` (all combinations), `_chain_` (sequential)
 
-**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
+**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
 
 ---
 
@@ -526,7 +526,7 @@ pipeline = [
 
 **See also**: `_or_` (unordered choices), `_zip_` (paired parameters)
 
-**Example**: See [examples/developer/02_generators/D02_generator_advanced.py](../../examples/developer/02_generators/D02_generator_advanced.py)
+**Example**: See {download}`examples/developer/02_generators/D02_generator_advanced.py <../../../examples/developer/02_generators/D02_generator_advanced.py>`
 
 ---
 
@@ -587,7 +587,7 @@ pipeline = [
 
 **See also**: `_log_range_` (deterministic log scale), `_or_` with `count` (random subset)
 
-**Example**: See [examples/developer/02_generators/D02_generator_advanced.py](../../examples/developer/02_generators/D02_generator_advanced.py)
+**Example**: See {download}`examples/developer/02_generators/D02_generator_advanced.py <../../../examples/developer/02_generators/D02_generator_advanced.py>`
 
 ---
 
@@ -699,7 +699,7 @@ pipeline = [
 
 **See also**: `_grid_` (for dicts), `_or_` with `arrange` (for single stage)
 
-**Example**: See [examples/developer/02_generators/D01_generator_syntax.py](../../examples/developer/02_generators/D01_generator_syntax.py)
+**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
 
 ---
 

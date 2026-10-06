@@ -15,7 +15,7 @@ Use a task guide to choose the operation, then use the reference to check exact 
 | {doc}`/api/modules` | Generated Python API |
 | {doc}`/reference/cli` | CLI groups, flags, inputs, outputs and destinations |
 
-Download the [keyword inventory](../_static/keyword-registry.json), [keyword schema](../_static/keyword-registry.schema.json), [tuning summary schema](../_static/tuning-summary.schema.json) and [robustness summary schema](../_static/robustness-summary.schema.json). These static files are emitted by the documentation build from public API exports. A schema validates declared structure; runtime validation additionally checks data identities, fitted state and supported profiles.
+Download the <a href="../_static/keyword-registry.json">keyword inventory</a>, <a href="../_static/keyword-registry.schema.json">keyword schema</a>, <a href="../_static/tuning-summary.schema.json">tuning summary schema</a> and <a href="../_static/robustness-summary.schema.json">robustness summary schema</a>. These static files are emitted by the documentation build from public API exports. A schema validates declared structure; runtime validation additionally checks data identities, fitted state and supported profiles.
 
 ## Diagnose a refusal
 

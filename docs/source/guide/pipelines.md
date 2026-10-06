@@ -12,7 +12,8 @@ from nirs4all.operators.transforms import SNV
 pipeline = [
     SNV(),
     KFold(n_splits=3, shuffle=True, random_state=17),
-    {"model": PLSRegression, "n_components": {"_range_": [2, 8, 2]}},
+    {"model": {"class": PLSRegression,
+               "params": {"n_components": {"_range_": [2, 8, 2]}}}},
 ]
 ```
 
