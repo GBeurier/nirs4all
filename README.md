@@ -16,7 +16,8 @@
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-[Documentation](https://nirs4all.readthedocs.io) •
+[Documentation](https://GBeurier.github.io/nirs4all/) •
+[Legacy Python documentation](https://GBeurier.github.io/nirs4all/legacy/index.html) •
 [Installation](#installation) •
 [Quick Start](#quick-start) •
 [Examples](examples/) •
@@ -395,7 +396,8 @@ cd examples
 | [**Specifications**](docs/specifications/) | Pipeline syntax, config format, metrics |
 | [**Explanations**](docs/explanations/) | SHAP, resampling, SNV theory |
 
-Full documentation: [nirs4all.readthedocs.io](https://nirs4all.readthedocs.io)
+Common user and developer guide: [documentation](https://GBeurier.github.io/nirs4all/).
+The previous Python guides and detailed references are under [Legacy — Python](https://GBeurier.github.io/nirs4all/legacy/index.html).
 
 ---
 
