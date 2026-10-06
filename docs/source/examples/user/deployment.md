@@ -11,7 +11,7 @@ This section covers saving, loading, and deploying trained NIRS4ALL models for p
 
 | Example | Topic | Difficulty | Duration |
 |---------|-------|------------|----------|
-| [U01](#u01-save-load-predict) | Save, Load, Predict | ★★☆☆☆ | ~4 min |
+| [U01](#u01-save-load-and-predict) | Save, Load, Predict | ★★☆☆☆ | ~4 min |
 | [U02](#u02-export-bundle) | Export Bundle | ★★☆☆☆ | ~3 min |
 | [U03](#u03-workspace-management) | Workspace Management | ★★☆☆☆ | ~3 min |
 | [U04](#u04-sklearn-integration) | sklearn Integration | ★★☆☆☆ | ~3 min |

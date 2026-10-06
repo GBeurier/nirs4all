@@ -13,7 +13,7 @@ This section covers all the ways to load, configure, and work with data in NIRS4
 |---------|-------|------------|----------|
 | [U01](#u01-flexible-inputs) | Flexible Inputs | ★☆☆☆☆ | ~2 min |
 | [U02](#u02-multi-datasets) | Multi-Datasets | ★★☆☆☆ | ~3 min |
-| [U03](#u03-multi-source) | Multi-Source Data | ★★★☆☆ | ~3 min |
+| [U03](#u03-multi-source-data) | Multi-Source Data | ★★★☆☆ | ~3 min |
 | [U04](#u04-wavelength-handling) | Wavelength Handling | ★★☆☆☆ | ~3 min |
 | [U05](#u05-synthetic-data) | Synthetic Data | ★★☆☆☆ | ~2 min |
 | [U06](#u06-synthetic-advanced) | Advanced Synthetic Data | ★★★☆☆ | ~5 min |
