@@ -31,7 +31,7 @@ New sample IDs differ from training IDs but must be unique and aligned across so
 
 Persist results and provenance when predictions must be audited. Use {doc}`/user_guide/deployment/export_bundles`, {doc}`/user_guide/deployment/prediction_model_reuse`, {doc}`/user_guide/deployment/retrain_transfer` and {doc}`/user_guide/predictions/exporting_models` for detailed tasks.
 
-## Browser and CPU state transport (candidate cohort)
+## Browser and CPU state transport
 
 The bounded browser SNV/Savitzky–Golay/PLS tuning producer exports
 `nirs4all.browser-tuning.v1` with an initial-full-refit package. Python Core

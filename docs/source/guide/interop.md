@@ -1,12 +1,12 @@
 # Native pipeline and workspace interoperability
 
-This recipe targets the Core 0.4.4 / R 0.7.1 candidate cohort described in
-{doc}`interfaces`. Publication is pending. It separates a portable fitted model
-from a modern SDK workspace, so each consumer uses the correct artifact.
+This recipe uses the Core 0.4.4 / R 0.7.1 cohort described in
+{doc}`interfaces`. It separates a portable fitted model from a modern SDK
+workspace, so each consumer uses the correct artifact.
 
 ## Prepare the runtime and data
 
-Use Python 3.11+, Core and IO 0.2.6, the cohort's DAG binding and Methods native
+Use Python 3.11+, Core 0.4.4, IO 0.2.6, DAG 0.3.39 and the Methods 1.3.4 native
 library. Set `NIRS4ALL_CORE_CLI` to the matching Core executable and
 `N4M_LIBRARY_PATH` to the matching Methods shared library. Workspace commands
 also require the full Python SDK. A Methods library path on CPU is distinct

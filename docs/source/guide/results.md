@@ -29,7 +29,7 @@ A session reuses execution configuration and runtime resources. A loaded predict
 
 Read {doc}`/reference/workspace`, {doc}`/reference/storage`, {doc}`/reference/predictions_api`, {doc}`/user_guide/predictions/session_api` and {doc}`/user_guide/predictions/analyzing_results` for exact SDK accessors, query semantics and persistence layouts.
 
-## Modern workspace bridge (candidate cohort)
+## Modern workspace bridge
 
 Core 0.4.4 exposes `save_workspace([experiment_path], destination)`,
 `open_workspace(path)` and `import_workspace(archive, destination)`. The returned

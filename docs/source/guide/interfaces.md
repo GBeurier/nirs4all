@@ -25,7 +25,7 @@ Choose the product before choosing the function. `nirs4all` on PyPI is the full 
 | Open saved results | `open_experiment` | `nirs4all_open_experiment` | `openExperiment` | `nirs4all.resultView` |
 | Calibrate and audit | `calibrate`, `robustness` | `nirs4all_calibrate`, `nirs4all_robustness` | `calibrate`, `robustness` | `nirs4all.calibrate`, `nirs4all.robustness` |
 | Raw multimodal predictor | `MultimodalPredictor` | `nirs4all_multimodal_*` | `MultimodalPredictor` | `nirs4all.MultimodalPredictor` |
-| Native CPU multimodal (candidate) | `run_multimodal`, `NativeMultimodal` | `nirs4all_run_multimodal`, `nirs4all_native_multimodal_export/load` | Node `runMultimodal`, `NativeMultimodal` | `nirs4all.runMultimodal`, `nirs4all.NativeMultimodal` |
+| Native CPU multimodal | `run_multimodal`, `NativeMultimodal` | `nirs4all_run_multimodal`, `nirs4all_native_multimodal_export/load` | Node `runMultimodal`, `NativeMultimodal` | `nirs4all.runMultimodal`, `nirs4all.NativeMultimodal` |
 | SDK workspace snapshot | `save_workspace`, `open_workspace`, `import_workspace` | `nirs4all_open_workspace`, `nirs4all_import_workspace` | `openWorkspace` (hashed bytes and native experiments) | `nirs4all.Workspace`, `Workspace.importSnapshot` |
 
 R also has a distinct local `nirs4all_run(X, y, …)` workflow. Its inputs and fitted object are not interchangeable with `nirs4all_native_run(dataset, archive, …)`. JavaScript `tuneBrowser` uses a browser-native initial-full-refit package; native CPU tuning uses its own archive contract. Consult {doc}`deployment` before transporting either.
@@ -38,12 +38,12 @@ The released common dense workflow has one complete numeric source, one regressi
 
 See {doc}`/reference/public_interfaces` for the SDK API and runtime contracts, {doc}`/reference/multimodal_execution_matrix` for multimodal routes, and {doc}`/reference/native_capability_preflight` for execution preflight. The [Core capability matrix](https://github.com/GBeurier/nirs4all-core/blob/main/docs/CAPABILITIES.md) records the portable product surfaces. Versions and actual qualified profiles must be checked together.
 
-## Candidate cohort: Core 0.4.4 and R 0.7.1
+## Qualified cohort: Core 0.4.4 and R 0.7.1
 
-The additions below describe the reviewed release candidate. Core 0.4.4 and
-R 0.7.1 publication is still pending; this draft does not establish installed
-availability. IO 0.2.6 is already public. The candidate pairs it with DAG 0.3.39
-and Methods 1.3.4. See {doc}`interop` for input and runtime requirements.
+The additions below use Core 0.4.4 and R 0.7.1 with IO 0.2.6, DAG 0.3.39
+and Methods 1.3.4. Qualification covers the explicit profiles described here;
+other operator combinations require their own checks. See {doc}`interop` for
+input and runtime requirements.
 
 The native pipeline facade is Python `run_pipeline` / `NativePipeline`, R
 `nirs4all_run_pipeline`, Node `runPipeline` / `NativePipeline`, and
