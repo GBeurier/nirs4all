@@ -8,6 +8,7 @@ re-materializes the byte-identical dataset (reloadable path vs. pickle).
 from __future__ import annotations
 
 import copy
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,14 @@ import polars as pl
 from nirs4all.data.config import DatasetConfigs
 
 from .identity import mint_identity
+
+_DATASET_TRANSPORT_PREPARED: ContextVar[bool] = ContextVar("dagml_dataset_transport_prepared", default=True)
+
+
+def _require_prepared_dataset_transport() -> None:
+    """Refuse a late CLI dispatch when this run only prepared live native data."""
+    if not _DATASET_TRANSPORT_PREPARED.get():
+        raise RuntimeError("DAG-ML execution changed to CLI after native dataset preparation; start a new run with N4A_DAGML_INPROCESS=0")
 
 
 def _materialize_dataset(dataset: Any) -> Any:
