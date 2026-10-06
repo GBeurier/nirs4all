@@ -1791,22 +1791,18 @@ class PipelineExecutor:
             if not columns:
                 return "no-index-cols"
 
-            # Hash all index rows with fixed seeds for deterministic output.
-            row_hashes = index_df.select(columns).hash_rows(
-                seed=0,
-                seed_1=1,
-                seed_2=2,
-                seed_3=3,
-            )
+            # The single seed is supported by both Polars 1 and Polars 2.
+            row_hashes = index_df.select(columns).hash_rows(seed=0)
             arr = row_hashes.to_numpy()
 
             hasher = hashlib.sha256()
             hasher.update(str(arr.shape[0]).encode())
             hasher.update(arr.tobytes())
             return hasher.hexdigest()[:16]
-        except Exception:
-            # Conservative fallback: keep caching available based on feature hash.
-            return "index-unavailable"
+        except Exception as exc:
+            raise RuntimeError(
+                "Cannot safely cache preprocessing: dataset index could not be hashed"
+            ) from exc
 
     def _compute_pipeline_hash(self, steps: list[Any]) -> str:
         """Compute MD5 hash of pipeline configuration.
