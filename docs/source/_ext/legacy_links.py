@@ -23,7 +23,7 @@ def prepare_source_inventory(app: Sphinx) -> None:
     root = Path(app.srcdir).resolve().parents[1]
     try:
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
-        tracked = subprocess.check_output(["git", "ls-files", "-z", "--", "examples"], cwd=root, stderr=subprocess.DEVNULL).decode().split("\0")
+        tracked = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", "-z", revision, "--", "examples"], cwd=root, stderr=subprocess.DEVNULL).decode().split("\0")
     except (OSError, subprocess.CalledProcessError):
         # A source export cannot prove that local files are published. Keep
         # unresolved references visible to the normal Sphinx diagnostics.
@@ -122,10 +122,49 @@ def add_imported_source_anchors(app: Sphinx, doctree: nodes.document) -> None:
                 doctree.note_explicit_target(signature)
 
 
+class ImportedSourceAnchors(SphinxPostTransform):
+    """Use the merged viewcode inventory before its source nodes are converted."""
+
+    default_priority = 99  # Viewcode converts its anchor nodes at 100.
+
+    def run(self, **kwargs: Any) -> None:
+        add_imported_source_anchors(self.app, self.document)
+
+
+def reread_linked_documents(app: Sphinx, env: Any, added: set[str], changed: set[str], removed: set[str]) -> list[str]:
+    """Refresh cross-document viewcode ownership and revision-pinned links.
+
+    Viewcode's module prefix and backlink ownership depend on descriptions in
+    other documents. Reread retained documents so incremental builds cannot
+    retain a removed alias or a source URL pinned to an earlier checkout.
+    """
+    return sorted(env.found_docs - removed)
+
+
+def refresh_viewcode_pages(app: Sphinx) -> None:
+    """Regenerate source HTML because backlink ownership may change alone.
+
+    Viewcode otherwise skips pages whenever the Python file is older than its
+    HTML, even if a referring document was removed or renamed. Invalidate only
+    its generated pages for modules in the current inventory, before viewcode
+    renders them again; source files and API descriptions remain untouched.
+    """
+    if app.builder.format != "html":
+        return
+    directory = (Path(app.outdir) / "_modules").resolve()
+    suffix = getattr(app.builder, "out_suffix", ".html")
+    for module in getattr(app.env, "_viewcode_modules", {}):
+        page = (directory / (module.replace(".", "/") + suffix)).resolve()
+        if page.is_relative_to(directory):
+            page.unlink(missing_ok=True)
+
+
 def setup(app: Sphinx) -> dict[str, Any]:
     app.connect("builder-inited", prepare_source_inventory)
     app.connect("doctree-read", preserve_generated_api_text, priority=400)
     app.connect("doctree-read", add_no_index_source_anchors, priority=400)
-    app.connect("doctree-read", add_imported_source_anchors, priority=600)
+    app.connect("env-get-outdated", reread_linked_documents)
+    app.add_post_transform(ImportedSourceAnchors)
+    app.connect("html-collect-pages", refresh_viewcode_pages, priority=400)
     app.add_post_transform(RepositoryExampleLinks)
     return {"version": "1.0", "parallel_read_safe": True, "parallel_write_safe": True}
