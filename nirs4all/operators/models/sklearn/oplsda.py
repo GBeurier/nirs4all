@@ -5,11 +5,12 @@ See pls.py for full documentation and usage examples.
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.validation import check_is_fitted
 
 from .plsda import PLSDA
 
 
-class OPLSDA(BaseEstimator, ClassifierMixin):
+class OPLSDA(ClassifierMixin, BaseEstimator):
     """Orthogonal PLS Discriminant Analysis (OPLS-DA) classifier.
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingClassifier)
@@ -148,6 +149,7 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
         y_pred : ndarray of shape (n_samples,)
             Predicted class labels.
         """
+        check_is_fitted(self, ['opls_', 'plsda_'])
         X = np.asarray(X)
 
         # Transform X to remove orthogonal variation
@@ -169,6 +171,7 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
         proba : ndarray of shape (n_samples, n_classes)
             Pseudo-probability estimates.
         """
+        check_is_fitted(self, ['opls_', 'plsda_'])
         X = np.asarray(X)
 
         # Transform X to remove orthogonal variation
@@ -190,6 +193,7 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
         X_filtered : ndarray of shape (n_samples, n_features)
             Transformed samples with orthogonal variation removed.
         """
+        check_is_fitted(self, ['opls_'])
         X = np.asarray(X)
         return self.opls_.transform(X)
 
@@ -226,6 +230,5 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
         self : OPLSDA
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self

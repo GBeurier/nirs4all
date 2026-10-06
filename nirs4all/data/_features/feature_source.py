@@ -240,6 +240,8 @@ class FeatureSource:
             self._storage.num_features
         )
 
+        if should_resize and len({op.proc_idx for op in replacements}) != len(self._processing_mgr.processing_ids):
+            raise ValueError("Changing feature width requires replacing all processings")
         if should_resize:
             self._storage.resize_features(new_num_features)
             self._header_mgr.clear_headers()

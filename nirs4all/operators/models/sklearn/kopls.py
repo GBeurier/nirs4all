@@ -544,7 +544,7 @@ def _get_cached_jax_kopls():
 # KOPLS Estimator Class
 # =============================================================================
 
-class KOPLS(BaseEstimator, RegressorMixin):
+class KOPLS(RegressorMixin, BaseEstimator):
     """Kernel Orthogonal PLS (K-OPLS) regressor.
 
     K-OPLS combines kernel methods with Orthogonal PLS to handle nonlinear
@@ -737,21 +737,18 @@ class KOPLS(BaseEstimator, RegressorMixin):
         self.n_features_in_ = n_features
         self.X_train_ = X.copy()
 
-        # Limit components - n_components should not be limited by n_targets for the API
-        # The internal algorithm limits A = min(n_components, max(n_targets-1, 1))
-        # but externally we store the user's requested value (limited by n_samples)
+        # Report the predictive rank actually supported by the K-OPLS algorithm.
         max_components = n_samples - 1
-        self.n_components_ = min(self.n_components, max(max_components, 1))
+        self.n_components_ = min(self.n_components, max(max_components, 1), max(n_targets - 1, 1))
         self.n_ortho_components_ = min(self.n_ortho_components, n_samples - self.n_components_ - 1)
         self.n_ortho_components_ = max(0, self.n_ortho_components_)
 
         # Center and scale Y
+        self.y_mean_ = y.mean(axis=0)
         if self.scale:
-            self.y_mean_ = y.mean(axis=0)
             self.y_std_ = y.std(axis=0, ddof=1)
             self.y_std_ = np.where(self.y_std_ < 1e-10, 1.0, self.y_std_)
         else:
-            self.y_mean_ = np.zeros(n_targets, dtype=np.float64)
             self.y_std_ = np.ones(n_targets, dtype=np.float64)
 
         Y_centered = (y - self.y_mean_) / self.y_std_
@@ -864,8 +861,7 @@ class KOPLS(BaseEstimator, RegressorMixin):
 
     def set_params(self, **params) -> KOPLS:
         """Set the parameters of this estimator."""
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

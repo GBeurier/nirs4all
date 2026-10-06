@@ -87,6 +87,18 @@ def main():
 
     add_tuning_space_command(subparsers)
 
+    from .commands.results import add_results_commands
+
+    add_results_commands(subparsers)
+
+    from .commands.workflow import add_workflow_commands
+
+    add_workflow_commands(subparsers)
+
+    from .commands.tuning import add_tuning_commands
+
+    add_tuning_commands(subparsers)
+
     args = parser.parse_args()
 
     # Handle legacy flags first

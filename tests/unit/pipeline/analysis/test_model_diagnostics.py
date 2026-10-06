@@ -80,11 +80,11 @@ class TestRobustnessAxes:
 
 class TestLearningCurve:
     def test_estimate_train_size_kfold(self):
-        # 5-fold, 20 val samples -> total ≈ 25, train ≈ 5... (20*5/4=25)
-        assert estimate_train_size(20, 5) == 5
+        # 100 samples, 5 folds: each trains on 80 and validates on 20.
+        assert estimate_train_size(20, 5) == 80
         assert estimate_train_size(0, 5) == 0
         # fold_count < 2 falls back to 5
-        assert estimate_train_size(20, 1) == 5
+        assert estimate_train_size(20, 1) == 80
 
     def test_points_sorted_and_aggregated(self):
         points = learning_curve_points({
@@ -99,3 +99,11 @@ class TestLearningCurve:
         assert large["train_mean"] == pytest.approx(0.8)
         assert large["val_mean"] == pytest.approx(0.7)
         assert large["count"] == 2
+
+
+def test_estimated_train_size_matches_actual_balanced_kfold():
+    import numpy as np
+    from sklearn.model_selection import KFold
+
+    for train, validation in KFold(5).split(np.ones((100, 3))):
+        assert estimate_train_size(len(validation), 5) == len(train)

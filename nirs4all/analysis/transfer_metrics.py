@@ -26,6 +26,16 @@ from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 
 
+def _joint_pca_scores(X_source: np.ndarray, X_target: np.ndarray, n_components: int, random_state: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Project compatible feature matrices into one pooled PCA frame."""
+    source, target = np.asarray(X_source), np.asarray(X_target)
+    if source.ndim != 2 or target.ndim != 2 or source.shape[1] != target.shape[1]:
+        raise ValueError("Shared PCA requires matching source and target feature dimensions")
+    combined = np.vstack((source, target))
+    pca = PCA(n_components=min(n_components, *combined.shape), random_state=random_state).fit(combined)
+    return pca.transform(source), pca.transform(target)
+
+
 @dataclass
 class TransferMetrics:
     """Container for transfer metrics between two datasets."""
@@ -94,7 +104,7 @@ class TransferMetricsComputer:
         Returns:
             TransferMetrics containing all computed metrics.
         """
-        # Compute PCA for both datasets
+        # Independent loadings quantify subspace alignment and variance retention.
         Z_src, U_src, evr_src = self._pca(X_source)
         Z_tgt, U_tgt, evr_tgt = self._pca(X_target)
 
@@ -104,6 +114,9 @@ class TransferMetricsComputer:
         Z_tgt = Z_tgt[:, :r_use]
         U_src = U_src[:, :r_use]
         U_tgt = U_tgt[:, :r_use]
+        # Coordinate distances require a common basis and a common centering
+        # origin; separately centered score clouds erase instrument offsets.
+        Z_src, Z_tgt = _joint_pca_scores(X_source, X_target, r_use, self.random_state)
 
         # Compute all metrics
         centroid_dist = self._centroid_distance(Z_src, Z_tgt)
@@ -290,12 +303,11 @@ class TransferMetricsComputer:
         # Compute trustworthiness penalty
         penalty = 0.0
         for i in range(n):
-            Ui = set(idx_tgt[i, 1:1 + k])  # k-neighbors in target
-            Ki = set(idx_src[i, 1:1 + k])  # k-neighbors in source
+            Ui, Ki = set(idx_tgt[i, :k]), set(idx_src[i, :k])
             for v in Ui - Ki:
                 penalty += ranks[i, v] - (k - 1)
 
-        Z = n * k * (2 * n - 3 * k - 1) / 2
+        Z = n * k * (2 * n - 3 * k - 1)
         return 1.0 - (2.0 / Z) * penalty if Z > 0 else np.nan
 
     def _spread_distance(
@@ -433,12 +445,12 @@ def compute_transfer_score(
 
         # Spread improvement (reduction is good)
         raw_spread = raw_metrics.spread_distance
-        spread_improv = -abs(metrics.spread_distance) if metrics.spread_distance > eps else 0.0 if raw_spread < eps else (raw_spread - metrics.spread_distance) / (raw_spread + eps)
+        spread_improv = (-abs(metrics.spread_distance) if metrics.spread_distance > eps else 0.0) if raw_spread < eps else (raw_spread - metrics.spread_distance) / (raw_spread + eps)
         score += weights.get("spread", 0.2) * np.clip(spread_improv, -1, 1)
 
         # EVR preservation
         raw_evr = raw_metrics.evr_source
-        evr_ratio = 1.0 if metrics.evr_source < eps else 0.0 if raw_evr < eps else metrics.evr_source / (raw_evr + eps)
+        evr_ratio = (1.0 if metrics.evr_source < eps else 0.0) if raw_evr < eps else metrics.evr_source / (raw_evr + eps)
         score += weights.get("evr", 0.1) * min(evr_ratio, 1.0)
 
     else:

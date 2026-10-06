@@ -71,10 +71,14 @@ def test_generic_fixed_shapes_counts_seeds_and_exact_descriptor_identity() -> No
     schemas = source_schemas_from_cohort(cohort)
     assert schemas["image"]["input_shape"] == [3, 5, 3]
     assert schemas["series"]["input_shape"] == [11, 4]
-    assert schemas["metadata"]["dtype"] == str(cohort.sources["metadata"].values.dtype)
+    # The IO schema describes logical mixed columns, not NumPy text capacity.
+    assert schemas["metadata"]["dtype"] == "object"
     for name, descriptor in zip(cohort.sources, cohort.schema_descriptors(), strict=True):
-        assert json.loads(schemas[name]["identity"]) == descriptor
-        assert schemas[name]["identity"] == json.dumps(descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        expected = {**descriptor, "axis_units": {axis: unit for axis, unit in descriptor["axis_units"].items() if unit is not None}}
+        if name == "metadata":
+            expected["dtype"] = "object"
+        assert json.loads(schemas[name]["identity"]) == expected
+        assert schemas[name]["identity"] == json.dumps(expected, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
         assert descriptor["shape"][0] is None
 
 

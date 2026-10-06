@@ -136,7 +136,12 @@ class FolderParser(BaseParser):
             )
 
         # Scan folder for data files
-        config, warnings = self._scan_folder(path, global_params)
+        try:
+            config, warnings = self._scan_folder(path, global_params)
+        except ValueError as exc:
+            return ParserResult(success=False, errors=[str(exc)], source_type='folder')
+        if isinstance(input_data, dict):
+            config.update({key: value for key, value in input_data.items() if key not in {'folder', 'params', 'global_params'}})
 
         # Check if any data was found
         has_train = config.get('train_x') is not None
@@ -153,7 +158,7 @@ class FolderParser(BaseParser):
             )
 
         # Extract dataset name
-        dataset_name = self._extract_name_from_path(path)
+        dataset_name = config.get('name') or self._extract_name_from_path(path)
 
         return ParserResult(
             success=True,
@@ -222,6 +227,21 @@ class FolderParser(BaseParser):
                         file_posix = file_path.as_posix()
                         if file_posix not in matched_files:
                             matched_files.append(file_posix)
+
+            if key.startswith('test_') and len(matched_files) > 1:
+                # Both families represent the one supported held-out partition;
+                # combining validation and test cohorts as feature sources leaks.
+                families = set()
+                for filename in matched_files:
+                    stem = self._get_stem(Path(filename).name).lower()
+                    val_match = any(self._pattern_matches(stem, pattern.lower()) for pattern in patterns if 'val' in pattern.lower())
+                    test_match = any(self._pattern_matches(stem, pattern.lower()) for pattern in patterns if 'test' in pattern.lower())
+                    if val_match:
+                        families.add('val')
+                    if test_match:
+                        families.add('test')
+                if len(families) > 1:
+                    raise ValueError(f"Folder contains both validation and test files for {key}; specify the held-out inputs explicitly instead of auto-scanning.")
 
             # Assign matches to config
             if len(matched_files) == 1:

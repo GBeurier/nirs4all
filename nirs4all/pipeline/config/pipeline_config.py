@@ -11,8 +11,9 @@ import yaml
 
 from nirs4all.data.relations import check_repetition_exclusivity
 
+from ._generator.keywords import GENERATION_KEYWORDS
 from .component_serialization import serialize_component
-from .generator import ALL_KEYWORDS, count_combinations, expand_spec, expand_spec_with_choices
+from .generator import count_combinations, expand_spec, expand_spec_with_choices
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ class PipelineConfigs:
                     )
                 # Separation branch — fall through to check ALL keys
 
-            if any(k in obj for k in ALL_KEYWORDS):
+            if any(k in obj for k in GENERATION_KEYWORDS):
                 return True
             return any(PipelineConfigs._has_gen_keys(v, skip_branch) for v in obj.values())
         elif isinstance(obj, list):
@@ -276,7 +277,7 @@ class PipelineConfigs:
             FileNotFoundError: If the config file doesn't exist.
             ValueError: If the config file has invalid JSON/YAML syntax.
         """
-        if definition.endswith('.json') or definition.endswith('.yaml') or definition.endswith('.yml'):
+        if definition.lower().endswith(('.json', '.yaml', '.yml')):
             if not Path(definition).is_file():
                 raise FileNotFoundError(
                     f"Configuration file does not exist: {definition}\n"
@@ -285,7 +286,7 @@ class PipelineConfigs:
 
             pipeline_definition = None
 
-            if definition.endswith('.json'):
+            if definition.lower().endswith('.json'):
                 try:
                     with open(definition, encoding='utf-8') as f:
                         pipeline_definition = json.load(f)
@@ -301,7 +302,7 @@ class PipelineConfigs:
                         f"  - Trailing commas (not allowed in JSON)\n"
                         f"  - Single quotes instead of double quotes"
                     ) from exc
-            elif definition.endswith('.yaml') or definition.endswith('.yml'):
+            elif definition.lower().endswith(('.yaml', '.yml')):
                 try:
                     with open(definition, encoding='utf-8') as f:
                         pipeline_definition = yaml.safe_load(f)
@@ -337,7 +338,10 @@ class PipelineConfigs:
                 pipeline_definition = json.loads(definition)
             except json.JSONDecodeError as exc:
                 try:
-                    return list(yaml.safe_load(definition))
+                    parsed = yaml.safe_load(definition)
+                    if not isinstance(parsed, (dict, list)):
+                        raise ValueError("Pipeline YAML must contain a list or a mapping with pipeline/steps")
+                    return PipelineConfigs._load_steps(parsed)
                 except yaml.YAMLError as exc2:
                     raise ValueError(
                         "Invalid pipeline definition string.\n"

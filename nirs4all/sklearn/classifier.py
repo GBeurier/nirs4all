@@ -7,7 +7,7 @@ providing ClassifierMixin compatibility for sklearn tools.
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import numpy as np
 
@@ -42,9 +42,9 @@ class NIRSPipelineClassifier(NIRSPipeline):
         >>> print(f"Accuracy: {clf.score(X_test, y_test):.4f}")
     """
 
-    def __init__(self) -> None:
+    def __init__(self, fold: int = 0) -> None:
         """Private constructor - use from_result() or from_bundle() instead."""
-        super().__init__()
+        super().__init__(fold=fold)
         self._classes: np.ndarray | None = None
         self._label_encoder: Any | None = None
 
@@ -69,39 +69,15 @@ class NIRSPipelineClassifier(NIRSPipeline):
             >>> result = nirs4all.run(classification_pipeline, dataset)
             >>> clf = NIRSPipelineClassifier.from_result(result)
         """
-        import tempfile
-
-        from nirs4all.pipeline.bundle import BundleLoader
-
-        # Get source prediction (prefer refit entry, consistent with export())
-        if source is None:
-            final = getattr(result, "final", None)
-            source = final if isinstance(final, dict) and final else result.best
-            if not source:
-                raise ValueError(
-                    "No predictions available in result. "
-                    "Ensure nirs4all.run() completed successfully."
-                )
-
-        # Export to temporary bundle
-        temp_dir = tempfile.mkdtemp(prefix="nirs4all_sklearn_clf_")
-        bundle_path = Path(temp_dir) / "model.n4a"
-
-        try:
-            result.export(bundle_path, source=source)
-        except Exception as e:
-            raise RuntimeError(f"Failed to export model to bundle: {e}") from e
-
-        # Create instance from bundle
-        instance = cls._from_bundle_internal_classifier(bundle_path, fold=fold)
-        instance._runner = result._runner
-        instance._prediction_source = source
-
-        # Try to extract classes from prediction
-        if "classes" in source:
-            instance._classes = np.asarray(source["classes"])
-
+        instance = cast("NIRSPipelineClassifier", super().from_result(result, source=source, fold=fold))
+        instance._extract_classes()
+        if instance._classes is None and instance._prediction_source and "classes" in instance._prediction_source:
+            instance._classes = np.asarray(instance._prediction_source["classes"])
         return instance
+
+    @classmethod
+    def _from_bundle_internal(cls, bundle_path: str | Path, fold: int = 0) -> "NIRSPipelineClassifier":
+        return cls._from_bundle_internal_classifier(bundle_path, fold=fold)
 
     @classmethod
     def from_bundle(

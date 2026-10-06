@@ -8,6 +8,7 @@ for cross-validation.
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_is_fitted
 
 
 def _check_jax_available():
@@ -248,6 +249,7 @@ class IKPLS(RegressorMixin, BaseEstimator):
         y_pred : ndarray of shape (n_samples,) or (n_samples, n_targets)
             Predicted values (always returns NumPy arrays).
         """
+        check_is_fitted(self, ['_model', 'n_components_'])
         if n_components is None:
             n_components = self.n_components_
 
@@ -302,6 +304,5 @@ class IKPLS(RegressorMixin, BaseEstimator):
         self : IKPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self

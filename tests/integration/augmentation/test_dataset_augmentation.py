@@ -176,15 +176,15 @@ class TestDatasetMetadataMethods:
         dataset.add_samples(data, {"partition": "train"})
         dataset.add_metadata(metadata, headers=["group", "value"])
 
-        # Add augmented samples (metadata NOT duplicated in current implementation)
+        # Augmented metadata follows each sample's origin without storing duplicate rows.
         aug_data = np.random.rand(2, 100)
         dataset.augment_samples(aug_data, ["raw"], "aug_0", {"partition": "train"}, count=[1, 1, 0])
 
-        # Get metadata - note: augmented samples don't have metadata yet
-        # This is a known limitation; metadata duplication will be added in Phase 4/5
         meta_df = dataset.metadata({"partition": "train"})
-        # For now, only base samples have metadata
-        assert len(meta_df) == 3  # Only base samples (augmented don't have metadata yet)    def test_metadata_excludes_augmented_when_false(self):
+        assert len(meta_df) == dataset.x({"partition": "train"}).shape[0] == 5
+        assert meta_df.rows() == [("A", "1"), ("B", "2"), ("C", "3"), ("A", "1"), ("B", "2")]
+
+    def test_metadata_excludes_augmented_when_false(self):
         """Test that metadata() can exclude augmented samples."""
         dataset = SpectroDataset("test")
 
@@ -224,13 +224,12 @@ class TestDatasetMetadataMethods:
         aug_data = np.random.rand(2, 100)
         dataset.augment_samples(aug_data, ["raw"], "aug_0", {"partition": "train"}, count=[1, 1, 0])
 
-        # Get column with augmented - metadata not duplicated yet
         groups = dataset.metadata_column("group", {"partition": "train"})
-        assert len(groups) == 3  # Only base samples have metadata
+        np.testing.assert_array_equal(groups, ["A", "B", "C", "A", "B"])
 
         # Get column without augmented
         groups_base = dataset.metadata_column("group", {"partition": "train"}, include_augmented=False)
-        assert len(groups_base) == 3
+        np.testing.assert_array_equal(groups_base, ["A", "B", "C"])
 
     def test_metadata_numeric_with_augmentation(self):
         """Test that metadata_numeric works with augmented samples."""
@@ -251,11 +250,11 @@ class TestDatasetMetadataMethods:
         aug_data = np.random.rand(2, 100)
         dataset.augment_samples(aug_data, ["raw"], "aug_0", {"partition": "train"}, count=[1, 1, 0, 0])
 
-        # Get numeric encoding - metadata not duplicated yet, only base samples
-        # NOTE: Augmented samples don't have metadata yet, so requesting augmented
-        # samples will fail in metadata_numeric. Use include_augmented=False
         encoded, mapping = dataset.metadata_numeric("group", {"partition": "train"}, include_augmented=False)
-        assert len(encoded) == 4  # Only base samples have metadata
+        assert len(encoded) == 4
+        augmented, augmented_mapping = dataset.metadata_numeric("group", {"partition": "train"})
+        np.testing.assert_array_equal(augmented, encoded[[0, 1, 2, 3, 0, 1]])
+        assert augmented_mapping == mapping
 
 class TestAugmentSamplesIntegration:
     """Tests for augment_samples integration with enhanced API."""
@@ -294,10 +293,13 @@ class TestAugmentSamplesIntegration:
         aug_data = np.random.rand(2, 100)
         dataset.augment_samples(aug_data, ["raw"], "aug_0", {"partition": "train"}, count=[1, 1, 0])
 
-        # Check metadata - note: metadata not duplicated in current implementation
-        # This is a limitation that will be addressed in Phase 4/5
         meta = dataset.metadata({"partition": "train"})
-        assert len(meta) == 3  # Only base samples have metadata (augmented don't yet)    def test_augment_samples_variable_counts(self):
+        assert len(meta) == dataset.x({"partition": "train"}).shape[0] == 5
+        assert meta.get_column("group").to_list() == ["A", "B", "C", "A", "B"]
+        base_meta = dataset.metadata({"partition": "train"}, include_augmented=False)
+        assert base_meta.get_column("group").to_list() == ["A", "B", "C"]
+
+    def test_augment_samples_variable_counts(self):
         """Test augmenting with different counts per sample."""
         dataset = SpectroDataset("test")
 

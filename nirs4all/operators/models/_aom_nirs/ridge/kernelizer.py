@@ -332,4 +332,6 @@ class AOMKernelizer:
             "center": self.center,
             "normalize": self.normalize,
             "eps": self.eps,
+            "zero_trace_policy": self.zero_trace_policy,
+            "zero_trace_threshold": self.zero_trace_threshold,
         }

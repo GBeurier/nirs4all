@@ -229,12 +229,11 @@ def _repetition_groups_for_pool(spectro: Any, pool: list[int]) -> np.ndarray:
     """
     from nirs4all.controllers.splitters.split import compute_effective_groups
 
-    groups_all = compute_effective_groups(spectro)
+    selector = {"sample": pool}
+    groups_all = compute_effective_groups(spectro, context=selector, include_augmented=False)
     if groups_all is None:
         raise ValueError("repetition dataset has no effective groups (no repetition/group_by column)")
-    samples = spectro.index_column("sample", {})
-    origins = spectro.index_column("origin", {})
-    stored = [int(sample) for sample, origin in zip(samples, origins, strict=True) if sample == origin]
+    stored = spectro._indexer.x_indices(selector, include_augmented=False, include_excluded=False).tolist()
     if len(stored) != len(groups_all):
         raise ValueError(f"repetition groups do not align with base rows ({len(groups_all)} groups for {len(stored)} rows)")
     group_of_sample = {sample_int: groups_all[row] for row, sample_int in enumerate(stored)}

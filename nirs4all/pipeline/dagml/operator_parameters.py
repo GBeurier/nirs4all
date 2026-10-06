@@ -26,10 +26,10 @@ def encode_constructor_value(value: Any) -> Any:
     ):
         from nirs4all.pipeline.config.component_serialization import serialize_component
 
-        return {_COMPONENT: {"kind": "component", "value": serialize_component(value)}}
+        return {_COMPONENT: {"kind": "component", "value": encode_constructor_value(serialize_component(value))}}
     if isinstance(value, dict):
-        if _COMPONENT in value:
-            # Escape an ordinary user mapping which happens to use our marker.
+        if _COMPONENT in value or any(not isinstance(key, str) for key in value):
+            # Escape marker collisions and keys JSON objects would stringify.
             return {_COMPONENT: {"kind": "mapping", "value": [[key, encode_constructor_value(item)] for key, item in value.items()]}}
         return {key: encode_constructor_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -49,7 +49,7 @@ def decode_constructor_value(value: Any) -> Any:
             if payload["kind"] == "component":
                 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
-                return deserialize_component(payload["value"])
+                return deserialize_component(decode_constructor_value(payload["value"]))
             raise ValueError("Unknown nested constructor component kind")
         return {key: decode_constructor_value(item) for key, item in value.items()}
     if isinstance(value, list):

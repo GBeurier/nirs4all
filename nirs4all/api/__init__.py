@@ -84,6 +84,8 @@ from .portable_archive import (
     write_portable_predictor_archive_v2,
 )
 from .predict import predict
+from .public_results import open_experiment, save_experiment
+from .public_tuning import generate_variants, load_native_tuning, resume_native_tuning, tune_native
 from .result import (
     ExplainResult,
     LazyModelRefitResult,
@@ -185,6 +187,12 @@ from .tuning import (
 )
 
 __all__ = [
+    "generate_variants",
+    "load_native_tuning",
+    "resume_native_tuning",
+    "tune_native",
+    "open_experiment",
+    "save_experiment",
     # Module-level API functions
     "run",
     "execute_training",

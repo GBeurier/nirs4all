@@ -24,8 +24,7 @@ from __future__ import annotations
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import StandardScaler as _SklearnStandardScaler
-from sklearn.utils.validation import check_is_fitted
+from sklearn.utils.validation import check_array, check_is_fitted
 
 
 class StandardNormalVariate(BaseEstimator, TransformerMixin):
@@ -194,7 +193,8 @@ class ExtendedMSC(TransformerMixin, BaseEstimator):
     degree : int, default=2
         Degree of polynomial used to model interference.
     scale : bool, default=True
-        Whether to mean-center the data before correction (with_std=False).
+        Retained for parameter compatibility. Correction uses raw spectra
+        for both settings, as column centering would destroy the reference.
     copy : bool, default=True
         Whether to copy input data.
     """
@@ -205,7 +205,7 @@ class ExtendedMSC(TransformerMixin, BaseEstimator):
         self.copy = bool(copy)
 
     def _reset(self):
-        for attr in ("scaler_", "reference_", "wavelengths_"):
+        for attr in ("scaler_", "reference_", "wavelengths_", "design_matrix_"):
             if hasattr(self, attr):
                 delattr(self, attr)
 
@@ -214,32 +214,31 @@ class ExtendedMSC(TransformerMixin, BaseEstimator):
         return self.partial_fit(X, y)
 
     def partial_fit(self, X, y=None):
-        tmp_x = X.copy() if self.copy else X
-        if self.scale:
-            scaler = _SklearnStandardScaler(with_std=False)
-            scaler.fit(X)
-            self.scaler_ = scaler
-            tmp_x = scaler.transform(tmp_x)
-        self.reference_ = np.mean(tmp_x, axis=0)
-        self.wavelengths_ = np.arange(X.shape[1])
+        X = check_array(X, dtype=float)
+        if not isinstance(self.degree, (int, np.integer)) or self.degree < 0:
+            raise ValueError("degree must be a non-negative integer")
+        # Centering columns before computing the mean destroys the reference.
+        # Fit the raw mean and a well-conditioned polynomial baseline instead.
+        self.reference_ = np.mean(X, axis=0)
+        self.wavelengths_ = np.linspace(-1.0, 1.0, X.shape[1])
+        polynomial = np.polynomial.polynomial.polyvander(self.wavelengths_, self.degree)
+        self.design_matrix_ = np.column_stack([self.reference_, polynomial])
+        if np.linalg.matrix_rank(self.design_matrix_) < self.design_matrix_.shape[1]:
+            raise ValueError("EMSC reference must be independent of the polynomial baseline")
         return self
 
     def transform(self, X):
-        check_is_fitted(self)
-        X_transformed = X.copy() if self.copy else X
-        if self.scale:
-            X_transformed = self.scaler_.transform(X_transformed)
-
-        for i in range(X_transformed.shape[0]):
-            design_matrix = np.column_stack([
-                self.reference_,
-                *[self.wavelengths_ ** d for d in range(1, self.degree + 1)],
-            ])
-            coeffs, _, _, _ = np.linalg.lstsq(design_matrix, X_transformed[i], rcond=None)
-            polynomial_part = sum(
-                coeffs[d] * (self.wavelengths_ ** d) for d in range(1, self.degree + 1)
-            )
-            X_transformed[i] = (X_transformed[i] - polynomial_part) / coeffs[0]
+        check_is_fitted(self, "design_matrix_")
+        X_transformed = check_array(X, dtype=float, copy=self.copy)
+        if X_transformed.shape[1] != len(self.reference_):
+            raise ValueError("Transform has a different number of features than the fitted EMSC reference")
+        coefficients = np.linalg.lstsq(self.design_matrix_, X_transformed.T, rcond=None)[0]
+        slopes = coefficients[0]
+        if np.any(np.abs(slopes) <= np.finfo(float).eps):
+            raise ValueError("EMSC cannot correct a spectrum with zero multiplicative coefficient")
+        baseline = (self.design_matrix_[:, 1:] @ coefficients[1:]).T
+        X_transformed -= baseline
+        X_transformed /= slopes[:, None]
         return X_transformed
 
     def _more_tags(self):
@@ -328,7 +327,7 @@ class LocalSNV(BaseEstimator, TransformerMixin):
             raise ValueError("window must be >= 3")
         self.window = int(window)
 
-    def fit(self, X: np.ndarray, y=None) -> "LocalSNV":
+    def fit(self, X: np.ndarray, y=None) -> LocalSNV:
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:

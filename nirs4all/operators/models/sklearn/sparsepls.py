@@ -4,6 +4,7 @@ See pls.py for full documentation and usage examples.
 """
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_is_fitted
 
 
 def _check_jax_available():
@@ -22,7 +23,7 @@ def _soft_threshold_numpy(z, alpha):
     """Soft thresholding operator for L1 regularization (NumPy)."""
     return np.sign(z) * np.maximum(np.abs(z) - alpha, 0.0)
 
-def _sparse_pls_fit_numpy(X, y, n_components, alpha, max_iter, tol):
+def _sparse_pls_fit_numpy(X, y, n_components, alpha, max_iter, tol, scale=True):
     """Fit Sparse PLS using pure NumPy.
 
     Implements the same algorithm as the JAX version for consistent results.
@@ -62,14 +63,14 @@ def _sparse_pls_fit_numpy(X, y, n_components, alpha, max_iter, tol):
 
     # Center and scale (matching sklearn StandardScaler behavior)
     X_mean = np.mean(X, axis=0, keepdims=True)
-    X_std = np.std(X, axis=0, keepdims=True, ddof=0)
+    X_std = np.std(X, axis=0, keepdims=True, ddof=0) if scale else np.ones((1, n_features))
     X_std = np.where(X_std < 1e-10, 1.0, X_std)
     X_scaled = (X - X_mean) / X_std
 
     y = y.reshape(-1, 1) if y.ndim == 1 else y
     n_targets = y.shape[1]
     y_mean = np.mean(y, axis=0, keepdims=True)
-    y_std = np.std(y, axis=0, keepdims=True, ddof=0)
+    y_std = np.std(y, axis=0, keepdims=True, ddof=0) if scale else np.ones((1, n_targets))
     y_std = np.where(y_std < 1e-10, 1.0, y_std)
     y_scaled = (y - y_mean) / y_std
 
@@ -184,8 +185,8 @@ def _get_jax_sparse_pls_functions():
         """Soft thresholding operator for L1 regularization."""
         return jnp.sign(z) * jnp.maximum(jnp.abs(z) - alpha, 0.0)
 
-    @partial(jax.jit, static_argnums=(2, 3, 4, 5))
-    def sparse_pls_fit_jax(X, y, n_components, alpha, max_iter, tol):
+    @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6))
+    def sparse_pls_fit_jax(X, y, n_components, alpha, max_iter, tol, scale=True):
         """Fit Sparse PLS using JAX - matches sparse-pls package algorithm.
 
         Uses iterative alternating optimization with soft thresholding on both
@@ -199,14 +200,14 @@ def _get_jax_sparse_pls_functions():
 
         # Center and scale (matching sparse-pls StandardScaler behavior)
         X_mean = jnp.mean(X, axis=0, keepdims=True)
-        X_std = jnp.std(X, axis=0, keepdims=True, ddof=0)  # ddof=0 for sklearn StandardScaler
+        X_std = jnp.std(X, axis=0, keepdims=True, ddof=0) if scale else jnp.ones((1, n_features))
         X_std = jnp.where(X_std < 1e-10, 1.0, X_std)
         X_scaled = (X - X_mean) / X_std
 
         y = y.reshape(-1, 1) if y.ndim == 1 else y
         n_targets = y.shape[1]
         y_mean = jnp.mean(y, axis=0, keepdims=True)
-        y_std = jnp.std(y, axis=0, keepdims=True, ddof=0)
+        y_std = jnp.std(y, axis=0, keepdims=True, ddof=0) if scale else jnp.ones((1, n_targets))
         y_std = jnp.where(y_std < 1e-10, 1.0, y_std)
         y_scaled = (y - y_mean) / y_std
 
@@ -351,7 +352,7 @@ def _get_cached_jax_sparse_pls():
         _JAX_SPARSE_PLS_FUNCS = _get_jax_sparse_pls_functions()
     return _JAX_SPARSE_PLS_FUNCS
 
-class SparsePLS(BaseEstimator, RegressorMixin):
+class SparsePLS(RegressorMixin, BaseEstimator):
     """Sparse PLS (sPLS) regressor with L1 regularization.
 
     Sparse PLS performs joint prediction and variable selection by applying
@@ -521,7 +522,8 @@ class SparsePLS(BaseEstimator, RegressorMixin):
                 self.n_components_,
                 self.alpha,
                 self.max_iter,
-                self.tol
+                self.tol,
+                self.scale
             )
             (self._B, self._W, self._P, self._Q,
              self._X_mean, self._X_std,
@@ -536,7 +538,8 @@ class SparsePLS(BaseEstimator, RegressorMixin):
                 self.n_components_,
                 self.alpha,
                 self.max_iter,
-                self.tol
+                self.tol,
+                self.scale
             )
             (self._B, self._W, self._P, self._Q,
              self._X_mean, self._X_std,
@@ -545,6 +548,7 @@ class SparsePLS(BaseEstimator, RegressorMixin):
             # Store coefficients
             self.coef_ = self._B
 
+        self._R = np.asarray(self._W) @ np.linalg.pinv(np.asarray(self._P).T @ np.asarray(self._W))
         return self
 
     def predict(self, X):
@@ -560,6 +564,7 @@ class SparsePLS(BaseEstimator, RegressorMixin):
         y_pred : ndarray of shape (n_samples,) or (n_samples, n_targets)
             Predicted values.
         """
+        check_is_fitted(self, ['_B', '_W'])
         X = np.asarray(X)
 
         if self.backend == 'jax':
@@ -600,6 +605,7 @@ class SparsePLS(BaseEstimator, RegressorMixin):
         T : ndarray of shape (n_samples, n_components)
             Latent variables (scores).
         """
+        check_is_fitted(self, ['_R'])
         X = np.asarray(X)
 
         if self.backend == 'jax':
@@ -607,9 +613,9 @@ class SparsePLS(BaseEstimator, RegressorMixin):
 
             X_jax = jnp.asarray(X)
             X_scaled = (X_jax - self._X_mean) / self._X_std
-            return np.asarray(X_scaled @ self._W)
+            return np.asarray(X_scaled @ jnp.asarray(self._R))
         else:
-            return _sparse_pls_transform_numpy(X, self._W, self._X_mean, self._X_std)
+            return _sparse_pls_transform_numpy(X, self._R, self._X_mean, self._X_std)
 
     def get_selected_features(self):
         """Get indices of selected (non-zero) features.
@@ -619,22 +625,10 @@ class SparsePLS(BaseEstimator, RegressorMixin):
         indices : ndarray
             Indices of features with non-zero coefficients.
         """
-        if self.backend == 'jax':
-            if self.coef_ is not None:
-                # Handle multi-target case
-                if self.coef_.ndim > 1:
-                    return np.where(np.any(self.coef_ != 0, axis=-1))[0]
-                else:
-                    return np.where(self.coef_ != 0)[0]
-            else:
-                return np.arange(self.n_features_in_)
-        else:
-            if hasattr(self._model, 'get_selected_feature_names'):
-                return self._model.get_selected_feature_names()
-            elif self.coef_ is not None:
-                return np.where(np.any(self.coef_ != 0, axis=-1))[0]
-            else:
-                return np.arange(self.n_features_in_)
+        check_is_fitted(self, ['coef_'])
+        coefficients = np.asarray(self.coef_)
+        selected = np.any(coefficients != 0, axis=-1) if coefficients.ndim > 1 else coefficients != 0
+        return np.flatnonzero(selected)
 
     def get_params(self, deep=True):
         """Get parameters for this estimator.
@@ -672,9 +666,7 @@ class SparsePLS(BaseEstimator, RegressorMixin):
         self : SparsePLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
-        return self
+        return super().set_params(**params)
 
     def __repr__(self):
         """Return string representation."""

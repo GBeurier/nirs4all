@@ -243,7 +243,8 @@ class CARS(TransformerMixin, BaseEstimator):
             coefs = np.abs(pls.coef_.ravel())
 
             # Adaptive reweighted sampling: probability proportional to coefficient magnitude
-            weights = coefs / (coefs.sum() + 1e-10)
+            total_importance = coefs.sum()
+            weights = coefs / total_importance if total_importance > 0 else np.full(coefs.size, 1.0 / coefs.size)
 
             # Select variables using weighted sampling without replacement
             n_to_select = min(target_n_vars, len(current_indices))

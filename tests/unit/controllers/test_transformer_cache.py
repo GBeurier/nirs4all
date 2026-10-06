@@ -391,7 +391,9 @@ class TestCheckBeforeFitIntegration:
                 artifact_type=ArtifactType.TRANSFORMER,
                 step_index=1,
                 source_index=0,
-                input_data_hash=data_hash,
+                input_data_hash=TransformerMixinController()._fit_cache_hash(
+                    FitCountingScaler(), _make_mock_dataset(content_hash_value=data_hash)[0], _make_context()
+                ),
                 pipeline_id="test_pipeline",
             )
 

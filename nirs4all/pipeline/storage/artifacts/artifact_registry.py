@@ -17,7 +17,12 @@ V3 Key Changes:
 The registry works with centralized storage at workspace/binaries/<dataset>/.
 """
 
+import contextlib
+import json
 import logging
+import os
+import sqlite3
+import tempfile
 from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -281,14 +286,32 @@ class ArtifactRegistry:
         self._deferred_writes.clear()
         self._deferred_artifact_ids.clear()
 
+    @staticmethod
+    def _write_artifact(path: Path, content: bytes) -> None:
+        """Repair missing/corrupt content and publish complete bytes atomically."""
+        if path.is_file() and path.read_bytes() == content:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as tmp:
+            staged = Path(tmp.name)
+            try:
+                tmp.write(content)
+                tmp.flush()
+            except BaseException:
+                staged.unlink(missing_ok=True)
+                raise
+        try:
+            os.replace(staged, path)
+        finally:
+            staged.unlink(missing_ok=True)
+
     def commit_deferred(self) -> None:
         """Flush all buffered writes to disk and exit deferred mode."""
         for path, content in self._deferred_writes.items():
             artifact_path = self.binaries_dir / path
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
-            if not artifact_path.exists():
-                artifact_path.write_bytes(content)
-                logger.debug(f"Committed deferred artifact: {artifact_path}")
+            self._write_artifact(artifact_path, content)
+            logger.debug(f"Committed deferred artifact: {artifact_path}")
         self._deferred_mode = False
         self._deferred_writes.clear()
         self._deferred_artifact_ids.clear()
@@ -442,9 +465,8 @@ class ArtifactRegistry:
                 shard_dir = self.binaries_dir / shard
                 shard_dir.mkdir(parents=True, exist_ok=True)
                 artifact_path = shard_dir / filename
-                if not artifact_path.exists():
-                    artifact_path.write_bytes(content)
-                    logger.debug(f"Saved artifact: {artifact_path}")
+                self._write_artifact(artifact_path, content)
+                logger.debug(f"Saved artifact: {artifact_path}")
 
         # Create V3 record with chain_path
         record = ArtifactRecord(
@@ -695,9 +717,8 @@ class ArtifactRegistry:
                 shard_dir = self.binaries_dir / shard
                 shard_dir.mkdir(parents=True, exist_ok=True)
                 artifact_path = shard_dir / filename
-                if not artifact_path.exists():
-                    artifact_path.write_bytes(content)
-                    logger.debug(f"Saved artifact: {artifact_path}")
+                self._write_artifact(artifact_path, content)
+                logger.debug(f"Saved artifact: {artifact_path}")
 
         # Create V3 record with chain_path
         record = ArtifactRecord(
@@ -1017,90 +1038,69 @@ class ArtifactRegistry:
     # Cleanup Utilities
     # =========================================================================
 
+    def _artifact_path(self, relative: str) -> Path:
+        """Require deletion targets to stay inside shared artifact storage."""
+        path = self.binaries_dir / relative
+        if not path.resolve().is_relative_to(self.binaries_dir.resolve()):
+            raise ValueError(f"Artifact path escapes workspace storage: {relative}")
+        return path
+
     def find_orphaned_artifacts(self, scan_all_manifests: bool = True) -> list[str]:
-        """Find artifact files not referenced by any manifest.
-
-        Scans binaries directory and compares with all referenced artifacts
-        from manifests in the workspace.
-
-        Args:
-            scan_all_manifests: If True, scan all manifests in workspace/runs/.
-                If False, only check against in-memory registry.
-
-        Returns:
-            List of orphaned filenames
-        """
+        """Find unreferenced shared blobs, including content-addressed shards."""
         if not self.binaries_dir.exists():
             return []
-
-        # Get all files in binaries directory
         all_files = {
-            f.name for f in self.binaries_dir.iterdir()
-            if f.is_file()
+            file.relative_to(self.binaries_dir).as_posix()
+            for file in self.binaries_dir.rglob("*") if file.is_file() and not file.is_symlink()
         }
-
-        # Get referenced files
         referenced = self._scan_all_manifest_references() if scan_all_manifests else {record.path for record in self._artifacts.values()}
+        return sorted(all_files - referenced)
 
-        # Find orphans
-        orphans = all_files - referenced
-        return sorted(orphans)
-
-    def _scan_all_manifest_references(self) -> set[str]:
-        """Scan all manifests in workspace for artifact references.
-
-        Searches workspace/runs/<dataset>/**/manifest.yaml for artifact paths.
-
-        Returns:
-            Set of referenced artifact filenames
-        """
+    def _scan_all_manifest_references(self, include_memory: bool = True, include_store: bool = True) -> set[str]:
+        """Protect store records and manifests across every dataset; fail closed."""
         import yaml
 
-        referenced: set[str] = set()
+        referenced = {record.path for record in self._artifacts.values()} if include_memory else set()
+        root = self.binaries_dir.resolve()
 
-        # Add in-memory references
-        referenced.update(record.path for record in self._artifacts.values())
-
-        # Scan all manifest files in runs directory
-        runs_dir = self.workspace / "runs"
-        if not runs_dir.exists():
-            return referenced
-
-        # Look for manifests in this dataset's runs
-        for run_dir in runs_dir.iterdir():
-            if not run_dir.is_dir():
-                continue
-
-            # Check if this run belongs to our dataset
-            # Run dirs are named: YYYY-MM-DD_dataset
-            if f"_{self.dataset}" not in run_dir.name:
-                continue
-
-            # Find all manifest.yaml files in this run
-            for manifest_path in run_dir.glob("**/manifest.yaml"):
-                try:
-                    with open(manifest_path) as f:
-                        manifest = yaml.safe_load(f)
-
-                    # Extract artifact paths from manifest
-                    artifacts_section = manifest.get("artifacts", {})
-
-                    # Handle v2 format with "items" list
-                    if isinstance(artifacts_section, dict):
-                        items = artifacts_section.get("items", [])
-                    elif isinstance(artifacts_section, list):
-                        items = artifacts_section
+        def collect(value: Any, manifest_dir: Path) -> None:
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in {"path", "artifact_path", "uri"} and isinstance(item, str):
+                        for base in (self.binaries_dir, self.workspace, manifest_dir):
+                            target = (base / item).resolve()
+                            if target.is_relative_to(root):
+                                referenced.add(target.relative_to(root).as_posix())
                     else:
-                        items = []
+                        collect(item, manifest_dir)
+            elif isinstance(value, list):
+                for item in value:
+                    collect(item, manifest_dir)
 
-                    for item in items:
-                        if isinstance(item, dict) and "path" in item:
-                            referenced.add(item["path"])
-
-                except Exception as e:
-                    logger.warning(f"Error reading manifest {manifest_path}: {e}")
-
+        db_path = self.workspace / "store.sqlite"
+        if include_store and db_path.exists():
+            with contextlib.closing(sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
+                referenced.update(str(row[0]) for row in conn.execute("SELECT artifact_path FROM artifacts"))
+        for pattern in ("manifest.yaml", "manifest.yml", "manifest.json"):
+            for manifest_path in self.workspace.rglob(pattern):
+                if manifest_path.is_symlink():
+                    raise ValueError(f"Cannot safely inspect symlink manifest: {manifest_path}")
+                with manifest_path.open(encoding="utf-8") as handle:
+                    manifest = json.load(handle) if manifest_path.suffix == ".json" else yaml.safe_load(handle)
+                if not isinstance(manifest, dict):
+                    raise ValueError(f"Invalid artifact manifest: {manifest_path}")
+                collect(manifest, manifest_path.parent)
         return referenced
+
+    def get_purge_candidates(self) -> list[str]:
+        """Return known-owned dataset blobs with no durable workspace references.
+
+        Shared orphan files carry no dataset identity. Never infer ownership
+        from their directory or remove live chains' fitted artifacts.
+        """
+        protected = self._scan_all_manifest_references(include_memory=False)
+        owned = {record.path for record in self._artifacts.values()}
+        return sorted(path for path in owned - protected if self._artifact_path(path).is_file())
 
     def delete_orphaned_artifacts(
         self,
@@ -1117,11 +1117,14 @@ class ArtifactRegistry:
             Tuple of (deleted_files, bytes_freed)
         """
         orphans = self.find_orphaned_artifacts(scan_all_manifests=scan_all_manifests)
+        if not dry_run:
+            protected = self._scan_all_manifest_references()
+            orphans = [path for path in orphans if path not in protected]
         deleted = []
         bytes_freed = 0
 
         for filename in orphans:
-            filepath = self.binaries_dir / filename
+            filepath = self._artifact_path(filename)
             if filepath.exists():
                 size = filepath.stat().st_size
                 if not dry_run:
@@ -1170,8 +1173,8 @@ class ArtifactRegistry:
                 self.dependency_graph.remove_artifact(artifact_id)
 
                 # Optionally delete file if not referenced elsewhere
-                if delete_files and record.path not in self._by_path:
-                    filepath = self.binaries_dir / record.path
+                if delete_files and record.path not in self._scan_all_manifest_references():
+                    filepath = self._artifact_path(record.path)
                     if filepath.exists():
                         filepath.unlink()
                         logger.info(f"Deleted artifact file: {record.path}")
@@ -1211,63 +1214,29 @@ class ArtifactRegistry:
         return count
 
     def purge_dataset_artifacts(self, confirm: bool = False) -> tuple[int, int]:
-        """Delete ALL artifacts for this dataset.
-
-        This is a destructive operation that removes all artifacts in the
-        binaries directory for this dataset, regardless of manifest references.
-
-        Args:
-            confirm: Must be True to actually delete files
-
-        Returns:
-            Tuple of (files_deleted, bytes_freed)
-
-        Raises:
-            ValueError: If confirm is False
-        """
+        """Purge known-owned, unpublished dataset artifacts, preserving live references."""
         if not confirm:
-            raise ValueError(
-                "Purge requires confirm=True. This will delete ALL artifacts "
-                f"for dataset '{self.dataset}'."
-            )
-
-        if not self.binaries_dir.exists():
-            return 0, 0
-
+            raise ValueError("Purge requires confirm=True")
+        candidates = self.get_purge_candidates()
         files_deleted = 0
         bytes_freed = 0
-
-        def delete_files_recursive(directory: Path) -> None:
-            nonlocal files_deleted, bytes_freed
-            for filepath in list(directory.iterdir()):
-                if filepath.is_file():
-                    size = filepath.stat().st_size
-                    filepath.unlink()
-                    files_deleted += 1
-                    bytes_freed += size
-                    logger.info(f"Purged artifact: {filepath.name}")
-                elif filepath.is_dir():
-                    delete_files_recursive(filepath)
-                    # Remove empty shard directory
-                    if not any(filepath.iterdir()):
-                        filepath.rmdir()
-
-        delete_files_recursive(self.binaries_dir)
-
-        # Clear in-memory state
-        self._artifacts.clear()
-        self._by_content_hash.clear()
-        self._by_path.clear()
-        self._by_chain_path.clear()
-        self._by_chain_and_data.clear()
-        self.dependency_graph.clear()
-        self._current_run_artifacts.clear()
-
-        logger.info(
-            f"Purged {files_deleted} artifacts for dataset '{self.dataset}', "
-            f"freed {bytes_freed / 1024 / 1024:.2f} MB"
-        )
-
+        for relative in candidates:
+            path = self._artifact_path(relative)
+            bytes_freed += path.stat().st_size
+            path.unlink()
+            files_deleted += 1
+        removed = set(candidates)
+        for aid, record in list(self._artifacts.items()):
+            if record.path not in removed:
+                continue
+            self._artifacts.pop(aid)
+            self._by_content_hash.pop(record.content_hash, None)
+            self._by_path.pop(record.path, None)
+            if record.chain_path:
+                self._by_chain_path.pop(record.chain_path, None)
+            self._remove_from_chain_and_data_index(aid)
+            self.dependency_graph.remove_artifact(aid)
+        self._current_run_artifacts = [aid for aid in self._current_run_artifacts if aid in self._artifacts]
         return files_deleted, bytes_freed
 
     def start_run(self) -> None:
@@ -1354,7 +1323,9 @@ class ArtifactRegistry:
             artifact_id = self._by_content_hash[content_hash]
             record = self._artifacts.get(artifact_id)
             if record:
-                return record.path
+                path = self.binaries_dir / record.path
+                if path.is_file() and compute_content_hash(path.read_bytes()) == content_hash:
+                    return record.path
 
         # Check filesystem for existing files with this hash in shard directory
         short_hash = get_short_hash(content_hash)

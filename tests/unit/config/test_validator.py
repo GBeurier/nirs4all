@@ -81,7 +81,7 @@ pipeline:
         assert is_valid is True
         assert len(errors) == 0
 
-    def test_missing_pipeline_key(self):
+    def test_steps_alias(self):
         """Test that missing 'pipeline' key is an error."""
         config = {
             "steps": [{"class": "sklearn.preprocessing.MinMaxScaler"}]
@@ -89,8 +89,8 @@ pipeline:
 
         is_valid, errors, warnings = validate_pipeline_config(config)
 
-        assert is_valid is False
-        assert any("pipeline" in e.lower() for e in errors)
+        assert is_valid is True
+        assert errors == []
 
     def test_pipeline_not_a_list(self):
         """Test that pipeline must be a list."""

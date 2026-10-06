@@ -88,6 +88,25 @@ if TYPE_CHECKING:
 # Separation branch keywords (indicating separation mode)
 SEPARATION_KEYWORDS = {"by_tag", "by_metadata", "by_filter", "by_source"}
 
+class _BranchSnapshot(list):
+    """Feature snapshot with the sample state addressed by those feature rows."""
+
+    def __init__(self, sources: list[Any], dataset: "SpectroDataset") -> None:
+        super().__init__(sources)
+        self.sample_state = copy.deepcopy({
+            key: getattr(dataset, key) for key in (
+                "_indexer", "_targets", "_metadata", "_folds", "_target_accessor", "_metadata_accessor",
+                "_signal_types", "_signal_type_forced", "_may_contain_nan",
+            )
+        })
+
+    def restore_sample_state(self, dataset: "SpectroDataset") -> None:
+        """Restore related blocks together to preserve accessor references."""
+        dataset.__dict__.update(copy.deepcopy(self.sample_state))
+        dataset._feature_accessor._indexer = dataset._indexer
+        dataset._invalidate_content_hash()
+
+
 @register_controller
 class BranchController(OperatorController):
     """Unified controller for pipeline branching.
@@ -298,9 +317,12 @@ class BranchController(OperatorController):
 
         # Snapshot the dataset's feature state before branching
         initial_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
+        context.custom["pre_branch_features_snapshot"] = self._snapshot_features(dataset)
 
         # V3: Snapshot the chain state before branching
         initial_chain = recorder.current_chain() if recorder else None
+        if recorder is not None:
+            recorder.end_step()
 
         # Initialize list to collect branch contexts
         branch_contexts: list[dict[str, Any]] = []
@@ -355,7 +377,8 @@ class BranchController(OperatorController):
         if recorder is not None:
             recorder.end_step()
 
-        # Release the initial snapshot (no longer needed after all branches executed)
+        # Restore the parent cohort; per-branch steps restore their own snapshots.
+        self._restore_features(dataset, initial_features_snapshot, use_cow=use_cow)
         self._release_snapshot(initial_features_snapshot, use_cow=use_cow)
 
         # Store branch contexts in custom dict for post-branch iteration
@@ -562,9 +585,8 @@ class BranchController(OperatorController):
         min_samples = raw_def.get("min_samples", 1)
 
         # Check if metadata column exists
-        metadata_df = dataset.metadata()
-        if metadata_df is None or column not in metadata_df.columns:
-            available_cols = list(metadata_df.columns) if metadata_df is not None else []
+        available_cols = dataset.metadata_columns
+        if column not in available_cols:
             raise ValueError(
                 f"Metadata column '{column}' not found. "
                 f"Available columns: {available_cols}"
@@ -586,8 +608,9 @@ class BranchController(OperatorController):
             logger.warning("No samples found for separation branch")
             return context, StepOutput()
 
-        # Get metadata values for these samples
-        column_values = metadata_df[column].to_numpy()[sample_indices]
+        # Metadata is filtered and origin-aligned by the same selector as X;
+        # physical sample IDs cannot index its compact result positionally.
+        column_values = dataset.metadata_column(column, selector, include_augmented=False)
 
         # Build value mapping if not provided
         if value_mapping is None:
@@ -622,7 +645,7 @@ class BranchController(OperatorController):
         # `groups` over every partition's rows). Branches dropped by
         # min_samples stay dropped: their samples are not reassembled.
         universe_indices = self._universe_indices(dataset, context)
-        universe_values = metadata_df[column].to_numpy()[universe_indices]
+        universe_values = dataset.metadata_column(column, {"sample": universe_indices.tolist()}, include_augmented=False)
         universe_groups: dict[str, list[int]] = {}
         for branch_name, allowed_values in value_mapping.items():
             if branch_name not in groups:
@@ -756,10 +779,9 @@ class BranchController(OperatorController):
             separation_type="by_filter",
             separation_key=filter_obj.__class__.__name__,
             universe_groups=universe_groups,
+            parent_artifacts=all_artifacts,
         )
 
-        # Merge artifacts
-        output.artifacts.extend(all_artifacts)
         return result_context, output
 
     def _execute_by_source(
@@ -1114,6 +1136,7 @@ class BranchController(OperatorController):
         separation_type: str = "unknown",
         separation_key: str = "",
         universe_groups: dict[str, list[int]] | None = None,
+        parent_artifacts: list[Any] | None = None,
     ) -> tuple["ExecutionContext", StepOutput]:
         """Common execution logic for separation branches.
 
@@ -1146,6 +1169,18 @@ class BranchController(OperatorController):
                 },
             )
 
+        # Parent-owned artifacts must be recorded before child steps take over
+        # the trace. Returning their raw tuples after branch finalization loses
+        # their owner and leaves the executor with no active step to record.
+        all_artifacts = list(parent_artifacts or [])
+        if all_artifacts and runtime_context.artifact_registry is not None and runtime_context.save_artifacts:
+            from nirs4all.pipeline.execution.executor import PipelineExecutor
+            from nirs4all.pipeline.steps.step_runner import StepRunner
+
+            executor = PipelineExecutor(runtime_context.step_runner or StepRunner(), save_artifacts=True)
+            executor.step_number = runtime_context.step_number
+            all_artifacts = executor._process_step_artifacts(all_artifacts, runtime_context=runtime_context, context=context)
+
         # Determine CoW mode from cache config
         use_cow = self._use_cow_snapshots(runtime_context)
 
@@ -1155,9 +1190,12 @@ class BranchController(OperatorController):
         initial_context = context.copy()
         initial_processing = copy.deepcopy(context.selector.processing)
         initial_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
+        context.custom["pre_branch_features_snapshot"] = self._snapshot_features(dataset)
 
         # V3: Snapshot chain state
         initial_chain = recorder.current_chain() if recorder else None
+        if recorder is not None:
+            recorder.end_step()
 
         # In predict/explain mode, filter to target branch if specified
         target_branch_id = None
@@ -1166,7 +1204,6 @@ class BranchController(OperatorController):
 
         # Process each group/branch
         branch_contexts: list[dict[str, Any]] = []
-        all_artifacts = []
 
         for branch_id, (branch_name, local_indices) in enumerate(groups.items()):
             # Skip if not target branch in predict mode
@@ -1284,6 +1321,7 @@ class BranchController(OperatorController):
             # concat-merge reassembly so every dataset row (test included)
             # is rebuilt from its owning branch's transformed features.
             branch_context.custom["sample_partition"]["all_sample_indices"] = list(universe_sample_indices)
+            branch_context.custom["sample_partition"]["sample_indices"] = list(universe_sample_indices)
 
         # Reset artifact counter
         if runtime_context:
@@ -2113,7 +2151,7 @@ class BranchController(OperatorController):
         return result
 
     def _snapshot_features(self, dataset: "SpectroDataset", use_cow: bool = False) -> list[Any]:
-        """Create a snapshot of the dataset's feature sources.
+        """Snapshot features and their indexer, target, metadata and fold state.
 
         Args:
             dataset: The dataset to snapshot.
@@ -2135,8 +2173,8 @@ class BranchController(OperatorController):
                     list(source._header_mgr.headers) if source._header_mgr.headers else None,
                     source._header_mgr.header_unit,
                 ))
-            return snapshot
-        return copy.deepcopy(dataset._features.sources)
+            return _BranchSnapshot(snapshot, dataset)
+        return _BranchSnapshot(copy.deepcopy(dataset._features.sources), dataset)
 
     def _restore_features(
         self,
@@ -2144,7 +2182,7 @@ class BranchController(OperatorController):
         snapshot: list[Any],
         use_cow: bool = False,
     ) -> None:
-        """Restore the dataset's feature sources from a snapshot.
+        """Restore features and the sample state corresponding to those rows.
 
         Args:
             dataset: The dataset to restore into.
@@ -2160,6 +2198,10 @@ class BranchController(OperatorController):
                 source._header_mgr.set_headers(headers, unit=header_unit)
         else:
             dataset._features.sources = copy.deepcopy(snapshot)
+
+        if isinstance(snapshot, _BranchSnapshot):
+            snapshot.restore_sample_state(dataset)
+        dataset._invalidate_content_hash()
 
     def _release_snapshot(self, snapshot: list[Any], use_cow: bool = False) -> None:
         """Release shared references in a CoW snapshot.
@@ -2630,8 +2672,6 @@ class BranchController(OperatorController):
 
         n_jobs, branch_chunks = self._compute_branch_chunks(branch_defs, n_jobs)
 
-        parent_branch_path = context.selector.branch_path or []
-
         def _execute_branch_chunk_worker(
             chunk: list[tuple[int, dict[str, Any]]],
             dataset_copy: "SpectroDataset",
@@ -2639,88 +2679,53 @@ class BranchController(OperatorController):
             initial_processing_copy: list[Any],
             runtime_context_copy: "RuntimeContext",
         ) -> list[dict[str, Any]]:
-            """Execute a chunk of branches in a single worker thread.
-
-            Uses CoW snapshot/restore for efficient state isolation
-            between branches within the chunk.
-            """
-            import copy as copy_module
-
+            """Run isolated branches with the same trace lifecycle as sequential execution."""
             from nirs4all.data.predictions import Predictions
+            from nirs4all.pipeline.trace.recorder import TraceRecorder
 
-            # Recreate step_runner in this worker (not picklable)
-            if runtime_context_copy and runtime_context_copy.step_runner is None:
-                from nirs4all.pipeline.steps.step_runner import StepRunner
-                runtime_context_copy.step_runner = StepRunner()
-
-            # Take initial snapshot of the worker's dataset copy for CoW restore
-            worker_initial_snapshot = self._snapshot_features(dataset_copy, use_cow=True)
-
+            worker_initial_snapshot = self._snapshot_features(dataset_copy, use_cow=use_cow)
             results = []
-            for branch_id, branch_def in chunk:
-                branch_name = branch_def.get("name", f"branch_{branch_id}")
-                branch_steps = branch_def.get("steps", [])
-                local_predictions = Predictions()
-
-                try:
-                    # Restore dataset to initial state via CoW (lightweight)
-                    self._restore_features(dataset_copy, worker_initial_snapshot, use_cow=True)
-
-                    # Create isolated context for this branch
-                    branch_context = initial_context_copy.copy()
-                    new_branch_path = parent_branch_path + [branch_id]
-                    branch_context.selector = branch_context.selector.with_branch(
-                        branch_id=branch_id,
-                        branch_name=branch_name,
-                        branch_path=new_branch_path,
+            try:
+                for branch_id, branch_def in chunk:
+                    local_predictions = Predictions()
+                    worker_recorder = None
+                    if recorder is not None:
+                        worker_recorder = TraceRecorder(
+                            pipeline_uid=recorder.trace.pipeline_uid, pipeline_id=recorder.pipeline_id,
+                        )
+                        for ancestor in context.selector.branch_path or []:
+                            worker_recorder.enter_branch(ancestor)
+                    runtime_context_copy.trace_recorder = worker_recorder
+                    initial_context_copy.custom["_runtime_context"] = runtime_context_copy
+                    branch_contexts, artifacts = self._execute_branches_sequential(
+                        branch_defs=[branch_def],
+                        dataset=dataset_copy,
+                        initial_context=initial_context_copy,
+                        initial_processing=initial_processing_copy,
+                        initial_features_snapshot=worker_initial_snapshot,
+                        initial_chain=initial_chain,
+                        context=initial_context_copy,
+                        runtime_context=runtime_context_copy,
+                        loaded_binaries=loaded_binaries,
+                        prediction_store=local_predictions,
+                        recorder=worker_recorder,
+                        mode=mode,
+                        use_cow=use_cow,
+                        target_branch_id=branch_id,
                     )
-                    branch_context.selector.processing = copy_module.deepcopy(initial_processing_copy)
-
-                    if runtime_context_copy:
-                        runtime_context_copy.artifact_load_counter = {}
-
-                    # Execute branch steps
-                    for substep_idx, substep in enumerate(branch_steps):
-                        if runtime_context_copy and runtime_context_copy.step_runner:
-                            runtime_context_copy.substep_number = substep_idx
-                            step_result = runtime_context_copy.step_runner.execute(
-                                step=substep,
-                                dataset=dataset_copy,
-                                context=branch_context,
-                                runtime_context=runtime_context_copy,
-                                loaded_binaries=None,
-                                prediction_store=local_predictions,
-                            )
-                            branch_context = step_result.updated_context
-
                     results.append({
-                        "success": True,
+                        "success": bool(branch_contexts),
                         "branch_id": branch_id,
-                        "branch_name": branch_name,
+                        "branch_name": branch_def.get("name", f"branch_{branch_id}"),
                         "predictions": local_predictions.iter_entries(),
-                        "context_selector": {
-                            "processing": branch_context.selector.processing,
-                            "branch_id": branch_context.selector.branch_id,
-                            "branch_name": branch_context.selector.branch_name,
-                            "branch_path": branch_context.selector.branch_path,
-                        },
-                        "generator_choice": branch_def.get("generator_choice"),
-                        "branch_steps": branch_steps,
+                        "branch_context": branch_contexts[0] if branch_contexts else None,
+                        "artifacts": artifacts,
+                        "trace_steps": worker_recorder.trace.steps if worker_recorder else [],
+                        "branch_steps": branch_def.get("steps", []),
+                        "error": "Branch execution failed; see worker diagnostic",
                     })
-
-                except Exception as e:
-                    import traceback
-                    logger.warning(f"  Branch {branch_id} ({branch_name}) failed: {e}")
-                    results.append({
-                        "success": False,
-                        "branch_id": branch_id,
-                        "branch_name": branch_name,
-                        "error": str(e),
-                        "traceback": traceback.format_exc(),
-                    })
-
-            # Release worker snapshot
-            self._release_snapshot(worker_initial_snapshot, use_cow=True)
+            finally:
+                self._release_snapshot(worker_initial_snapshot, use_cow=use_cow)
             return results
 
         worker_args = self._build_parallel_worker_args(
@@ -2789,45 +2794,33 @@ class BranchController(OperatorController):
         initial_processing: list[Any],
         runtime_context: "RuntimeContext",
     ) -> list[tuple[Any, Any, Any, Any, Any]]:
-        """Build the pickle-safe deep-copied argument tuples for each worker.
+        """Isolate worker runtime state while sharing thread-safe persistence services.
 
-        Temporarily clears unpicklable attributes off ``runtime_context``,
-        deep-copies the dataset/context/processing/runtime per chunk, then
-        restores the original attributes. The clear/restore is straight-line
-        (no try/finally) to preserve the original failure semantics exactly:
-        if a deep copy raises, the attributes are left cleared, as before.
-
-        Shared state in: ``branch_chunks`` (one worker per chunk), ``dataset`` /
-        ``initial_context`` / ``initial_processing`` to copy, ``runtime_context``
-        (mutated in place: attrs cleared then restored), ``branch_defs`` (log only).
-
-        Shared state out: returns ``worker_args`` for the joblib dispatch.
+        RuntimeContext intentionally returns itself from deepcopy. A shallow copy
+        creates a distinct coordinator without copying SQLite handles or registries;
+        mutable counters, runners and branch-local execution state are isolated.
+        The parent runtime is never cleared or mutated during preparation.
         """
-        # Temporarily clear unpicklable objects from runtime_context for deep copy
-        original_attrs = {}
-        unpicklable_keys = ["store", "artifact_registry", "trace_recorder", "step_runner", "artifact_loader"]
-        if runtime_context:
-            for key in unpicklable_keys:
-                original_attrs[key] = getattr(runtime_context, key, None)
-                setattr(runtime_context, key, None)
+        from nirs4all.pipeline.steps.step_runner import StepRunner
 
-        # Create only n_workers copies (not n_branches copies)
         worker_args = []
         for chunk in branch_chunks:
+            runtime_context_copy = copy.copy(runtime_context)
+            runtime_context_copy.artifact_load_counter = {}
+            runtime_context_copy.target_model = copy.deepcopy(runtime_context.target_model)
+            runtime_context_copy.best_refit_chains = None  # Parent collects winners after joining.
+            runtime_context_copy.current_context = None
+            runtime_context_copy.trace_recorder = None
+            runtime_context_copy.step_runner = StepRunner(
+                mode=runtime_context.step_runner.mode if runtime_context.step_runner else "train",
+                verbose=runtime_context.step_runner.verbose if runtime_context.step_runner else 0,
+                show_spinner=False,
+            )
             dataset_copy = copy.deepcopy(dataset)
             initial_context_copy = copy.deepcopy(initial_context)
+            initial_context_copy.custom["_runtime_context"] = runtime_context_copy
             initial_processing_copy = copy.deepcopy(initial_processing)
-            runtime_context_copy = copy.deepcopy(runtime_context)
-            if runtime_context_copy:
-                runtime_context_copy.store = None
-                runtime_context_copy.artifact_registry = None
-                runtime_context_copy.trace_recorder = None
             worker_args.append((chunk, dataset_copy, initial_context_copy, initial_processing_copy, runtime_context_copy))
-
-        # Restore original runtime_context attributes
-        if runtime_context:
-            for key, val in original_attrs.items():
-                setattr(runtime_context, key, val)
 
         logger.info(f"Created {len(worker_args)} worker copies (instead of {len(branch_defs)})")
 
@@ -2849,10 +2842,8 @@ class BranchController(OperatorController):
         target), ``prediction_store`` (mutated: predictions merged in), ``mode``,
         ``use_cow``.
 
-        Shared state out: returns the ``(branch_contexts, all_artifacts)`` tuple
-        that ``_execute_branches_parallel`` returns. ``all_artifacts`` is always
-        empty in the parallel path (artifacts are not threaded back from workers),
-        matching the original.
+        Shared state out: branch snapshots, contexts and persisted artifacts are
+        retained, and worker-local traces are joined in branch definition order.
         """
         # Flatten chunk results and collect
         branch_contexts = []
@@ -2873,23 +2864,17 @@ class BranchController(OperatorController):
                 if prediction_store is not None and result["predictions"]:
                     prediction_store.extend_from_list(result["predictions"])
 
-                # Reconstruct branch context
-                branch_context_dict = {
-                    "branch_id": result["branch_id"],
-                    "name": result["branch_name"],
-                    "context": initial_context.copy(),
-                    "generator_choice": result.get("generator_choice"),
-                    "features_snapshot": None,
-                    "chain_snapshot": None,
-                    "branch_mode": "duplication",
-                    "use_cow": use_cow,
-                }
-                ctx_sel = result["context_selector"]
-                branch_context_dict["context"].selector.processing = ctx_sel["processing"]
-                branch_context_dict["context"].selector.branch_id = ctx_sel["branch_id"]
-                branch_context_dict["context"].selector.branch_name = ctx_sel["branch_name"]
-                branch_context_dict["context"].selector.branch_path = ctx_sel["branch_path"]
+                # Keep the worker's full state, including supervised replay plans
+                # and fitted feature snapshots needed by later merges/models.
+                branch_context_dict = result["branch_context"]
+                branch_context_dict["context"].custom["_runtime_context"] = runtime_context
                 branch_contexts.append(branch_context_dict)
+                all_artifacts.extend(result["artifacts"])
+                if runtime_context.trace_recorder is not None:
+                    for step in result["trace_steps"]:
+                        runtime_context.trace_recorder.trace.add_step(step)
+                        if step.operator_type in ("model", "meta_model"):
+                            runtime_context.trace_recorder.trace.set_model_step(step.step_index)
 
                 # Accumulate best preprocessing chain per model for refit
                 if (

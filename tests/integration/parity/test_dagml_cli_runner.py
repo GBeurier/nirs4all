@@ -1801,7 +1801,7 @@ def test_stateful_augmentation_routes_fold_local() -> None:
     """STATEFUL/SUPERVISED/BALANCED augmentation routes to the FOLD-LOCAL path, not a global fit.
 
     A stateless per-sample augmenter is leakage-free globally (`_augmentation_is_leakage_free` True →
-    global path #8). A stateful augmenter (mixup with stored neighbors, a global-mean scatter reference)
+    global path #8). A stateful augmenter (a global-mean scatter reference)
     or the balanced/supervised mode is NOT leakage-free globally (False → fold-local path #32: fit inside
     each fold's train only). This pins the routing signal; the e2e parity test below exercises the path.
     No CLI needed — these are pure predicate checks.
@@ -1818,18 +1818,21 @@ def test_stateful_augmentation_routes_fold_local() -> None:
     # Step-level routing: stateless count-mode → global; balanced/supervised + any stateful → fold-local.
     assert _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all"}})
     assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "balance": "y", "max_factor": 2}})
-    assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [LocalMixupAugmenter()], "count": 1}})
-    assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01), LocalMixupAugmenter()], "count": 1}})
+    assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [ScatterSimulationMSC(reference_mode="global_mean")], "count": 1}})
+    assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01), ScatterSimulationMSC(reference_mode="global_mean")], "count": 1}})
+    for transformers in ([LocalMixupAugmenter()], [GaussianAdditiveNoise(sigma=0.01), LocalMixupAugmenter()]):
+        with pytest.raises(ValueError, match="joint X/y mixing and multiple-parent sample identities"):
+            _augmentation_is_leakage_free({"sample_augmentation": {"transformers": transformers, "count": 1}})
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
     """FOLD-LOCAL stateful augmentation (#32) runs e2e on dag-ml == direct per-fold-augmented sklearn OOF.
 
-    A stateful augmenter (LocalMixup, whose synthetic child interpolates toward a neighbor drawn from the
-    fit X) is fit INSIDE each fold's train only — so each fold has its OWN children and a fold's children
+    A stateful augmenter (scatter simulation along the fitted training mean) is fit INSIDE each fold's
+    train only — so each fold has its OWN children and a fold's children
     never train into another fold (the global #8 path would fit on the whole train, leaking future
-    fold-val neighbors). We assert:
+    fold-val reference spectra). We assert:
 
     * `cv_best_score` == a DIRECT per-fold-augmented sklearn OOF (per fold, fit PLS on the already-
       preprocessed augmented dataset's base-train + THAT FOLD's children, validate on base-val) —
@@ -1842,14 +1845,14 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
 
     from sklearn.metrics import mean_squared_error
 
-    from nirs4all.operators.augmentation.spectral import LocalMixupAugmenter
+    from nirs4all.operators.augmentation.spectral import ScatterSimulationMSC
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     n_comp = 5
     pipeline = [
         StandardNormalVariate(),
-        {"sample_augmentation": {"transformers": [LocalMixupAugmenter(k_neighbors=5, random_state=7)], "count": 1, "selection": "all", "random_state": 7}},
+        {"sample_augmentation": {"transformers": [ScatterSimulationMSC(reference_mode="global_mean", a_range=(-0.2, 0.2), b_range=(0.5, 1.5), random_state=7)], "count": 1, "selection": "all", "random_state": 7}},
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
         {"model": PLSRegression(n_components=n_comp)},
     ]
@@ -1877,6 +1880,7 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
     oof_true: dict[int, float] = {}
     for fold_index, (train_ints, val_ints) in enumerate(folds):
         fold_kids = fold_children[f"fold{fold_index}"]
+        assert set(fold_kids) <= set(train_ints), "synthetic children must originate inside their training fold"
         fit_ints = list(train_ints) + [child for origin in train_ints for child in fold_kids.get(origin, [])]
         model = PLSRegression(n_components=n_comp)
         model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d")), np.asarray([y_of(s) for s in fit_ints], dtype=float))
@@ -5094,7 +5098,7 @@ def test_public_run_engine_dagml_generator_or_with_pick() -> None:
 def test_public_run_engine_dagml_multi_source_baseline() -> None:
     """`[SNV, ShuffleSplit, PLSR]` on the 3-source `multi` corpus runs + parity, no crash.
 
-    The multi-source baseline (per-source SNV → early-fusion concat → PLSR) must re-materialize in the
+    The multi-source baseline (early-fusion concat → SNV → PLSR) must re-materialize in the
     process-adapter subprocess and run natively. Its final-test RMSE matches a direct sklearn baseline on
     the concatenated sources within 1e-3."""
     from sklearn.cross_decomposition import PLSRegression as _PLS

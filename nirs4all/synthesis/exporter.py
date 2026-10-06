@@ -106,6 +106,14 @@ class DatasetExporter:
         """
         self.config = config or ExportConfig()
 
+    def _csv_path(self, path: Path) -> Path:
+        suffix = {"gzip": ".gz", "zip": ".zip", None: ""}[self.config.compression]
+        return path if not suffix or str(path).endswith(suffix) else Path(str(path) + suffix)
+
+    def _write_csv(self, frame: Any, path: Path, **kwargs: Any) -> None:
+        frame.to_csv(self._csv_path(path), header=self.config.include_headers,
+                     compression=self.config.compression, **kwargs)
+
     def to_folder(
         self,
         path: str | Path,
@@ -194,7 +202,7 @@ class DatasetExporter:
         test_idx = indices[n_train:]
 
         # Create feature column names
-        columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
+        columns = [str(float(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Create target column names
         if y.ndim == 1:
@@ -205,7 +213,7 @@ class DatasetExporter:
 
         # Export training data
         X_train = pd.DataFrame(X[train_idx], columns=columns)
-        X_train.to_csv(
+        self._write_csv(X_train,
             path / f"Xcal{self.config.file_extension}",
             sep=self.config.separator,
             index=self.config.include_index,
@@ -213,7 +221,7 @@ class DatasetExporter:
         )
 
         y_train = pd.DataFrame(y[train_idx], columns=y_columns)
-        y_train.to_csv(
+        self._write_csv(y_train,
             path / f"Ycal{self.config.file_extension}",
             sep=self.config.separator,
             index=self.config.include_index,
@@ -223,7 +231,7 @@ class DatasetExporter:
         # Export test data
         if len(test_idx) > 0:
             X_test = pd.DataFrame(X[test_idx], columns=columns)
-            X_test.to_csv(
+            self._write_csv(X_test,
                 path / f"Xval{self.config.file_extension}",
                 sep=self.config.separator,
                 index=self.config.include_index,
@@ -231,7 +239,7 @@ class DatasetExporter:
             )
 
             y_test = pd.DataFrame(y[test_idx], columns=y_columns)
-            y_test.to_csv(
+            self._write_csv(y_test,
                 path / f"Yval{self.config.file_extension}",
                 sep=self.config.separator,
                 index=self.config.include_index,
@@ -265,7 +273,7 @@ class DatasetExporter:
         test_idx = indices[n_train:]
 
         # Create feature column names
-        feature_columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
+        feature_columns = [str(float(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Ensure y is 2D
         if y.ndim == 1:
@@ -304,7 +312,7 @@ class DatasetExporter:
                     data[key] = values
 
         df = pd.DataFrame(data)
-        df.to_csv(
+        self._write_csv(df,
             path / f"data{self.config.file_extension}",
             sep=self.config.separator,
             index=self.config.include_index,
@@ -334,7 +342,7 @@ class DatasetExporter:
         test_idx = indices[n_train:]
 
         # Create feature column names
-        columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
+        columns = [str(float(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Ensure y is 2D
         if y.ndim == 1:
@@ -355,7 +363,7 @@ class DatasetExporter:
 
             # Export features
             df_x = pd.DataFrame(X[chunk_idx], columns=columns)
-            df_x.to_csv(
+            self._write_csv(df_x,
                 train_path / f"X_part{i}{self.config.file_extension}",
                 sep=self.config.separator,
                 index=self.config.include_index,
@@ -364,7 +372,7 @@ class DatasetExporter:
 
             # Export targets
             df_y = pd.DataFrame(y[chunk_idx], columns=y_columns)
-            df_y.to_csv(
+            self._write_csv(df_y,
                 train_path / f"Y_part{i}{self.config.file_extension}",
                 sep=self.config.separator,
                 index=self.config.include_index,
@@ -377,7 +385,7 @@ class DatasetExporter:
             test_path.mkdir(parents=True, exist_ok=True)
 
             df_x = pd.DataFrame(X[test_idx], columns=columns)
-            df_x.to_csv(
+            self._write_csv(df_x,
                 test_path / f"X{self.config.file_extension}",
                 sep=self.config.separator,
                 index=self.config.include_index,
@@ -385,7 +393,7 @@ class DatasetExporter:
             )
 
             df_y = pd.DataFrame(y[test_idx], columns=y_columns)
-            df_y.to_csv(
+            self._write_csv(df_y,
                 test_path / f"Y{self.config.file_extension}",
                 sep=self.config.separator,
                 index=self.config.include_index,
@@ -406,7 +414,7 @@ class DatasetExporter:
 
         # Training metadata
         meta_train = meta_df.iloc[train_idx]
-        meta_train.to_csv(
+        self._write_csv(meta_train,
             path / f"metadata_cal{self.config.file_extension}",
             sep=self.config.separator,
             index=self.config.include_index,
@@ -415,7 +423,7 @@ class DatasetExporter:
         # Test metadata
         if len(test_idx) > 0:
             meta_test = meta_df.iloc[test_idx]
-            meta_test.to_csv(
+            self._write_csv(meta_test,
                 path / f"metadata_val{self.config.file_extension}",
                 sep=self.config.separator,
                 index=self.config.include_index,
@@ -453,7 +461,7 @@ class DatasetExporter:
         if not HAS_PANDAS:
             raise ImportError("pandas is required for CSV export")
 
-        path = Path(path)
+        path = self._csv_path(Path(path))
         path.parent.mkdir(parents=True, exist_ok=True)
 
         # Validate inputs
@@ -464,7 +472,7 @@ class DatasetExporter:
             )
 
         # Create feature column names
-        feature_columns = [str(int(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
+        feature_columns = [str(float(wl)) for wl in wavelengths] if wavelengths is not None else [f"feature_{i}" for i in range(X.shape[1])]
 
         # Build DataFrame
         data = {}
@@ -487,7 +495,7 @@ class DatasetExporter:
                     data[f"target_{i}" if y.shape[1] > 1 else "target"] = y[:, i]
 
         df = pd.DataFrame(data)
-        df.to_csv(
+        self._write_csv(df,
             path,
             sep=self.config.separator,
             index=self.config.include_index,

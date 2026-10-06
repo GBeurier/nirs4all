@@ -26,8 +26,8 @@ class TestInferOutputShape:
 
     def test_crop(self):
         assert infer_output_shape("CropTransformer", {"start": 50, "end": 250}, 10, 500) == (10, 200)
-        # degenerate crop floors at 1
-        assert infer_output_shape("CropTransformer", {"start": 400, "end": 100}, 10, 500) == (10, 1)
+        # An empty slice has no output features
+        assert infer_output_shape("CropTransformer", {"start": 400, "end": 100}, 10, 500) == (10, 0)
 
     def test_resample(self):
         assert infer_output_shape("Resampler", {"n_features": 128}, 10, 500) == (10, 128)
@@ -44,3 +44,20 @@ class TestInferOutputShape:
 def test_dimension_bound_params_taxonomy():
     assert DIMENSION_BOUND_PARAMS["n_components"] == "features"
     assert DIMENSION_BOUND_PARAMS["n_splits"] == "samples"
+
+
+def test_data_dependent_pca_shape_is_unknown():
+    assert infer_output_shape("PCA", {"n_components": None}, 100, 10) == (100, 10)
+    assert infer_output_shape("PCA", {"n_components": "mle"}, 100, 10) is None
+    assert infer_output_shape("PCA", {"n_components": 0.95}, 100, 10) is None
+
+
+def test_crop_shape_uses_real_python_slice_bounds():
+    assert infer_output_shape("CropTransformer", {"start": 0, "end": None}, 100, 10) == (100, 10)
+    assert infer_output_shape("CropTransformer", {"start": 3, "end": 100}, 100, 10) == (100, 7)
+    assert infer_output_shape("CropTransformer", {"start": -3}, 100, 10) == (100, 3)
+    assert infer_output_shape("CropTransformer", {"start": 12}, 100, 10) == (100, 0)
+
+
+def test_resample_operator_parameter_controls_shape():
+    assert infer_output_shape("ResampleTransformer", {"num_samples": 4}, 100, 10) == (100, 4)

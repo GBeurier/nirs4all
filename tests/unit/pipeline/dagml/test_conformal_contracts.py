@@ -64,6 +64,14 @@ def test_conformal_finite_sample_quantile_uses_ceil_n_plus_one_rule() -> None:
     assert math.isinf(conformal_finite_sample_quantile(scores, 0.95))
 
 
+@pytest.mark.parametrize("n,coverage", [(74, 0.68), (99, 0.55), (99, 0.56), (99, 0.81)])
+def test_conformal_rank_uses_decimal_coverage(n, coverage):
+    from fractions import Fraction
+
+    rank = math.ceil((n + 1) * Fraction(str(coverage)))
+    assert conformal_finite_sample_quantile(np.arange(n, dtype=float), coverage) == rank - 1
+
+
 def test_parse_conformal_calibration_spec_normalizes_contract_and_fingerprint() -> None:
     spec = parse_conformal_calibration_spec(
         {

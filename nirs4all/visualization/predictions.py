@@ -243,7 +243,7 @@ class PredictionAnalyzer:
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
-        score_scope: str = 'refit',
+        score_scope: str = 'cv',
         display_partition: str = 'test',
         display_metrics: list[str] | None = None,
         aggregate: bool | str | None = None,
@@ -268,7 +268,8 @@ class PredictionAnalyzer:
             rank_partition: Partition for ranking (default: 'val').
             score_scope: Controls how refit (final) entries interact with
                CV entries.  See :meth:`Predictions.top` for details.
-               Default ``"final"``.
+               Default ``"cv"`` ranks fold evidence on the requested partition.
+               Explicit ``"refit"`` ranks the saved selection metric.
             display_partition: Partition for display (default: 'test').
             display_metrics: List of metrics to compute for display.
             aggregate: Aggregation mode (metadata column, ``"y"``, ``True``,
@@ -540,7 +541,7 @@ class PredictionAnalyzer:
         show_scores: bool = True,
         aggregate: bool | str | None = None,
         aggregate_method: str | None = None,
-        score_scope: str = 'refit',
+        score_scope: str = 'cv',
         task_type: str | None = None,
         config: ChartConfig | None = None,
         **kwargs
@@ -566,8 +567,10 @@ class PredictionAnalyzer:
                 - ``"y"`` or a metadata column name: aggregate by that key.
             aggregate_method: Aggregation method (``"mean"``, ``"median"``,
                 or ``"vote"``).
-            score_scope: Controls which predictions are included in ranking.
-                        See :meth:`Predictions.top` for details. Default ``"final"``.
+            score_scope: Defaults to ``"cv"`` so the requested metric and
+                partition rank CV fold evidence. Explicit ``"refit"`` ranks
+                artifacts using their saved selection metric, which must match
+                ``rank_metric``. See :meth:`Predictions.top` for details.
             task_type: If provided, filter predictions to this task type (e.g.,
                       'regression', 'classification'). Regression-only views are
                       skipped for classification filters.
@@ -854,7 +857,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         normalize: bool = False,
         rank_agg: str = 'best',
-        display_agg: str = 'best',
+        display_agg: str = 'mean',
         show_counts: bool = True,
         local_scale: bool = False,
         column_scale: bool = False,
@@ -1211,7 +1214,7 @@ class PredictionAnalyzer:
                 # Compute statistics
                 if scores:
                     row[f'{metric}_mean'] = np.mean(scores)
-                    row[f'{metric}_std'] = np.std(scores)
+                    row[f'{metric}_std'] = np.std(scores, ddof=1) if len(scores) > 1 else np.nan
                     row[f'{metric}_min'] = np.min(scores)
                     row[f'{metric}_max'] = np.max(scores)
                 else:
@@ -1506,7 +1509,7 @@ class PredictionAnalyzer:
 
         # Create boxplot
         data = [branch_scores[b] for b in sorted_branches]
-        bp = ax.boxplot(data, tick_labels=sorted_branches, patch_artist=True)
+        bp = ax.boxplot(data, patch_artist=True)
 
         # Color boxes
         colors = plt.get_cmap("viridis")(np.linspace(0.2, 0.8, len(sorted_branches)))
@@ -1637,10 +1640,9 @@ class PredictionAnalyzer:
         if metric is None:
             metric = self._get_default_metric()
 
-        cfg = config or {}
+        cfg = {**(config or {}), 'metric': metric, 'partition': partition, 'show_metrics': show_metrics}
         diagram = PipelineDiagram(pipeline_steps=None, predictions=self.predictions, config=cfg)
         fig = diagram.render(
-            show_shapes=show_metrics,
             figsize=figsize,
             title=title,
         )

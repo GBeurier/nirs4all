@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from nirs4all.analysis.transfer_metrics import _joint_pca_scores
 from nirs4all.core.logging import get_logger
 from nirs4all.visualization.display import show_figures
 
@@ -72,11 +73,10 @@ class PreprocPCAEvaluator:
             ranks[i, nnr[i]] = np.arange(n-1)
         s = 0.0
         for i in range(n):
-            Ui = set(nnn[i, 1:1+k])
-            Ki = set(nnr[i, 1:1+k])
+            Ui, Ki = set(nnn[i, :k]), set(nnr[i, :k])
             for v in Ui - Ki:
                 s += (ranks[i, v] - (k-1))
-        Z = n*k*(2*n - 3*k - 1)/2
+        Z = n*k*(2*n - 3*k - 1)
         return 1.0 - (2.0/Z)*s if Z>0 else np.nan
 
     # ---------------- core API ----------------
@@ -206,6 +206,7 @@ class PreprocPCAEvaluator:
                     r_use = min(Z1_raw.shape[1], Z2_raw.shape[1])
                     Z1_raw = Z1_raw[:, :r_use]
                     Z2_raw = Z2_raw[:, :r_use]
+                    Z1_raw, Z2_raw = _joint_pca_scores(raw_data[ds1], raw_data[ds2], r_use)
 
                     # Compute centroid distance (how far apart are the dataset centers?)
                     centroid_dist_raw = np.linalg.norm(Z1_raw.mean(axis=0) - Z2_raw.mean(axis=0))
@@ -227,6 +228,7 @@ class PreprocPCAEvaluator:
                             r_use_pp = min(Z1_pp.shape[1], Z2_pp.shape[1])
                             Z1_pp = Z1_pp[:, :r_use_pp]
                             Z2_pp = Z2_pp[:, :r_use_pp]
+                            Z1_pp, Z2_pp = _joint_pca_scores(pp_data[pp_name][ds1], pp_data[pp_name][ds2], r_use_pp)
 
                             centroid_dist_pp = np.linalg.norm(Z1_pp.mean(axis=0) - Z2_pp.mean(axis=0))
                             spread_dist_pp = self._compute_spread_distance(Z1_pp, Z2_pp)
@@ -267,15 +269,14 @@ class PreprocPCAEvaluator:
         # Sample-wise distance (average minimum distance between samples)
         # Take a sample to avoid O(n^2) computation
         n_samples = min(100, Z1.shape[0], Z2.shape[0])
-        idx1 = np.random.choice(Z1.shape[0], n_samples, replace=False)
-        idx2 = np.random.choice(Z2.shape[0], n_samples, replace=False)
+        idx1, idx2 = np.random.default_rng(0).choice(Z1.shape[0], n_samples, replace=False), np.random.default_rng(1).choice(Z2.shape[0], n_samples, replace=False)
 
         Z1_sample = Z1[idx1]
         Z2_sample = Z2[idx2]
 
         # Compute minimum distances
         dists = cdist(Z1_sample, Z2_sample, metric='euclidean')
-        min_dist = np.mean(np.minimum(dists.min(axis=0), dists.min(axis=1)))
+        min_dist = (dists.min(axis=0).mean() + dists.min(axis=1).mean()) / 2
 
         # Combine both metrics
         return float(cov_dist + min_dist)

@@ -226,7 +226,7 @@ class BaseChart(ABC):
         n: int,
         rank_metric: str,
         rank_partition: str = 'val',
-        score_scope: str = 'refit',
+        score_scope: str = 'cv',
         display_partition: str = 'test',
         display_metrics: list[str] | None = None,
         aggregate: bool | str | None = None,
@@ -258,6 +258,9 @@ class BaseChart(ABC):
             n: Number of top predictions to return.
             rank_metric: Metric to rank by (e.g., 'rmse', 'balanced_accuracy').
             rank_partition: Partition to rank on (default: 'val').
+            score_scope: Defaults to ``"cv"`` for the requested partition and
+                metric. Explicit ``"refit"`` preserves the artifact's saved
+                selection metric and score.
             display_partition: Partition to display results from (default: 'test').
             display_metrics: List of metrics to compute for display.
             aggregate: Aggregation mode for the query.
@@ -347,6 +350,24 @@ class BaseChart(ABC):
             group_by=group_by,
             **filters
         )
+
+    @staticmethod
+    def _filter_score_scope(df, score_scope: str):
+        """Apply the public CV/refit population contract to vectorized charts."""
+        import polars as pl
+
+        if df.height == 0:
+            return df
+        scope = {'final': 'refit', 'cv': 'folds', 'auto': 'all', 'mix': 'all'}.get(score_scope, score_scope)
+        fold = pl.col('fold_id').cast(pl.String).fill_null('')
+        df = df.filter(~fold.str.ends_with('_agg'))
+        if scope == 'refit':
+            return df.filter(fold == 'final')
+        if scope == 'folds':
+            df = df.filter(~fold.is_in(['final', 'avg', 'w_avg']))
+            if 'refit_context' in df.columns:
+                df = df.filter(pl.col('refit_context').is_null())
+        return df
 
     @staticmethod
     def _is_higher_better(metric: str) -> bool:

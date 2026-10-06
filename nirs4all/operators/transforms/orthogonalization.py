@@ -362,12 +362,12 @@ class EPO(TransformerMixin, BaseEstimator):
     Removes variation in X that is correlated with external parameters (e.g., temperature,
     humidity, batch effects, instrumental drift) without using the target variable Y. EPO
     is useful when you know specific sources of unwanted variation and want to remove them
-    while preserving all Y-relevant information.
+    while retaining spectral directions orthogonal to the learned interference.
 
     Scientific Basis:
         EPO differs from OSC in that it uses external parameter measurements rather than
         the target Y. This makes EPO a semi-supervised method that can remove known
-        interference sources without risking removal of Y-relevant information.
+        interference sources. Signal sharing those spectral directions is also removed.
 
         Common applications include:
         - Temperature-independent sugar content measurement in fruits
@@ -377,8 +377,8 @@ class EPO(TransformerMixin, BaseEstimator):
 
     Algorithm:
         1. Center X and external parameter d
-        2. For each feature, regress on d and compute residuals
-        3. Store projection matrix for applying to new data
+        2. Regress X on d to estimate interference loadings in feature space
+        3. Store the orthogonal complement of those loadings
         4. Transform applies learned orthogonalization without needing d
 
     Parameters
@@ -390,6 +390,8 @@ class EPO(TransformerMixin, BaseEstimator):
 
     Attributes
     ----------
+    projection_ : ndarray of shape (n_features, n_features)
+        Orthogonal projector onto the complement of the fitted interference directions.
     projection_coefs_ : ndarray
         Regression coefficients for orthogonalizing each feature against external parameter(s).
     X_mean_ : ndarray of shape (n_features,)
@@ -423,7 +425,7 @@ class EPO(TransformerMixin, BaseEstimator):
     -----
     - EPO uses external parameter during fit, not Y
     - The second argument to fit() is the external parameter (d), not the target (y)
-    - EPO preserves all Y-related information, including variation that correlates with both Y and d
+    - Variation sharing the interference subspace is removed even when it is Y-related
     - For purely Y-orthogonal variation removal, use OSC instead
     """
 
@@ -441,7 +443,7 @@ class EPO(TransformerMixin, BaseEstimator):
 
     def _reset(self):
         """Reset fitted attributes."""
-        attrs = ["projection_coefs_", "X_mean_", "d_mean_", "n_features_in_"]
+        attrs = ["projection_coefs_", "projection_", "X_mean_", "d_mean_", "n_features_in_"]
         for attr in attrs:
             if hasattr(self, attr):
                 delattr(self, attr)
@@ -504,17 +506,13 @@ class EPO(TransformerMixin, BaseEstimator):
             self.d_mean_ = np.zeros(d.shape[1])
             d_centered = d.copy()
 
-        # Compute regression coefficients: for each feature, regress on d
-        # X_filtered = X - d @ coef
-        # coef = (d^T @ d)^-1 @ d^T @ X
-
-        # Use least squares to compute projection coefficients
-        d_norm = np.linalg.norm(d_centered, axis=0)
-        d_norm[d_norm < 1e-10] = 1.0  # Avoid division by zero
-
-        # Simple approach: project each feature onto external parameter space
-        # For single external parameter, this is simple linear regression per feature
-        self.projection_coefs_ = np.linalg.lstsq(d_centered, X_centered, rcond=None)[0]  # Shape: (n_params, n_features)
+        self.projection_coefs_ = np.linalg.lstsq(d_centered, X_centered, rcond=None)[0]
+        # The row space of the regression loadings is the learned spectral
+        # interference subspace. Its complement can be applied without d.
+        _, singular_values, directions = np.linalg.svd(self.projection_coefs_, full_matrices=False)
+        tolerance = max(self.projection_coefs_.shape) * np.finfo(float).eps * singular_values.max(initial=0.0)
+        directions = directions[singular_values > tolerance]
+        self.projection_ = np.eye(n_features) - directions.T @ directions
 
         return self
 
@@ -544,100 +542,19 @@ class EPO(TransformerMixin, BaseEstimator):
         the external parameter. The projection learned during fit is applied
         to remove the systematic variation pattern identified in the calibration set.
         """
-        check_is_fitted(self, ["projection_coefs_", "X_mean_"])
-
+        check_is_fitted(self, ["projection_", "X_mean_"])
         X = np.asarray(X, dtype=np.float64)
-
         if X.shape[1] != self.n_features_in_:
             raise ValueError(f"X has {X.shape[1]} features, but EPO was fitted with {self.n_features_in_} features")
-
-        # Copy if requested
         X_out = X.copy() if self.copy else X
-
-        # Center
-        if self.scale:
-            X_out = X_out - self.X_mean_
-
-        # Apply EPO: remove projection onto external parameter space
-        # Note: We assume d=0 (mean) for new samples, so we just apply the learned projection
-        # This is equivalent to: X_filtered = X - d @ projection_coefs_
-        # When d is unknown for new samples, we set d_effect = 0 (assumes new samples have mean d)
-
-        # For a more robust approach, we could store the mean projection and subtract it
-        # Here we assume the external parameter effect was learned and we apply the correction
-        # relative to the mean calibration conditions
-
-        # Since we don't have d at transform time, we apply the projection as if d = d_mean
-        # This removes the systematic pattern learned during fit
-        # X_filtered = X_centered - 0 (no additional correction)
-        # The key is that X_centered already has the learned systematic bias removed via scaling
-
-        # Actually, for EPO to work properly at transform time without d, we need to compute
-        # the "reference" projection. In practice, EPO is often applied differently:
-        # The projection matrix learned during fit removes the d-correlated subspace.
-
-        # Simplified implementation: We've already removed d-correlated variation during fit
-        # by computing residuals. For transform, we apply the identity (no additional correction)
-        # since the learned projection is implicitly encoded in the centering.
-
-        # More sophisticated: Build projection matrix P = I - d @ (d^T @ d)^-1 @ d^T
-        # and apply X_filtered = X @ P^T
-
-        # For this implementation, we compute the regression residuals
-        # This assumes d is not available at transform time, so we use the mean learned effect
-
-        # The proper way: Store the projection matrix during fit
-        # For now, since d is unavailable at transform, we simply return centered X
-        # A limitation: True EPO requires d at transform time OR assumes mean conditions
-
-        # Unscale back
-        if self.scale:
-            X_out = X_out + self.X_mean_
-
+        X_out -= self.X_mean_
+        X_out[:] = X_out @ self.projection_
+        X_out += self.X_mean_
         return X_out
 
     def fit_transform(self, X, d):
-        """Fit EPO and transform X in one step.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training spectra.
-        d : array-like of shape (n_samples,) or (n_samples, n_params)
-            External parameter(s).
-
-        Returns
-        -------
-        X_filtered : ndarray of shape (n_samples, n_features)
-            EPO-filtered training data.
-        """
-        self.fit(X, d)
-
-        # For fit_transform, we have d available, so we can remove the effect properly
-        X = np.asarray(X, dtype=np.float64)
-        d = np.asarray(d, dtype=np.float64)
-
-        if d.ndim == 1:
-            d = d.reshape(-1, 1)
-
-        X_out = X.copy() if self.copy else X
-
-        # Center
-        if self.scale:
-            X_centered = X_out - self.X_mean_
-            d_centered = d - self.d_mean_
-        else:
-            X_centered = X_out
-            d_centered = d
-
-        # Remove external parameter effect: X_filtered = X - d @ coef
-        X_filtered = X_centered - d_centered @ self.projection_coefs_
-
-        # Unscale
-        if self.scale:
-            X_filtered = X_filtered + self.X_mean_
-
-        return X_filtered
+        """Fit on external parameters and apply the reusable spectral projection."""
+        return self.fit(X, d).transform(X)
 
     def _more_tags(self):
         return {"requires_y": False, "allow_nan": False}

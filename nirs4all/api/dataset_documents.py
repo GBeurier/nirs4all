@@ -150,7 +150,8 @@ class _BoundedNormalizer(ConfigNormalizer):
         if len(content) > self.limits.max_bytes:
             raise ValueError("Dataset configuration file exceeds byte budget")
         text = content.decode("utf-8")
-        _preflight_yaml(text, self.limits)
+        if path.suffix.lower() != ".json":
+            _preflight_yaml(text, self.limits)
         parsed = self._parse_json(text, file_path) if path.suffix.lower() == ".json" else self._parse_yaml(text, file_path)
         if not isinstance(parsed, dict):
             raise ValueError("Dataset configuration must contain an object")

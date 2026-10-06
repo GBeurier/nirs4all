@@ -196,19 +196,46 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
     legacy, legacy_warnings, _ = _run_reopened("legacy", saved_pipeline, artifacts_dir)
     bundle_path = legacy.export(artifacts_dir / "reopened-refit.n4a")
 
-    dataset = DatasetConfigs(dataset_config, task_type="regression").get_dataset_at(0)
-    x_train = dataset.x({"partition": "train"}, include_augmented=False)
+    dataset = DatasetConfigs(str(dataset_config), task_type="regression").get_dataset_at(0)
+    x_train = np.asarray(dataset.x({"partition": "train"}, include_augmented=False, layout="2d"))
+    x_test = np.asarray(dataset.x({"partition": "test"}, include_augmented=False, layout="2d"))
+    train_ids = dataset.index_column("sample", {"partition": "train"})
+    test_ids = dataset.index_column("sample", {"partition": "test"})
+    assert len(train_ids) == len(x_train)
+    assert len(test_ids) == len(x_test)
+    assert set(train_ids).isdisjoint(test_ids)
     web_upload_dataset = _write_web_upload_dataset(artifacts_dir, dataset)
     reopened_bundle = NIRSPipeline.from_bundle(bundle_path)
-    bundle_pred = _vector(reopened_bundle.predict(x_train))
-    legacy_final_pred = _vector(legacy.final["y_pred"])
+    # The repository upload uses train rows; refit final predictions use test rows.
+    bundle_pred = _vector(reopened_bundle.predict(x_test))
+    legacy_final = legacy.final
+    assert legacy_final is not None
+    assert legacy_final["partition"] == "test"
+    assert legacy_final["fold_id"] == "final"
+    assert list(legacy_final["sample_indices"]) == list(test_ids)
+    np.testing.assert_array_equal(_vector(legacy_final["y_true"]), _vector(dataset.y({"partition": "test"})))
+    legacy_final_pred = _vector(legacy_final["y_pred"])
     assert bundle_pred.shape == legacy_final_pred.shape
+
+    # Independent row-wise SNV and sklearn full-train refit, preserving the
+    # dataset's float32 feature storage rather than reading the exported model.
+    centered_train = x_train - np.mean(x_train, axis=1, keepdims=True)
+    centered_test = x_test - np.mean(x_test, axis=1, keepdims=True)
+    snv_train = centered_train / np.std(centered_train, axis=1, keepdims=True)
+    snv_test = centered_test / np.std(centered_test, axis=1, keepdims=True)
+    independent_model = PLSRegression(n_components=5).fit(snv_train, dataset.y({"partition": "train"}))
+    independent_test_pred = _vector(independent_model.predict(snv_test))
+    np.testing.assert_allclose(bundle_pred, independent_test_pred, rtol=0, atol=1e-8)
+    np.testing.assert_allclose(_vector(reopened_bundle.predict(x_train)),
+                               _vector(independent_model.predict(snv_train)), rtol=0, atol=1e-8)
 
     dagml, dagml_warnings, native_results_dir = _run_reopened("dag-ml", saved_pipeline, artifacts_dir)
 
     legacy_best_pred = _vector(legacy.best["y_pred"])
     dagml_best_pred = _vector(dagml.best["y_pred"])
     dagml_final_pred = _vector(dagml.final["y_pred"])
+    assert dagml.final["partition"] == "test"
+    assert list(dagml.final["sample_indices"]) == list(test_ids)
     assert legacy_best_pred.shape == dagml_best_pred.shape
     assert legacy_final_pred.shape == dagml_final_pred.shape
     assert legacy_best_pred.size > 0
@@ -248,6 +275,7 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
             "config_path": str(dataset_config),
             "config_sha256": _sha256(dataset_config),
             "train_rows": int(x_train.shape[0]),
+            "test_rows": int(x_test.shape[0]),
             "feature_count": int(x_train.shape[1]),
         },
         "web_upload_dataset": web_upload_dataset,
@@ -255,6 +283,8 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
             "path": Path(bundle_path).name,
             "sha256": _sha256(Path(bundle_path)),
             "prediction_rows": int(bundle_pred.shape[0]),
+            "prediction_partition": "test",
+            "sample_indices": [int(sample) for sample in test_ids],
         },
         "repository_refit_recipe": _repository_refit_recipe(),
         "runs": {

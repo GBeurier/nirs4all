@@ -35,9 +35,9 @@ def test_methods_origin_accepts_only_the_documented_ci_followup(monkeypatch, tmp
 
 
 @pytest.mark.parametrize("origin,version_req,accepted", [
-    ("registry+https://github.com/rust-lang/crates.io-index", "=0.4.1", True),
-    ("path+file:///local/source", "=0.4.1", False),
-    ("registry+https://github.com/rust-lang/crates.io-index", ">=0.4.1", False),
+    ("registry+https://github.com/rust-lang/crates.io-index", "=0.4.2", True),
+    ("path+file:///local/source", "=0.4.2", False),
+    ("registry+https://github.com/rust-lang/crates.io-index", ">=0.4.2", False),
 ])
 def test_core_cli_requires_the_exact_public_registry_install(tmp_path, origin, version_req, accepted):
     binary = tmp_path / "bin/nirs4all-core-archive"
@@ -45,7 +45,7 @@ def test_core_cli_requires_the_exact_public_registry_install(tmp_path, origin, v
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o755)
     (tmp_path / ".crates2.json").write_text(json.dumps({"installs": {
-        f"nirs4all 0.4.1 ({origin})": {"version_req": version_req, "bins": [binary.name]},
+        f"nirs4all 0.4.2 ({origin})": {"version_req": version_req, "bins": [binary.name]},
     }}))
     if accepted:
         assert helper.require_public_core_install(tmp_path) == binary

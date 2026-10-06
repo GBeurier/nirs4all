@@ -12,17 +12,17 @@ def _get_jax_opls_functions():
 
     jax.config.update("jax_enable_x64", True)
 
-    @partial(jax.jit, static_argnums=(2,))
-    def opls_fit_jax(X, y, n_components):
+    @partial(jax.jit, static_argnums=(2, 3))
+    def opls_fit_jax(X, y, n_components, scale=True):
         X = jnp.asarray(X, dtype=jnp.float64)
         y = jnp.asarray(y, dtype=jnp.float64)
         n_samples, n_features = X.shape
         X_mean = jnp.mean(X, axis=0, keepdims=True)
-        X_std = jnp.std(X, axis=0, keepdims=True, ddof=1)
+        X_std = jnp.std(X, axis=0, keepdims=True, ddof=1) if scale else jnp.ones((1, n_features))
         X_std = jnp.where(X_std < 1e-10, 1.0, X_std)
         X_centered = (X - X_mean) / X_std
         y_mean = jnp.mean(y)
-        y_std = jnp.std(y, ddof=1)
+        y_std = jnp.std(y, ddof=1) if scale else jnp.float64(1.0)
         y_std = jnp.where(y_std < 1e-10, 1.0, y_std)
         y_centered = (y - y_mean) / y_std
         W_ortho = jnp.zeros((n_features, n_components), dtype=jnp.float64)
@@ -74,9 +74,10 @@ See pls.py for full documentation and usage examples.
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.utils.validation import check_is_fitted
 
 
-class OPLS(BaseEstimator, RegressorMixin):
+class OPLS(RegressorMixin, BaseEstimator):
     """Orthogonal PLS (OPLS) regressor.
     (See pls.py for full docstring)
     """
@@ -137,7 +138,7 @@ class OPLS(BaseEstimator, RegressorMixin):
             X_jax = jnp.asarray(X)
             y_jax = jnp.asarray(y_flat)
 
-            result = opls_fit_jax(X_jax, y_jax, n_ortho)
+            result = opls_fit_jax(X_jax, y_jax, n_ortho, self.scale)
             (self._W_ortho, self._P_ortho,
              self._X_mean, self._X_std,
              self._y_mean, self._y_std) = result
@@ -168,6 +169,7 @@ class OPLS(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        check_is_fitted(self, ['pls_'])
         X = np.asarray(X)
 
         # Transform X to remove orthogonal variation
@@ -183,6 +185,7 @@ class OPLS(BaseEstimator, RegressorMixin):
         return y_pred
 
     def transform(self, X):
+        check_is_fitted(self, ['pls_'])
         X = np.asarray(X)
 
         if self.backend == 'jax':
@@ -203,6 +206,5 @@ class OPLS(BaseEstimator, RegressorMixin):
         return {"n_components": self.n_components, "pls_components": self.pls_components, "scale": self.scale, "backend": self.backend}
 
     def set_params(self, **params):
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self

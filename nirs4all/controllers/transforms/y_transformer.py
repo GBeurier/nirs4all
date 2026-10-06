@@ -224,9 +224,20 @@ class YTransformerMixinController(OperatorController):
                     )
 
             if fitted_transformer is not None:
+                # Keep target rows aligned with their original IDs during replay.
+                # Unlabeled inputs still need an empty numeric ancestry so model
+                # predictions can be inverted through the saved target chain.
+                if dataset._targets.num_processings == 0:
+                    n_targets = int(getattr(fitted_transformer, "n_features_in_", 1))
+                    dataset._targets.add_targets(np.empty((0, n_targets)))
+                current_targets = dataset._targets.get_targets(current_y_processing)
+                transformed_targets = (
+                    fitted_transformer.transform(current_targets)
+                    if len(current_targets) else current_targets.copy()
+                )
                 dataset._targets.add_processed_targets(
                     processing_name=new_processing_name,
-                    targets=np.array([]),
+                    targets=transformed_targets,
                     ancestor=current_y_processing,
                     transformer=fitted_transformer,
                     mode=mode

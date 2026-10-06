@@ -460,13 +460,9 @@ class TestDatasetConfigSchemaVariations:
             ],
             variation_mode=VariationMode.SEPARATE
         )
-        legacy = schema.variations_to_legacy_format()
-
-        # Should only include first variation for separate mode
-        assert legacy["train_x"] == "X_raw.csv"
-        assert legacy["test_x"] == "X_raw_test.csv"
-        assert "_variations" in legacy
-        assert len(legacy["_variations"]) == 2
+        # DT2-12: conversion must not silently discard other variations.
+        with pytest.raises(ValueError, match="multiple variations is not supported"):
+            schema.variations_to_legacy_format()
 
     def test_variations_to_legacy_format_concat(self):
         """Test variations_to_legacy_format for concat mode."""
@@ -512,20 +508,15 @@ class TestConfigNormalizerVariations:
     def test_normalize_variations_config(self):
         """Test that ConfigNormalizer handles variations format."""
         normalizer = ConfigNormalizer()
-        config, name = normalizer.normalize({
-            "name": "variation_test",
-            "variations": [
-                {"name": "raw", "train_x": "X_raw.csv"},
-                {"name": "snv", "train_x": "X_snv.csv"}
-            ],
-            "variation_mode": "separate"
-        })
-
-        assert config is not None
-        assert name == "variation_test"
-        # Should be converted to legacy format
-        assert "train_x" in config
-        assert "_variations" in config
+        with pytest.raises(ValueError, match="multiple variations is not supported"):
+            normalizer.normalize({
+                "name": "variation_test",
+                "variations": [
+                    {"name": "raw", "train_x": "X_raw.csv"},
+                    {"name": "snv", "train_x": "X_snv.csv"}
+                ],
+                "variation_mode": "separate"
+            })
 
     def test_normalize_variations_concat_mode(self):
         """Test normalization of concat mode variations."""

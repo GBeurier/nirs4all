@@ -268,7 +268,7 @@ def _expand_list(node: list, seed: int | None) -> ExpandedResult:
         return [[]]  # Empty list -> single empty result
 
     # Special case: single element that expands to lists
-    if len(node) == 1:
+    if len(node) == 1 and not isinstance(node[0], list):
         element_result = _expand_internal(node[0], seed)
         # If result contains lists (combinations), return directly
         if element_result and isinstance(element_result[0], list):
@@ -300,9 +300,9 @@ def _expand_mixed_or_node(node: dict[str, Any], seed: int | None) -> ExpandedRes
         List of merged dict variants.
     """
     # Extract modifiers that go with _or_
-    or_modifier_keys = {
-        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
-    }
+    from .keywords import PURE_OR_KEYS
+
+    or_modifier_keys = PURE_OR_KEYS
 
     # Separate base keys from OR-related keys
     base = {k: v for k, v in node.items() if k not in or_modifier_keys}
@@ -500,7 +500,7 @@ def _expand_list_with_choices(
         return [([], [])]
 
     # Special case: single element
-    if len(node) == 1:
+    if len(node) == 1 and not isinstance(node[0], list):
         element_results = _expand_with_choices_internal(node[0], seed)
         # If results contain lists, return directly
         if element_results and isinstance(element_results[0][0], list):
@@ -535,9 +535,9 @@ def _expand_mixed_or_with_choices(
     Returns:
         List of (dict_value, merged_choices) tuples.
     """
-    or_modifier_keys = {
-        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
-    }
+    from .keywords import PURE_OR_KEYS
+
+    or_modifier_keys = PURE_OR_KEYS
 
     base = {k: v for k, v in node.items() if k not in or_modifier_keys}
     or_node = {k: node[k] for k in or_modifier_keys if k in node}
@@ -693,9 +693,9 @@ def _count_mixed_or_node(node: dict[str, Any]) -> int:
     Returns:
         Number of variants.
     """
-    or_modifier_keys = {
-        "_or_", "count", "pick", "arrange", "then_pick", "then_arrange"
-    }
+    from .keywords import PURE_OR_KEYS
+
+    or_modifier_keys = PURE_OR_KEYS
 
     base = {k: v for k, v in node.items() if k not in or_modifier_keys}
     or_node = {k: node[k] for k in or_modifier_keys if k in node}

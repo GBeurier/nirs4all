@@ -90,9 +90,9 @@ class Activation(nn.Module):
     def __call__(self, x):
         return self.fn(x)
 
-def get_activation(name: str):
+def get_activation(name: str | None):
     if name is None:
-        return None
+        return lambda x: x
     name = name.lower()
     activations = {
         "swish": nn.swish,
@@ -103,7 +103,9 @@ def get_activation(name: str):
         "softmax": nn.softmax,
         "tanh": nn.tanh,
     }
-    return activations.get(name, nn.relu)
+    if name not in activations:
+        raise ValueError(f"Unknown activation: {name}")
+    return activations[name]
 
 def get_norm(method: str):
     if method == "LayerNormalization":
@@ -152,6 +154,11 @@ class TransformerBlock(nn.Module):
 # -----------------------------------------------------------------------------
 #  Model Builders
 # -----------------------------------------------------------------------------
+
+
+def _classification_logits(model: DynamicModel) -> DynamicModel:
+    """Classification controllers own the final sigmoid/softmax activation."""
+    return DynamicModel(layers=model.layers[:-1])
 
 def _build_decon(input_shape, params, num_classes=1):
     layers = []
@@ -586,7 +593,7 @@ def decon(input_shape, params=None):
 def decon_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_decon(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_decon(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def decon_Sep(input_shape, params=None):
@@ -598,7 +605,7 @@ def decon_Sep(input_shape, params=None):
 def decon_Sep_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_decon_sep(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_decon_sep(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def nicon(input_shape, params=None):
@@ -610,7 +617,7 @@ def nicon(input_shape, params=None):
 def nicon_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_nicon(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_nicon(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def customizable_nicon(input_shape, params=None):
@@ -622,7 +629,7 @@ def customizable_nicon(input_shape, params=None):
 def customizable_nicon_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_customizable_nicon(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_customizable_nicon(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def thin_nicon(input_shape, params=None):
@@ -640,7 +647,7 @@ def nicon_VG(input_shape, params=None):
 def nicon_VG_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_nicon_vg(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_nicon_vg(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def customizable_decon(input_shape, params=None):
@@ -652,13 +659,13 @@ def customizable_decon(input_shape, params=None):
 def customizable_decon_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_customizable_decon(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_customizable_decon(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def decon_layer_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_customizable_decon(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_customizable_decon(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def transformer(input_shape, params=None):
@@ -676,13 +683,13 @@ def transformer_VG(input_shape, params=None):
 def transformer_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_transformer(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_transformer(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def transformer_VG_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_transformer(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_transformer(input_shape, params, num_classes=num_classes))
 
 @framework("jax")
 def transformer_model(input_shape, params=None):
@@ -694,4 +701,4 @@ def transformer_model(input_shape, params=None):
 def transformer_model_classification(input_shape, num_classes=2, params=None):
     if params is None:
         params = {}
-    return _build_transformer(input_shape, params, num_classes=num_classes)
+    return _classification_logits(_build_transformer(input_shape, params, num_classes=num_classes))

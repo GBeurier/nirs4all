@@ -87,7 +87,7 @@ class RepetitionConfig:
         pp_names: Naming template for new preprocessings (rep_to_pp only).
             - None (default): Uses "{original}_rep{i}" format
             - str with {i} and {pp}: Template like "{pp}_r{i}"
-            - List[str]: Explicit names (length = n_reps * n_existing_pp)
+            Explicit lists are unsupported; use a string template with {i}/{pp}.
         preserve_order: Whether to preserve sample order within groups.
             If True (default), repetitions are ordered by their row position.
             If False, order within groups is undefined.
@@ -160,6 +160,9 @@ class RepetitionConfig:
                 UserWarning,
                 stacklevel=2
             )
+
+        if isinstance(self.pp_names, list):
+            raise ValueError("pp_names lists are unsupported; use a string template with {i} and {pp}")
 
         # Validate pp_names format
         if isinstance(self.pp_names, str) and "{i}" not in self.pp_names and "{pp}" not in self.pp_names:
@@ -255,11 +258,6 @@ class RepetitionConfig:
             return f"{original_pp}_rep{rep_index}"
         elif isinstance(self.pp_names, str):
             return self.pp_names.format(i=rep_index, pp=original_pp)
-        elif isinstance(self.pp_names, list):
-            # For list, compute flat index
-            # This is complex because we need to know n_existing_pp
-            # Fall back to default naming for lists (handled by caller)
-            return f"{original_pp}_rep{rep_index}"
         return f"{original_pp}_rep{rep_index}"
 
     def to_dict(self) -> dict[str, Any]:

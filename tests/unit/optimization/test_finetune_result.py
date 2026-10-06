@@ -195,11 +195,11 @@ class TestResolveMetricDirection:
         assert params["direction"] == "minimize"
         assert params.get("metric") is None
 
-    def test_no_metric_classification_defaults_maximize(self, manager):
+    def test_no_metric_classification_defaults_minimize_loss(self, manager):
         params = manager._resolve_metric_direction(
             {}, self._mock_dataset("classification")
         )
-        assert params["direction"] == "maximize"
+        assert params["direction"] == "minimize"
 
     def test_unknown_metric_defaults_to_minimize(self, manager):
         params = manager._resolve_metric_direction(

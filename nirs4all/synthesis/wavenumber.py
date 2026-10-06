@@ -273,7 +273,7 @@ def get_zone_wavelength_range(zone_name: str) -> tuple[float, float] | None:
         >>> get_zone_wavelength_range('1st_overtones_CH')
         (1600.0, 1818.18...)
     """
-    for nu_max, nu_min, name in NIR_ZONES_WAVENUMBER:
+    for nu_min, nu_max, name in NIR_ZONES_WAVENUMBER:
         if name == zone_name:
             # Note: higher wavenumber = lower wavelength
             return (float(wavenumber_to_wavelength(nu_max)), float(wavenumber_to_wavelength(nu_min)))
@@ -292,7 +292,7 @@ def get_all_zones_wavelength() -> list[tuple[float, float, str]]:
         ...     print(f"{name}: {min_wl:.0f}-{max_wl:.0f} nm")
     """
     zones = []
-    for nu_max, nu_min, name in NIR_ZONES_WAVENUMBER:
+    for nu_min, nu_max, name in NIR_ZONES_WAVENUMBER:
         wl_min = float(wavenumber_to_wavelength(nu_max))
         wl_max = float(wavenumber_to_wavelength(nu_min))
         zones.append((wl_min, wl_max, name))
@@ -343,13 +343,11 @@ def classify_wavelength_extended(wavelength_nm: float) -> tuple[str, str] | None
     """
     wavenumber = wavelength_to_wavenumber(wavelength_nm)
 
-    # Check extended zones first (includes visible region)
-    for nu_min, nu_max, name, description in EXTENDED_SPECTRAL_ZONES:
+    # Prefer visible subzones before the broad electronic-transition zone.
+    for nu_min, nu_max, name, description in sorted(VISIBLE_ZONES_WAVENUMBER, key=lambda zone: zone[1] - zone[0]):
         if nu_min <= wavenumber <= nu_max:
             return (name, description)
-
-    # Also check visible-specific zones
-    for nu_min, nu_max, name, description in VISIBLE_ZONES_WAVENUMBER:
+    for nu_min, nu_max, name, description in EXTENDED_SPECTRAL_ZONES:
         if nu_min <= wavenumber <= nu_max:
             return (name, description)
 
@@ -368,7 +366,7 @@ def get_all_zones_extended() -> list[tuple[float, float, str, str]]:
         ...     print(f"{name}: {min_wl:.0f}-{max_wl:.0f} nm - {desc}")
     """
     zones = []
-    for nu_max, nu_min, name, description in EXTENDED_SPECTRAL_ZONES:
+    for nu_min, nu_max, name, description in EXTENDED_SPECTRAL_ZONES:
         wl_min = float(wavenumber_to_wavelength(nu_max))
         wl_max = float(wavenumber_to_wavelength(nu_min))
         zones.append((wl_min, wl_max, name, description))

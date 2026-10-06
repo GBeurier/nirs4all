@@ -26,6 +26,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.metrics import check_scoring
 from sklearn.model_selection import cross_val_score
 from sklearn.utils.validation import check_is_fitted
 
@@ -140,12 +141,12 @@ def _ipls_fit_numpy(
             interval_scores[i] = -np.inf
             continue
 
-        try:
-            pls = PLSRegression(n_components=n_comp_interval)
-            scores = cross_val_score(pls, X_interval, y, cv=cv, scoring=scoring)
-            interval_scores[i] = np.mean(scores)
-        except Exception:
-            interval_scores[i] = -np.inf
+        pls = PLSRegression(n_components=n_comp_interval)
+        scores = cross_val_score(pls, X_interval, y, cv=cv, scoring=scoring, error_score='raise')
+        interval_scores[i] = np.mean(scores)
+
+    if not np.isfinite(interval_scores).any():
+        raise ValueError("No interval produced a finite cross-validation score.")
 
     # Select intervals based on mode
     if mode == 'single':
@@ -178,16 +179,13 @@ def _ipls_fit_numpy(
                 if n_comp < 1:
                     continue
 
-                try:
-                    pls = PLSRegression(n_components=n_comp)
-                    scores = cross_val_score(pls, X_selected, y, cv=cv, scoring=scoring)
-                    score = np.mean(scores)
+                pls = PLSRegression(n_components=n_comp)
+                scores = cross_val_score(pls, X_selected, y, cv=cv, scoring=scoring, error_score='raise')
+                score = np.mean(scores)
 
-                    if score > best_candidate_score:
-                        best_candidate_score = score
-                        best_candidate = candidate
-                except Exception:
-                    continue
+                if score > best_candidate_score:
+                    best_candidate_score = score
+                    best_candidate = candidate
 
             if best_candidate is not None and best_candidate_score > best_score:
                 selected_intervals.append(best_candidate)
@@ -233,16 +231,13 @@ def _ipls_fit_numpy(
                 if n_comp < 1:
                     continue
 
-                try:
-                    pls = PLSRegression(n_components=n_comp)
-                    scores = cross_val_score(pls, X_selected, y, cv=cv, scoring=scoring)
-                    score = np.mean(scores)
+                pls = PLSRegression(n_components=n_comp)
+                scores = cross_val_score(pls, X_selected, y, cv=cv, scoring=scoring, error_score='raise')
+                score = np.mean(scores)
 
-                    if score > best_after_removal:
-                        best_after_removal = score
-                        worst_interval = candidate
-                except Exception:
-                    continue
+                if score > best_after_removal:
+                    best_after_removal = score
+                    worst_interval = candidate
 
             if worst_interval is not None and best_after_removal > best_score:
                 selected_intervals.remove(worst_interval)
@@ -468,16 +463,20 @@ def _build_jax_ipls_functions():
         # Center based on training data
         X_mean = jnp.mean(X_train, axis=0)
         y_mean = jnp.mean(y_train, axis=0)
+        X_std = jnp.std(X_train, axis=0, ddof=1)
+        y_std = jnp.std(y_train, axis=0, ddof=1)
+        X_std = jnp.where(X_std < 1e-10, 1.0, X_std)
+        y_std = jnp.where(y_std < 1e-10, 1.0, y_std)
 
-        X_train_c = X_train - X_mean
-        y_train_c = y_train - y_mean
-        X_test_c = X_test - X_mean
+        X_train_c = (X_train - X_mean) / X_std
+        y_train_c = (y_train - y_mean) / y_std
+        X_test_c = (X_test - X_mean) / X_std
 
         # Fit PLS
         B = _nipals_pls_fixed(X_train_c, y_train_c, n_components)
 
         # Predict
-        y_pred = X_test_c @ B + y_mean
+        y_pred = (X_test_c @ B) * y_std + y_mean
 
         # R2 score
         y_test_flat = y_test.ravel()
@@ -547,13 +546,9 @@ def _build_jax_ipls_functions():
         """
         n_samples = X.shape[0]
 
-        # Extract interval using dynamic_slice with static size
-        # Pad to max_interval_width for consistent shapes
-        X_interval = lax.dynamic_slice(
-            X,
-            (0, start_idx),
-            (n_samples, max_interval_width)
-        )
+        # Gather without dynamic_slice's leftward clamping of a short final window.
+        columns = jnp.minimum(start_idx + jnp.arange(max_interval_width), X.shape[1] - 1)
+        X_interval = X[:, columns]
 
         # Create mask for valid features
         actual_width = end_idx - start_idx
@@ -764,11 +759,16 @@ def _build_jax_ipls_functions():
         """
         X_mean = jnp.mean(X, axis=0)
         y_mean = jnp.mean(y, axis=0)
+        X_std = jnp.std(X, axis=0, ddof=1)
+        y_std = jnp.std(y, axis=0, ddof=1)
+        X_std = jnp.where(X_std < 1e-10, 1.0, X_std)
+        y_std = jnp.where(y_std < 1e-10, 1.0, y_std)
 
-        X_centered = X - X_mean
-        y_centered = y - y_mean
+        X_centered = (X - X_mean) / X_std
+        y_centered = (y - y_mean) / y_std
 
         B = _nipals_pls_fixed(X_centered, y_centered, n_components)
+        B = B * y_std[None, :] / X_std[:, None]
 
         return B, X_mean, y_mean
 
@@ -1047,7 +1047,7 @@ def _ipls_fit_jax(
 # IntervalPLS Estimator Class
 # =============================================================================
 
-class IntervalPLS(BaseEstimator, RegressorMixin):
+class IntervalPLS(RegressorMixin, BaseEstimator):
     """Interval Partial Least Squares (iPLS) regressor.
 
     iPLS evaluates PLS models on contiguous wavelength intervals to identify
@@ -1263,6 +1263,11 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
 
         n_samples, n_features = X.shape
         self.n_features_in_ = n_features
+        check_scoring(PLSRegression(), scoring=self.scoring)
+        if isinstance(self.cv, (int, np.integer)) and not 2 <= self.cv <= n_samples:
+            raise ValueError(f"cv must be between 2 and n_samples ({n_samples})")
+        if self.backend == 'jax' and self.scoring != 'r2':
+            raise ValueError("JAX IntervalPLS supports only scoring='r2'; use backend='numpy' for other metrics.")
 
         # Fit using the appropriate backend
         if self.backend == 'jax':
@@ -1478,8 +1483,7 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
         self : IntervalPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

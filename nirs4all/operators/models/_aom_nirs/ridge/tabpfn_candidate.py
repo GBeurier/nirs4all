@@ -10,9 +10,9 @@ Provides a thin sklearn-compatible regressor that:
 3. Caps row count at ``max_samples`` (default 9500) by random subsampling when
    the train set exceeds the prior's sample limit.
 4. Exposes ``fit`` / ``predict`` / ``get_params`` / ``set_params`` and is
-   pickle-safe (the underlying ``TabPFNRegressor`` is created lazily inside
-   ``fit`` and dropped after each ``predict`` to keep the worker memory
-   footprint small in long-running benches).
+   serializable when the underlying estimator supports serialization. The
+   fitted estimator is retained in the serialized state so predictions can
+   be reproduced; real TabPFN device/weight portability is estimator-dependent.
 """
 
 from __future__ import annotations
@@ -154,14 +154,9 @@ class TabPFNCandidate(BaseEstimator, RegressorMixin):
             n_preprocessing_jobs=1,
         )
 
-    # Pickling: drop the underlying TabPFN estimator before serialisation
-    # because it holds a torch graph and a CUDA context. The bench keeps a
-    # joblib worker per variant so this is rare, but the safety net keeps the
-    # wrapper portable.
     def __getstate__(self) -> dict:
-        state = self.__dict__.copy()
-        state.pop("_estimator_", None)
-        return state
+        """Preserve fitted state; underlying serialization errors stay explicit."""
+        return self.__dict__.copy()
 
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)

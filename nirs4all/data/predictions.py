@@ -1184,7 +1184,8 @@ class Predictions:
             display_partition: Partition to display results from.
             aggregate_partitions: If ``True``, add train/val/test dicts.
             ascending: Sort order.  ``None`` infers from metric.
-            group_by_fold: If ``True``, include fold_id in identity.
+            group_by_fold: If ``True``, select top *n* per fold, adding
+                ``fold_id`` to any explicit ``group_by`` identity.
             by_repetition: Aggregate predictions by repetition column.
                 - ``True``: Uses ``dataset.repetition`` from context
                   (requires :meth:`set_repetition_column` to be called).
@@ -1251,6 +1252,8 @@ class Predictions:
         # Phase 5: warn on mixed task types and resolve the effective metric.
         self._warn_on_mixed_task_types(candidates, task_type, rank_metric)
         effective_metric = self._resolve_effective_metric(candidates, rank_metric)
+        if effective_scope == "refit" and not rank_metric:
+            effective_metric = candidates[0].get("selection_metric") or candidates[0].get("metric") or effective_metric
 
         # Determine sort direction
         if ascending is None:
@@ -1272,6 +1275,8 @@ class Predictions:
         effective_group_by: list[str] | None = None
         if group_by is not None:
             effective_group_by = [group_by] if isinstance(group_by, str) else list(group_by)
+        if group_by_fold and "fold_id" not in (effective_group_by or []):
+            effective_group_by = [*(effective_group_by or []), "fold_id"]
         candidates = self._select_top_n(candidates, n, effective_group_by)
 
         # Phase 8: enrich the selected candidates into PredictionResult objects.
@@ -1291,10 +1296,8 @@ class Predictions:
             for r in candidates
         ]
 
-        # Phase 9: re-sort by display metric so displayed values are ordered.
-        self._resort_by_display_metric(enriched_results, display_metrics, effective_metric, ascending)
-
-        # Phase 10: return grouped dict or flat results list.
+        # Preserve selection order: display scores must not select models.
+        # Phase 9: return grouped dict or flat results list.
         if return_grouped and effective_group_by:
             grouped_out: dict[tuple[Any, ...], PredictionResultsList] = {}
             for res in enriched_results:
@@ -1405,7 +1408,7 @@ class Predictions:
             # Apply score_scope filtering
             if effective_scope == "refit" and not is_final:
                 continue
-            if effective_scope == "folds" and refit_context is not None:
+            if effective_scope == "folds" and (is_final or refit_context is not None):
                 continue
 
             # Apply rank_partition filtering
@@ -1434,7 +1437,7 @@ class Predictions:
         """Deduplicate refit (final) entries by model identity.
 
         Finals store separate train/test records; keep one per
-        ``(model_name, pipeline_id, preprocessings)`` identity, preferring the
+        dataset/pipeline/model/branch identity, preferring the
         one whose partition matches ``display_partition``.  Non-final
         candidates pass through unchanged.  Returns ``deduped_finals +
         non_final_candidates`` (finals first), preserving the original order.
@@ -1443,7 +1446,11 @@ class Predictions:
         non_final_candidates: list[dict[str, Any]] = []
         for c in candidates:
             if c["is_final"]:
-                identity = (c.get("model_name"), c.get("pipeline_id"), c.get("preprocessings"))
+                identity = (
+                    c.get("dataset_name"), c.get("config_name"), c.get("pipeline_id"), c.get("pipeline_uid"), c.get("chain_id"),
+                    c.get("model_name"), c.get("model_classname"), c.get("preprocessings"), c.get("step_idx"),
+                    c.get("branch_id"), tuple(c.get("branch_path") or []), c.get("target_processing"), c.get("refit_context"),
+                )
                 final_groups.setdefault(identity, []).append(c)
             else:
                 non_final_candidates.append(c)
@@ -1528,6 +1535,12 @@ class Predictions:
                     score = r.get("selection_score")
                     if score is None:
                         score = r.get("val_score")
+                    selection_metric = r.get("selection_metric") or r.get("metric") or effective_metric
+                    if score is not None and selection_metric != effective_metric:
+                        raise ValueError(
+                            f"Refit selection evidence uses '{selection_metric}', not requested rank metric '{effective_metric}'. "
+                            "Use the selection metric or score_scope='cv' to rank CV evidence in another metric."
+                        )
                     r["rank_score"] = score
                     continue
                 # Mixed display ranking retains the historical final-vs-CV
@@ -1579,34 +1592,6 @@ class Predictions:
                     group_counts[gk] = cnt + 1
             return filtered_candidates
         return candidates[:n]
-
-    @staticmethod
-    def _resort_by_display_metric(
-        enriched_results: list[PredictionResult],
-        display_metrics: list[str] | None,
-        effective_metric: str,
-        ascending: bool,
-    ) -> None:
-        """Re-sort enriched results by the displayed metric value, in place.
-
-        Only runs when the ranking metric was among the computed
-        ``display_metrics`` (rank_partition and display_partition may differ,
-        causing order mismatches).  Missing/non-numeric values sort to the end
-        via a direction-aware sentinel.
-        """
-        if display_metrics and effective_metric in display_metrics:
-            _sentinel = float("inf") if ascending else float("-inf")
-
-            def _display_sort_key(r: dict[str, Any]) -> float:
-                v = r.get(effective_metric)
-                if v is None:
-                    return _sentinel
-                try:
-                    return float(v)
-                except (TypeError, ValueError):
-                    return _sentinel
-
-            enriched_results.sort(key=_display_sort_key, reverse=not ascending)
 
     def _get_rank_score(
         self,
@@ -2116,6 +2101,10 @@ class Predictions:
                 and row.get("model_name") == target_model
                 and row.get("fold_id", "") == target_fold
                 and row.get("step_idx", 0) == target_step
+                and all(
+                    row.get(key) == entry.get(key)
+                    for key in ("pipeline_id", "pipeline_uid", "chain_id", "preprocessings", "branch_id", "branch_path", "target_processing")
+                )
             ):
                 res[part] = row
                 found += 1
@@ -2644,6 +2633,8 @@ class Predictions:
         display_y_pred = y_pred
         display_was_aggregated = was_aggregated
         if entry_partition != display_partition:
+            display_y_true = display_y_pred = None
+            display_was_aggregated = False
             display_part = self.get_entry_partitions(row).get(display_partition)
             if display_part is not None:
                 display_y_true = display_part.get("y_true")
@@ -2769,15 +2760,19 @@ class Predictions:
         src_key: str,
         source_path: str | Path,
         relevant_datasets: set[str],
+        source_store: WorkspaceStore,
+        row: dict[str, Any],
     ) -> tuple[str, str]:
         """Return the target ``(pipeline_id, chain_id)`` for *src_key*.
 
-        Creates a merge run/pipeline/chain in *target_store* on first use of a
-        source and caches it in *merge_pipelines* (mutated in place), exactly as
-        the original inline block. On subsequent calls for the same *src_key*
-        the cached pair is returned without any new store writes.
+        Cache a metadata-only merge context per source pipeline/chain/dataset,
+        preserving the source specification for future conflict comparisons.
+        Fitted artifacts are not copied by this prediction-maintenance operation.
         """
-        if src_key not in merge_pipelines:
+        context_key = json.dumps([src_key, row.get("pipeline_id"), row.get("chain_id"), row.get("dataset_name")])
+        if context_key not in merge_pipelines:
+            source_pipeline = source_store.get_pipeline(row["pipeline_id"]) or {}
+            source_chain = source_store.get_chain(row["chain_id"]) or {}
             merge_run_id = target_store.begin_run(
                 f"merge_{Path(source_path).name}",
                 config={"source": src_key},
@@ -2785,66 +2780,79 @@ class Predictions:
             )
             merge_pipeline_id = target_store.begin_pipeline(
                 run_id=merge_run_id,
-                name=f"merge_{Path(source_path).name}",
-                expanded_config=[],
-                generator_choices=[],
-                dataset_name=sorted(relevant_datasets)[0],
+                name=source_pipeline.get("name") or f"merge_{Path(source_path).name}",
+                expanded_config=source_pipeline.get("expanded_config") or [],
+                generator_choices=source_pipeline.get("generator_choices") or [],
+                dataset_name=row["dataset_name"],
                 dataset_hash="merged",
             )
             merge_chain_id = target_store.save_chain(
                 pipeline_id=merge_pipeline_id,
                 steps=[],
-                model_step_idx=0,
-                model_class="merged",
-                preprocessings="",
+                model_step_idx=source_chain.get("model_step_idx") or 0,
+                model_class=row.get("model_class") or "merged",
+                preprocessings=row.get("preprocessings") or "",
                 fold_strategy="merged",
                 fold_artifacts={},
                 shared_artifacts={},
+                branch_path=source_chain.get("branch_path"),
+                source_index=source_chain.get("source_index"),
             )
-            merge_pipelines[src_key] = (merge_pipeline_id, merge_chain_id)
+            merge_pipelines[context_key] = (merge_pipeline_id, merge_chain_id)
 
-        return merge_pipelines[src_key]
+        return merge_pipelines[context_key]
+
+    @staticmethod
+    def _merge_conflict_key(store: WorkspaceStore, row: dict[str, Any]) -> tuple[Any, ...]:
+        """Compare model specifications across stores without using store-local IDs."""
+        pipeline = store.get_pipeline(row["pipeline_id"]) or {}
+        chain = store.get_chain(row["chain_id"]) or {}
+        params = row.get("best_params")
+        if isinstance(params, str):
+            params = json.loads(params)
+        specification = json.dumps(
+            [pipeline.get("expanded_config") or [], pipeline.get("generator_choices") or [], params or {}, chain.get("model_step_idx"),
+             chain.get("branch_path"), chain.get("source_index")],
+            sort_keys=True,
+        )
+        return (
+            *(row.get(key) for key in ("dataset_name", "model_name", "model_class", "fold_id", "partition", "preprocessings", "branch_id", "metric", "refit_context")),
+            specification,
+        )
 
     @staticmethod
     def _merge_resolve_conflict(
         target_store: WorkspaceStore,
         report: MergeReport,
         row: dict[str, Any],
-        ds: str,
+        existing: list[dict[str, Any]],
+        conflict_key: tuple[Any, ...],
         on_conflict: str,
     ) -> bool:
         """Resolve a natural-key conflict for *row* in *target_store*.
 
-        Applies the *on_conflict* strategy against existing target predictions
-        for dataset *ds*, deleting target rows where the strategy dictates and
-        incrementing ``report.conflicts_resolved`` exactly as the original
-        inline block. Returns ``True`` when the source row should be skipped
-        (the original ``continue``) and ``False`` otherwise.
+        Compare only the snapshot of prior-source rows. Return ``True`` to
+        skip a source row; otherwise delete replaced rows from the store and
+        snapshot before creating the incoming row's target context.
         """
-        existing = target_store.query_predictions(dataset_name=ds)
-        conflict = False
-        if not existing.is_empty():
-            for ex_row in existing.iter_rows(named=True):
-                if ex_row.get("model_name") == row.get("model_name") and ex_row.get("fold_id") == row.get("fold_id") and ex_row.get("partition") == row.get("partition"):
-                    conflict = True
-                    if on_conflict == "keep_existing":
-                        break
-                    if on_conflict == "keep_best":
-                        src_score = row.get("val_score")
-                        ex_score = ex_row.get("val_score")
-                        if src_score is not None and ex_score is not None and src_score >= ex_score:
-                            break
-                        target_store.delete_prediction(ex_row["prediction_id"])
-                    elif on_conflict == "overwrite":
-                        target_store.delete_prediction(ex_row["prediction_id"])
-                    break
-
-            if conflict and on_conflict == "keep_existing":
-                report.conflicts_resolved += 1
+        conflicts = [ex_row for ex_row in existing if ex_row["_conflict_key"] == conflict_key]
+        if not conflicts:
+            return False
+        report.conflicts_resolved += 1
+        if on_conflict == "keep_existing":
+            return True
+        if on_conflict == "keep_best":
+            src_score = row.get("val_score")
+            if src_score is None or np.isnan(src_score):
                 return True
-            if conflict:
-                report.conflicts_resolved += 1
-
+            ascending = _infer_ascending(row.get("metric") or "rmse")
+            for ex_row in conflicts:
+                ex_score = ex_row.get("val_score")
+                if ex_score is not None and not np.isnan(ex_score) and (ex_score <= src_score if ascending else ex_score >= src_score):
+                    return True
+        for ex_row in conflicts:
+            target_store.delete_prediction(ex_row["prediction_id"])
+            existing.remove(ex_row)
         return False
 
     @staticmethod
@@ -2965,6 +2973,8 @@ class Predictions:
         Returns:
             A :class:`MergeReport` summarising the operation.
         """
+        if on_conflict not in {"keep_best", "keep_existing", "overwrite"}:
+            raise ValueError(f"Unknown conflict strategy: {on_conflict}")
         backend = cls._require_store_backend()
         report = MergeReport(total_sources=len(sources))
         target_store = backend(Path(target))
@@ -2993,14 +3003,11 @@ class Predictions:
                     if not relevant_datasets:
                         continue
 
-                    # Create a merge run/pipeline/chain in the target for this source
-                    target_pipeline_id, target_chain_id = cls._merge_ensure_target_context(
-                        target_store,
-                        _merge_pipelines,
-                        src_key,
-                        source_path,
-                        relevant_datasets,
-                    )
+                    # Only prior-source rows can conflict with this source's variants.
+                    existing = target_store.query_predictions().to_dicts()
+                    for existing_row in existing:
+                        existing_row["_conflict_key"] = cls._merge_conflict_key(target_store, existing_row)
+                    _merge_pipelines.clear()
 
                     for row in src_df.iter_rows(named=True):
                         ds = row.get("dataset_name", "")
@@ -3011,9 +3018,13 @@ class Predictions:
                         pred_id = row["prediction_id"]
 
                         # Check for natural key conflict in target
-                        if cls._merge_resolve_conflict(target_store, report, row, ds, on_conflict):
+                        conflict_key = cls._merge_conflict_key(source_store, row)
+                        if cls._merge_resolve_conflict(target_store, report, row, existing, conflict_key, on_conflict):
                             continue
 
+                        target_pipeline_id, target_chain_id = cls._merge_ensure_target_context(
+                            target_store, _merge_pipelines, src_key, source_path, relevant_datasets, source_store, row,
+                        )
                         cls._merge_save_row(
                             target_store,
                             source_store,
@@ -3087,7 +3098,8 @@ class Predictions:
         """Remove the worst-performing predictions.
 
         Args:
-            fraction: Fraction of predictions to remove (0.0–1.0).
+            fraction: Fraction of predictions to remove (0.0–1.0), rounded
+                down within each stored metric when ranking partition scores.
             metric: Score column to rank by.
             partition: Partition to filter.
             dataset_name: Optional dataset filter.
@@ -3096,6 +3108,8 @@ class Predictions:
         Returns:
             ``{removed, remaining, threshold_score}``
         """
+        if not 0 <= fraction <= 1:
+            raise ValueError("fraction must be between 0 and 1")
         store = self._require_store()
 
         df = store.query_predictions(dataset_name=dataset_name, partition=partition)
@@ -3105,12 +3119,20 @@ class Predictions:
         if metric not in df.columns:
             raise ValueError(f"Column '{metric}' not found in predictions")
 
-        ascending = _infer_ascending(metric.replace("_score", ""))
-        sorted_df = df.sort(metric, descending=not ascending)
-
-        n_remove = max(1, int(len(sorted_df) * fraction))
-        to_remove = sorted_df.tail(n_remove)
-        threshold_score = to_remove[metric][0] if len(to_remove) > 0 else None
+        # Stored partition scores use each row's metric. Different metrics
+        # have different units, so remove the requested fraction within each.
+        groups = df.partition_by("metric", maintain_order=True) if metric in {"val_score", "test_score", "train_score"} else [df]
+        removals = []
+        for group in groups:
+            score_metric = group["metric"][0] if metric in {"val_score", "test_score", "train_score"} else metric
+            ascending = _infer_ascending(score_metric or "rmse")
+            if group.schema[metric].is_float():
+                group = group.with_columns(pl.col(metric).fill_nan(None))
+            sorted_df = group.sort(metric, descending=not ascending, nulls_last=True)
+            removals.append(sorted_df.tail(int(len(group) * fraction)))
+        to_remove = pl.concat(removals)
+        n_remove = len(to_remove)
+        threshold_score = to_remove[metric][0] if n_remove and len(groups) == 1 else None
 
         if not dry_run:
             for pid in to_remove["prediction_id"].to_list():
@@ -3118,7 +3140,7 @@ class Predictions:
 
         return {
             "removed": n_remove if not dry_run else 0,
-            "remaining": len(sorted_df) - n_remove,
+            "remaining": len(df) - (n_remove if not dry_run else 0),
             "threshold_score": threshold_score,
         }
 

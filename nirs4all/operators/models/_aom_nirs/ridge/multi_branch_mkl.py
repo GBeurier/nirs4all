@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -104,6 +105,17 @@ def _fit_branch_transformer(
     except TypeError:
         transformer.fit(X)
     return transformer
+
+
+@dataclass
+class _CenteredBranchTransformer:
+    """Replay raw-spectrum preprocessing and its fitted training mean."""
+
+    transformer: BranchTransformer | None
+    mean: np.ndarray
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        return _apply_branch(self.transformer, X) - self.mean
 
 
 def _apply_branch(transformer: BranchTransformer | None, X: np.ndarray) -> np.ndarray:
@@ -310,6 +322,7 @@ def fit_branches_and_kernels(
     operator_bank: str | Sequence[LinearSpectralOperator],
     y_tr: np.ndarray | None = None,
     normalize: bool = True,
+    center: bool = False,
 ) -> tuple[
     dict[str, np.ndarray],
     dict[str, BranchTransformer | None],
@@ -322,7 +335,8 @@ def fit_branches_and_kernels(
     rows (trace-normalised when ``normalize=True``); the transformers are
     returned so the caller can replay them on the validation / test rows;
     the normalisation factors are returned so cross kernels are rescaled
-    consistently.
+    consistently. When center=True, fitted means are replayed after raw
+    branch preprocessing for training, validation and test kernels.
     """
     X_tr = np.asarray(X_tr, dtype=float)
     if X_tr.ndim != 2:
@@ -335,6 +349,9 @@ def fit_branches_and_kernels(
     for b in branches:
         transformer = _fit_branch_transformer(b, X_tr, y_tr)
         Z = _apply_branch(transformer, X_tr)
+        if center:
+            transformer = _CenteredBranchTransformer(transformer, Z.mean(axis=0))
+            Z = transformer.transform(X_tr)
         if Z.shape[1] != p:
             raise ValueError(
                 f"branch {b!r} changed feature dim from {p} to {Z.shape[1]}"
@@ -451,6 +468,9 @@ class AOMMultiBranchMKL(BaseEstimator, RegressorMixin):
         ``"auto"`` or an explicit grid.
     cv
         Integer ``KFold`` size or sklearn-compatible splitter.
+    center
+        Center each branch output at its training mean after raw-spectrum
+        preprocessing; reuse that mean on validation and test rows.
     random_state
         Seed for the default ``KFold`` shuffle.
 
@@ -559,7 +579,7 @@ class AOMMultiBranchMKL(BaseEstimator, RegressorMixin):
         # alphas.
         K_per_branch_full, fitted_full, norm_factors_full = (
             fit_branches_and_kernels(
-                X, branches, self.operator_bank, y_tr=Y2,
+                X, branches, self.operator_bank, y_tr=Y2, center=self.center,
             )
         )
         YYt_full = Yc @ Yc.T
@@ -587,7 +607,7 @@ class AOMMultiBranchMKL(BaseEstimator, RegressorMixin):
             Yc_tr = Y_tr - y_mean_f
             K_per_branch_f, fitted_f, norm_factors_f = (
                 fit_branches_and_kernels(
-                    X_tr, branches, self.operator_bank, y_tr=Y_tr,
+                    X_tr, branches, self.operator_bank, y_tr=Y_tr, center=self.center,
                 )
             )
             YYt_f = Yc_tr @ Yc_tr.T

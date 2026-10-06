@@ -234,7 +234,12 @@ def resolve_presets_recursive(node: Any, resolved: set[str] | None = None) -> An
         resolved.add(preset_name)
         preset_spec = resolve_preset(node)
 
-        # Recursively resolve nested presets
+        # Explicit sibling settings override the reusable preset defaults.
+        siblings = {key: value for key, value in node.items() if key != PRESET_KEYWORD}
+        if siblings:
+            if not isinstance(preset_spec, dict):
+                raise ValueError("Preset siblings require a mapping preset")
+            preset_spec = {**preset_spec, **siblings}
         return resolve_presets_recursive(preset_spec, resolved.copy())
 
     # Handle dict

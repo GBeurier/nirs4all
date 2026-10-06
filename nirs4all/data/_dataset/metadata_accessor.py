@@ -71,7 +71,8 @@ class MetadataAccessor:
             ...     columns=["sample_id", "quality"]
             ... )
         """
-        indices = self._indexer.x_indices(selector, include_augmented) if selector else None
+        sample_ids = self._indexer.x_indices(selector, include_augmented)
+        indices = np.asarray(self._indexer.get_origins_for_samples(sample_ids.tolist()), dtype=np.int64)
         return self._block.get(indices, columns)
 
     def column(self,
@@ -93,7 +94,8 @@ class MetadataAccessor:
             >>> # Get batch info for train samples
             >>> batches = dataset.metadata_column("batch", {"partition": "train"})
         """
-        indices = self._indexer.x_indices(selector, include_augmented) if selector else None
+        sample_ids = self._indexer.x_indices(selector, include_augmented)
+        indices = np.asarray(self._indexer.get_origins_for_samples(sample_ids.tolist()), dtype=np.int64)
         return self._block.get_column(column, indices)
 
     def to_numeric(self,
@@ -121,7 +123,8 @@ class MetadataAccessor:
             ...     method="label"
             ... )
         """
-        indices = self._indexer.x_indices(selector, include_augmented) if selector else None
+        sample_ids = self._indexer.x_indices(selector, include_augmented)
+        indices = np.asarray(self._indexer.get_origins_for_samples(sample_ids.tolist()), dtype=np.int64)
         return self._block.to_numeric(column, indices, method)
 
     def add_metadata(self,

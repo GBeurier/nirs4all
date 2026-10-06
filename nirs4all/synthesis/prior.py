@@ -439,14 +439,31 @@ class PriorSampler:
                 "separation": self.rng.choice(["easy", "moderate", "hard"]),
             }
 
+    @staticmethod
+    def _canonical_domain(domain: str) -> str:
+        """Resolve public short prior labels to registry domains.
+
+        Blood and lubricant labels use the broader tissue/fuels domains;
+        these are domain-level priors, not compound-specific templates.
+        """
+        aliases = {
+            "grain": "agriculture_grain", "forage": "agriculture_forage", "oilseeds": "agriculture_oilseeds",
+            "fruit": "agriculture_fruit", "dairy": "food_dairy", "meat": "food_meat", "baking": "food_bakery",
+            "beverages": "beverage_juice", "tablets": "pharma_tablets", "powders": "pharma_powder_blends",
+            "liquids": "pharma_raw_materials", "fuel": "petrochem_fuels", "polymers": "petrochem_polymers",
+            "lubricants": "petrochem_fuels", "water_quality": "environmental_water", "soil": "environmental_soil",
+            "tissue": "biomedical_tissue", "blood": "biomedical_tissue", "textiles": "textile_natural",
+        }
+        return aliases.get(domain, domain)
+
     def sample_components(self, domain: str, n_components: int | None = None) -> list[str]:
         """Sample component set based on domain."""
         try:
-            domain_config = get_domain_config(domain)
+            domain_config = get_domain_config(self._canonical_domain(domain))
             available = domain_config.typical_components
         except Exception:
             # Fallback to generic components
-            available = ["water", "protein", "lipid", "carbohydrate", "cellulose"]
+            available = ["water", "protein", "lipid", "starch", "cellulose"]
 
         if n_components is None:
             n_components = int(self.rng.integers(3, min(8, len(available) + 1)))
@@ -514,7 +531,7 @@ class PriorSampler:
     def _get_domain_category(self, domain: str) -> str:
         """Get category for a domain."""
         try:
-            domain_config = get_domain_config(domain)
+            domain_config = get_domain_config(self._canonical_domain(domain))
             return domain_config.category.value
         except Exception:
             return "research"

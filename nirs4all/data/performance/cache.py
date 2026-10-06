@@ -105,6 +105,8 @@ class DataCache:
                 before it is removed.  Used by StepCache to release
                 SharedBlocks CoW references.
         """
+        if max_entries <= 0:
+            raise ValueError("max_entries must be positive; disable caching through CacheConfig instead")
         self.max_size_bytes = int(max_size_mb * 1024 * 1024)
         self.max_entries = max_entries
         self.ttl_seconds = ttl_seconds
@@ -253,7 +255,8 @@ class DataCache:
     def clear(self) -> None:
         """Clear all cached data."""
         with self._lock:
-            self._cache.clear()
+            for key in list(self._cache):
+                self._remove(key)
             self._total_size = 0
 
     def stats(self) -> dict[str, Any]:

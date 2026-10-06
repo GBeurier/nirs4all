@@ -123,6 +123,7 @@ def _metadata_encoder_recipe(mixed: Any) -> dict[str, Any]:
 
 def source_schemas_from_cohort(cohort: Any) -> dict[str, Any]:
     """Capture exact IO schema identities independently of learned native state."""
+    from nirs4all_io.public_content import canonical_source_schema
     if tuple(cohort.sources) != SOURCE_ORDER:
         raise ValueError(f"Methods multimodal input requires ordered sources {SOURCE_ORDER}")
     schemas = {}
@@ -150,10 +151,10 @@ def source_schemas_from_cohort(cohort: Any) -> dict[str, Any]:
         identity = json.dumps(descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
         if not 0 < len(identity.encode("utf-8")) <= 1_048_576:
             raise ValueError(f"Methods multimodal {name} exceeds the source identity byte budget")
-        schemas[name] = {
+        schemas[name] = canonical_source_schema({
             "representation_id": representation, "input_shape": list(shape), "dtype": descriptor["dtype"],
             "identity": identity,
-        }
+        })
     return schemas
 
 
@@ -215,6 +216,19 @@ def validate_training_profile(pipeline: Any, cohort: Any, *, refit: bool, allow_
     return steps, splitter, cast(MultimodalRegressor, model)
 
 
+def methods_input_blocks(blocks: Mapping[str, Any], source_schemas: Mapping[str, Any]) -> dict[str, Any]:
+    """Use lossless object storage for canonically declared mixed metadata.
+
+    NumPy text widths belong to host storage. Only an existing object schema
+    permits this conversion; every captured descriptor and category stays exact.
+    """
+    prepared = dict(blocks)
+    schema = source_schemas.get("metadata", {})
+    if "metadata" in prepared and schema.get("representation_id") == "tabular_mixed" and schema.get("dtype") == "object":
+        prepared["metadata"] = np.asarray(prepared["metadata"], dtype=object)
+    return prepared
+
+
 def fit_declared_methods_model(model: MultimodalRegressor, blocks: list[Any], y: Any, *, source_schemas: Any) -> None:
     """Fit a native candidate and replace the previous predictor only on success."""
     recipe = recipe_from_estimator(model, allow_source_selection=True)
@@ -234,7 +248,7 @@ def fit_declared_methods_model(model: MultimodalRegressor, blocks: list[Any], y:
     selected_schemas = {name: source_schemas[name] for name in selected}
     native = pipeline_type(recipe, selected_schemas)
     try:
-        native.fit(dict(zip(selected, values, strict=True)), targets)
+        native.fit(methods_input_blocks(dict(zip(selected, values, strict=True)), selected_schemas), targets)
         fitted = {
             "native_pipeline_": native,
             "source_schemas_": copy.deepcopy(selected_schemas),
@@ -279,6 +293,10 @@ def bind_methods_dsl(dsl: dict[str, Any], model: MultimodalRegressor, cohort: An
         step["generators"] = copy.deepcopy(generator)
     bound = copy.deepcopy(dsl)
     bound["pipeline"] = [step]
+    # This controller consumes raw named blocks, not a fused numeric matrix.
+    # Native DSL compilation carries this representation into the model port;
+    # it must agree with the independently installed controller manifest.
+    bound["input"] = {**bound.get("input", {}), "name": "x", "representation": "feature_block_set"}
     # This raw-source profile never fits generated or augmented observations.
     # Bind the policy explicitly because the native default permits them.
     binding = bound["data_bindings"][0]
@@ -297,7 +315,8 @@ def bind_methods_dsl(dsl: dict[str, Any], model: MultimodalRegressor, cohort: An
 
 def controller_sources(cohort: Any, schemas: Mapping[str, Any]) -> dict[str, Any]:
     """Pass raw IO blocks and their exact independently derived descriptors."""
-    return {name: {"sample_ids": list(cohort.sample_ids), "descriptor": schemas[name], "values": cohort.sources[name].values}
+    blocks = methods_input_blocks({name: cohort.sources[name].values for name in SOURCE_ORDER}, schemas)
+    return {name: {"sample_ids": list(cohort.sample_ids), "descriptor": schemas[name], "values": blocks[name]}
             for name in SOURCE_ORDER}
 
 

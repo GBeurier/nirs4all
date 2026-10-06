@@ -5,6 +5,7 @@ This module contains the main facade that coordinates all dataset blocks
 and provides the primary public API for users.
 """
 
+import copy
 import re
 
 import numpy as np
@@ -27,7 +28,7 @@ from nirs4all.data.types import IndexDict, InputData, InputFeatures, Layout, Out
 
 logger = get_logger(__name__)
 import contextlib
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from sklearn.base import TransformerMixin
 
@@ -581,7 +582,7 @@ class SpectroDataset:
             return SignalType.UNKNOWN, 0.0, "No data available"
 
         # Get raw features for detection
-        spectra = self.x({"partition": "train"}, layout="2d")
+        spectra = self.x({"partition": "train"}, layout="2d", concat_source=False)
         if isinstance(spectra, list):
             spectra = spectra[src] if src < len(spectra) else spectra[0]
 
@@ -1343,7 +1344,13 @@ class SpectroDataset:
         n_samples = len(sample_keys)
         n_sources = len(sources_data)
 
+        if self._targets.num_samples and any(idx >= self._targets.num_samples for idx in first_indices):
+            raise ValueError("Cannot reshape repetitions with partially unlabeled targets; target rows would not align with rebuilt samples")
         new_features = self._build_rebuilt_features(sources_data, processing_ids)
+        replicas = n_sources // self.n_sources if transformation_type == "sources" else 1
+        for idx, source in enumerate(new_features.sources):
+            original = idx // replicas
+            source._header_mgr = copy.deepcopy(self._features.sources[original]._header_mgr)
         new_indexer = self._build_rebuilt_indexer(processing_ids, first_indices, n_samples)
         self._rebuild_metadata_from_indices(old_metadata, first_indices, new_indexer)
         self._rebuild_targets_from_indices(first_indices, new_indexer)
@@ -1407,8 +1414,7 @@ class SpectroDataset:
         """Create a fresh ``Indexer`` with reduced sample count after a repetition transform.
 
         Reads partition/group columns from ``self._indexer`` at ``first_indices`` and
-        replays them into a new indexer, adding samples partition-by-partition to respect
-        the single-value partition constraint.
+        replays them into a new indexer in the same order as the rebuilt arrays.
 
         Args:
             processing_ids: List of processing ID lists, one per new source.
@@ -1431,24 +1437,14 @@ class SpectroDataset:
         old_groups = self._indexer.get_column_values("group")
         new_groups = [old_groups[idx] for idx in first_indices] if old_groups else None
 
-        # Add samples to new indexer by partition to respect the partition type constraint
-        # Partition needs to be a single value, so we add samples per partition group
+        # Preserve partition labels in the rebuilt sample order.
         if new_partitions:
-            # Group samples by partition
-            from collections import defaultdict
-            partition_indices: dict[str, list[int]] = defaultdict(list)
-            for idx, part in enumerate(new_partitions):
-                partition_indices[part].append(idx)
-
-            # Add samples partition by partition
-            for partition, idxs in partition_indices.items():
-                groups_for_partition = [new_groups[i] for i in idxs] if new_groups else None
-                new_indexer.add_samples(
-                    count=len(idxs),
-                    partition=partition,  # type: ignore
-                    group=groups_for_partition,
-                    processings=processing_ids[0] if processing_ids else ["raw"]
-                )
+            # Replay labels in feature/metadata order; grouping by partition
+            # would move interleaved test rows without moving their arrays.
+            new_indexer.add_samples(
+                count=n_samples, partition=cast(Any, new_partitions),
+                group=new_groups, processings=processing_ids[0] if processing_ids else ["raw"],
+            )
         else:
             # All train by default
             new_indexer.add_samples(
@@ -1503,8 +1499,8 @@ class SpectroDataset:
     ) -> None:
         """Rebuild the targets block from selected rows, if targets exist.
 
-        Selects ``self._targets`` numeric values at ``first_indices``, preserves the
-        task type, and replaces ``self._targets`` / ``self._target_accessor``. No-op
+        Selects every target processing at ``first_indices``, preserves the fitted
+        conversion chain and task type, and replaces ``self._targets`` / ``self._target_accessor``. No-op
         when there are no targets (or no numeric values).
 
         Args:
@@ -1513,22 +1509,14 @@ class SpectroDataset:
         """
         # Rebuild targets if exists (use first_indices)
         if self._targets.num_samples > 0:
-            old_y = self._targets.get_targets("numeric")
-            if old_y is not None and len(old_y) > 0:
-                new_y = old_y[first_indices]
-                # Reset targets block
-                from nirs4all.data.targets import Targets
-                new_targets = Targets()
-                new_targets.add_targets(new_y)
+            new_targets = copy.deepcopy(self._targets)
+            new_targets._data = {name: values[first_indices].copy() for name, values in self._targets._data.items()}
+            new_targets._stats_cache.clear()
 
-                # Copy task type
-                if self._targets.task_type:
-                    new_targets.set_task_type(self._targets.task_type, forced=True)
-
-                self._targets = new_targets
-                self._target_accessor = self._target_accessor.__class__(
-                    new_indexer, new_targets
-                )
+            self._targets = new_targets
+            self._target_accessor = self._target_accessor.__class__(
+                new_indexer, new_targets
+            )
 
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""

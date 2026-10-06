@@ -55,7 +55,7 @@ class BinningCalculator:
         bin_edges = BinningCalculator._quantile_binning(y, bins) if strategy == "quantile" else BinningCalculator._equal_width_binning(y, bins)
 
         # Assign samples to bins using digitize (right=True for right-inclusive intervals)
-        bin_indices = np.digitize(y, bin_edges, right=True)
+        bin_indices = np.digitize(y, bin_edges[1:-1], right=True)
 
         return bin_indices, bin_edges
 

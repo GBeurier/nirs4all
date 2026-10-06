@@ -11,6 +11,7 @@ CORE LOGIC:
 """
 import contextlib
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
 import matplotlib.pyplot as plt
@@ -492,7 +493,7 @@ class HeatmapChart(BaseChart):
             all_filters.pop(k, None)
 
         # --- POLARS OPTIMIZATION START ---
-        df = self.predictions.to_dataframe()
+        df = self._filter_score_scope(self.predictions.to_dataframe(), score_scope)
 
         # Filter by task_type if specified
         if task_type is not None and 'task_type' in df.columns:
@@ -513,7 +514,7 @@ class HeatmapChart(BaseChart):
         # 1. Apply Filters
         for k, v in all_filters.items():
             if k in df.columns:
-                df = df.filter(pl.col(k) == v)
+                df = df.filter(pl.col(k) == (v.lower() if k == "model_name" and isinstance(v, str) else v))
 
         if df.height == 0:
             return self._create_empty_figure(
@@ -524,24 +525,20 @@ class HeatmapChart(BaseChart):
         # 2. Define Score Extraction Logic (Vectorized)
         def get_score_expr(metric_name, partition_name):
             # Priority 1: Direct column if metric matches
-            # Priority 2: Regex from scores JSON (fast approximation)
+            # Priority 2: JSON metric from scores
             # Priority 3: Null
 
             # Direct column (e.g. 'val_score')
             col_score = f"{partition_name}_score"
 
-            # Regex for JSON: "partition": { ... "metric": value ... }
-            # Simplified regex: look for metric key inside partition block?
-            # JSON structure: {"val": {"rmse": 0.1, ...}, ...}
-            # Regex: "val"\s*:\s*\{[^}]*"rmse"\s*:\s*([\d\.]+)
-            # Note: This is fragile but fast.
-            regex = f'"{partition_name}"\\s*:\\s*\\{{[^}}]*"{metric_name}"\\s*:\\s*([\\d\\.]+)'
+            # Decode the selected JSON number, preserving sign and exponent.
+            score_path = f'$["{partition_name}"]["{metric_name}"]'
 
             return (
                 pl.when(pl.col("metric") == metric_name)
                 .then(pl.col(col_score))
                 .otherwise(
-                    pl.col("scores").str.extract(regex, 1).cast(pl.Float64, strict=False)
+                    pl.col("scores").str.replace_all(r'(:\s*)(?:NaN|-?Infinity)(\s*[,}])', '${1}null${2}').str.json_path_match(score_path).cast(pl.Float64, strict=False)
                 )
             )
 
@@ -585,7 +582,7 @@ class HeatmapChart(BaseChart):
 
         # 4. Join
         # If rank and display partitions are same, we don't need join, just filter
-        if rank_partition == display_partition and not is_partition_grouped:
+        if rank_partition == display_partition and rank_metric == display_metric and not is_partition_grouped:
             combined = df_rank.with_columns(pl.col("rank_score").alias("display_score"))
         elif is_partition_grouped:
             # If partition grouped, we join rank info (for selection) onto all rows
@@ -602,39 +599,31 @@ class HeatmapChart(BaseChart):
         combined = combined.filter(pl.col("rank_score").is_not_null() & pl.col("display_score").is_not_null())
 
         if combined.height == 0:
-            raise ValueError(f"No valid scores found for {x_var} vs {y_var}")
+            return self._create_empty_figure(
+                figsize, f"No valid scores found for {x_var} vs {y_var} "
+                f"(scope={score_scope}, rank={rank_partition}/{rank_metric}, display={display_partition}/{display_metric})"
+            )
 
         # Sort for ranking
         rank_higher_better = self._is_higher_better(rank_metric)
         combined = combined.sort("rank_score", descending=rank_higher_better)
 
-        # Aggregation
-        # We want one value per (x, y) group
-        # Strategy: Group by x,y -> take first (best) or aggregate
-
-        if rank_agg == 'best':
-            # Since we sorted by rank_score, 'first' is the best
-            agg_df = combined.group_by([x_var, y_var]).agg([
-                pl.col("display_score").first().alias("agg_score"),
-                pl.len().alias("count")
-            ])
-        elif rank_agg == 'worst':
-            agg_df = combined.group_by([x_var, y_var]).agg([
-                pl.col("display_score").last().alias("agg_score"),
-                pl.len().alias("count")
-            ])
-        elif rank_agg == 'mean':
-            # For mean, we might want mean of display scores of ALL models, or top K?
-            # Standard behavior: mean of display scores of ALL matching models
-            agg_df = combined.group_by([x_var, y_var]).agg([
-                pl.col("display_score").mean().alias("agg_score"),
-                pl.len().alias("count")
-            ])
-        else:  # median
-            agg_df = combined.group_by([x_var, y_var]).agg([
-                pl.col("display_score").median().alias("agg_score"),
-                pl.len().alias("count")
-            ])
+        # Display reduction is independent of the rank metric/aggregation.
+        display_score = pl.col("display_score")
+        display_higher_better = self._is_higher_better(display_metric)
+        if display_agg == 'best':
+            score_expr = display_score.max() if display_higher_better else display_score.min()
+        elif display_agg == 'worst':
+            score_expr = display_score.min() if display_higher_better else display_score.max()
+        elif display_agg == 'mean':
+            score_expr = display_score.mean()
+        elif display_agg == 'median':
+            score_expr = display_score.median()
+        else:
+            raise ValueError(f"Unsupported display aggregation: {display_agg}")
+        agg_df = combined.group_by([x_var, y_var]).agg([
+            score_expr.alias("agg_score"), pl.len().alias("count")
+        ])
 
         # 6. Build Matrix (Pivot)
         # Polars pivot is great
@@ -1040,7 +1029,7 @@ class HeatmapChart(BaseChart):
         for k in ['aggregation', 'rank_agg', 'display_agg', 'show_counts', 'figsize', 'aggregate', 'column_scale']:
             all_filters.pop(k, None)
 
-        df = self.predictions.to_dataframe()
+        df = self._filter_score_scope(self.predictions.to_dataframe(), score_scope)
 
         # Filter by task_type if specified
         if task_type is not None and 'task_type' in df.columns:
@@ -1067,7 +1056,7 @@ class HeatmapChart(BaseChart):
         # Apply filters
         for k, v in all_filters.items():
             if k in df.columns:
-                df = df.filter(pl.col(k) == v)
+                df = df.filter(pl.col(k) == (v.lower() if k == "model_name" and isinstance(v, str) else v))
 
         if df.height == 0:
             return self._create_empty_figure(
@@ -1095,16 +1084,13 @@ class HeatmapChart(BaseChart):
         matrix = np.full((len(y_labels), len(x_labels)), np.nan)
         count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
 
-        # CRITICAL: Get ALL predictions with aggregation in ONE call for global ranking
-        # This ensures consistent ranking across all visualizations
-        # For heatmap, we need to group by y_var to get one row per unique y value
+        # Select the best aggregated prediction for each cell. Partition axes
+        # are filled from the selected prediction's enriched partition data.
         try:
-            # Determine grouping strategy for heatmap
-            # We group by y_var to get the best prediction for each row
-            group_by_cols = [y_var]
+            group_by_cols = list(dict.fromkeys(var for var in (y_var, x_var) if var != 'partition'))
 
             all_top_preds = self._get_ranked_predictions(
-                n=10000,  # Large number to get all
+                n=10000,  # Retain the population for independent display reduction.
                 rank_metric=rank_metric,
                 rank_partition=rank_partition,
                 display_metrics=[display_metric, rank_metric] if display_metric != rank_metric else [rank_metric],
@@ -1113,7 +1099,7 @@ class HeatmapChart(BaseChart):
                 aggregate=aggregate,
                 aggregate_method=aggregate_method,
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
-                group_by=group_by_cols,  # Group by y_var for heatmap rows
+                group_by=group_by_cols,
                 score_scope=score_scope,
                 task_type=task_type,
                 **all_filters
@@ -1127,26 +1113,26 @@ class HeatmapChart(BaseChart):
                 f'No predictions found for x={x_var}, y={y_var}, metric={display_metric}'
             )
 
-        # Predictions are already grouped by y_var from _get_ranked_predictions(group_by=[y_var])
-        # and sorted by rank_score. Build y_labels in rank order.
+        # Predictions retain rank order, so first occurrence selects each row's
+        # best rank score while all of its cells remain available.
         rank_higher_better = self._is_higher_better(rank_metric)
 
-        # Build y_labels from predictions (already deduplicated and sorted by rank)
-        y_var_to_best_pred = {}  # y_var value -> prediction
+        cell_predictions: dict[tuple[str, ...], dict[str, Any]] = {}
         for pred in all_top_preds:
-            y_val = pred.get(y_var, 'Unknown')
-            y_val_str = str(y_val).lower() if y_var in ['model_name', 'model_classname'] else str(y_val)
-            # Since predictions are already grouped by y_var, first occurrence is the only one
-            if y_val_str not in y_var_to_best_pred:
-                y_var_to_best_pred[y_val_str] = pred
+            key = tuple(
+                str(pred.get(var, 'Unknown')).lower() if var in ['model_name', 'model_classname']
+                else str(pred.get(var, 'Unknown'))
+                for var in group_by_cols
+            )
+            cell_predictions.setdefault(key, pred)
 
         # Build y_labels from unique y_var values (in rank order)
-        y_labels = list(y_var_to_best_pred.keys())
+        if y_var != 'partition':
+            y_labels = list(dict.fromkeys(key[group_by_cols.index(y_var)] for key in cell_predictions))
 
         # Apply top_k limit after grouping
         if top_k is not None and top_k > 0:
             y_labels = y_labels[:top_k]
-            y_var_to_best_pred = {k: v for k, v in y_var_to_best_pred.items() if k in y_labels}
 
         # Update y_map with new labels
         y_map = {y: i for i, y in enumerate(y_labels)}
@@ -1156,19 +1142,26 @@ class HeatmapChart(BaseChart):
         count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
 
         # Fill matrix from predictions (already in rank order)
-        for y_label, pred in y_var_to_best_pred.items():
-            if y_label not in y_map:
+        cell_scores: dict[tuple[int, int], list[float]] = {}
+        for pred in all_top_preds:
+            y_val = pred.get(y_var, 'Unknown')
+            y_label = str(y_val).lower() if y_var in ['model_name', 'model_classname'] else str(y_val)
+            if y_var != 'partition' and y_label not in y_map:
                 continue
-            y_idx = y_map[y_label]
             partitions = pred.get('partitions', {})
 
             # Fill in scores for each x_var (partition) column
             if is_partition_grouped:
-                # x_var is 'partition', so each column is a partition
+                # Fill either orientation of the partition axis.
                 for partition_name in ['train', 'val', 'test']:
-                    if partition_name not in x_map:
+                    x_label = partition_name if x_var == 'partition' else str(pred.get(x_var, 'Unknown'))
+                    if x_var in ['model_name', 'model_classname']:
+                        x_label = x_label.lower()
+                    row_label = partition_name if y_var == 'partition' else y_label
+                    if x_label not in x_map or row_label not in y_map:
                         continue
-                    x_idx = x_map[partition_name]
+                    x_idx = x_map[x_label]
+                    y_idx = y_map[row_label]
 
                     partition_data = partitions.get(partition_name, {})
                     score = partition_data.get(display_metric)
@@ -1181,10 +1174,11 @@ class HeatmapChart(BaseChart):
                                 score = evaluator.eval(y_true, y_pred, display_metric)
 
                     if score is not None:
-                        matrix[y_idx, x_idx] = score
+                        cell_scores.setdefault((y_idx, x_idx), []).append(float(score))
                         y_pred_arr = partition_data.get('y_pred')
-                        count_matrix[y_idx, x_idx] = len(y_pred_arr) if y_pred_arr is not None else 1
+                        count_matrix[y_idx, x_idx] += len(y_pred_arr) if y_pred_arr is not None else 1
             else:
+                y_idx = y_map[y_label]
                 # Single partition display
                 partition_data = partitions.get(display_partition, {})
                 score = partition_data.get(display_metric)
@@ -1196,16 +1190,27 @@ class HeatmapChart(BaseChart):
                         with contextlib.suppress(Exception):
                             score = evaluator.eval(y_true, y_pred, display_metric)
 
-                # For non-partition grouped, we have a single x column
+                # Fill the selected prediction's own (x, y) cell.
                 if x_labels:
                     x_val = pred.get(x_var, x_labels[0])
                     x_val_str = str(x_val).lower() if x_var == 'model_name' else str(x_val)
                     if x_val_str in x_map:
                         x_idx = x_map[x_val_str]
                         if score is not None:
-                            matrix[y_idx, x_idx] = score
+                            cell_scores.setdefault((y_idx, x_idx), []).append(float(score))
                             y_pred_arr = partition_data.get('y_pred')
-                            count_matrix[y_idx, x_idx] = len(y_pred_arr) if y_pred_arr is not None else 1
+                            count_matrix[y_idx, x_idx] += len(y_pred_arr) if y_pred_arr is not None else 1
+
+        display_higher_better = self._is_higher_better(display_metric)
+        reducers: dict[str, Callable[[list[float]], Any]] = {
+            'best': np.max if display_higher_better else np.min,
+            'worst': np.min if display_higher_better else np.max,
+            'mean': np.mean, 'median': np.median,
+        }
+        if display_agg not in reducers:
+            raise ValueError(f"Unsupported display aggregation: {display_agg}")
+        for (y_idx, x_idx), scores in cell_scores.items():
+            matrix[y_idx, x_idx] = reducers[display_agg](scores)
 
         t1 = time.time()
         logger.debug(f"Data wrangling time (with aggregation): {t1 - t0:.4f} seconds")

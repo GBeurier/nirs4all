@@ -155,6 +155,7 @@ class FastAOMPLSRidge(BaseEstimator, RegressorMixin):
     # ------------------------------------------------------------------ fit
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "FastAOMPLSRidge":
+        self.__dict__.pop("_constant_prediction", None)
         cfg = self.config
         X = np.asarray(X, dtype=float)
         y = np.asarray(y, dtype=float).ravel()

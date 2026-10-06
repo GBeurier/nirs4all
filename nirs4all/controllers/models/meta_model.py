@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+from nirs4all.controllers.models.stacking.classification import validate_scalar_prediction_targets
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.models.meta import (
@@ -39,6 +40,7 @@ from nirs4all.operators.models.selection import (
     SelectorFactory,
     SourceModelSelector,
 )
+from nirs4all.pipeline.config.context import ExecutionPhase
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType, MetaModelConfig
 
 from .base_model import BaseModelController
@@ -88,6 +90,7 @@ from .stacking import (
     stacking_config_to_dict,
 )
 from .stacking.config import ReconstructorConfig
+from .stacking.reconstructor import aggregate_test_fold_predictions
 
 logger = get_logger(__name__)
 
@@ -285,6 +288,7 @@ class MetaModelController(SklearnModelController):
         # to match sklearn's nested parameter convention, but the inner model
         # (e.g. Ridge) expects just 'alpha'.
         if force_params and model is not None and hasattr(model, 'set_params'):
+            model = self._clone_model(model)
             clean_params = {}
             for key, value in force_params.items():
                 if key.startswith('model__'):
@@ -526,7 +530,7 @@ class MetaModelController(SklearnModelController):
                     meta_model=unique_source_names[0] if unique_source_names else "unknown",
                     dependency_chain=chain,
                 )
-            elif "level" in error_msg.lower() and "exceeded" in error_msg.lower():
+            elif "level" in error_msg.lower() and "exceed" in error_msg.lower():
                 raise MaxStackingLevelExceededError(
                     current_level=level_result.detected_level,
                     max_level=stacking_config.max_level,
@@ -540,6 +544,7 @@ class MetaModelController(SklearnModelController):
                     found_levels={model_name: level_result.detected_level},
                     problematic_models=[model_name],
                 )
+        raise ValueError("Invalid stacking sources: " + "; ".join(level_result.errors))
 
     def _validate_cross_branch_stacking(
         self,
@@ -1115,7 +1120,7 @@ class MetaModelController(SklearnModelController):
             y_vals = np.asarray(y_vals).flatten()
             if len(y_vals) == n_samples:
                 all_preds.append(y_vals)
-                all_scores.append(pred.get('val_score', 0.0))
+                all_scores.append(pred.get('val_score', np.nan))
 
         if not all_preds:
             return np.zeros(n_samples)
@@ -1123,18 +1128,8 @@ class MetaModelController(SklearnModelController):
         all_preds_arr = np.array(all_preds)
         all_scores_arr = np.array(all_scores)
 
-        if aggregation == TestAggregation.BEST_FOLD:
-            # Use predictions from best fold
-            best_idx = np.argmax(all_scores_arr) if np.any(all_scores_arr) else 0
-            return np.asarray(all_preds_arr[best_idx])
-        elif aggregation == TestAggregation.WEIGHTED_MEAN:
-            # Weighted average by validation scores
-            weights = np.clip(all_scores_arr, 0, None)
-            weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(all_preds_arr)) / len(all_preds_arr)
-            return np.asarray(np.average(all_preds_arr, axis=0, weights=weights))
-        else:
-            # Simple mean (default)
-            return np.asarray(np.mean(all_preds_arr, axis=0))
+        metric = next((pred['metric'] for pred in fold_preds if pred.get('metric')), 'rmse')
+        return aggregate_test_fold_predictions(all_preds_arr, all_scores_arr, aggregation, metric)
 
     def _get_source_models(
         self,
@@ -1439,6 +1434,7 @@ class MetaModelController(SklearnModelController):
             Tuple of (updated_context, list_of_binaries).
         """
         # Store references for get_xy() to access using custom dict (proper pattern)
+        validate_scalar_prediction_targets(dataset)
         context.custom['_prediction_store'] = prediction_store
         context.custom['_runtime_context'] = runtime_context
         context.custom['_step_info'] = step_info
@@ -2061,11 +2057,17 @@ class MetaModelController(SklearnModelController):
             custom_name=artifact_name,
         )
 
+        # Refit predictions use the final fold identity. Cleanup must protect
+        # their actual fitted meta-model, just as it protects base models.
+        trace_fold_id: int | str | None = fold_id
+        if runtime_context.phase == ExecutionPhase.REFIT and fold_id is not None:
+            trace_fold_id = runtime_context.refit_fold_id or "final"
+
         # Record artifact in execution trace (Phase 2) with V3 chain info
         runtime_context.record_step_artifact(
             artifact_id=artifact_id,
             is_primary=(fold_id is None),
-            fold_id=fold_id,
+            fold_id=trace_fold_id,
             chain_path=chain_path,
             branch_path=bp,
             metadata={
@@ -2285,4 +2287,3 @@ class MetaModelController(SklearnModelController):
             fold_id=fold_id,
             custom_name=custom_name
         )
-

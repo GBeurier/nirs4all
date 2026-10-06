@@ -445,7 +445,7 @@ def _get_cached_jax_recursive_pls():
 # RecursivePLS Estimator Class
 # =============================================================================
 
-class RecursivePLS(BaseEstimator, RegressorMixin):
+class RecursivePLS(RegressorMixin, BaseEstimator):
     """Recursive Partial Least Squares (Recursive PLS) regressor.
 
     Recursive PLS enables online model updates for drifting processes.
@@ -483,11 +483,11 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
     n_samples_seen_ : int
         Total number of samples seen (including partial_fit calls).
     x_mean_ : ndarray of shape (n_features,)
-        Mean of X (updated with exponential moving average).
+        Mean of X, fixed from the initial fit for stable covariance updates.
     x_std_ : ndarray of shape (n_features,)
         Standard deviation of X.
     y_mean_ : ndarray of shape (n_targets,)
-        Mean of Y (updated with exponential moving average).
+        Mean of Y, fixed from the initial fit; offset drift is not adapted.
     y_std_ : ndarray of shape (n_targets,)
         Standard deviation of Y.
     x_weights_ : ndarray of shape (n_features, n_components_)
@@ -723,13 +723,8 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
 
         n_new = X.shape[0]
 
-        # Update running mean with exponential moving average
+        # Preserve initial preprocessing offsets; forgetting applies to covariance.
         ff = self.forgetting_factor
-        for _ in range(n_new):
-            # EMA update for mean (optional: can also keep fixed from initial fit)
-            # self.x_mean_ = ff * self.x_mean_ + (1 - ff) * X[i]
-            # self.y_mean_ = ff * self.y_mean_ + (1 - ff) * y[i]
-            pass  # Keep mean fixed for stability
 
         # Center new data using stored parameters
         X_centered = (X - self.x_mean_) / self.x_std_
@@ -891,8 +886,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
         self : RecursivePLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

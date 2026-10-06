@@ -42,7 +42,7 @@ from nirs4all.operators.transforms import SavitzkyGolay as _SG
 from nirs4all.operators.transforms.orthogonalization import OSC as _OSC
 
 
-class TabPFNNIRSRegressor(BaseEstimator, RegressorMixin):
+class TabPFNNIRSRegressor(RegressorMixin, BaseEstimator):
     """NIRS-tuned TabPFN regressor with a fixed AGG preprocessing pipeline.
 
     Parameters

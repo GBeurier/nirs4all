@@ -1,3 +1,4 @@
+import copy
 from typing import Optional, Union
 
 import numpy as np
@@ -40,14 +41,21 @@ class Features:
             data = [data]
 
         n_sources = len(data)
-        if not self.sources:
-            self.sources = [FeatureSource() for _ in range(n_sources)]
-        elif len(self.sources) != n_sources:
+        if any(arr.shape[0] != data[0].shape[0] for arr in data):
+            raise ValueError("All feature sources must have the same sample count")
+        if any(src.num_processings > 1 for src in self.sources):
+            raise ValueError("Cannot add raw samples after preprocessing")
+        if self.sources and len(self.sources) == n_sources and any(arr.ndim == 2 and arr.shape[1] != src.num_features for src, arr in zip(self.sources, data, strict=True)):
+            raise ValueError("Feature dimension mismatch while adding samples")
+        if self.sources and len(self.sources) != n_sources:
             raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
+        staged_sources = self._stage_sources_for_append() if self.sources else [FeatureSource() for _ in range(n_sources)]
 
         # Prepare headers list
         headers_list: list[list[str] | None]
         if headers is not None:
+            if not headers:
+                raise ValueError("Feature headers cannot be empty when explicitly supplied")
             if isinstance(headers[0], str):
                 # Single list of strings applies to all sources
                 str_headers = [str(h) for h in headers]  # ensure list[str]
@@ -73,10 +81,45 @@ class Features:
             units_list = [None] * n_sources
 
         # Add samples and set headers with units
-        for src, arr, hdr, unit in zip(self.sources, data, headers_list, units_list, strict=False):
+        for src, arr, hdr, unit in zip(staged_sources, data, headers_list, units_list, strict=True):
             src.add_samples(arr, hdr)
             if hdr is not None and unit is not None:
                 src.set_headers(hdr, unit=unit)
+        self._commit_append_sources(staged_sources)
+
+    def _stage_sources_for_append(self) -> list[FeatureSource]:
+        """Stage append-only updates without copying existing spectral arrays.
+
+        Raw and batch appends allocate new concatenated arrays. Separate block
+        lists, storage state and header managers keep these updates private until
+        every source succeeds, including late dtype/header failures. Shared 3D
+        arrays are read through views; staging never acquires or releases their
+        references, so failed updates leave existing CoW snapshots unchanged.
+        """
+        staged = []
+        for source in self.sources:
+            clone = copy.copy(source)
+            clone._storage = copy.copy(source._storage)
+            clone._storage._blocks = list(source._storage._blocks)
+            if not clone._storage._blocks and source._storage._shared is not None:
+                array = source._storage._shared.array
+                clone._storage._blocks = [array[:, idx, :] for idx in range(array.shape[1])]
+            clone._storage._shared = None
+            clone._storage._cached_3d = None
+            clone._header_mgr = copy.deepcopy(source._header_mgr)
+            staged.append(clone)
+        return staged
+
+    def _commit_append_sources(self, staged: list[FeatureSource]) -> None:
+        """Publish validated appends while retaining source/storage identities."""
+        if not self.sources:
+            self.sources = staged
+            return
+        for source, clone in zip(self.sources, staged, strict=True):
+            if source._storage._shared is not None:
+                source._storage._shared.release()
+            source._storage.__dict__.update(clone._storage.__dict__)
+            source._header_mgr.__dict__.update(clone._header_mgr.__dict__)
 
     def add_samples_batch_3d(self, data: np.ndarray | list[np.ndarray]) -> None:
         """Add multiple samples with 3D data in a single operation - O(N) instead of O(N²).
@@ -102,9 +145,12 @@ class Features:
         if len(self.sources) != n_sources:
             raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
 
-        # Add samples to each source using batch method
-        for src, arr in zip(self.sources, data, strict=False):
+        if any(arr.shape[0] != data[0].shape[0] for arr in data):
+            raise ValueError("All feature sources must have the same sample count")
+        staged_sources = self._stage_sources_for_append()
+        for src, arr in zip(staged_sources, data, strict=True):
             src.add_samples_batch_3d(arr)
+        self._commit_append_sources(staged_sources)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList, source: int = -1) -> None:
         """Update or add new feature processings to a specific source.
@@ -116,7 +162,7 @@ class Features:
             source: Source index to update (default: 0 if negative).
         """
         # Handle empty features list
-        if not features:
+        if features is None or (isinstance(features, list) and not features):
             return
         self.sources[source if source >= 0 else 0].update_features(source_processings, features, processings)
 

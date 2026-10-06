@@ -173,6 +173,8 @@ def classifier_controller_for_graph(graph: Mapping[str, Any], cohort: Any, *, al
 
 def fit_declared_methods_classifier(model: Any, blocks: list[Any], y: Any, *, source_schemas: Any) -> None:
     """Fit genuine native state; a failed replacement leaves the old state intact."""
+    from .methods_multimodal import methods_input_blocks
+
     recipe = classifier_recipe(model, allow_source_selection=True)
     if not isinstance(source_schemas, Mapping):
         raise ValueError("Methods classifier fit requires explicit IO-derived source_schemas")
@@ -189,7 +191,7 @@ def fit_declared_methods_classifier(model: Any, blocks: list[Any], y: Any, *, so
     native = pipeline_type(recipe, schemas)
     previous = model.__dict__.get("native_pipeline_")
     try:
-        native.fit(dict(zip(names, values, strict=True)), np.asarray(targets))
+        native.fit(methods_input_blocks(dict(zip(names, values, strict=True)), schemas), np.asarray(targets))
         if list(native.classes_) != vocabulary["label_names"]:
             raise ValueError("native classifier class order differs from the declared typed training vocabulary")
         model.__dict__ = {**model.__dict__, "native_pipeline_": native, "source_schemas_": schemas,

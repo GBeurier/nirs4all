@@ -124,7 +124,7 @@ class SampleStrategy(ExpansionStrategy):
         low = spec.get("from", 0)
         high = spec.get("to", 1)
 
-        return [round(rng.uniform(low, high), 10) for _ in range(num)]
+        return [float(f"{rng.uniform(low, high):.12g}") for _ in range(num)]
 
     def _sample_log_uniform(
         self, spec: dict[str, Any], num: int, rng: random.Random
@@ -142,7 +142,7 @@ class SampleStrategy(ExpansionStrategy):
         results = []
         for _ in range(num):
             log_val = rng.uniform(log_low, log_high)
-            results.append(round(math.exp(log_val), 10))
+            results.append(float(f"{math.exp(log_val):.12g}"))
         return results
 
     def _sample_normal(
@@ -152,7 +152,7 @@ class SampleStrategy(ExpansionStrategy):
         mean = spec.get("mean", 0)
         std = spec.get("std", 1)
 
-        return [round(rng.gauss(mean, std), 10) for _ in range(num)]
+        return [float(f"{rng.gauss(mean, std):.12g}") for _ in range(num)]
 
     def _sample_choice(
         self, spec: dict[str, Any], num: int, rng: random.Random

@@ -134,7 +134,8 @@ def ridge_on_scores(
         T: Latent scores ``(n, H)``.
         y_centred: Centred response (``y - y_mean``).
         lambdas: Candidate ``lambda_0`` values; the best is picked via
-            internal LOO-style minimisation of the residual.
+            leave-one-out loss conditional on the fitted latent scores, including
+            the intercept leverage. This does not refit PLS extraction per fold.
         component_shrinkage_gamma: If not None, use
             ``lambda_h = lambda_0 * (h + 1) ** gamma`` (1-indexed) so the
             late components are more aggressively shrunk.
@@ -144,7 +145,7 @@ def ridge_on_scores(
     """
     n, H = T.shape
     if H == 0:
-        return np.zeros(0), float(lambdas[0]) if lambdas else 0.0, float("inf")
+        return np.zeros(0), float(lambdas[0]) if len(lambdas) else 0.0, float("inf")
     TtT = T.T @ T
     Tty = T.T @ y_centred
     best = (None, None, np.inf)
@@ -159,12 +160,16 @@ def ridge_on_scores(
         except np.linalg.LinAlgError:
             continue
         yhat = T @ c
-        loss = float(np.mean((y_centred - yhat) ** 2))
+        hat_diag = np.sum(T * np.linalg.solve(TtT + reg, T.T).T, axis=1) + 1.0 / n
+        denominator = 1.0 - hat_diag
+        if np.any(denominator <= 1e-12):
+            continue
+        loss = float(np.mean(((y_centred - yhat) / denominator) ** 2))
         if loss < best[2]:
             best = (c, float(lam), loss)
     if best[0] is None:
         c = Tty / max(1e-12, TtT[0, 0])
-        return c, float(lambdas[0]) if lambdas else 0.0, float("inf")
+        return c, float(lambdas[0]) if len(lambdas) else 0.0, float("inf")
     return best
 
 

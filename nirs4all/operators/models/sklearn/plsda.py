@@ -6,9 +6,10 @@ import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.utils.validation import check_is_fitted
 
 
-class PLSDA(BaseEstimator, ClassifierMixin):
+class PLSDA(ClassifierMixin, BaseEstimator):
     """PLS Discriminant Analysis (PLS-DA) classifier.
     (See pls.py for full docstring)
     """
@@ -43,6 +44,7 @@ class PLSDA(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
+        check_is_fitted(self, ['pls_', 'classes_'])
         X = np.asarray(X)
         y_pred_raw = self.pls_.predict(X)
         if len(self.classes_) == 2:
@@ -53,6 +55,7 @@ class PLSDA(BaseEstimator, ClassifierMixin):
             return self.encoder_.categories_[0][y_pred]
 
     def predict_proba(self, X):
+        check_is_fitted(self, ['pls_', 'classes_'])
         X = np.asarray(X)
         y_pred_raw = self.pls_.predict(X)
         if len(self.classes_) == 2:
@@ -63,6 +66,5 @@ class PLSDA(BaseEstimator, ClassifierMixin):
         return {"n_components": self.n_components}
 
     def set_params(self, **params):
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self

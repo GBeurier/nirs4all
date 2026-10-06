@@ -1094,7 +1094,7 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
         name="tablet_generic_ir_low_dose",
         components={
             # Low-dose potent API (1-5%) with typical excipients + traces.
-            "api_generic": 0.02,
+            "paracetamol": 0.02,
             "microcrystalline_cellulose": 0.45,
             "lactose": 0.30,
             "starch": 0.18,
@@ -1102,12 +1102,12 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
             "lipid": 0.01,   # lubricant proxy (e.g., magnesium stearate)
             "silica": 0.005, # glidant proxy
         },
-        description="Generic immediate-release tablet (low-dose API archetype)",
+        description="Generic immediate-release tablet (low-dose API archetype); paracetamol spectral proxy",
         domain="pharmaceutical",
         category="solid_dosage",
         spectral_category="carbohydrates",
         variability={
-            "api_generic": (0.005, 0.05),
+            "paracetamol": (0.005, 0.05),
             "moisture": (0.02, 0.06),
             "microcrystalline_cellulose": (0.35, 0.55),
             "lactose": (0.15, 0.40),
@@ -1121,7 +1121,7 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
         name="tablet_generic_ir_medium_dose",
         components={
             # Medium API load (~10-30%) is common across many IR tablets.
-            "api_generic": 0.20,
+            "paracetamol": 0.20,
             "microcrystalline_cellulose": 0.33,
             "lactose": 0.25,
             "starch": 0.15,
@@ -1129,12 +1129,12 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
             "lipid": 0.01,
             "silica": 0.005,
         },
-        description="Generic immediate-release tablet (medium-dose API archetype)",
+        description="Generic immediate-release tablet (medium-dose API archetype); paracetamol spectral proxy",
         domain="pharmaceutical",
         category="solid_dosage",
         spectral_category="carbohydrates",
         variability={
-            "api_generic": (0.10, 0.30),
+            "paracetamol": (0.10, 0.30),
             "moisture": (0.02, 0.08),
             "microcrystalline_cellulose": (0.20, 0.45),
             "lactose": (0.10, 0.35),
@@ -1149,7 +1149,7 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
         components={
             # High-load API tablets (50-80%) appear in e.g. some analgesics,
             # antidiabetics, vitamins; excipients reduced accordingly.
-            "api_generic": 0.70,
+            "paracetamol": 0.70,
             "microcrystalline_cellulose": 0.15,
             "starch": 0.08,
             "lactose": 0.03,
@@ -1157,12 +1157,12 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
             "lipid": 0.01,
             "silica": 0.005,
         },
-        description="Generic immediate-release tablet (high-load API archetype)",
+        description="Generic immediate-release tablet (high-load API archetype); paracetamol spectral proxy",
         domain="pharmaceutical",
         category="solid_dosage",
         spectral_category="pharmaceutical",
         variability={
-            "api_generic": (0.50, 0.80),
+            "paracetamol": (0.50, 0.80),
             "moisture": (0.01, 0.05),
             "microcrystalline_cellulose": (0.08, 0.25),
             "starch": (0.04, 0.15),
@@ -1174,7 +1174,7 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
     "tablet_metformin": AggregateComponent(
         name="tablet_metformin",
         components={
-            "metformin_hcl": 0.78,
+            "metformin": 0.78,
             "microcrystalline_cellulose": 0.10,
             "starch": 0.07,
             "lactose": 0.02,
@@ -1182,12 +1182,12 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
             "lipid": 0.01,
             "silica": 0.005,
         },
-        description="High-load metformin HCl tablet archetype (API-dominant)",
+        description="High-load metformin tablet archetype (generic metformin spectrum; salt effects not modeled)",
         domain="pharmaceutical",
         category="solid_dosage",
         spectral_category="pharmaceutical",
         variability={
-            "metformin_hcl": (0.70, 0.85),
+            "metformin": (0.70, 0.85),
             "moisture": (0.01, 0.04),
         },
         tags=["pharma", "tablet", "metformin", "high_load"],
@@ -1219,7 +1219,7 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
     "tablet_loratadine_low_dose": AggregateComponent(
         name="tablet_loratadine_low_dose",
         components={
-            "loratadine": 0.015,
+            "paracetamol": 0.015,
             "microcrystalline_cellulose": 0.47,
             "lactose": 0.30,
             "starch": 0.18,
@@ -1227,12 +1227,12 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
             "lipid": 0.01,
             "silica": 0.005,
         },
-        description="Low-dose antihistamine tablet archetype (loratadine-like)",
+        description="Low-dose tablet composition archetype; paracetamol spectral proxy, not a loratadine spectrum",
         domain="pharmaceutical",
         category="solid_dosage",
         spectral_category="carbohydrates",
         variability={
-            "loratadine": (0.008, 0.03),
+            "paracetamol": (0.008, 0.03),
             "moisture": (0.02, 0.06),
         },
         tags=["pharma", "tablet", "antihistamine", "low_dose"],
@@ -1242,19 +1242,19 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
     "capsule_generic_powder": AggregateComponent(
         name="capsule_generic_powder",
         components={
-            "api_generic": 0.25,
+            "paracetamol": 0.25,
             "lactose": 0.40,
             "starch": 0.25,
             "microcrystalline_cellulose": 0.05,
             "moisture": 0.045,
             "silica": 0.005,
         },
-        description="Generic hard-capsule fill (powder blend archetype)",
+        description="Generic hard-capsule fill (powder blend archetype); paracetamol spectral proxy",
         domain="pharmaceutical",
         category="solid_dosage",
         spectral_category="carbohydrates",
         variability={
-            "api_generic": (0.10, 0.45),
+            "paracetamol": (0.10, 0.45),
             "moisture": (0.02, 0.08),
         },
         tags=["pharma", "capsule", "archetype", "powder"],
@@ -1284,7 +1284,7 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
     "tablet_amoxicillin": AggregateComponent(
         name="tablet_amoxicillin",
         components={
-            "amoxicillin_trihydrate": 0.55,
+            "amoxicillin": 0.55,
             "microcrystalline_cellulose": 0.18,
             "starch": 0.15,
             "lactose": 0.08,
@@ -1292,12 +1292,12 @@ AGGREGATE_COMPONENTS: dict[str, AggregateComponent] = {
             "silica": 0.005,
             "lipid": 0.005,
         },
-        description="Antibiotic tablet archetype (amoxicillin-like; medium/high API load)",
+        description="Antibiotic tablet archetype (generic amoxicillin spectrum; hydrate effects not modeled)",
         domain="pharmaceutical",
         category="solid_dosage",
         spectral_category="pharmaceutical",
         variability={
-            "amoxicillin_trihydrate": (0.45, 0.70),
+            "amoxicillin": (0.45, 0.70),
             "moisture": (0.01, 0.08),
         },
         tags=["pharma", "tablet", "antibiotic", "amoxicillin"],

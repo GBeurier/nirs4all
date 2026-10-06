@@ -324,6 +324,8 @@ def _normalize_public_pipeline_input(pipeline: Any) -> Any:
         if isinstance(definition, dict) and "steps" in definition and "pipeline" in definition:
             raise ValueError("pipeline mappings must use either 'steps' or 'pipeline', not both")
 
+    if isinstance(pipeline, PipelineConfigs) and len(pipeline.steps) == 1:
+        return pipeline.steps[0]
     if isinstance(pipeline, (Path, str)):
         serialized = str(pipeline)
         steps = PipelineConfigs._load_steps(serialized)
@@ -421,6 +423,12 @@ def run_via_dagml(
     configure_logging(verbose=verbose)
     logger = get_logger(__name__)
     logger.info("Training pipeline with engine='dag-ml'")
+
+    from .torch_estimator import prepare_torch_runtime
+
+    # Prepare declared optimizer dependencies before global framework seeding
+    # initializes TensorFlow's native runtime, as well as before Rust callbacks.
+    prepare_torch_runtime(pipeline)
 
     # Apply the honored options. random_state seeds the global RNG exactly as legacy run() does, so the
     # dag-ml engine's stochastic paths (augmentation / randomized splitters) and any unseeded stochastic
@@ -796,13 +804,15 @@ def _native_param_variant_model_params(pipeline: Any, name: str) -> list[dict[st
     of per-variant model params (the same :class:`PipelineConfigs` expansion ``_derive_variant_config_names``
     reads ``.names`` from, so element ``i`` is variant ``names[i]``'s model params).
 
-    Each entry is the variant's model-step serialized ``params`` dict (``{"class", "params"}`` form —
+    Each entry combines the variant's serialized model ``params`` with non-reserved sibling parameters (``{"class", "params"}`` form —
     :func:`~nirs4all.pipeline.config.component_serialization.serialize_component` is what ``PipelineConfigs``
     stores), so a content match is an exact swept-param-value comparison. Returns ``[]`` for a non-sweep
     pipeline or any underivable form (the caller then falls back to the positional ``names[0]`` pairing).
     """
     try:
         from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+
+        from .steps import _RESERVED_STEP_KEYS
 
         if isinstance(pipeline, PipelineConfigs):
             configs = pipeline
@@ -820,6 +830,8 @@ def _native_param_variant_model_params(pipeline: Any, name: str) -> list[dict[st
                     model = step["model"]
                     # PipelineConfigs stores the expanded model as the serialized {"class", "params"} dict.
                     model_params = dict(model["params"]) if isinstance(model, dict) and isinstance(model.get("params"), dict) else (model.get_params() if hasattr(model, "get_params") else {})
+                    # Expanded sibling sweeps override the model's serialized defaults.
+                    model_params.update({key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS})
                     break
             params_per_variant.append(model_params)
         return params_per_variant
@@ -1342,6 +1354,7 @@ def _dispatch_run(
         detected_separation_preproc_concat is not None
         or (detected_duplication is not None and detected_duplication[1] != "features")
         or detected_stacking is not None
+        or detected_proba_stacking is not None
         or detected_named_metamodel_stack is not None
         or detected_by_source is not None
         or detected_by_source_concat is not None
@@ -1613,7 +1626,7 @@ def _dispatch_run(
             list(pipeline), branches, meta_learner, spectro, dataset_arg, cli,
             venv_python or sys.executable, base_dir / "stacking_proba_mean", metric, task_type,
             dataset_pickle=host_pickle, config_name=config_name, random_state=random_state,
-            prediction_aggregations=selectors,
+            prediction_aggregations=selectors, refit=refit,
         )
     if detected_stacking is not None:
         branches, meta_learner = detected_stacking

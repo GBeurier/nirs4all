@@ -478,7 +478,7 @@ class TransferSelectionResults:
 
             # Color based on metric type
             is_distance = metric in distance_metrics
-            cmap = plt.get_cmap("RdYlGn_r")  # Red=high (bad), Green=low (good) if is_distance else RdYlGn
+            cmap = plt.get_cmap("RdYlGn_r" if is_distance else "RdYlGn")
 
             # Normalize values for coloring
             valid_values = [v for v in values if not np.isnan(v)]

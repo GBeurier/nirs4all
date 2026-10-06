@@ -280,10 +280,12 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
         legacy_rows = legacy.predictions.filter_predictions()
         assert len(native_rows) == len(legacy_rows) == 28
         kept_base_ids = None
+        original_targets = None
         if interleaving.startswith("exclude"):
             dataset = DatasetConfigs(path).get_dataset_at(0)
             x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"))
             y_train = np.asarray(dataset.y({"partition": "train"})).ravel()
+            original_targets = dict(zip(dataset.index_column("sample", {"partition": "train"}), y_train, strict=True))
             outlier_filter = YOutlierFilter(method="iqr", threshold=1.0)
             outlier_filter.fit(x_train, y_train)
             kept_base_ids = [int(sample_id) for sample_id, keep in zip(
@@ -298,9 +300,10 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
                                   and row["partition"] == partition and str(row["fold_id"]) == str(fold_id))
                 legacy_ids = legacy_row["sample_indices"]
                 if kept_base_ids is not None and model_name == "Ridge" and partition == "val":
-                    # Legacy stores positions in the filtered active train matrix;
-                    # native result rows carry the corresponding physical IDs.
-                    legacy_ids = [kept_base_ids[int(index)] for index in legacy_ids]
+                    # Both engines now persist physical IDs after exclusion.
+                    assert set(legacy_ids) <= set(kept_base_ids)
+                    assert original_targets is not None
+                    np.testing.assert_allclose(np.asarray(legacy_row["y_true"]).ravel(), [original_targets[index] for index in legacy_ids])
                 legacy_by_id = dict(zip(legacy_ids, np.asarray(legacy_row["y_pred"]).ravel(), strict=True))
                 native_by_id = dict(zip(native_row["sample_indices"], np.asarray(native_row["y_pred"]).ravel(), strict=True))
                 assert legacy_by_id.keys() == native_by_id.keys()

@@ -602,10 +602,15 @@ class AutoTransferPreprocessingController(OperatorController):
                     if comp_name not in preprocessings:
                         raise ValueError(f"Unknown preprocessing: {comp_name}")
 
-                    transform = deepcopy(preprocessings[comp_name])
-                    transform.fit(current_train)
-
-                    current_train = transform.transform(current_train)
+                    binary_key = f"transfer_pp_{sd_idx}_{proc_name}_{comp_idx}_{comp_name}"
+                    if mode in ("predict", "explain"):
+                        assert runtime_context.artifact_provider is not None
+                        transform = dict(runtime_context.artifact_provider.get_artifacts_for_step(
+                            runtime_context.step_number, branch_path=context.selector.branch_path))[binary_key]
+                    else:
+                        transform = deepcopy(preprocessings[comp_name])
+                        transform.fit(current_train)
+                        current_train = transform.transform(current_train)
                     current_all = transform.transform(current_all)
 
                     # Save artifact in train mode
@@ -697,10 +702,15 @@ class AutoTransferPreprocessingController(OperatorController):
                     if comp_name not in preprocessings:
                         raise ValueError(f"Unknown preprocessing: {comp_name}")
 
-                    transform = deepcopy(preprocessings[comp_name])
-                    transform.fit(current_train)
-
-                    current_train = transform.transform(current_train)
+                    binary_key = f"transfer_aug_{sd_idx}_{pp_name}_{comp_idx}_{comp_name}"
+                    if mode in ("predict", "explain"):
+                        assert runtime_context.artifact_provider is not None
+                        transform = dict(runtime_context.artifact_provider.get_artifacts_for_step(
+                            runtime_context.step_number, branch_path=context.selector.branch_path))[binary_key]
+                    else:
+                        transform = deepcopy(preprocessings[comp_name])
+                        transform.fit(current_train)
+                        current_train = transform.transform(current_train)
                     current_all = transform.transform(current_all)
 
                     # Save artifact in train mode

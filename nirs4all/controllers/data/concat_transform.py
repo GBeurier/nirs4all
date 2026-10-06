@@ -153,6 +153,7 @@ class ConcatAugmentationController(OperatorController):
 
             # Track new processing names for context update
             replaced_processings = []
+            replacement_arrays = []
             new_processing_names_for_source = []
 
             # Process each target processing
@@ -218,15 +219,18 @@ class ConcatAugmentationController(OperatorController):
                     new_processing_names_for_source.append(output_name)
                     break  # Only add once in add mode
                 else:
-                    # REPLACE mode: replace this processing
-                    dataset.replace_features(
-                        source_processings=[proc_name],
-                        features=[concatenated],
-                        processings=[output_name],
-                        source=sd_idx
-                    )
+                    # Collect all replacements before changing the source width.
+                    replacement_arrays.append(concatenated)
                     replaced_processings.append(proc_name)
                     new_processing_names_for_source.append(output_name)
+
+            if replaced_processings:
+                dataset.replace_features(
+                    source_processings=replaced_processings,
+                    features=replacement_arrays,
+                    processings=new_processing_names_for_source,
+                    source=sd_idx,
+                )
 
         # Update context with new processing names
         new_processing = []

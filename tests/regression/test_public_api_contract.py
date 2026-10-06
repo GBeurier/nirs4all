@@ -23,6 +23,10 @@ classes are checked with a *subset* assertion (the frozen names must remain a
 subset of the live public surface) so that adding new helpers does not break
 the test, while removing or renaming a documented one does.
 
+The October 2026 update explicitly includes the documented native training,
+Archive V2 and multimodal contracts, plus Core-backed experiment/tuning helpers.
+It preserves all previously frozen entry points (QA-01).
+
 Snapshots were originally captured from nirs4all 0.9.1 and deliberately
 advanced as the native tuning/conformal public surface became part of the
 contract. Updating them requires a deliberate decision because these are stable
@@ -53,17 +57,18 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "nirs4all.pipeline.config.pipeline_config.PipelineConfigs | list[list[typing.Any] | "
         "dict[str, typing.Any] | str | pathlib.Path | "
         "nirs4all.pipeline.config.pipeline_config.PipelineConfigs], "
-        "dataset: str | pathlib.Path | numpy.ndarray | tuple[numpy.ndarray, ...] | "
-        "dict[str, typing.Any] | nirs4all.data.dataset.SpectroDataset | "
-        "nirs4all.data.config.DatasetConfigs | list[str | pathlib.Path | numpy.ndarray | "
-        "tuple[numpy.ndarray, ...] | dict[str, typing.Any] | "
-        "nirs4all.data.dataset.SpectroDataset | nirs4all.data.config.DatasetConfigs], *, "
+        "dataset: Union[str, pathlib.Path, numpy.ndarray, tuple[numpy.ndarray, ...], "
+        "dict[str, Any], nirs4all.data.dataset.SpectroDataset, nirs4all.data.config.DatasetConfigs, "
+        "ForwardRef('MultimodalDataset'), ForwardRef('DataProvider'), "
+        "list[Union[str, pathlib.Path, numpy.ndarray, tuple[numpy.ndarray, ...], dict[str, Any], "
+        "nirs4all.data.dataset.SpectroDataset, nirs4all.data.config.DatasetConfigs, "
+        "ForwardRef('MultimodalDataset'), ForwardRef('DataProvider')]]], *, "
         "name: str = '', session: nirs4all.api.session.Session | None = None, "
         "verbose: int = 1, save_artifacts: bool = True, save_charts: bool = True, "
         "plots_visible: bool = False, random_state: int | None = None, "
         "refit: bool | dict[str, typing.Any] | list[dict[str, typing.Any]] | None = True, "
         "cache: typing.Any | None = None, project: str | None = None, "
-        "report_naming: str = 'nirs', engine: str | None = None, "
+        "report_naming: str = 'nirs', engine: str | None = None, native_profile: str | None = None, "
         "tuning: typing.Any | None = None, calibration: typing.Any | None = None, "
         "terminal_predict: collections.abc.Mapping[str, typing.Any] | None = None, "
         "results_path: str | pathlib.Path | None = None, allow_fallback: bool = False, "
@@ -379,23 +384,27 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "attach_calibrated_result_to_bundle",
     "calibrate",
     "conformal_metrics",
+    "execute_training",
     "explain",
     "export_calibrated_result",
     "fit_native_pipeline",
     "framework",
     "generate",
     "generate_run_id",
+    "generate_variants",
     "get_keyword_registry",
     "get_keyword_registry_schema",
     "get_robustness_summary_schema",
     "get_tuning_space_schema",
     "get_tuning_summary_schema",
+    "inspect_portable_predictor_archive_v2",
     "inspect_tuning_space",
     "is_gpu_available",
     "is_tensorflow_available",
     "keyword_registry_json",
     "keyword_registry_schema_json",
     "load_calibrated_result",
+    "load_native_tuning",
     "load_session",
     "load_workspace_calibrated_predict_result",
     "load_workspace_calibrated_result",
@@ -403,14 +412,20 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "load_workspace_predict_results",
     "load_workspace_robustness_report",
     "load_workspace_tuning_result",
+    "open_experiment",
     "predict",
     "predict_calibrated",
+    "read_portable_predictor_archive_v2",
     "register_controller",
+    "replay_portable_predictor_archive_v2",
+    "resume_native_tuning",
     "retrain",
     "robustness",
     "robustness_from_workspace_prediction",
     "robustness_summary_schema_json",
     "run",
+    "run_host_hpo_search",
+    "save_experiment",
     "save_workspace_calibrated_result",
     "save_workspace_predict_result",
     "save_workspace_robustness_report",
@@ -418,9 +433,11 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "session",
     "studio_scientific_job_v1",
     "studio_scientific_job_v2",
+    "tune_native",
     "tune_single_estimator",
     "tuning_space_schema_json",
     "tuning_summary_schema_json",
+    "write_portable_predictor_archive_v2",
 ]
 
 EXPECTED_API_ALL: list[str] = [
@@ -510,19 +527,23 @@ EXPECTED_API_ALL: list[str] = [
     "attach_calibrated_result_to_bundle",
     "calibrate",
     "conformal_metrics",
+    "execute_training",
     "explain",
     "export_calibrated_result",
     "fit_native_pipeline",
     "generate",
+    "generate_variants",
     "get_keyword_registry",
     "get_keyword_registry_schema",
     "get_robustness_summary_schema",
     "get_tuning_space_schema",
     "get_tuning_summary_schema",
+    "inspect_portable_predictor_archive_v2",
     "inspect_tuning_space",
     "keyword_registry_json",
     "keyword_registry_schema_json",
     "load_calibrated_result",
+    "load_native_tuning",
     "load_session",
     "load_workspace_calibrated_predict_result",
     "load_workspace_calibrated_result",
@@ -530,13 +551,19 @@ EXPECTED_API_ALL: list[str] = [
     "load_workspace_predict_results",
     "load_workspace_robustness_report",
     "load_workspace_tuning_result",
+    "open_experiment",
     "predict",
     "predict_calibrated",
+    "read_portable_predictor_archive_v2",
+    "replay_portable_predictor_archive_v2",
+    "resume_native_tuning",
     "retrain",
     "robustness",
     "robustness_from_workspace_prediction",
     "robustness_summary_schema_json",
     "run",
+    "run_host_hpo_search",
+    "save_experiment",
     "save_workspace_calibrated_result",
     "save_workspace_predict_result",
     "save_workspace_robustness_report",
@@ -544,9 +571,11 @@ EXPECTED_API_ALL: list[str] = [
     "session",
     "studio_scientific_job_v1",
     "studio_scientific_job_v2",
+    "tune_native",
     "tune_single_estimator",
     "tuning_space_schema_json",
     "tuning_summary_schema_json",
+    "write_portable_predictor_archive_v2",
 ]
 
 # ---------------------------------------------------------------------------

@@ -96,8 +96,9 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
     selection_rule : str
         ``"min"`` (default) or ``"1se"`` (one standard error rule).
     scoring : str
-        ``"rmse_mean"`` or ``"mse_pooled"``. Both reduce to RMSE units; the
-        former averages per-fold RMSEs, the latter pools squared errors.
+        ``"rmse_mean"``, ``"mse_pooled"``, or ``"rmse_pooled_trimmed"``.
+        These average per-fold RMSE, pool squared errors, or pool residuals
+        and discard the largest 5% by magnitude before computing RMSE.
     random_state : int, optional
         Seed for the default ``KFold`` shuffle when ``cv`` is an integer.
     solver : str
@@ -297,7 +298,7 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
         high = float(self.alpha_grid_high)
         size = int(self.alpha_grid_size)
         info = {"expansions": 0, "boundary_hit": []}
-        for _ in range(self.max_grid_expansions + 1):
+        for expansion in range(self.max_grid_expansions + 1):
             alpha_grid = self._build_alpha_grid_from_data(
                 X, Y, ops_template, low=low, high=high, size=size,
             )
@@ -340,7 +341,7 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
             chosen_idx = int(np.argmin(np.abs(alpha_grid - float(alpha_star))))
             hit = self._alpha_grid_at_boundary(summary, chosen_idx, edge_tolerance=2)
             info["boundary_hit"].append(bool(hit))
-            if not (self.adaptive_alpha_grid and hit):
+            if not (self.adaptive_alpha_grid and hit and isinstance(self.alphas, str)) or expansion == self.max_grid_expansions:
                 break
             if chosen_idx <= 2:
                 low -= 3.0
@@ -367,7 +368,7 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
         size = int(self.alpha_grid_size)
         info = {"expansions": 0, "boundary_hit": []}
         per_grids_arg: list[np.ndarray] | None
-        for _ in range(self.max_grid_expansions + 1):
+        for expansion in range(self.max_grid_expansions + 1):
             if isinstance(self.alphas, str) and self.global_per_operator_grid:
                 per_grids = [
                     self._build_alpha_grid_from_data(
@@ -401,7 +402,7 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
             row_summary = rmse_table[b_star]
             hit = self._alpha_grid_at_boundary(row_summary, chosen_idx, edge_tolerance=2)
             info["boundary_hit"].append(bool(hit))
-            if not (self.adaptive_alpha_grid and hit):
+            if not (self.adaptive_alpha_grid and hit and isinstance(self.alphas, str)) or expansion == self.max_grid_expansions:
                 break
             if chosen_idx <= 2:
                 low -= 3.0
@@ -429,7 +430,7 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
         high = float(self.alpha_grid_high)
         size = int(self.alpha_grid_size)
         info = {"expansions": 0, "boundary_hit": []}
-        for _ in range(self.max_grid_expansions + 1):
+        for expansion in range(self.max_grid_expansions + 1):
             alpha_grid = self._build_alpha_grid_from_data(
                 X, Y, [ops_template[0]], low=low, high=high, size=size,
             )
@@ -452,7 +453,7 @@ class AOMRidgeRegressor(BaseEstimator, RegressorMixin):
             chosen_idx = int(np.argmin(np.abs(alpha_grid - float(alpha_star))))
             hit = self._alpha_grid_at_boundary(cell_summary, chosen_idx, edge_tolerance=2)
             info["boundary_hit"].append(bool(hit))
-            if not (self.adaptive_alpha_grid and hit):
+            if not (self.adaptive_alpha_grid and hit and isinstance(self.alphas, str)) or expansion == self.max_grid_expansions:
                 break
             if chosen_idx <= 2:
                 low -= 3.0

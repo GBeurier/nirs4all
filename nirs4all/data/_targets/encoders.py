@@ -3,6 +3,7 @@
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 from sklearn.base import TransformerMixin
 
 
@@ -52,8 +53,7 @@ class FlexibleLabelEncoder(TransformerMixin):
         NaN values are filtered out before determining unique classes.
         """
         y = np.asarray(y).ravel()
-        # Filter NaN only for numeric types
-        mask = ~np.isnan(y) if np.issubdtype(y.dtype, np.number) else np.ones(len(y), dtype=bool)
+        mask = ~pd.isna(y)
         self.classes_ = np.unique(y[mask])
         self.class_to_idx = {cls: idx for idx, cls in enumerate(self.classes_)}
         return self
@@ -86,13 +86,8 @@ class FlexibleLabelEncoder(TransformerMixin):
         unseen_map: dict = {}
 
         for i, label in enumerate(y_flat):
-            # Check for NaN only on numeric types
-            is_nan = False
-            if np.issubdtype(y_flat.dtype, np.number):
-                is_nan = np.isnan(label)
-
-            if is_nan:
-                result[i] = label
+            if pd.isna(label):
+                result[i] = np.nan
             elif label in self.class_to_idx:
                 result[i] = self.class_to_idx[label]
             else:

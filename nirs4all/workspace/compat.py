@@ -60,7 +60,7 @@ def build_conversion_command(path: Path | str, output: Path | str | None = None)
 
 
 def _sqlite_has_prediction_arrays(path: Path) -> bool:
-    uri = f"file:{path.as_posix()}?mode=ro"
+    uri = f"{path.resolve().as_uri()}?mode=ro"
     try:
         # ``sqlite3.Connection``'s context manager controls transactions; it
         # does not close the connection.  Close this format-probe explicitly so

@@ -263,6 +263,7 @@ def _run_native_generation(
     def run_callback() -> dict[str, Any]:
         import dag_ml
 
+        dsl["root_seed"] = random_state if random_state is not None else 0
         graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
         return run_cv_refit_bundle(
             dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit, refit_top_k=refit_top_k
@@ -414,6 +415,9 @@ def _run_native_operator_generation(
         raise _OperatorLoweringUnsupported(f"operator generator lowering unsupported, demoting to Python expand: {exc}") from exc
 
     # --- COMPILE / RUN / RESULT-MAPPING (errors PROPAGATE — never reclassified as a coverage gap) --------
+    # Operator SELECT derives seeded variants; bind that seed into the campaign
+    # before compilation so pruning preserves their strict native identities.
+    dsl["root_seed"] = random_state if random_state is not None else 0
     # The union graph compiles ONE model node per `_or_` choice (Mechanism B namespacing), so bind EVERY
     # model node — a single binding on the first node would leave the other choices' model nodes with empty
     # data_views (the separation-branch fan-out path solves the same multi-model-node binding the same way).
@@ -517,6 +521,7 @@ def _run_concrete_scores(
 
         _bind_experimental_unit_design(dsl, spectro, identity, pool)
         manifests = controller_manifests(dsl)
+        dsl["root_seed"] = random_state if random_state is not None else 0
         graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests).graph.to_dict()
         return run_cv_refit_bundle(
             dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
@@ -651,7 +656,7 @@ def _source_concat_preprocessing_metadata(
 
     return {
         "mode": "top_level_sources_concat",
-        "preserve_legacy_sources_after_merge": True,
+        "preserve_legacy_sources_after_merge": False,
         "source_layout": source_layout,
         "sources": sources,
     }
@@ -709,6 +714,7 @@ def _run_source_concat_merge(
 
     import dag_ml
 
+    dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     _mark_source_concat_model_nodes(graph, source_indices, spectro, envelope)
     outcome = run_cv_refit_bundle(
@@ -802,6 +808,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
 
     import dag_ml
 
+    dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
@@ -1160,6 +1167,7 @@ def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro
 
     import dag_ml
 
+    dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
 
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1561,10 +1569,15 @@ def _augmentation_transformers(aug_step: dict[str, Any]) -> list[Any]:
     variation_scope); both forms resolve to the instance via ``deserialize_component``, exactly as
     :meth:`SampleAugmentationController.execute` parses them.
     """
+    from nirs4all.controllers.transforms.transformer import TransformerMixinController
     from nirs4all.pipeline.config.component_serialization import deserialize_component
 
     raw = aug_step["sample_augmentation"].get("transformers", [])
-    return [deserialize_component(t["transformer"] if isinstance(t, dict) and "transformer" in t else t) for t in raw]
+    transformers = [deserialize_component(t["transformer"] if isinstance(t, dict) and "transformer" in t else t) for t in raw]
+    # Refuse X-only mixup before statelessness probing or row materialization.
+    for transformer in transformers:
+        TransformerMixinController.validate_target_preserving_operator(transformer)
+    return transformers
 
 
 def _operator_is_stateless(operator: Any) -> bool:
@@ -1884,8 +1897,9 @@ def _run_interleaved_augmentation_checkpoints(
         # filter excluded ids within each side, as legacy does when its splitter
         # ran before the exclusion step.
         if any(_is_exclude_step(step) for step in candidate):
+            _, splitter = _split_pipeline(candidate)
             original_folds = _build_folds(
-                splitter_steps[0], spectro, _split_base_samples(spectro), set(),
+                splitter, spectro, _split_base_samples(spectro), set(),
             )
             candidate = [step for step in candidate if not _is_split_step(step)]
             candidate.insert(-1, splitter_steps[0])
@@ -2155,6 +2169,9 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         group_by_sample=group_by_sample,
     )
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, base_folds, dsl_id="nirs4all-augmentation", n_splits=len(base_folds))
+    # Operator SELECT and its pruned campaign must derive identical signed
+    # variants; both runners forward this seed to native selection.
+    dsl["root_seed"] = random_state if random_state is not None else 0
 
     import dag_ml
 
@@ -2321,7 +2338,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     # Always by_metadata mode: the criterion (whether nirs4all by_metadata or by_tag) is emitted as a
     # metadata column on the relations, so the native fan-out discovers its values from there.
     has_concat_merge = any(isinstance(step, dict) and step.get("merge") == "concat" for step in pipeline)
-    compat_dsl = {
+    compat_dsl: dict[str, Any] = {
         "id": "nirs4all-separation-branch",
         "pipeline": [
             {"branch": {"branches": [template]}, "mode": "by_metadata", "selector": {"metadata_key": key}, "metadata": {"auto_separate": True}},
@@ -2331,8 +2348,10 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
 
     # NATIVE fan-out (no Python suffix replication): dag-ml reads the partition values from the
     # envelope relations and expands one branch per sorted value, owning the node-id suffixing.
+    compat_dsl["root_seed"] = random_state if random_state is not None else 0
     fanned_dsl = dag_ml.fan_out_data_aware_branches(compat_dsl, envelope).to_dict()
     manifests = controller_manifests()
+    fanned_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(fanned_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if not model_ids:
@@ -2495,7 +2514,7 @@ def _run_checkpoint_before_duplication_branch(
 
     from .cli_runner import data_bindings_for_nodes, split_invocation_for
 
-    splitter = pipeline[0]
+    _, splitter = _split_pipeline(pipeline)
     identity = mint_identity(spectro)
     pool = list(spectro.index_column("sample", {"partition": "train"}))
     folds = _build_folds(splitter, spectro, pool, set())
@@ -2511,6 +2530,7 @@ def _run_checkpoint_before_duplication_branch(
             ]},
         ],
     }
+    canonical_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
     producer_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(producer_ids) != len(branches) + 1 or producer_ids[0] != prior_id:
@@ -2563,7 +2583,7 @@ def _run_checkpoint_inside_duplication_feature_merge(
 
     from .cli_runner import data_bindings_for_nodes, split_invocation_for
 
-    splitter = pipeline[0]
+    _, splitter = _split_pipeline(pipeline)
     identity = mint_identity(spectro)
     pool = list(spectro.index_column("sample", {"partition": "train"}))
     folds = _build_folds(splitter, spectro, pool, set())
@@ -2579,6 +2599,7 @@ def _run_checkpoint_inside_duplication_feature_merge(
              "output_as": "features", "include_original_data": False},
         ],
     }
+    canonical_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
     producer_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(producer_ids) != 2 * len(branches):
@@ -3887,6 +3908,7 @@ def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-by-source-concat", n_splits=len(folds))
 
+    dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
     if len(model_nodes) != 1:
@@ -3980,6 +4002,7 @@ def _run_by_source_distinct_preproc_concat(
     }
 
     _bind_experimental_unit_design(canonical_dsl, spectro, identity, pool)
+    canonical_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests(canonical_dsl)).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if model_ids != [model_node["id"]]:
@@ -4080,6 +4103,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
     }
 
     manifests = controller_manifests()
+    canonical_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(model_ids) != n_sources:
@@ -4178,6 +4202,7 @@ def _run_by_source_auto_models(
     from .attested_by_source import bind_source_output_contract, execute_attested_by_source_cv
 
     bind_source_output_contract(canonical_dsl, spectro, identity, pool, names)
+    canonical_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests(canonical_dsl)).graph.to_dict()
     model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
     model_ids = [node["id"] for node in model_nodes]
@@ -4379,6 +4404,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     }
 
     manifests = controller_manifests()
+    canonical_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(model_ids) < 2:
@@ -4781,6 +4807,7 @@ def _assemble_stacking_dsl(
             {
                 "kind": "merge_model",
                 "id": _META_NODE_ID,
+                "include_original_data": False,
                 "operator": {"class": _qualname(meta_learner), "ref": _META_MODEL_REF},
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
@@ -4927,6 +4954,7 @@ def _assemble_stacking_dsl(
 
     _bind_experimental_unit_design(canonical_dsl, spectro, identity, pool)
     manifests = controller_manifests(canonical_dsl)
+    canonical_dsl["root_seed"] = random_state if random_state is not None else 0
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
@@ -5076,6 +5104,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             canonical_dsl["steps"].append({
                 "kind": "merge_model",
                 "id": final_meta_node_id,
+                "include_original_data": False,
                 "operator": {"class": _qualname(final_meta_learner), "ref": _META_MODEL_REF},
                 "params": _json_safe_params(final_meta_learner),
                 **({"sources": sources} if sources else {}),
@@ -5117,6 +5146,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                         "nirs4all_stack_fold_capture": True,
                         "nirs4all_stack_outer_fold_ids": outer_fold_ids,
                     })
+        canonical_dsl["root_seed"] = random_state if random_state is not None else 0
         graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(
             canonical_dsl, controller_manifests(),
         ).graph.to_dict()

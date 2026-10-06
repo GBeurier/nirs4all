@@ -141,7 +141,7 @@ def lower_topology_choices(steps: list[Any], splitter: Any, schemas: Mapping[str
             bind("late.meta.alpha", meta_id, "alpha")
             sinks.append(meta_id)
         branches.append({"id": f"topology{index}", "steps": native_steps})
-    dsl = {"id": "nirs4all-early-late-structural-hpo", "pipeline": [{
+    dsl = {"id": "nirs4all-early-late-structural-hpo", "input": {"name": "x", "representation": "feature_block_set"}, "pipeline": [{
         "kind": "generator", "id": "generator:topologies", "mode": "cartesian",
         "stages": [{"id": "topology", "branches": branches}],
     }]}

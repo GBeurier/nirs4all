@@ -95,3 +95,16 @@ class TestExtractSplitterConfig:
         }))
         assert config is not None
         assert config.n_splits == 3
+
+
+def test_authored_split_wrapper_roundtrip():
+    from sklearn.linear_model import Ridge
+    from sklearn.model_selection import KFold
+
+    from nirs4all.pipeline.config import PipelineConfigs
+
+    pipeline = PipelineConfigs([{"split": KFold(3), "group_by": "group"}, Ridge()])
+    splitter = extract_splitter_config(pipeline.steps[0])
+    assert splitter is not None
+    assert splitter.n_splits == 3
+    assert splitter.group_by == "group"

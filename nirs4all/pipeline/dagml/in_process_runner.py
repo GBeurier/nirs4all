@@ -175,8 +175,11 @@ def run_cv_refit_bundle(
         op_callback, selection_metric, json.dumps(current_execution_resources().to_contract()),
         refit, refit_top_k,
     )
-    if view_store is not None:
-        bridge_args += (view_store, random_state if random_state is not None else 0)
+    # Native selection must use the same seed as the signed compiled campaign.
+    root_seed = dsl.get("root_seed")
+    if root_seed is None:
+        root_seed = random_state if random_state is not None else 0
+    bridge_args += (view_store, root_seed)
     try:
         payload = json.loads(dag_ml_ext.run_cv_refit_in_process(*bridge_args))
     finally:

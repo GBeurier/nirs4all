@@ -100,6 +100,7 @@ def decon(input_shape, params=None):
     model.add(Dense(units=1, activation="sigmoid"))
     return model
 
+@framework('tensorflow')
 def decon_Sep(input_shape, params=None):
     """
     Builds a CNN model with separable convolutions.
@@ -459,6 +460,7 @@ decon_sample_finetune = {
     'activationDense3': ['sigmoid', 'softmax'],  # Activation functions for the output layer
 }
 
+@framework('tensorflow')
 def transformer_model(input_shape, params=None):
     """
     Builds a transformer model for 1D data.
@@ -621,6 +623,7 @@ def decon_classification(input_shape, num_classes=2, params=None):
         model.add(Dense(units=num_classes, activation="softmax"))
     return model
 
+@framework('tensorflow')
 def decon_Sep_classification(input_shape, num_classes=2, params=None):
     """
     Builds a CNN model with separable convolutions for classification.
@@ -683,7 +686,7 @@ def decon_Sep_classification(input_shape, num_classes=2, params=None):
     model.add(BatchNormalization())
     model.add(Dense(units=params.get('dense_units', 32), activation="relu"))
     model.add(Dropout(params.get('dropout_rate', 0.2)))
-    if num_classes >= 2:
+    if num_classes == 2:
         model.add(Dense(units=1, activation="sigmoid"))
     else:
         model.add(Dense(units=num_classes, activation="softmax"))
@@ -886,6 +889,7 @@ def customizable_decon_classification(input_shape, num_classes=2, params=None):
 
     return model
 
+@framework('tensorflow')
 def transformer_model_classification(input_shape, num_classes=2, params=None):
     """
     Builds a transformer model for 1D data classification.

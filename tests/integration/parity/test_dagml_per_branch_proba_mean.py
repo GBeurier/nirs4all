@@ -3,10 +3,12 @@
 import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import StratifiedKFold
 
 import nirs4all
 from nirs4all.pipeline.dagml.detect import _detect_proba_mean_stacking_branch
+from nirs4all.pipeline.dagml.rt import RtError
 
 
 def _pipeline() -> list:
@@ -51,7 +53,7 @@ def test_legacy_and_dag_support_per_branch_probability_mean(tmp_path, monkeypatc
     assert legacy.cv_best_score == pytest.approx(0.9326599326599327)
 
     native = nirs4all.run(
-        pipeline, (features, labels), engine="dag-ml", refit=False,
+        pipeline, (features, labels), engine="dag-ml", refit=True,
         workspace_path=tmp_path / "dag", save_artifacts=False, save_charts=False, verbose=0,
     )
     try:
@@ -67,8 +69,27 @@ def test_legacy_and_dag_support_per_branch_probability_mean(tmp_path, monkeypatc
         assert probability_blocks
         assert all(len(row) == 2 and sum(row) == pytest.approx(1.0)
                    for block in probability_blocks for row in block["values"])
+        # Native stacking uses nested fold-local OOF; legacy's CV scalar is not
+        # its oracle. Check the exposed label measurements independently.
+        rows = native.predictions.filter_predictions(partition="val")
+        assert rows
+        for row in rows:
+            expected = balanced_accuracy_score(np.asarray(row["y_true"]).ravel(), np.asarray(row["y_pred"]).ravel())
+            assert row["val_score"] == pytest.approx(expected)
     finally:
         native.close()
+        legacy.close()
+
+
+def test_probability_stacking_cv_only_is_explicitly_unsupported(tmp_path):
+    """A supported full-refit composition must not imply CV-only lowering."""
+    rng = np.random.default_rng(731)
+    features = rng.normal(size=(60, 6))
+    labels = (features[:, 0] + 0.5 * features[:, 1] > 0).astype(int)
+    with pytest.raises(RtError, match="refit=False with branch, source fusion, or stacking") as error:
+        nirs4all.run(_pipeline(), (features, labels), engine="dag-ml", refit=False,
+                     workspace_path=tmp_path, save_artifacts=False, save_charts=False, verbose=0)
+    assert error.value.cause == "unsupported_shape"
 
 
 def test_score_selection_is_lowered_or_rejected_explicitly() -> None:
@@ -105,7 +126,7 @@ def test_legacy_merge_selection_metrics_complete_native_stacking(tmp_path, monke
     legacy = nirs4all.run(pipeline, (features, labels), engine="legacy", refit=False,
                           save_artifacts=False, save_charts=False, verbose=0)
     assert np.isfinite(legacy.cv_best_score)
-    native = nirs4all.run(pipeline, (features, labels), engine="dag-ml", refit=False,
+    native = nirs4all.run(pipeline, (features, labels), engine="dag-ml", refit=True,
                          allow_fallback=False, workspace_path=tmp_path / metric,
                          save_artifacts=False, save_charts=False, verbose=0)
     try:
@@ -122,3 +143,4 @@ def test_legacy_merge_selection_metrics_complete_native_stacking(tmp_path, monke
             assert all(metric not in report["metrics"] for report in base_reports)
     finally:
         native.close()
+        legacy.close()

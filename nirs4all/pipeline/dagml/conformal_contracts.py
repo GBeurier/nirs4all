@@ -11,6 +11,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -1558,7 +1559,7 @@ def conformal_finite_sample_quantile(scores: Any, coverage: float) -> float:
     n = values.size
     if n == 0:
         raise ValueError("scores must contain at least one calibration residual")
-    k = math.ceil((n + 1) * cov)
+    k = math.ceil((n + 1) * Fraction(str(cov)))
     if k > n:
         return float("inf")
     return float(values[k - 1])

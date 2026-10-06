@@ -50,6 +50,8 @@ import joblib
 import numpy as np
 import polars as pl
 
+from nirs4all.core.metrics import is_higher_better
+
 if TYPE_CHECKING:
     from nirs4all.api.result import RunResult
     from nirs4all.data.predictions import Predictions
@@ -566,23 +568,29 @@ def _stacking_replay_manifest(
             }
             if aggregate == "weighted_mean":
                 metric = selector.get("metric") or "rmse"
-                higher_better = metric in {"r2", "accuracy", "balanced_accuracy"}
+                higher_better = is_higher_better(metric)
                 weights = []
                 for index in selected:
                     producer = base_producers[index]["producer_node"]
-                    score = next((report.get("metrics", {}).get(metric) for report in reports
-                                  if report.get("producer_node") == producer
-                                  and report.get("partition") == "validation"
-                                  and report.get("fold_id") is not None
-                                  and metric in report.get("metrics", {})), None)
-                    if score is None or not np.isfinite(score):
+                    # Native stacking averages eligible fold scores; inner
+                    # validation evidence must not set full-refit replay weights.
+                    scores = [float(report["metrics"][metric]) for report in reports
+                              if report.get("producer_node") == producer
+                              and report.get("partition") == "validation"
+                              and report.get("level") == "sample"
+                              and report.get("fold_id") is not None
+                              and (not outer_fold_ids or report["fold_id"] in outer_fold_ids)
+                              and metric in report.get("metrics", {})
+                              and np.isfinite(report["metrics"][metric])]
+                    score = float(np.mean(scores)) if scores else None
+                    if score is None:
                         weights.append(0.0)
                     elif higher_better:
                         weights.append(max(float(score), 0.0))
                     elif score >= 0:
                         weights.append(1.0 / (float(score) + 1e-10))
                     else:
-                        weights.append(abs(float(score)))
+                        weights.append(0.0)
                 group["weights"] = weights if any(weight > 0.0 for weight in weights) else None
             if aggregate == "proba_mean" or selector.get("metadata", {}).get("prediction_output") == "proba":
                 group["proba"] = True

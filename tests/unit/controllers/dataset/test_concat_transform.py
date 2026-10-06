@@ -421,3 +421,28 @@ class TestEdgeCases:
                 step_info, simple_dataset, context, mock_runtime_context,
                 mode="predict", loaded_binaries=loaded_binaries
             )
+
+
+def test_full_replace_preserves_each_processing_input(multi_processing_dataset, mock_runtime_context):
+    dataset = multi_processing_dataset
+    original = dataset.x({}, layout="3d").copy()
+    operations = [PCA(n_components=5, svd_solver="full"), StandardScaler()]
+    context = ExecutionContext(selector=DataSelector(partition="train", processing=[["raw", "snv", "savgol"]]), state=PipelineState(), metadata=StepMetadata(add_feature=False))
+    ConcatAugmentationController().execute(make_step_info({"concat_transform": operations}), dataset, context, mock_runtime_context, mode="train")
+    result = dataset.x({}, layout="3d")
+    assert result.shape == (10, 3, 55)
+    for processing in range(3):
+        values = original[:, processing, :]
+        expected = np.hstack([PCA(n_components=5, svd_solver="full").fit_transform(values), StandardScaler().fit_transform(values)])
+        np.testing.assert_allclose(result[:, processing, :], expected, atol=1e-5)
+
+
+def test_partial_replace_cannot_corrupt_other_processing_widths(multi_processing_dataset, mock_runtime_context):
+    dataset = multi_processing_dataset
+    original = dataset.x({}, layout="3d").copy()
+    context = ExecutionContext(selector=DataSelector(partition="train", processing=[["raw", "snv", "savgol"]]), state=PipelineState(), metadata=StepMetadata(add_feature=False))
+    step = {"concat_transform": {"operations": [PCA(n_components=5)], "source_processing": "raw"}}
+    with pytest.raises(ValueError, match="requires replacing all processings"):
+        ConcatAugmentationController().execute(make_step_info(step), dataset, context, mock_runtime_context, mode="train")
+    np.testing.assert_array_equal(dataset.x({}, layout="3d"), original)
+    assert dataset.features_processings(0) == ["raw", "snv", "savgol"]

@@ -492,7 +492,7 @@ def get_benchmark_spectral_properties(name: str) -> dict[str, Any]:
 
     Example:
         >>> props = get_benchmark_spectral_properties("corn")
-        >>> generator = SyntheticNIRSGenerator(**props)
+        >>> X, C, E = create_synthetic_matching_benchmark("corn", random_state=42)
     """
     info = get_benchmark_info(name)
 
@@ -507,7 +507,7 @@ def get_benchmark_spectral_properties(name: str) -> dict[str, Any]:
     return {
         "wavelength_start": info.wavelength_range[0],
         "wavelength_end": info.wavelength_range[1],
-        "wavelength_step": (info.wavelength_range[1] - info.wavelength_range[0]) / info.n_wavelengths,
+        "wavelength_step": (info.wavelength_range[1] - info.wavelength_range[0]) / max(1, info.n_wavelengths - 1),
         "measurement_mode": info.measurement_mode,
         "typical_components": domain_components.get(info.domain, ["water", "protein"]),
         "n_samples": info.n_samples,
@@ -550,6 +550,8 @@ def create_synthetic_matching_benchmark(
         wavelength_start=props["wavelength_start"],
         wavelength_end=props["wavelength_end"],
         wavelength_step=props["wavelength_step"],
+        wavelengths=np.linspace(props["wavelength_start"], props["wavelength_end"], get_benchmark_info(benchmark_name).n_wavelengths),
+        measurement_mode=props["measurement_mode"],
         random_state=random_state,
     )
 

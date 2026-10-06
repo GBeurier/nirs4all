@@ -431,6 +431,7 @@ class FileFormatter(logging.Formatter):
 
         # Append extras to message if present
         if extras:
+            record = logging.makeLogRecord(record.__dict__)
             record.msg = f"{record.msg} [{', '.join(extras)}]"
 
         return super().format(record)

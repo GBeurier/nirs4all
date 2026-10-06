@@ -9,10 +9,11 @@ Syntax:
     {"_range_": ..., "count": n}      -> Limit to n random samples
 """
 
+import math
 from collections.abc import Callable
 from typing import Any, Optional, Union
 
-from ..keywords import COUNT_KEYWORD, PURE_RANGE_KEYS, RANGE_KEYWORD
+from ..keywords import COUNT_KEYWORD, PURE_RANGE_KEYS, RANGE_KEYWORD, SEED_KEYWORD
 from ..utils.sampling import sample_with_seed
 from .base import ExpandedResult, ExpansionStrategy, GeneratorNode
 from .registry import register_strategy
@@ -86,7 +87,7 @@ class RangeStrategy(ExpansionStrategy):
 
         # Apply count limit if specified (count <= 0 means no limit)
         if count is not None and count > 0 and len(range_values) > count:
-            range_values = sample_with_seed(range_values, count, seed=seed)
+            range_values = sample_with_seed(range_values, count, seed=node.get(SEED_KEYWORD, seed))
 
         return range_values
 
@@ -214,19 +215,15 @@ class RangeStrategy(ExpansionStrategy):
         Returns:
             List of float values.
         """
-        result = []
-        current = start
+        count = self._float_range_count(start, end, step)
+        return [float(f"{start + i * step:.12g}") for i in range(count)]
 
-        if step > 0:
-            while current <= end + 1e-10:  # Small epsilon for float comparison
-                result.append(round(current, 10))  # Round to avoid float precision issues
-                current += step
-        else:
-            while current >= end - 1e-10:
-                result.append(round(current, 10))
-                current += step
-
-        return result
+    @staticmethod
+    def _float_range_count(start: float, end: float, step: float) -> int:
+        if step == 0:
+            raise ValueError("Range step must not be zero")
+        span = (end - start) / step
+        return max(0, math.floor(span + 1e-9) + 1)
 
     def _count_range(self, range_spec: list | dict[str, Any]) -> int:
         """Count elements in a numeric range without generating them.
@@ -256,6 +253,9 @@ class RangeStrategy(ExpansionStrategy):
                 "Range specification must be array [from, to, step] or "
                 "dict {'from': start, 'to': end, 'step': step}"
             )
+
+        if any(isinstance(value, float) for value in (start, end, step)):
+            return self._float_range_count(start, end, step)
 
         # Calculate count: (end - start) / step + 1 (end is inclusive)
         if step > 0 and end >= start:

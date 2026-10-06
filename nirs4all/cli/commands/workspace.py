@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import polars as pl
 
 from nirs4all.core.logging import get_logger
 
@@ -17,9 +18,9 @@ logger = get_logger(__name__)
 
 
 def _validate_workspace_exists(workspace_path: Path) -> None:
-    """Validate that a workspace path exists, exit with code 1 if not."""
-    if not workspace_path.exists():
-        logger.error(f"Workspace path does not exist: {workspace_path}")
+    """Require an initialized workspace before any inspection command."""
+    if not workspace_path.is_dir() or not (workspace_path / "store.sqlite").is_file():
+        logger.error(f"Workspace store does not exist: {workspace_path}. Use workspace init to create one.")
         sys.exit(1)
 
 
@@ -58,7 +59,7 @@ def workspace_list_runs(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         runs = store.list_runs()
 
     if runs.height == 0:
@@ -82,17 +83,28 @@ def workspace_query_best(args):
     _validate_workspace_exists(workspace_path)
 
     try:
-        ascending = True if args.ascending else infer_ascending(args.metric)
-        with WorkspaceStore(workspace_path) as store:
-            top_df = store.top_predictions(
-                n=args.n,
+        if args.metric not in {"test_score", "train_score", "val_score"} or args.n < 1:
+            raise ValueError("Select a score column and a positive result count")
+        with WorkspaceStore.open_readonly(workspace_path) as store:
+            candidates = store.query_predictions(
                 dataset_name=args.dataset,
-                metric=args.metric,
-                ascending=ascending,
+                partition=getattr(args, "partition", "val"),
             )
-        if top_df.height == 0:
+        evaluation_metric = getattr(args, "evaluation_metric", None)
+        if evaluation_metric:
+            candidates = candidates.filter(pl.col("metric") == evaluation_metric)
+        if candidates.height == 0:
             logger.info("No predictions found matching criteria.")
             return
+        metrics = candidates["metric"].unique().to_list()
+        if len(metrics) > 1:
+            raise ValueError("Multiple evaluation metrics found; select one with --evaluation-metric")
+        ascending = args.ascending
+        if ascending is None:
+            if not metrics[0]:
+                raise ValueError("Predictions have no evaluation metric; use --ascending or --descending")
+            ascending = infer_ascending(metrics[0])
+        top_df = candidates.sort(args.metric, descending=not ascending, nulls_last=True, maintain_order=True).head(args.n)
 
         logger.info(f"Top {args.n} predictions by {args.metric}:")
         logger.info(f"{'=' * 80}\n")
@@ -112,10 +124,14 @@ def workspace_query_filter(args):
     _validate_workspace_exists(workspace_path)
 
     try:
-        with WorkspaceStore(workspace_path) as store:
+        with WorkspaceStore.open_readonly(workspace_path) as store:
             filtered = store.query_predictions(
                 dataset_name=args.dataset,
             )
+        for column in ("test_score", "train_score", "val_score"):
+            threshold = getattr(args, column, None)
+            if threshold is not None:
+                filtered = filtered.filter(pl.col(column) >= threshold)
 
         logger.info(f"Found {filtered.height} predictions matching criteria\n")
 
@@ -138,11 +154,21 @@ def workspace_stats(args):
     logger.info(f"{'=' * 60}\n")
 
     try:
-        with WorkspaceStore(workspace_path) as store:
+        if args.metric not in {"test_score", "train_score", "val_score"}:
+            raise ValueError("Select a score column: test_score, train_score, or val_score")
+        with WorkspaceStore.open_readonly(workspace_path) as store:
             all_preds = store.query_predictions()
             runs = store.list_runs()
 
         logger.info(f"Total predictions: {all_preds.height}")
+        if all_preds.height > 0:
+            scores = all_preds.group_by("metric").agg(
+                pl.col(args.metric).count().alias("count"),
+                pl.col(args.metric).mean().alias("mean"),
+                pl.col(args.metric).min().alias("min"),
+                pl.col(args.metric).max().alias("max"),
+            ).sort("metric")
+            logger.info(f"Score statistics for {args.metric}:\n{scores.to_pandas().to_string(index=False)}")
 
         if all_preds.height > 0 and "dataset_name" in all_preds.columns:
             datasets = all_preds["dataset_name"].unique().to_list()
@@ -163,6 +189,9 @@ def workspace_list_library(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
+    if not (workspace_path / "library").is_dir():
+        logger.info("Templates: 0")
+        return
     library = PipelineLibrary(workspace_path)
 
     templates = library.list_templates()
@@ -293,7 +322,7 @@ def workspace_tuning_list(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         rows = store.list_tuning_results(limit=args.limit, offset=args.offset).to_dicts()
 
     if args.json:
@@ -319,7 +348,7 @@ def workspace_tuning_show(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         result = store.load_tuning_result(args.id)
     payload = result.to_dict()
     if args.json:
@@ -344,7 +373,7 @@ def workspace_tuning_export(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         result = store.load_tuning_result(args.id)
 
     output_format = str(args.format)
@@ -368,7 +397,7 @@ def workspace_conformal_list(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         rows = store.list_conformal_results(limit=args.limit, offset=args.offset).to_dicts()
 
     if args.json:
@@ -394,7 +423,7 @@ def workspace_conformal_show(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         result = store.load_conformal_result(args.id)
     if args.as_predict_result:
         prediction = result.to_predict_result()
@@ -466,7 +495,7 @@ def workspace_robustness_list(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         rows = store.list_robustness_results(limit=args.limit, offset=args.offset).to_dicts()
 
     if args.json:
@@ -491,7 +520,7 @@ def workspace_robustness_show(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         report = store.load_robustness_result(args.id)
     payload = report.to_dict()
     if args.json:
@@ -512,7 +541,7 @@ def workspace_robustness_export(args):
 
     workspace_path = Path(args.workspace)
     _validate_workspace_exists(workspace_path)
-    with WorkspaceStore(workspace_path) as store:
+    with WorkspaceStore.open_readonly(workspace_path) as store:
         report = store.load_robustness_result(args.id)
 
     output_format = str(args.format)
@@ -764,9 +793,13 @@ def add_workspace_commands(subparsers):
     query_best_parser = workspace_subparsers.add_parser("query-best", help="Query best predictions from workspace")
     query_best_parser.add_argument("--workspace", type=str, default="workspace", help="Workspace root directory (default: workspace)")
     query_best_parser.add_argument("--dataset", type=str, help="Filter by dataset name")
-    query_best_parser.add_argument("--metric", type=str, default="test_score", help="Metric to sort by (default: test_score)")
+    query_best_parser.add_argument("--metric", choices=["test_score", "val_score", "train_score"], default="test_score", help="Score column to sort by (default: test_score)")
+    query_best_parser.add_argument("--evaluation-metric", type=str, help="Filter by stored evaluation metric name (e.g. rmse or r2)")
+    query_best_parser.add_argument("--partition", choices=["train", "val", "test"], default="val", help="Prediction partition (default: val)")
     query_best_parser.add_argument("-n", type=int, default=10, help="Number of results (default: 10)")
-    query_best_parser.add_argument("--ascending", action="store_true", help="Sort ascending (lower is better)")
+    direction = query_best_parser.add_mutually_exclusive_group()
+    direction.add_argument("--ascending", action="store_const", const=True, default=None, help="Sort ascending (lower is better)")
+    direction.add_argument("--descending", action="store_const", const=False, dest="ascending", help="Sort descending (higher is better)")
     query_best_parser.set_defaults(func=workspace_query_best)
 
     # workspace filter
@@ -781,7 +814,7 @@ def add_workspace_commands(subparsers):
     # workspace stats
     stats_parser = workspace_subparsers.add_parser("stats", help="Show workspace statistics")
     stats_parser.add_argument("--workspace", type=str, default="workspace", help="Workspace root directory (default: workspace)")
-    stats_parser.add_argument("--metric", type=str, default="test_score", help="Metric for statistics (default: test_score)")
+    stats_parser.add_argument("--metric", choices=["test_score", "val_score", "train_score"], default="test_score", help="Score column for statistics (default: test_score)")
     stats_parser.set_defaults(func=workspace_stats)
 
     # workspace list-library

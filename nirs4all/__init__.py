@@ -56,7 +56,7 @@ Synthetic Data Generation:
 
 See examples/ for more usage examples.
 """
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 # Module-level API (primary interface) - Phase 2
 # Resolve public exports only when requested. Eagerly importing the entire API
@@ -216,6 +216,12 @@ if TYPE_CHECKING:
     )
 
 _LAZY_EXPORTS = {
+    'load_native_tuning': ('.api.public_tuning', 'load_native_tuning'),
+    'generate_variants': ('.api.public_tuning', 'generate_variants'),
+    'resume_native_tuning': ('.api.public_tuning', 'resume_native_tuning'),
+    'tune_native': ('.api.public_tuning', 'tune_native'),
+    'open_experiment': ('.api.public_results', 'open_experiment'),
+    'save_experiment': ('.api.public_results', 'save_experiment'),
     'CONFORMAL_CALIBRATION_METHODS': ('.api', 'CONFORMAL_CALIBRATION_METHODS'),
     'CONFORMAL_CALIBRATION_UNITS': ('.api', 'CONFORMAL_CALIBRATION_UNITS'),
     'CONFORMAL_EXECUTABLE_MULTI_TARGET_POLICIES': ('.api', 'CONFORMAL_EXECUTABLE_MULTI_TARGET_POLICIES'),
@@ -372,6 +378,12 @@ def __dir__() -> list[str]:
 
 # Make commonly used classes available at package level
 __all__ = [
+    "generate_variants",
+    "load_native_tuning",
+    "resume_native_tuning",
+    "tune_native",
+    "open_experiment",
+    "save_experiment",
     # Module-level API (primary interface)
     "run",
     "execute_training",

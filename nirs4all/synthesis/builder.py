@@ -27,8 +27,11 @@ from ._constants import DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_START, DEFAUL
 from .components import ComponentLibrary
 from .config import (
     BatchEffectConfig,
+    ConfounderConfig,
     FeatureConfig,
     MetadataConfig,
+    MultiRegimeConfig,
+    NonLinearConfig,
     OutputConfig,
     PartitionConfig,
     SyntheticDatasetConfig,
@@ -76,11 +79,14 @@ class BuilderState:
     # === Instrument simulation (Phase 2) ===
     instrument: str | None = None  # Instrument archetype name
     measurement_mode: str | None = None  # Measurement mode
+    environmental_config: Any = None
+    scattering_effects_config: Any = None
+    edge_artifacts_config: Any = None
 
     # Target configuration
     concentration_method: Literal["dirichlet", "uniform", "lognormal", "correlated"] = "dirichlet"
     target_range: tuple[float, float] | None = None
-    target_component: str | int | None = None
+    target_component: str | int | list[int] | None = None
     target_transform: Literal["log", "sqrt"] | None = None
 
     # Classification configuration
@@ -111,6 +117,8 @@ class BuilderState:
     # Batch effect configuration
     batch_effects_enabled: bool = False
     n_batches: int = 3
+    batch_offset_std: float = 0.02
+    batch_gain_std: float = 0.03
 
     # Output configuration
     as_dataset: bool = True
@@ -217,7 +225,11 @@ class SyntheticDatasetBuilder:
             random_state=random_state,
             name=name,
         )
+        self._seed_sequence = np.random.SeedSequence(random_state)
         self._built = False
+
+    def _next_seed(self) -> int:
+        return int(self._seed_sequence.spawn(1)[0].generate_state(1)[0])
 
     def with_features(
         self,
@@ -336,7 +348,7 @@ class SyntheticDatasetBuilder:
                 custom_params[key] = value
 
         if custom_params:
-            self.state.custom_params = custom_params
+            self.state.custom_params = {**(self.state.custom_params or {}), **custom_params}
 
         # Instrument simulation
         if instrument is not None:
@@ -910,7 +922,7 @@ class SyntheticDatasetBuilder:
         if library is None and self.state.component_names is not None:
             library = ComponentLibrary.from_predefined(
                 self.state.component_names,
-                random_state=self.state.random_state,
+                random_state=self._next_seed(),
             )
 
         return SyntheticNIRSGenerator(
@@ -921,10 +933,13 @@ class SyntheticDatasetBuilder:
             instrument_wavelength_grid=self.state.instrument_wavelength_grid,
             component_library=library,
             complexity=self.state.complexity,
-            custom_params=self.state.custom_params,
+            custom_params={**(self.state.custom_params or {}), "batch_offset_std": self.state.batch_offset_std, "batch_gain_std": self.state.batch_gain_std},
             instrument=self.state.instrument,
             measurement_mode=self.state.measurement_mode,
-            random_state=self.state.random_state,
+            environmental_config=self.state.environmental_config,
+            scattering_effects_config=self.state.scattering_effects_config,
+            edge_artifacts_config=self.state.edge_artifacts_config,
+            random_state=self._next_seed(),
         )
 
     def _generate_data(self, generator: SyntheticNIRSGenerator) -> None:
@@ -949,6 +964,7 @@ class SyntheticDatasetBuilder:
         self.state._wavelengths = generator.wavelengths.copy()
         self.state._metadata = metadata
         self.state._C = C
+        self.state._X = X
 
         # Generate sample metadata if requested
         if self.state.generate_sample_ids or self.state.n_groups is not None:
@@ -957,12 +973,11 @@ class SyntheticDatasetBuilder:
         # Process targets
         y = self._process_targets(C, generator)
 
-        self.state._X = X
         self.state._y = y
 
     def _generate_sample_metadata(self) -> None:
         """Generate sample metadata using MetadataGenerator."""
-        metadata_gen = MetadataGenerator(random_state=self.state.random_state)
+        metadata_gen = MetadataGenerator(random_state=self._next_seed())
         result = metadata_gen.generate(
             n_samples=self.state.n_samples,
             sample_id_prefix=self.state.sample_id_prefix,
@@ -1036,7 +1051,7 @@ class SyntheticDatasetBuilder:
         """Process concentration matrix into target values."""
         # For classification, use the TargetGenerator
         if self.state.n_classes is not None:
-            target_gen = TargetGenerator(random_state=self.state.random_state)
+            target_gen = TargetGenerator(random_state=self._next_seed())
             y_result = target_gen.classification(
                 n_samples=C.shape[0],
                 concentrations=C,
@@ -1122,7 +1137,7 @@ class SyntheticDatasetBuilder:
 
         processor = NonLinearTargetProcessor(
             config=config,
-            random_state=self.state.random_state,
+            random_state=self._next_seed(),
         )
 
         # Get spectra for spectral-based regime assignment
@@ -1150,7 +1165,16 @@ class SyntheticDatasetBuilder:
 
         # Create shuffle indices if needed
         rng = np.random.default_rng(self.state.random_state)
-        indices = rng.permutation(n_samples) if self.state.shuffle else np.arange(n_samples)
+        if self.state.stratify and n_test > 0:
+            from sklearn.model_selection import train_test_split
+
+            if self.state.n_classes is None:
+                raise ValueError("stratify requires classification targets")
+            train_indices, test_indices = train_test_split(np.arange(n_samples), train_size=n_train,
+                                                        stratify=y.ravel(), shuffle=self.state.shuffle, random_state=self.state.random_state)
+            indices = np.concatenate((train_indices, test_indices))
+        else:
+            indices = rng.permutation(n_samples) if self.state.shuffle else np.arange(n_samples)
 
         train_indices = indices[:n_train]
         test_indices = indices[n_train:]
@@ -1159,7 +1183,7 @@ class SyntheticDatasetBuilder:
         dataset = SpectroDataset(name=self.state.name)
 
         # Create wavelength headers
-        headers = [str(int(wl)) for wl in self.state._wavelengths]
+        headers = [str(float(wl)) for wl in self.state._wavelengths]
 
         # Add training samples
         dataset.add_samples(
@@ -1186,6 +1210,15 @@ class SyntheticDatasetBuilder:
             else:
                 dataset.add_targets(y[test_indices])
 
+        metadata_columns = self.state._sample_metadata.to_dict() if self.state._sample_metadata is not None else {}
+        if self.state.include_metadata and self.state._metadata:
+            for key, value in self.state._metadata.items():
+                if isinstance(value, (np.ndarray, list)) and np.asarray(value).ndim == 1 and len(value) == n_samples:
+                    metadata_columns.setdefault(key, np.asarray(value))
+        if metadata_columns:
+            import polars as pl
+
+            dataset.add_metadata(pl.DataFrame({key: value[indices] for key, value in metadata_columns.items()}))
         return dataset
 
     def _build_arrays(self) -> tuple[np.ndarray, np.ndarray]:
@@ -1237,7 +1270,7 @@ class SyntheticDatasetBuilder:
         """Build multi-source dataset using MultiSourceGenerator."""
         from .sources import MultiSourceGenerator
 
-        generator = MultiSourceGenerator(random_state=self.state.random_state)
+        generator = MultiSourceGenerator(random_state=self._next_seed())
         assert self.state.sources is not None
 
         if self.state.as_dataset:
@@ -1322,12 +1355,14 @@ class SyntheticDatasetBuilder:
                 distribution=self.state.concentration_method,
                 range=self.state.target_range,
                 transform=self.state.target_transform,
+                component_indices=self.state.target_component if isinstance(self.state.target_component, list) else None,
             ),
             metadata=MetadataConfig(
                 generate_sample_ids=self.state.generate_sample_ids,
                 sample_id_prefix=self.state.sample_id_prefix,
                 n_groups=self.state.n_groups,
                 n_repetitions=self.state.n_repetitions,
+                group_names=self.state.group_names,
             ),
             partitions=PartitionConfig(
                 train_ratio=self.state.train_ratio,
@@ -1337,7 +1372,15 @@ class SyntheticDatasetBuilder:
             batch_effects=BatchEffectConfig(
                 enabled=self.state.batch_effects_enabled,
                 n_batches=self.state.n_batches,
+                offset_std=self.state.batch_offset_std,
+                gain_std=self.state.batch_gain_std,
             ),
+            nonlinear=NonLinearConfig(self.state.nonlinear_interactions, self.state.interaction_strength,
+                                      self.state.hidden_factors, self.state.polynomial_degree),
+            confounders=ConfounderConfig(self.state.signal_to_confound_ratio, self.state.n_confounders,
+                                        self.state.spectral_masking, self.state.temporal_drift),
+            multi_regime=MultiRegimeConfig(self.state.n_regimes, self.state.regime_method,
+                                          self.state.regime_overlap, self.state.noise_heteroscedasticity),
             output=OutputConfig(
                 as_dataset=self.state.as_dataset,
                 include_metadata=self.state.include_metadata,
@@ -1381,12 +1424,14 @@ class SyntheticDatasetBuilder:
         builder.state.concentration_method = config.targets.distribution
         builder.state.target_range = config.targets.range
         builder.state.target_transform = config.targets.transform
+        builder.state.target_component = config.targets.component_indices
 
         # Apply metadata config
         builder.state.generate_sample_ids = config.metadata.generate_sample_ids
         builder.state.sample_id_prefix = config.metadata.sample_id_prefix
         builder.state.n_groups = config.metadata.n_groups
         builder.state.n_repetitions = config.metadata.n_repetitions
+        builder.state.group_names = config.metadata.group_names
 
         # Apply partition config
         builder.state.train_ratio = config.partitions.train_ratio
@@ -1396,6 +1441,20 @@ class SyntheticDatasetBuilder:
         # Apply batch effect config
         builder.state.batch_effects_enabled = config.batch_effects.enabled
         builder.state.n_batches = config.batch_effects.n_batches
+        builder.state.batch_offset_std = config.batch_effects.offset_std
+        builder.state.batch_gain_std = config.batch_effects.gain_std
+        builder.state.nonlinear_interactions = config.nonlinear.interactions
+        builder.state.interaction_strength = config.nonlinear.interaction_strength
+        builder.state.hidden_factors = config.nonlinear.hidden_factors
+        builder.state.polynomial_degree = config.nonlinear.polynomial_degree
+        builder.state.signal_to_confound_ratio = config.confounders.signal_to_confound_ratio
+        builder.state.n_confounders = config.confounders.n_confounders
+        builder.state.spectral_masking = config.confounders.spectral_masking
+        builder.state.temporal_drift = config.confounders.temporal_drift
+        builder.state.n_regimes = config.multi_regime.n_regimes
+        builder.state.regime_method = config.multi_regime.regime_method
+        builder.state.regime_overlap = config.multi_regime.regime_overlap
+        builder.state.noise_heteroscedasticity = config.multi_regime.noise_heteroscedasticity
 
         # Apply output config
         builder.state.as_dataset = config.output.as_dataset
@@ -1469,7 +1528,7 @@ class SyntheticDatasetBuilder:
             train_ratio=self.state.train_ratio,
             wavelengths=wavelengths,
             format=format,
-            random_state=self.state.random_state,
+            random_state=self._next_seed(),
         )
 
     def export_to_csv(
@@ -1539,17 +1598,31 @@ class SyntheticDatasetBuilder:
         """
         from .fitter import RealDataFitter
 
-        fitter = RealDataFitter()
+        fitter = RealDataFitter(random_state=self._next_seed())
         params = fitter.fit(template, wavelengths=wavelengths)
 
         # Apply fitted wavelength range
         self.state.wavelength_start = params.wavelength_start
         self.state.wavelength_end = params.wavelength_end
         self.state.wavelength_step = params.wavelength_step
+        # Keep the measured grid, including nonuniform spacing and endpoints.
+        self.state.custom_wavelengths = fitter._wavelengths.copy() if fitter._wavelengths is not None else None
+        if match_statistics:
+            fitted_kwargs = params.to_generator_kwargs()
+            self.state.custom_params = {**(self.state.custom_params or {}), **fitted_kwargs["custom_params"]}
+            self.state.measurement_mode = fitted_kwargs.get("measurement_mode")
+            self.state.environmental_config = fitted_kwargs.get("environmental_config")
+            self.state.scattering_effects_config = fitted_kwargs.get("scattering_effects_config")
+            self.state.edge_artifacts_config = fitted_kwargs.get("edge_artifacts_config")
+            if params.inferred_instrument not in {"", "unknown"}:
+                self.state.instrument = params.inferred_instrument
 
         # Apply complexity
         if match_structure:
             self.state.complexity = params.complexity
+            if params.detected_components:
+                self.state.component_names = list(params.detected_components)
+                self.state.component_library = None
 
         return self
 

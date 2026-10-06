@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta
 from io import TextIOWrapper
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Any, Optional
 
 
@@ -44,7 +44,7 @@ class ThrottledHandler(logging.Handler):
         self.min_interval = min_interval
         self._last_progress_time: float = 0
         self._last_percentage: int = -1
-        self._lock = Lock()
+        self._lock = RLock()
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record, throttling progress messages.
@@ -153,7 +153,7 @@ class RotatingRunFileHandler(logging.Handler):
         self.compress_rotated = compress_rotated
         self.json_output = json_output
 
-        self._lock = Lock()
+        self._lock = RLock()
         self._rotation_counter = 0
 
         # Create log directory
@@ -186,6 +186,7 @@ class RotatingRunFileHandler(logging.Handler):
         # Get all log files
         log_files = list(self.log_dir.glob("*.log"))
         log_files.extend(self.log_dir.glob("*.log.gz"))
+        log_files = [path for path in log_files if path != self._log_file]
 
         # Sort by modification time (oldest first)
         log_files = sorted(
@@ -356,7 +357,7 @@ class BufferedHandler(logging.Handler):
         super().__init__()
         self.max_size = max_size
         self._buffer: list[logging.LogRecord] = []
-        self._lock = Lock()
+        self._lock = RLock()
 
     def emit(self, record: logging.LogRecord) -> None:
         """Buffer the log record.

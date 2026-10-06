@@ -192,6 +192,16 @@ def _deserialize_meta_estimator(cls, params: dict) -> Any:
 
     return instance
 
+def _preserve_finetune_ranges(value: Any) -> Any:
+    """Retain tuple search ranges before generic JSON tuple conversion."""
+    if isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value):
+        return {"type": "int" if all(isinstance(v, int) for v in value) else "float", "min": value[0], "max": value[1]}
+    if isinstance(value, dict):
+        return {k: _preserve_finetune_ranges(v) for k, v in value.items()}
+    # Lists retain their categorical semantics, including tuple-valued choices.
+    return value
+
+
 def serialize_component(obj: Any) -> Any:
     """
     Return something that json.dumps can handle.
@@ -206,7 +216,7 @@ def serialize_component(obj: Any) -> Any:
     if isinstance(obj, str):
         # Normalize string module paths to internal module paths for hash consistency
         # e.g., "sklearn.preprocessing.StandardScaler" → "sklearn.preprocessing._data.StandardScaler"
-        if "." in obj and not obj.endswith(('.pkl', '.h5', '.keras', '.joblib', '.pt', '.pth')):
+        if "." in obj and all(part.isidentifier() for part in obj.split(".")) and not obj.endswith(('.pkl', '.h5', '.keras', '.joblib', '.pt', '.pth')):
             try:
                 # Try to import and get canonical internal module path
                 mod_name, _, cls_name = obj.rpartition(".")
@@ -227,7 +237,7 @@ def serialize_component(obj: Any) -> Any:
         }
 
     if isinstance(obj, dict):
-        return {k: serialize_component(v) for k, v in obj.items()}
+        return {k: serialize_component(_preserve_finetune_ranges(v) if k == "finetune_params" else v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [serialize_component(x) for x in obj]
     if isinstance(obj, tuple):
@@ -307,7 +317,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
         return blob
 
     if isinstance(blob, str):
-        if infer_type is str:
+        if infer_type is str or "/" in blob or "\\" in blob:
             return blob
         if blob.startswith(N4M_ROLE_PREFIX):
             return _n4m_role_class(blob)()

@@ -254,9 +254,8 @@ class WavelengthShift(SpectraTransformerMixin):
 
     def _transform_impl(self, X, wavelengths):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
-        n_samples, n_features = X.shape
-
-        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
+        X, lambdas, inverse = _ordered_warp_inputs(X, wavelengths)
+        n_samples = X.shape[0]
 
         # Generate all shifts at once
         shifts = rng.uniform(self.shift_range[0], self.shift_range[1], size=n_samples)
@@ -273,7 +272,7 @@ class WavelengthShift(SpectraTransformerMixin):
         for i in range(n_samples):
             X_aug[i] = np.interp(query_lambdas[i], lambdas, X[i])
 
-        return X_aug
+        return X_aug[:, inverse] if inverse is not None else X_aug
 
 class WavelengthStretch(SpectraTransformerMixin):
     """
@@ -302,9 +301,8 @@ class WavelengthStretch(SpectraTransformerMixin):
 
     def _transform_impl(self, X, wavelengths):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
-        n_samples, n_features = X.shape
-
-        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
+        X, lambdas, inverse = _ordered_warp_inputs(X, wavelengths)
+        n_samples = X.shape[0]
 
         center_lambda = np.mean(lambdas)
 
@@ -321,7 +319,7 @@ class WavelengthStretch(SpectraTransformerMixin):
         for i in range(n_samples):
             X_aug[i] = np.interp(query_lambdas[i], lambdas, X[i])
 
-        return X_aug
+        return X_aug[:, inverse] if inverse is not None else X_aug
 
 class LocalWavelengthWarp(SpectraTransformerMixin):
     """
@@ -897,7 +895,11 @@ class LocalMixupAugmenter(TransformerMixin, BaseEstimator):
 
 class ScatterSimulationMSC(SpectraTransformerMixin):
     """
-    Simulates scatter variation: x_aug = a + b * x
+    Simulates scatter variation: x_aug = x + a + (b - 1) * reference.
+
+    With reference_mode="self", the reference is each input spectrum, giving
+    a + b * x. With "global_mean", the fitted training mean supplies the scatter
+    direction; deviations from that reference remain unchanged.
     """
 
     _webapp_meta = {
@@ -919,6 +921,8 @@ class ScatterSimulationMSC(SpectraTransformerMixin):
 
     def fit(self, X, y=None, **kwargs):
         self._rng = np.random.default_rng(self.random_state)
+        if self.reference_mode not in ("self", "global_mean"):
+            raise ValueError("reference_mode must be self or global_mean")
         if self.reference_mode == "global_mean":
             self.global_mean_ = np.mean(X, axis=0)
         super().fit(X, y, **kwargs)
@@ -931,5 +935,9 @@ class ScatterSimulationMSC(SpectraTransformerMixin):
         a = rng.uniform(self.a_range[0], self.a_range[1], size=(n_samples, 1))
         b = rng.uniform(self.b_range[0], self.b_range[1], size=(n_samples, 1))
 
-        # Apply: X_aug = a + b * X
-        return a + b * X
+        # Apply the scatter perturbation along the selected reference spectrum.
+        if self.reference_mode == "self":
+            return a + b * X
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "global_mean_")
+        return X + a + (b - 1) * self.global_mean_

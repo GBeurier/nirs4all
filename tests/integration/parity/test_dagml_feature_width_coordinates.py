@@ -59,8 +59,9 @@ def test_resampler_before_sample_augmentation_replays_with_source_axis(
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("action", ["extend", "add", "replace"])
+@pytest.mark.parametrize("unit", ["nm", "cm-1"])
 def test_feature_augmentation_resampler_receives_axis_and_replays(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, action: str,
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, action: str, unit: str,
 ) -> None:
     """A configured Resampler inside feature augmentation uses the source grid in both engines."""
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
@@ -78,7 +79,8 @@ def test_feature_augmentation_resampler_receives_axis_and_replays(
 
     def dataset() -> SpectroDataset:
         samples = SpectroDataset("feature_augmentation_resampler")
-        samples.add_samples(x[:16], {"partition": "train"}, headers=[str(value) for value in wavelengths], header_unit="cm-1")
+        headers = 1e7 / wavelengths if unit == "nm" else wavelengths
+        samples.add_samples(x[:16], {"partition": "train"}, headers=[str(value) for value in headers], header_unit=unit)
         samples.add_samples(x[16:], {"partition": "test"})
         samples.add_targets(y)
         return samples

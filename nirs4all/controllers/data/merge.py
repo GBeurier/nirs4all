@@ -90,6 +90,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
+from nirs4all.controllers.models.stacking.classification import validate_scalar_prediction_targets
 from nirs4all.controllers.registry import register_controller
 from nirs4all.controllers.shared import ModelSelector, PredictionAggregator
 from nirs4all.core.logging import get_logger
@@ -293,7 +294,8 @@ def detect_disjoint_branches(
         if "sample_partition" in custom:
             has_disjoint = True
             branch_type = BranchType.SAMPLE_PARTITIONER
-            sample_indices = custom["sample_partition"].get("sample_indices", [])
+            partition = custom["sample_partition"]
+            sample_indices = partition.get("all_sample_indices", partition.get("sample_indices", []))
 
         # Check partition_info (fallback, from both controllers)
         elif "sample_indices" in partition_info:
@@ -1104,6 +1106,9 @@ class MergeController(OperatorController):
         raw_config = self._resolve_auto_merge(raw_config, context)
         config = MergeConfigParser.parse(raw_config)
 
+        if config.collect_predictions:
+            validate_scalar_prediction_targets(dataset)
+
         # Phase 5: Handle source merge within merge keyword
         # {"merge": {"sources": "concat"|"stack"|"dict"}}
         if config.source_merge is not None:
@@ -1593,7 +1598,7 @@ class MergeController(OperatorController):
                     layout=layout,
                     concat_source=False,
                     include_augmented=True,
-                    include_excluded=False
+                    include_excluded=True
                 )
 
                 # X is a list of per-source arrays
@@ -1749,7 +1754,7 @@ class MergeController(OperatorController):
             ValueError: If n_columns exceeds minimum model count across branches
         """
         n_branches = len(branch_contexts)
-        n_total_samples = disjoint_analysis.total_samples
+        n_total_samples = dataset.num_samples
 
         logger.info(
             f"Disjoint branch merge: {n_branches} branches, "
@@ -1939,7 +1944,7 @@ class MergeController(OperatorController):
             Tuple of (updated_context, StepOutput)
         """
         n_branches = len(branch_contexts)
-        n_total_samples = disjoint_analysis.total_samples
+        n_total_samples = dataset.num_samples
 
         logger.info(
             f"Disjoint branch merge (predict mode): {n_branches} branches, "
@@ -2372,7 +2377,7 @@ class MergeController(OperatorController):
                 "[Error: MERGE-E043]"
             )
 
-        n_total_samples = disjoint_analysis.total_samples
+        n_total_samples = dataset.num_samples
         select_by = config.select_by
         branch_sample_indices = disjoint_analysis.branch_sample_indices
 
@@ -2851,6 +2856,9 @@ class MergeController(OperatorController):
             }
 
             predictions = prediction_store.filter_predictions(**filter_kwargs)
+            filter_kwargs['partition'] = 'test'
+            test_predictions = prediction_store.filter_predictions(**filter_kwargs)
+            predictions.extend(p for p in test_predictions if p.get('fold_id') not in ('avg', 'w_avg', 'final'))
             predictions = [
                 p for p in predictions
                 if p.get('step_idx', 0) < current_step
@@ -3978,7 +3986,7 @@ class MergeController(OperatorController):
         else:
             raise ValueError(
                 "No model predictions found in any specified branch. "
-                "Ensure models were trained in the specified branches before merge. "
+                "Ensure models provide eligible OOF training predictions; add a CV splitter before the branch models. "
                 "[Error: MERGE-E010]"
             )
 
@@ -4080,6 +4088,7 @@ class MergeController(OperatorController):
                 reconstructor = TrainingSetReconstructor(
                     prediction_store=prediction_store,
                     source_model_names=[model_name],
+                    source_model_branch_map={model_name: (model_name, branch_id)},
                     stacking_config=stacking_config,
                     reconstructor_config=reconstructor_config,
                 )
@@ -4840,8 +4849,9 @@ class MergeController(OperatorController):
                     processing_name=processing_name,
                     source=0  # Primary source for merged features
                 )
+                dataset.keep_sources(0)
 
-            result_context = context.copy()
+            result_context = context.with_processing([list(dataset.features_processings(0))])
             result_context.custom["source_merge_applied"] = True
 
             if merged_features is not None:
@@ -4948,7 +4958,7 @@ class MergeController(OperatorController):
                     layout="2d",
                     concat_source=False,
                     include_augmented=True,
-                    include_excluded=False
+                    include_excluded=True
                 )
 
                 # X might be list or single array
@@ -5218,6 +5228,8 @@ class MergeController(OperatorController):
                 "Ensure models were trained before this step. "
                 "[Error: MERGE-E010]"
             )
+
+        validate_scalar_prediction_targets(dataset)
 
         # Parse configuration
         model_filter, aggregation = self._parse_prediction_merge_config(step_info)
@@ -5720,8 +5732,9 @@ class MergeController(OperatorController):
                     processing_name=processing_name,
                     source=0  # Primary source for merged features
                 )
+                dataset.keep_sources(0)
 
-            result_context = context.copy()
+            result_context = context.with_processing([list(dataset.features_processings(0))])
             result_context.custom["source_merge_applied"] = True
 
             if merged_features_src is not None:

@@ -815,11 +815,10 @@ class EdgeArtifactsAugmenter(SpectraTransformerMixin):
         self.detector_model = detector_model
         self.random_state = random_state
 
-        # Initialize sub-augmenters
-        self._init_augmenters()
-
     def _init_augmenters(self):
-        """Initialize sub-augmenters based on settings."""
+        """Initialize sub-augmenters from the current parameters and seed."""
+        for name in ("_detector_aug", "_stray_aug", "_curvature_aug", "_truncated_aug"):
+            self.__dict__.pop(name, None)
         rng = np.random.default_rng(self.random_state)
 
         if self.detector_roll_off:
@@ -866,6 +865,7 @@ class EdgeArtifactsAugmenter(SpectraTransformerMixin):
         X_transformed : ndarray of shape (n_samples, n_features)
             Spectra with edge artifacts applied.
         """
+        self._init_augmenters()
         result = X.copy()
 
         if self.truncated_peaks:

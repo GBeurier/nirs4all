@@ -175,8 +175,8 @@ def robustness_axes(
 def estimate_train_size(val_size: int, fold_count: int) -> int:
     """Approximate the training-set size from a validation-fold size.
 
-    Assumes K-fold style splitting: ``total ≈ val_size * K / (K - 1)`` and
-    ``train ≈ total - val_size``. Used when the exact per-fold training size
+    Assumes balanced K-fold splitting: ``total ≈ val_size * K`` and
+    ``train ≈ val_size * (K - 1)``. Used when the exact per-fold training size
     is not recorded alongside predictions.
 
     Args:
@@ -189,8 +189,7 @@ def estimate_train_size(val_size: int, fold_count: int) -> int:
     if val_size <= 0:
         return 0
     k = fold_count if fold_count and fold_count > 1 else 5
-    total_approx = int(val_size * k / max(1, k - 1))
-    return total_approx - val_size
+    return val_size * (k - 1)
 
 
 def learning_curve_points(

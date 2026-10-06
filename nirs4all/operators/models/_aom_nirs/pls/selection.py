@@ -136,7 +136,8 @@ def _auto_prefix_score(
         for k in range(1, res.n_components + 1):
             coef_list.append(res.coef_prefix(k))
         scores = np.full(n_components, np.inf)
-        press = approx_press_regression(Xcc, ycc, coef_list)
+        press = approx_press_regression(Xcc, ycc, coef_list,
+                                        [res.T[:, :k] for k in range(1, res.n_components + 1)])
         for i, val in enumerate(press):
             scores[i] = val
         if scores.size == 0 or np.all(np.isinf(scores)):
@@ -596,7 +597,7 @@ def _criterion_score_at_indices(
         res = _resolve_engine(engine, Xcc, ycc, operators, list(indices), K, orthogonalization)
         if res.n_components == 0:
             return float("inf"), None
-        press = approx_press_regression(Xcc, ycc, [res.coef()])
+        press = approx_press_regression(Xcc, ycc, [res.coef()], [res.T])
         return float(press[0]), None
     if criterion.kind == "covariance":
         x_mean = Xc.mean(axis=0)
@@ -689,13 +690,14 @@ def select_soft(
             w = _sparsemax(adj / max(temperature, 1e-9))
         else:
             w = _softmax(adj / max(temperature, 1e-9))
-        # Combined direction in original space
+        # Share the dominant response combination across operators so SVD
+        # sign conventions cannot cancel otherwise aligned operator directions.
+        response_direction = np.linalg.svd(S, full_matrices=False)[2][0]
         z = np.zeros(p)
         for b, op in enumerate(operators):
             if w[b] < 1e-10:
                 continue
-            r = op.apply_cov(S) if S.ndim == 1 else op.apply_cov(S)
-            r = r if r.ndim == 1 else r[:, 0]
+            r = op.apply_cov(S) @ response_direction
             r_norm = np.linalg.norm(r)
             if r_norm > 1e-12:
                 z = z + w[b] * op.adjoint_vec(r / r_norm)
@@ -961,6 +963,38 @@ def select(
     auto_prefix: bool = True,
 ) -> SelectionResult:
     """Run the requested selection policy and return the result."""
+    if auto_prefix and criterion.kind != "covariance" and selection in ("soft", "superblock", "active_superblock"):
+        def fit_selection(X, y, k):
+            return select(X, y, operators, engine, selection, k, criterion,
+                          orthogonalization=orthogonalization, auto_prefix=False)
+
+        def predict_prefixes(X_tr, y_tr, X_va):
+            xm, ym = X_tr.mean(axis=0), y_tr.mean(axis=0)
+            res = fit_selection(X_tr - xm, y_tr - ym, n_components_max).result
+            return [(X_va - xm) @ res.coef_prefix(k) + ym
+                    for k in range(1, res.n_components + 1)]
+
+        if criterion.kind in ("cv", "hybrid"):
+            scores = _cv_score_per_prefix(
+                Xc, yc, predict_prefixes, criterion.cv, criterion.random_state,
+                n_components_max, repeats=criterion.repeats, cv_splitter=criterion.cv_splitter)
+        elif criterion.kind == "holdout":
+            scores = _holdout_score_per_prefix(
+                Xc, yc, predict_prefixes, criterion.holdout_fraction,
+                criterion.holdout_seed, n_components_max)
+        elif criterion.kind == "approx_press":
+            res = fit_selection(Xc, yc, n_components_max).result
+            scores = approx_press_regression(
+                Xc, yc, [res.coef_prefix(k) for k in range(1, res.n_components + 1)],
+                [res.T[:, :k] for k in range(1, res.n_components + 1)])
+        else:
+            raise ValueError(f"unknown criterion: {criterion.kind!r}")
+        if not len(scores):
+            return fit_selection(Xc, yc, n_components_max)
+        best_k = int(np.argmin(scores)) + 1
+        selected = fit_selection(Xc, yc, best_k)
+        selected.diagnostics.update({"score_curve": list(scores), "best_score": float(scores[best_k - 1])})
+        return selected
     if orthogonalization == "auto":
         if selection in ("none", "global"):
             orthogonalization = "transformed"

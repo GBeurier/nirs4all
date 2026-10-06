@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import time
+from numbers import Integral
 from typing import List, Optional, Sequence, Union
 
 import numpy as np
@@ -118,14 +119,16 @@ class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
         else:
             self.x_mean_ = np.zeros(p)
             self.y_mean_ = np.zeros(Y_bal.shape[1])
-        Xc = X - self.x_mean_
+        self.x_scale_ = X.std(axis=0, ddof=1) if self.scale else np.ones(p)
+        self.x_scale_ = np.where(self.x_scale_ > 0, self.x_scale_, 1.0)
+        Xc = (X - self.x_mean_) / self.x_scale_
         Yc = Y_bal - self.y_mean_
         # Bank
         bank = self._resolve_bank(p)
         fit_bank(bank, X, y)
         # Component limit
         max_components = min(self.max_components, n - 1, p)
-        if isinstance(self.n_components, int):
+        if isinstance(self.n_components, Integral):
             n_request = min(self.n_components, max_components)
             auto_prefix = False
         else:
@@ -165,7 +168,7 @@ class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
         )
         res = sel.result
         self.x_weights_ = res.Z.copy()
-        self.x_effective_weights_ = res.Z.copy()
+        self.x_effective_weights_ = res.Z @ np.linalg.pinv(res.P.T @ res.Z)
         self.x_loadings_ = res.P.copy()
         self.y_loadings_ = res.Q.copy()
         self.x_scores_ = res.T.copy()
@@ -203,8 +206,8 @@ class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
         coef = res.coef()
         if coef.ndim == 1:
             coef = coef.reshape(-1, 1)
-        self.coef_ = coef
-        self.intercept_ = self.y_mean_ - self.x_mean_ @ coef
+        self.coef_ = coef / self.x_scale_[:, None]
+        self.intercept_ = self.y_mean_ - self.x_mean_ @ self.coef_
         self.diagnostics_ = RunDiagnostics(
             engine=self.engine,
             selection=self.selection,
@@ -229,7 +232,7 @@ class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
     def transform(self, X: np.ndarray) -> np.ndarray:
         if not hasattr(self, "x_effective_weights_"):
             raise RuntimeError("Estimator not fitted")
-        Xc = np.asarray(X, dtype=float) - self.x_mean_
+        Xc = (np.asarray(X, dtype=float) - self.x_mean_) / self.x_scale_
         return Xc @ self.x_effective_weights_
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
@@ -241,7 +244,7 @@ class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
             proba = self._calibrator.predict_proba(T)
             return _align_proba(proba, self._calibrator.classes_, self.classes_)
         # Temperature-scaled softmax fallback
-        Xc = np.asarray(X, dtype=float) - self.x_mean_
+        Xc = (np.asarray(X, dtype=float) - self.x_mean_) / self.x_scale_
         scores = Xc @ self._fallback_scale  # shape (n, n_classes)
         scaled = scores / max(self._fallback_temperature, 1e-6)
         scaled = scaled - scaled.max(axis=1, keepdims=True)

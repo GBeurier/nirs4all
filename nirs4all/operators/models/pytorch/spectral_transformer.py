@@ -307,6 +307,8 @@ class SpectralTransformer(nn.Module):
 
         in_channels, seq_len = input_shape
         self.num_classes = num_classes
+        if pool not in {"cls", "mean"}:
+            raise ValueError("pool must be 'cls' or 'mean'")
         self.pool = pool
 
         # Calculate number of patches
@@ -428,7 +430,7 @@ class SpectralTransformer(nn.Module):
         x = self.norm(x)
 
         # Pooling
-        x = x[:, 0]  # Use CLS token if self.pool == 'cls' else x[:, 1:].mean(dim=1)  # Mean pooling (exclude CLS)
+        x = x[:, 0] if self.pool == 'cls' else x[:, 1:].mean(dim=1)
 
         # Classification/Regression head
         result: torch.Tensor = self.head(x)

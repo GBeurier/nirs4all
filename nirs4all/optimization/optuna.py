@@ -17,6 +17,8 @@ import numpy as np
 
 from nirs4all.core.logging import get_logger
 
+from .preprocessing import finetune_fold, finetune_inputs
+
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -539,6 +541,7 @@ class OptunaManager:
 
         # Resolve metric and direction
         finetune_params = self._resolve_metric_direction(finetune_params, dataset)
+        X_train, context = finetune_inputs(dataset, context, controller, X_train)
 
         # Extract configuration
         strategy = finetune_params.get("approach", "grouped")
@@ -576,7 +579,9 @@ class OptunaManager:
             # Single optimization (no folds): use holdout split for validation
             from sklearn.model_selection import train_test_split
 
-            X_opt_train, X_val, y_opt_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+            train_indices, val_indices = train_test_split(np.arange(len(X_train)), test_size=0.2, random_state=42)
+            X_opt_train, X_val = finetune_fold(dataset, context, X_train, train_indices, val_indices)
+            y_opt_train, y_val = y_train[train_indices], y_train[val_indices]
             return self._optimize_single(dataset, model_config, X_opt_train, y_opt_train, X_val, y_val, finetune_params, n_trials, context, controller, verbose)
 
     def _resolve_metric_direction(self, finetune_params: dict[str, Any], dataset: "SpectroDataset") -> dict[str, Any]:
@@ -603,11 +608,8 @@ class OptunaManager:
                 params["direction"] = "maximize" if _is_higher_better(metric) else "minimize"
         else:
             # No explicit metric — use defaults based on task_type
-            task_type = getattr(dataset, "task_type", "regression")
-            if "classification" in task_type:
-                params.setdefault("direction", "maximize")
-            else:
-                params.setdefault("direction", "minimize")
+            # Controllers return losses (including negative balanced accuracy).
+            params.setdefault("direction", "minimize")
 
         return params
 
@@ -626,9 +628,8 @@ class OptunaManager:
                 logger.info(f"Optimizing fold {fold_idx + 1}/{len(folds)}")
 
             # Extract fold data
-            X_train_fold = X_train[train_indices]
+            X_train_fold, X_val_fold = finetune_fold(dataset, context, X_train, train_indices, val_indices)
             y_train_fold = y_train[train_indices]
-            X_val_fold = X_train[val_indices]
             y_val_fold = y_train[val_indices]
 
             # Run optimization for this fold
@@ -683,9 +684,8 @@ class OptunaManager:
             # Train on all folds and collect scores
             scores = []
             for fold_idx, (train_indices, val_indices) in enumerate(folds):
-                X_train_fold = X_train[train_indices]
+                X_train_fold, X_val_fold = finetune_fold(dataset, context, X_train, train_indices, val_indices)
                 y_train_fold = y_train[train_indices]
-                X_val_fold = X_train[val_indices]
                 y_val_fold = y_train[val_indices]
                 try:
                     model = controller._get_model_instance(dataset, model_config, force_params=model_params)  # noqa: SLF001
@@ -703,11 +703,13 @@ class OptunaManager:
                         train_params_for_trial["task_type"] = dataset.task_type
                     trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                     score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
+                    if not np.isfinite(score):
+                        score = float("-inf") if opt_direction == "maximize" else float("inf")
                     scores.append(score)
 
                     # Pruning: report intermediate score and check for pruning
                     if pruner_type != "none":
-                        intermediate_score = self._aggregate_scores(scores, eval_mode)
+                        intermediate_score = self._aggregate_scores(scores, eval_mode, opt_direction)
                         trial.report(intermediate_score, fold_idx)
                         if trial.should_prune():
                             raise optuna.TrialPruned()
@@ -717,10 +719,10 @@ class OptunaManager:
                 except Exception as e:
                     if verbose >= 2:
                         logger.debug(f"   Fold failed: {e}")
-                    scores.append(float("inf"))
+                    scores.append(float("-inf") if opt_direction == "maximize" else float("inf"))
 
             # Return evaluation based on eval_mode
-            return self._aggregate_scores(scores, eval_mode)
+            return self._aggregate_scores(scores, eval_mode, opt_direction)
 
         # Run optimization with the multi-fold objective
         study = self._create_study(finetune_params)
@@ -810,9 +812,8 @@ class OptunaManager:
                     model_params = controller.process_hyperparameters(model_params)
                 scores = []
                 for fold_idx, (train_indices, val_indices) in enumerate(folds):
-                    X_train_fold = X_train[train_indices]
+                    X_train_fold, X_val_fold = finetune_fold(dataset, context, X_train, train_indices, val_indices)
                     y_train_fold = y_train[train_indices]
-                    X_val_fold = X_train[val_indices]
                     y_val_fold = y_train[val_indices]
                     try:
                         model = controller._get_model_instance(dataset, model_config, force_params=model_params)  # noqa: SLF001
@@ -824,9 +825,11 @@ class OptunaManager:
                             train_params_for_trial["task_type"] = dataset.task_type
                         trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                         score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
+                        if not np.isfinite(score):
+                            score = float("-inf") if opt_direction == "maximize" else float("inf")
                         scores.append(score)
                         if pruner_type != "none":
-                            intermediate_score = self._aggregate_scores(scores, eval_mode)
+                            intermediate_score = self._aggregate_scores(scores, eval_mode, opt_direction)
                             trial.report(intermediate_score, fold_idx)
                             if trial.should_prune():
                                 raise optuna.TrialPruned()
@@ -835,13 +838,15 @@ class OptunaManager:
                     except Exception as e:
                         if verbose >= 2:
                             logger.debug(f"   Fold failed: {e}")
-                        scores.append(float("inf"))
-                return self._aggregate_scores(scores, eval_mode)
+                        scores.append(float("-inf") if opt_direction == "maximize" else float("inf"))
+                return self._aggregate_scores(scores, eval_mode, opt_direction)
         else:
             # Single split for no-folds case
             from sklearn.model_selection import train_test_split
 
-            X_opt_train, X_val, y_opt_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+            train_indices, val_indices = train_test_split(np.arange(len(X_train)), test_size=0.2, random_state=42)
+            X_opt_train, X_val = finetune_fold(dataset, context, X_train, train_indices, val_indices)
+            y_opt_train, y_val = y_train[train_indices], y_train[val_indices]
 
             def objective(trial):
                 model_params, sampled_train_params = self.sample_hyperparameters(trial, finetune_params)
@@ -857,11 +862,13 @@ class OptunaManager:
                         train_params_for_trial["task_type"] = dataset.task_type
                     trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                     score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
+                    if not np.isfinite(score):
+                        score = float("-inf") if opt_direction == "maximize" else float("inf")
                     return score
                 except Exception as e:
                     if verbose >= 2:
                         logger.warning(f"Trial failed: {e}")
-                    return float("inf")
+                    return float("-inf") if opt_direction == "maximize" else float("inf")
 
         # Create study with first phase's config (inherits direction, pruner, storage, seed from top-level)
         study = self._create_study(finetune_params)
@@ -977,13 +984,15 @@ class OptunaManager:
                     train_params_for_trial["task_type"] = dataset.task_type
                 trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                 score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
+                if not np.isfinite(score):
+                    score = float("-inf") if opt_direction == "maximize" else float("inf")
 
                 return score
 
             except Exception as e:
                 if verbose >= 2:
                     logger.warning(f"Trial failed: {e}")
-                return float("inf")
+                return float("-inf") if opt_direction == "maximize" else float("inf")
 
         # Create and run optimization
         study = self._create_study(finetune_params)
@@ -1084,27 +1093,23 @@ class OptunaManager:
         if verbose < 2 and optuna is not None:
             optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    def _aggregate_scores(self, scores: list[float], eval_mode: str) -> float:
-        """
-        Aggregate fold scores based on evaluation mode.
+    def _aggregate_scores(self, scores: list[float], eval_mode: str, direction: str = "minimize") -> float:
+        """Aggregate fold evidence using the study's optimization direction.
 
-        Args:
-            scores: List of scores from different folds
-            eval_mode: How to aggregate ('best', 'mean', 'robust_best')
-
-        Returns:
-            Aggregated score
+        Nonfinite controller scores represent failed evaluations and are always
+        worst. ``robust_best`` explicitly ignores those failures.
         """
+        worst = float("-inf") if direction == "maximize" else float("inf")
+        choose = max if direction == "maximize" else min
+        normalized = [float(score) if np.isfinite(score) else worst for score in scores]
         if eval_mode == "best":
-            return min(scores)
-        elif eval_mode == "mean":
-            return float(np.mean(scores))
-        elif eval_mode == "robust_best":
-            # Exclude infinite scores (failed trials) then take best
-            valid_scores = [s for s in scores if s != float("inf")]
-            return min(valid_scores) if valid_scores else float("inf")
-        else:
-            raise ValueError(f"Unknown eval_mode '{eval_mode}'. Valid: 'best', 'mean', 'robust_best'")
+            return choose(normalized) if normalized else worst
+        if eval_mode == "mean":
+            return float(np.mean(normalized)) if normalized else worst
+        if eval_mode == "robust_best":
+            valid_scores = [score for score in normalized if np.isfinite(score)]
+            return choose(valid_scores) if valid_scores else worst
+        raise ValueError(f"Unknown eval_mode '{eval_mode}'. Valid: 'best', 'mean', 'robust_best'")
 
     def sample_hyperparameters(self, trial: Any, finetune_params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         """

@@ -3,14 +3,24 @@
 import json
 import os
 import subprocess
-import sys
+from pathlib import Path
 
 import pytest
+
+
+def _installed_python():
+    python = os.environ.get("NIRS4ALL_STUDIO_INSTALLED_PYTHON")
+    if not python:
+        pytest.fail("NIRS4ALL_STUDIO_INSTALLED_PYTHON must configure an installed child interpreter for the required Studio gate")
+    if not Path(python).is_file() or not os.access(python, os.X_OK):
+        pytest.fail(f"NIRS4ALL_STUDIO_INSTALLED_PYTHON is not an executable interpreter: {python}")
+    return python
 
 
 @pytest.mark.skipif(os.environ.get("NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2") != "1", reason="requires the installed native V1 train")
 @pytest.mark.parametrize("classification", [False, True])
 def test_installed_studio_general_host_keeps_rust_boundary_and_durable_results(tmp_path, classification):
+    python = _installed_python()
     script = r'''
 import json
 import sys
@@ -49,7 +59,7 @@ print(json.dumps(response, allow_nan=False))
         key: value for key, value in os.environ.items()
         if not key.startswith(("N4M_", "N4A_")) and key not in {"PYTHONPATH", "LD_LIBRARY_PATH", "NIRS4ALL_CORE_LIVE_METHODS_LIBRARY"}
     }
-    completed = subprocess.run([sys.executable, "-I", "-B", "-c", script], input=json.dumps(request), text=True, capture_output=True, env=env, timeout=120, check=False)
+    completed = subprocess.run([python, "-I", "-B", "-c", script], input=json.dumps(request), text=True, capture_output=True, env=env, timeout=120, check=False)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     response = json.loads(completed.stdout)
     assert response["schema"] == "nirs4all.studio-scientific-job-result.v2"

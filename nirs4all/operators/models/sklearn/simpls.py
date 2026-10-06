@@ -387,7 +387,7 @@ def _get_cached_jax_simpls():
 # SIMPLS Estimator Class
 # =============================================================================
 
-class SIMPLS(BaseEstimator, RegressorMixin):
+class SIMPLS(RegressorMixin, BaseEstimator):
     """SIMPLS (Simple PLS) regressor.
 
     SIMPLS is an alternative to NIPALS-based PLS that computes components
@@ -753,8 +753,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
         self : SIMPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

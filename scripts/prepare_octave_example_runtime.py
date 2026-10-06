@@ -17,9 +17,9 @@ import subprocess
 from pathlib import Path
 
 METHODS_COMMIT = "dcc570b3647f77cf0428dd346078f442ed5cd032"
-DAG_COMMIT = "867f3576592ec390e2a16ced53cc027c022cde27"
-CORE_VERSION = "0.4.1"
-NPM_PACKAGES = {"@nirs4all/methods": "1.3.2", "dag-ml-wasm": "0.3.34"}
+DAG_COMMIT = "9095e5640c53b02dd91dc4de7a20d1a7d501bbdb"
+CORE_VERSION = "0.4.2"
+NPM_PACKAGES = {"@nirs4all/methods": "1.3.2", "dag-ml-wasm": "0.3.37"}
 
 
 def sha256(path: Path) -> str:
@@ -58,7 +58,7 @@ def require_public_core_install(prefix: Path) -> Path:
     item = installs.get(key)
     binary = prefix / "bin/nirs4all-core-archive"
     if item is None or item["version_req"] != f"={CORE_VERSION}" or item["bins"] != ["nirs4all-core-archive"] or not os.access(binary, os.X_OK):
-        raise ValueError("U15 requires the exact public registry Core 0.4.1 CLI installation")
+        raise ValueError(f"U15 requires the exact public registry Core {CORE_VERSION} CLI installation")
     return binary.resolve(strict=True)
 
 
@@ -107,11 +107,11 @@ def prepare(args: argparse.Namespace) -> dict[str, object]:
                              str(npm / "node_modules/dag-ml-wasm"), str(npm / "node_modules/@nirs4all/methods/dist"), str(capture)],
                             cwd=dag, env=env, logs=logs))
         evidence = json.loads(capture.read_text())
-        if evidence["dagml_version"] != "0.3.34" or evidence["methods_version"] != "1.3.2+abi.2.17.0" or len(evidence["sampleIds"]) != 12:
+        if evidence["dagml_version"] != "0.3.37" or evidence["methods_version"] != "1.3.2+abi.2.17.0" or len(evidence["sampleIds"]) != 12:
             raise ValueError("Native four-source capture has incompatible runtime identity")
         core = args.core_prefix.resolve() if args.core_prefix else output / "core"
         if args.core_prefix is None:
-            commands.append(run(["cargo", "install", "nirs4all", "--version", "=0.4.1", "--locked", "--bin", "nirs4all-core-archive",
+            commands.append(run(["cargo", "install", "nirs4all", "--version", f"={CORE_VERSION}", "--locked", "--bin", "nirs4all-core-archive",
                                  "--root", str(core), "--jobs", "2"], cwd=output, env=env, logs=logs))
         core_cli = require_public_core_install(core)
         exported = {"NIRS4ALL_CI_U15_DAG_ROOT": str(dag), "NIRS4ALL_CI_U15_OCTAVE": str(octave),

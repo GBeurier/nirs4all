@@ -238,7 +238,7 @@ class LogRangeStrategy(ExpansionStrategy):
             log_val = log_start + i * step
             val = base ** log_val
             # Round to reasonable precision
-            result.append(round(val, 10))
+            result.append(float(f"{val:.12g}"))
 
         return result
 

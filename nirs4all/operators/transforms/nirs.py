@@ -323,24 +323,13 @@ class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
         return X
 
     def inverse_transform(self, X):
-        check_is_fitted(self)
+        """Refuse inversion: per-spectrum scatter coefficients are not retained.
 
-        X = check_array(X, copy=self.copy, dtype=FLOAT_DTYPES)
-
-        if X.shape[1] != len(self.a_) or X.shape[1] != len(self.b_):
-            raise ValueError(
-                "Inverse transform cannot be applied with provided X. "
-                "Bad number of columns."
-            )
-
-        for col in range(X.shape[1]):
-            a = self.a_[col]
-            b = self.b_[col]
-            X[:, col] = (X[:, col] * a) + b
-
-        if self.scale:
-            X = self.scaler_.inverse_transform(X)
-        return X
+        MSC removes a sample-specific offset and scale. Corrected spectra alone
+        do not contain enough information to reconstruct those coefficients.
+        """
+        check_is_fitted(self, "reference_")
+        raise NotImplementedError("MSC is not invertible without the original per-spectrum offset and slope")
 
     def _more_tags(self):
         return {"allow_nan": False}
@@ -381,7 +370,8 @@ class ExtendedMultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
     degree : int, default=2
         Degree of polynomial for modeling interference.
     scale : bool, default=True
-        Whether to scale the data before correction.
+        Retained for parameter compatibility. Correction uses raw spectra
+        for both settings, as column centering would destroy the reference.
     copy : bool, default=True
         Whether to copy input data.
     """
@@ -398,62 +388,40 @@ class ExtendedMultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
         self.degree = degree
 
     def _reset(self):
-        if hasattr(self, "scaler_"):
-            del self.scaler_
-            del self.reference_
-            del self.wavelengths_
+        for attr in ("scaler_", "reference_", "wavelengths_", "design_matrix_"):
+            if hasattr(self, attr):
+                delattr(self, attr)
 
     def fit(self, X, y=None):
         self._reset()
         return self.partial_fit(X, y)
 
     def partial_fit(self, X, y=None):
-        if scipy.sparse.issparse(X):
-            raise TypeError("EMSC does not support scipy.sparse input")
-
-        first_pass = not hasattr(self, "reference_")
-
-        tmp_x = X.copy() if self.copy else X
-
-        if self.scale:
-            scaler = StandardScaler(with_std=False)
-            scaler.fit(X)
-            self.scaler_ = scaler
-            tmp_x = scaler.transform(tmp_x)
-
-        # Compute mean reference spectrum
-        self.reference_ = np.mean(tmp_x, axis=0)
-
-        # Create wavelength indices for polynomial terms
-        self.wavelengths_ = np.arange(X.shape[1])
-
+        X = check_array(X, dtype=float)
+        if not isinstance(self.degree, (int, np.integer)) or self.degree < 0:
+            raise ValueError("degree must be a non-negative integer")
+        # Centering columns before computing the mean destroys the reference.
+        # Fit the raw mean and a well-conditioned polynomial baseline instead.
+        self.reference_ = np.mean(X, axis=0)
+        self.wavelengths_ = np.linspace(-1.0, 1.0, X.shape[1])
+        polynomial = np.polynomial.polynomial.polyvander(self.wavelengths_, self.degree)
+        self.design_matrix_ = np.column_stack([self.reference_, polynomial])
+        if np.linalg.matrix_rank(self.design_matrix_) < self.design_matrix_.shape[1]:
+            raise ValueError("EMSC reference must be independent of the polynomial baseline")
         return self
 
     def transform(self, X):
-        check_is_fitted(self)
-
-        X_transformed = X.copy() if self.copy else X
-
-        if self.scale:
-            X_transformed = self.scaler_.transform(X_transformed)
-
-        # Build design matrix with polynomial terms
-        n_features = X.shape[1]
-
-        for i in range(X_transformed.shape[0]):
-            # Create polynomial basis
-            design_matrix = np.column_stack([
-                self.reference_,
-                *[self.wavelengths_ ** d for d in range(1, self.degree + 1)]
-            ])
-
-            # Fit coefficients
-            coeffs, _, _, _ = np.linalg.lstsq(design_matrix, X_transformed[i], rcond=None)
-
-            # Subtract polynomial interference and scale by reference coefficient
-            polynomial_part = sum(coeffs[d] * (self.wavelengths_ ** d) for d in range(1, self.degree + 1))
-            X_transformed[i] = (X_transformed[i] - polynomial_part) / coeffs[0]
-
+        check_is_fitted(self, "design_matrix_")
+        X_transformed = check_array(X, dtype=float, copy=self.copy)
+        if X_transformed.shape[1] != len(self.reference_):
+            raise ValueError("Transform has a different number of features than the fitted EMSC reference")
+        coefficients = np.linalg.lstsq(self.design_matrix_, X_transformed.T, rcond=None)[0]
+        slopes = coefficients[0]
+        if np.any(np.abs(slopes) <= np.finfo(float).eps):
+            raise ValueError("EMSC cannot correct a spectrum with zero multiplicative coefficient")
+        baseline = (self.design_matrix_[:, 1:] @ coefficients[1:]).T
+        X_transformed -= baseline
+        X_transformed /= slopes[:, None]
         return X_transformed
 
     def _more_tags(self):

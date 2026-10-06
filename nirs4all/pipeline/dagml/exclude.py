@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from nirs4all.operators.filters.base import filter_targets
+from nirs4all.operators.filters.metadata import MetadataFilter
 
 from .detect import _is_exclude_step
 from .steps import _taggers_from_step
@@ -87,6 +88,18 @@ def _filter_data_for_pool(spectro: Any, base_ints: list[int]) -> tuple[np.ndarra
     return x_pool, y_pool
 
 
+def _filter_mask_for_pool(filter_obj: Any, spectro: Any, pool: list[int], X: np.ndarray, y: np.ndarray | None) -> np.ndarray:
+    """Apply a filter with metadata in the same requested row order as X/y."""
+    if isinstance(filter_obj, MetadataFilter):
+        selector = {"sample": list(pool)}
+        metadata = spectro.metadata(selector, include_augmented=False)
+        stored = spectro.index_column("sample", selector)
+        row_of = {int(sample): row for row, sample in enumerate(stored)}
+        metadata = metadata[[row_of[int(sample)] for sample in pool]]
+        return np.asarray(filter_obj.get_mask(X, y, metadata=metadata))
+    return np.asarray(filter_obj.get_mask(X, y))
+
+
 def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: list[int]) -> set[int]:
     """Excluded BASE sample ints from ``pool_ints`` for one ``exclude_step``, mirroring ExcludeController.
 
@@ -130,7 +143,7 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
     for filter_obj in filters:
         try:
             filter_obj.fit(x_pool, y_pool)
-            masks.append(filter_obj.get_mask(x_pool, y_pool))
+            masks.append(_filter_mask_for_pool(filter_obj, spectro, base_ints, x_pool, y_pool))
         except ValueError as error:
             raise ValueError(f"{filter_obj.__class__.__name__} could not be applied: {error}") from error
 
@@ -263,7 +276,7 @@ def _resolve_tags(pipeline: list[Any], spectro: Any, pool: list[int]) -> tuple[l
         for tag_name, filter_obj in taggers:
             try:
                 filter_obj.fit(x_pool, y_pool)
-                mask = np.asarray(filter_obj.get_mask(x_pool, y_pool), dtype=bool)
+                mask = np.asarray(_filter_mask_for_pool(filter_obj, spectro, pool, x_pool, y_pool), dtype=bool)
             except ValueError as error:
                 raise ValueError(f"{filter_obj.__class__.__name__} could not be applied: {error}") from error
             if mask.shape[0] != len(pool):

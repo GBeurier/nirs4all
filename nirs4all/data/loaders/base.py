@@ -27,7 +27,7 @@ _VALID_NA_POLICIES = {"auto", "abort", "remove_sample", "remove_feature", "repla
 def apply_na_policy(
     data: pd.DataFrame,
     na_policy: str,
-    na_fill_config: NAFillConfig | None = None,
+    na_fill_config: NAFillConfig | dict[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Apply NA policy to loaded data.
 
@@ -111,6 +111,8 @@ def apply_na_policy(
     if na_policy == "replace":
         if na_fill_config is None:
             na_fill_config = NAFillConfig()
+        elif isinstance(na_fill_config, dict):
+            na_fill_config = NAFillConfig(**na_fill_config)
 
         method = na_fill_config.method
         report["fill_method"] = method.value if hasattr(method, "value") else str(method)

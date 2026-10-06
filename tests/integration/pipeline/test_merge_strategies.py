@@ -12,7 +12,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import ShuffleSplit
+from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler
 
 import nirs4all
@@ -150,13 +151,70 @@ class TestMergeModesCombination:
 
     @pytest.fixture
     def dataset(self):
-        """Create a simple dataset."""
-        return nirs4all.generate.regression(n_samples=50, random_state=42, engine="legacy")
+        """Use a scalar target to test merge modes independently of multi-target stacking."""
+        return nirs4all.generate.regression(n_samples=50, target_component=0, random_state=42, engine="legacy")
 
-    def test_features_and_predictions_merge(self, dataset):
-        """Test merge with both features and predictions."""
+    @pytest.fixture
+    def prediction_merge_oracle(self, dataset, monkeypatch):
+        """Isolate OOF merge alignment with scalar targets and stateless transforms.
+
+        Learned branch preprocessing, multi-target reconstruction and refit
+        replay require their own scientific contracts and regression tests.
+        """
+        from nirs4all.controllers.data.merge import MergeController
+
+        selector = {"partition": "train"}
+        training_ids = dataset._indexer.x_indices(selector, include_augmented=False)
+        X = dataset.x(selector, include_augmented=False).copy()
+        y = dataset.y(selector, include_augmented=False).ravel().copy()
+        expected = np.empty((len(training_ids), 2))
+        for train, validation in KFold(n_splits=3, shuffle=True, random_state=42).split(X):
+            for column, transform in enumerate((SNV, SavitzkyGolay)):
+                estimator = make_pipeline(transform(), PLSRegression(n_components=5))
+                estimator.fit(X[train], y[train])
+                expected[validation, column] = estimator.predict(X[validation]).ravel()
+
+        original = MergeController._collect_predictions
+        original_execute = MergeController.execute
+        captured = []
+        phases = []
+
+        def execute(controller, step_info, dataset, context, runtime_context, *args, **kwargs):
+            phases.append(runtime_context.phase.value)
+            try:
+                return original_execute(controller, step_info, dataset, context, runtime_context, *args, **kwargs)
+            finally:
+                phases.pop()
+
+        def collect(controller, dataset, context, *args, **kwargs):
+            values, info = original(controller, dataset, context, *args, **kwargs)
+            captured.append((
+                dataset._indexer.x_indices(None, include_augmented=False),
+                values.copy(),
+                phases[-1],
+                len(dataset.folds),
+            ))
+            return values, info
+
+        monkeypatch.setattr(MergeController, "_collect_predictions", collect)
+        monkeypatch.setattr(MergeController, "execute", execute)
+
+        def verify(result):
+            assert result.num_predictions > 0
+            assert captured
+            for sample_ids, values, phase, folds in captured:
+                assert phase == "cv" and folds == 3
+                positions = {int(sample): position for position, sample in enumerate(sample_ids)}
+                actual = values[[positions[int(sample)] for sample in training_ids]]
+                np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
+
+        return verify
+
+    def test_features_and_predictions_merge(self, dataset, prediction_merge_oracle):
+        """Merge features and genuine OOF predictions from declared CV folds."""
         pipeline = [
-            {"branch": [[SNV(), PLSRegression(5)], [MSC(), PLSRegression(5)]]},
+            KFold(n_splits=3, shuffle=True, random_state=42),
+            {"branch": [[SNV(), PLSRegression(5)], [SavitzkyGolay(), PLSRegression(5)]]},
             {"merge": "all"},  # Both features and predictions
         ]
 
@@ -164,15 +222,17 @@ class TestMergeModesCombination:
             pipeline=pipeline,
             dataset=dataset,
             engine="legacy",
+            refit=False,  # This case verifies the CV merge, independently of refit replay.
             verbose=0,
         )
 
-        assert result is not None
+        prediction_merge_oracle(result)
 
-    def test_predictions_only_merge(self, dataset):
-        """Test predictions-only merge."""
+    def test_predictions_only_merge(self, dataset, prediction_merge_oracle):
+        """Merge genuine OOF branch predictions with full training coverage."""
         pipeline = [
-            {"branch": [[SNV(), PLSRegression(5)], [MSC(), PLSRegression(5)]]},
+            KFold(n_splits=3, shuffle=True, random_state=42),
+            {"branch": [[SNV(), PLSRegression(5)], [SavitzkyGolay(), PLSRegression(5)]]},
             {"merge": "predictions"},
         ]
 
@@ -180,10 +240,11 @@ class TestMergeModesCombination:
             pipeline=pipeline,
             dataset=dataset,
             engine="legacy",
+            refit=False,  # This case verifies the CV merge, independently of refit replay.
             verbose=0,
         )
 
-        assert result is not None
+        prediction_merge_oracle(result)
 
     def test_features_only_merge(self, dataset):
         """Test features-only merge."""

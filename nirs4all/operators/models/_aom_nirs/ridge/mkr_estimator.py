@@ -90,11 +90,13 @@ def _inner_cv_rmse_alpha(
     eta: np.ndarray,
     alphas: np.ndarray,
     cv: KFold,
-) -> np.ndarray:
+    return_per_fold: bool = False,
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Mean validation RMSE per alpha at a fixed ``eta``."""
     n = y.shape[0]
     rmse_sums = np.zeros(alphas.size, dtype=float)
     n_folds = 0
+    fold_scores = []
     indices = np.arange(n)
     for tr_idx, va_idx in cv.split(indices, y):
         K_eta_full = _build_K_eta(K_blocks, eta)
@@ -105,17 +107,22 @@ def _inner_cv_rmse_alpha(
         try:
             C_path = solve_dual_ridge_path_eigh(K_tr, y_tr, alphas)  # (A, n_tr)
         except np.linalg.LinAlgError:
-            return np.full(alphas.size, np.inf)
-        rmse_sums += np.array([
+            summary = np.full(alphas.size, np.inf)
+            return (summary, np.full((1, alphas.size), np.inf)) if return_per_fold else summary
+        fold_rmse = np.array([
             float(np.sqrt(np.mean((y_va - K_va @ C_path[a]) ** 2)))
             for a in range(alphas.size)
         ])
+        rmse_sums += fold_rmse
+        fold_scores.append(fold_rmse)
         n_folds += 1
-    return rmse_sums / max(n_folds, 1)
+    summary = rmse_sums / max(n_folds, 1)
+    return (summary, np.asarray(fold_scores)) if return_per_fold else summary
 
 
 def _select_alpha_with_one_se(
-    rmse_per_alpha: np.ndarray, alphas: np.ndarray, one_se: bool
+    rmse_per_alpha: np.ndarray, alphas: np.ndarray, one_se: bool,
+    per_fold: np.ndarray | None = None
 ) -> tuple[float, int]:
     """Return ``(alpha_star, idx_star)``.
 
@@ -126,11 +133,13 @@ def _select_alpha_with_one_se(
     if not one_se:
         return float(alphas[idx]), idx
     best = float(rmse_per_alpha[idx])
-    se = float(np.std(rmse_per_alpha) / max(np.sqrt(rmse_per_alpha.size), 1.0))
+    if per_fold is None:
+        raise ValueError("one_se requires per-fold validation scores")
+    se = float(np.std(per_fold[:, idx], ddof=1) / np.sqrt(len(per_fold))) if len(per_fold) > 1 else 0.0
     threshold = best + se
     # Larger alpha = more regularisation (alphas are increasing log-spaced).
     candidates = np.where(rmse_per_alpha <= threshold)[0]
-    idx_se = int(candidates.max())
+    idx_se = int(candidates[np.argmax(alphas[candidates])])
     return float(alphas[idx_se]), idx_se
 
 
@@ -247,7 +256,7 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         # kernel as reference so the grid is meaningful regardless of weight
         # strategy).
         K_uniform = _build_K_eta(K_blocks, uniform_weights(B))
-        if self.alphas == "auto":
+        if isinstance(self.alphas, str) and self.alphas == "auto":
             alpha_grid = make_alpha_grid(
                 K_uniform,
                 n_grid=self.alpha_grid_size,
@@ -388,11 +397,11 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
         diag: dict = {"strategy": strategy}
         if strategy == "uniform":
             eta = uniform_weights(B)
-            rmse_per_alpha = _inner_cv_rmse_alpha(
-                K_blocks, y_c, eta, alpha_grid, cv
+            rmse_per_alpha, per_fold = _inner_cv_rmse_alpha(
+                K_blocks, y_c, eta, alpha_grid, cv, return_per_fold=True
             )
             alpha_star, idx = _select_alpha_with_one_se(
-                rmse_per_alpha, alpha_grid, self.one_se_rule
+                rmse_per_alpha, alpha_grid, self.one_se_rule, per_fold
             )
             diag.update({
                 "alpha_index": int(idx),
@@ -404,11 +413,11 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
             if self.weight_init is None:
                 raise ValueError("weight_init must be supplied for 'manual'")
             eta = manual_weights(self.weight_init, B)
-            rmse_per_alpha = _inner_cv_rmse_alpha(
-                K_blocks, y_c, eta, alpha_grid, cv
+            rmse_per_alpha, per_fold = _inner_cv_rmse_alpha(
+                K_blocks, y_c, eta, alpha_grid, cv, return_per_fold=True
             )
             alpha_star, idx = _select_alpha_with_one_se(
-                rmse_per_alpha, alpha_grid, self.one_se_rule
+                rmse_per_alpha, alpha_grid, self.one_se_rule, per_fold
             )
             diag.update({
                 "alpha_index": int(idx),
@@ -417,11 +426,11 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
             return eta, alpha_star, diag
         if strategy == "kta":
             eta = kta_simplex_weights(K_blocks, y_c, top_k=self.weight_top_k)
-            rmse_per_alpha = _inner_cv_rmse_alpha(
-                K_blocks, y_c, eta, alpha_grid, cv
+            rmse_per_alpha, per_fold = _inner_cv_rmse_alpha(
+                K_blocks, y_c, eta, alpha_grid, cv, return_per_fold=True
             )
             alpha_star, idx = _select_alpha_with_one_se(
-                rmse_per_alpha, alpha_grid, self.one_se_rule
+                rmse_per_alpha, alpha_grid, self.one_se_rule, per_fold
             )
             diag.update({
                 "alpha_index": int(idx),
@@ -446,7 +455,13 @@ class AOMMultiKernelRidge(BaseEstimator, RegressorMixin):
                 "inner_cv_rmse": float(res.inner_cv_rmse),
                 **res.diagnostics,
             })
-            return res.eta, res.alpha, diag
+            alpha_star = res.alpha
+            if self.one_se_rule:
+                summary, per_fold = _inner_cv_rmse_alpha(
+                    K_blocks, y_c, res.eta, alpha_grid, cv, return_per_fold=True)
+                alpha_star, idx = _select_alpha_with_one_se(summary, alpha_grid, True, per_fold)
+                diag.update({"alpha_index": int(idx), "cv_score_at_selected": float(summary[idx])})
+            return res.eta, alpha_star, diag
         raise ValueError(
             f"unknown weight_strategy {strategy!r}; expected "
             "'uniform', 'manual', 'kta', or 'softmax_cv'"

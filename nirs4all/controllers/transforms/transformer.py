@@ -216,6 +216,26 @@ class TransformerMixinController(OperatorController):
         return True
 
     @staticmethod
+    def validate_target_preserving_operator(operator: Any) -> None:
+        """Refuse sample mixing without a joint target and parent-ID contract."""
+        from nirs4all.operators.augmentation.native import NativeRoleAugmenter
+        from nirs4all.operators.augmentation.spectral import LocalMixupAugmenter, MixupAugmenter
+
+        components = [operator]
+        if hasattr(operator, "get_params"):
+            components.extend(operator.get_params(deep=True).values())
+        for component in components:
+            role = component.role if isinstance(component, NativeRoleAugmenter) else component
+            if isinstance(component, (MixupAugmenter, LocalMixupAugmenter)) or (
+                type(role).__module__.startswith("n4m.roles") and type(role).__name__ in ("Mixup", "LocalMixup")
+            ):
+                raise ValueError(
+                    "Controller mixup is unsupported: joint X/y mixing and multiple-parent sample identities "
+                    "are required. X-only mixing would silently retain unmixed labels. "
+                    "Direct augmenter.transform(X) remains available for intentional X-only use."
+                )
+
+    @staticmethod
     def _resolve_transform_options(step_info: 'ParsedStep') -> tuple[bool, Any, Any]:
         """Extract step-level transform options from the step configuration.
 
@@ -394,6 +414,7 @@ class TransformerMixinController(OperatorController):
             {"preprocessing": StandardScaler(), "fit_on_all": True}
         """
         op = step_info.operator
+        self.validate_target_preserving_operator(op)
 
         # Extract step-level options from step configuration
         fit_on_all, na_policy, fill_value = self._resolve_transform_options(step_info)
@@ -550,6 +571,7 @@ class TransformerMixinController(OperatorController):
                         operator_name=operator_name,
                         source_index=sd_idx,
                         operator=op,
+                        fit_on_all=fit_on_all,
                     )
                     if cached_transformer is not None:
                         transformer = cached_transformer
@@ -591,10 +613,8 @@ class TransformerMixinController(OperatorController):
                 if mode == "train":
                     if cached_transformer is not None:
                         input_data_hash = None
-                    elif self._is_stateless(op):
-                        input_data_hash = self._compute_operator_params_hash(op)
                     else:
-                        input_data_hash = dataset.content_hash()
+                        input_data_hash = self._fit_cache_hash(op, dataset, context, fit_on_all)
                     artifact = self._persist_transformer(
                         runtime_context=runtime_context,
                         transformer=transformer,
@@ -1202,6 +1222,18 @@ class TransformerMixinController(OperatorController):
         canonical = ";".join(f"{k}={repr(v)}" for k, v in sorted(params.items()))
         return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
+    def _fit_cache_hash(self, operator: Any, dataset: 'SpectroDataset', context: ExecutionContext, fit_on_all: bool = False) -> str:
+        """Identify the operator parameters, data and fitting cohort used by a cached fit."""
+        if operator is None:
+            return str(dataset.content_hash())
+        if self._is_stateless(operator):
+            return self._compute_operator_params_hash(operator)
+        from joblib import hash as joblib_hash
+        return str(joblib_hash((
+            operator.get_params(deep=True), dataset.content_hash(), fit_on_all,
+            context.custom.get("sample_partition"), context.custom.get("cv_fit_indices"),
+        )))
+
     def _try_cache_lookup(
         self,
         runtime_context: 'RuntimeContext',
@@ -1210,6 +1242,7 @@ class TransformerMixinController(OperatorController):
         operator_name: str,
         source_index: int,
         operator: Any = None,
+        fit_on_all: bool = False,
     ) -> Any | None:
         """Check the artifact registry for a previously fitted transformer with the same chain and data.
 
@@ -1218,10 +1251,10 @@ class TransformerMixinController(OperatorController):
         matching artifact is found, the fitted transformer is loaded and
         returned.
 
-        For stateless operators (``_stateless = True``), the lookup uses
-        ``(chain_path_hash, operator_params_hash)`` instead of
-        ``(chain_path_hash, data_hash)`` since the fitted state is always
-        identical regardless of training data.
+        Stateful fits include constructor parameters, input content, fit_on_all
+        and cohort selection in their cache identity. Stateless operators
+        (``_stateless = True``) use only their parameter hash, because their
+        fitted state is independent of training data.
 
         Args:
             runtime_context: Runtime context with artifact registry.
@@ -1229,7 +1262,8 @@ class TransformerMixinController(OperatorController):
             dataset: Current dataset (used to compute content hash).
             operator_name: Class name of the operator.
             source_index: Source index for multi-source transformers.
-            operator: The operator instance (used for stateless param hashing).
+            operator: Operator instance whose constructor parameters identify the fit.
+            fit_on_all: Whether the fitting cohort includes every partition.
 
         Returns:
             The loaded fitted transformer if a cache hit occurs, or ``None``.
@@ -1268,7 +1302,7 @@ class TransformerMixinController(OperatorController):
 
         # For stateless operators, use params hash instead of data hash
         stateless = operator is not None and self._is_stateless(operator)
-        lookup_hash = self._compute_operator_params_hash(operator) if stateless else dataset.content_hash()
+        lookup_hash = self._fit_cache_hash(operator, dataset, context, fit_on_all)
 
         # Lookup
         record = registry.get_by_chain_and_data(chain_path, lookup_hash)
@@ -1304,6 +1338,7 @@ class TransformerMixinController(OperatorController):
         source_index: int | None = None,
         processing_index: int | None = None,
         input_data_hash: str | None = None,
+        format_hint: str = "sklearn",
     ) -> Any:
         """Persist fitted transformer using V3 chain-based artifact registry.
 
@@ -1317,9 +1352,8 @@ class TransformerMixinController(OperatorController):
             context: Execution context with branch information.
             source_index: Source index for multi-source transformers.
             processing_index: Index of processing within source (for multi-processing steps).
-            input_data_hash: Optional hash of the input data for cache-key lookups.
-                When provided, enables check-before-fit cache hits on subsequent
-                pipelines that share the same preprocessing prefix.
+            input_data_hash: Optional fitting identity for check-before-fit cache lookups.
+            format_hint: Serialization format, including joblib for named tuple values.
 
         Returns:
             ArtifactRecord with V3 chain-based metadata.
@@ -1370,7 +1404,8 @@ class TransformerMixinController(OperatorController):
                 obj=transformer,
                 artifact_id=artifact_id,
                 artifact_type=ArtifactType.TRANSFORMER,
-                format_hint='sklearn',
+                format_hint=format_hint,
+                custom_name=name,
                 chain_path=chain_path,
                 source_index=source_index,
             )

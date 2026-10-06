@@ -21,8 +21,24 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 import numpy as np
 
 if TYPE_CHECKING:
+    from nirs4all.data.dataset import SpectroDataset
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext
+
+
+def validate_scalar_prediction_targets(dataset: 'SpectroDataset') -> None:
+    """Refuse unsupported multi-target joins before changing data or context.
+
+    Legacy prediction stacking allocates one scalar feature per regression
+    model. Classification probability columns represent classes, not targets.
+    """
+    if not dataset.is_classification:
+        targets = np.asarray(dataset.y(None))
+        if targets.ndim > 1 and targets.shape[1] > 1:
+            raise NotImplementedError(
+                "Legacy prediction stacking and prediction merges support only one target per sample. "
+                "Multi-target predictions cannot be flattened or truncated; select a target explicitly."
+            )
 
 class StackingTaskType(Enum):
     """Task type for stacking.
@@ -375,7 +391,13 @@ class ClassificationFeatureExtractor:
             1D array of predictions.
         """
         y_pred = pred.get('y_pred', [])
-        y_pred = np.asarray(y_pred).flatten()
+        y_pred = np.asarray(y_pred)
+        if y_pred.ndim > 2 or (y_pred.ndim == 2 and y_pred.shape[1] != 1):
+            raise NotImplementedError(
+                "Legacy stacking requires scalar y_pred per sample; multi-target predictions cannot be flattened. "
+                "Use y_proba for classification probability features."
+            )
+        y_pred = y_pred.flatten()
 
         if len(y_pred) != n_samples:
             # Pad or truncate

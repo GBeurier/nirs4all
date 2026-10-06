@@ -642,6 +642,28 @@ def _append_filter_conditions(
             params.append(val)
 
 
+def _scoped_chain_summary_source(score_scope: str | None) -> str:
+    """Join raw prediction aggregates for an explicitly requested score scope."""
+    if score_scope is None:
+        return "v_chain_summary"
+    if score_scope not in {"cv", "all", "final"}:
+        raise ValueError(f"Invalid score_scope: {score_scope!r}")
+    final = "(refit_context IS NOT NULL OR fold_id IN ('final', 'fold_final'))"
+    condition = {"cv": f"NOT {final}", "final": final, "all": "1"}[score_scope]
+    return f"""v_chain_summary JOIN (
+        SELECT chain_id AS scope_chain_id,
+               '{score_scope}' AS score_scope,
+               AVG(val_score) AS avg_val_score, MIN(val_score) AS min_val_score, MAX(val_score) AS max_val_score,
+               AVG(test_score) AS avg_test_score, MIN(test_score) AS min_test_score, MAX(test_score) AS max_test_score,
+               AVG(train_score) AS avg_train_score, MIN(train_score) AS min_train_score, MAX(train_score) AS max_train_score,
+               COUNT(*) AS prediction_count, COUNT(DISTINCT fold_id) AS fold_count,
+               json_group_array(prediction_id) AS prediction_ids, json_group_array(DISTINCT fold_id) AS fold_ids
+        FROM predictions WHERE {condition}
+            AND fold_id NOT IN ('avg', 'w_avg', 'fold_avg', 'fold_w_avg') AND SUBSTR(fold_id, -4) != '_agg'
+        GROUP BY chain_id
+    ) scoped ON scoped.scope_chain_id = v_chain_summary.chain_id"""
+
+
 def build_chain_summary_query(
     *,
     run_id: str | list[str] | None = None,
@@ -651,6 +673,7 @@ def build_chain_summary_query(
     model_class: str | list[str] | None = None,
     metric: str | None = None,
     task_type: str | None = None,
+    score_scope: str | None = None,
 ) -> tuple[str, list[object]]:
     """Build a query against the ``v_chain_summary`` VIEW.
 
@@ -684,7 +707,8 @@ def build_chain_summary_query(
     if conditions:
         where = " WHERE " + " AND ".join(conditions)
 
-    return QUERY_CHAIN_SUMMARY_BASE + where + " ORDER BY chain_id ASC", params
+    source = _scoped_chain_summary_source(score_scope)
+    return f"SELECT * FROM {source}{where} ORDER BY chain_id ASC", params
 
 
 def build_chain_summary_count_query(
@@ -737,6 +761,7 @@ def build_top_chains_query(
     pipeline_id: str | list[str] | None = None,
     dataset_name: str | list[str] | None = None,
     model_class: str | list[str] | None = None,
+    score_scope: str | None = None,
 ) -> tuple[str, list[object]]:
     """Build a ranking query on ``v_chain_summary``.
 
@@ -789,7 +814,9 @@ def build_top_chains_query(
         "min_train_score": "cv_train_score",
         "max_train_score": "cv_train_score",
     }
-    resolved_column = _column_aliases.get(score_column, score_column)
+    resolved_column = _column_aliases.get(score_column, score_column) if score_scope is None else score_column
+    if score_scope == "final" and score_column == "avg_val_score":
+        resolved_column = "avg_test_score"
     if score_column not in valid_score_columns:
         raise ValueError(f"Invalid score column: {score_column!r}")
 
@@ -817,7 +844,8 @@ def build_top_chains_query(
 
     direction = "ASC" if ascending else "DESC"
 
-    sql = f"SELECT * FROM v_chain_summary{where} ORDER BY ({resolved_column} IS NULL), {resolved_column} {direction}, chain_id ASC LIMIT ?"
+    source = _scoped_chain_summary_source(score_scope)
+    sql = f"SELECT * FROM {source}{where} ORDER BY ({resolved_column} IS NULL), {resolved_column} {direction}, chain_id ASC LIMIT ?"
     params.append(n)
     if offset:
         sql += " OFFSET ?"

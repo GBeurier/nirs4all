@@ -494,10 +494,13 @@ class MultimodalRegressor(RegressorMixin, _MultimodalEstimator):
     def predict(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> np.ndarray:
         """Predict every fitted target, retaining the original target rank."""
         if self.backend == "methods":
+            from nirs4all.pipeline.dagml.methods_multimodal import methods_input_blocks
+
             check_is_fitted(self, ["native_pipeline_", "source_schemas_"])
             blocks = self._validate_blocks(X, self.source_names_, self.input_shapes_)
             self._validate_source_masks(source_masks, self.source_names_, len(blocks[0]), "error", fitting=False)
-            prediction = np.asarray(self.native_pipeline_.predict(dict(zip(self.source_names_, blocks, strict=True)), source_schemas=source_schemas))
+            prepared = methods_input_blocks(dict(zip(self.source_names_, blocks, strict=True)), self.source_schemas_)
+            prediction = np.asarray(self.native_pipeline_.predict(prepared, source_schemas=source_schemas))
             return prediction.reshape(-1) if self.target_ndim_ == 1 else prediction.reshape(-1, 1)
         if self.backend != "sklearn":
             raise ValueError("backend must be 'sklearn' or 'methods'.")
@@ -607,12 +610,14 @@ class MultimodalClassifier(ClassifierMixin, _MultimodalEstimator):
         return self
 
     def _native_blocks(self, X: list[Any], source_masks: Mapping[str, Any] | None, source_schemas: Any) -> dict[str, Any]:
+        from nirs4all.pipeline.dagml.methods_multimodal import methods_input_blocks
+
         check_is_fitted(self, ["native_pipeline_", "source_schemas_"])
         if source_schemas is not None and dict(source_schemas) != self.source_schemas_:
             raise ValueError("classifier source schemas differ from the fitted raw identities")
         blocks = self._validate_blocks(X, self.source_names_, self.input_shapes_)
         self._validate_source_masks(source_masks, self.source_names_, len(blocks[0]), "error", fitting=False)
-        return dict(zip(self.source_names_, blocks, strict=True))
+        return methods_input_blocks(dict(zip(self.source_names_, blocks, strict=True)), self.source_schemas_)
 
     def predict(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None, source_schemas: Any = None) -> np.ndarray:
         """Return labels in their original signed scalar representation."""

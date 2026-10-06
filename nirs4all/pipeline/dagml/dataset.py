@@ -7,10 +7,12 @@ re-materializes the byte-identical dataset (reloadable path vs. pickle).
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import polars as pl
 
 from nirs4all.data.config import DatasetConfigs
 
@@ -46,7 +48,8 @@ def _materialize_dataset(dataset: Any) -> Any:
     if isinstance(dataset, DatasetConfigs):
         return dataset.get_dataset_at(0)
     if isinstance(dataset, SpectroDataset):
-        return dataset
+        # Augmentation, holdout lowering and chart setup mutate this working copy.
+        return copy.deepcopy(dataset)
     if isinstance(dataset, list):
         raise NotImplementedError("engine='dag-ml' runs a single dataset; pass one dataset, not a list of datasets")
     if isinstance(dataset, (np.ndarray, tuple)):
@@ -61,7 +64,7 @@ def _materialize_dataset(dataset: Any) -> Any:
                 values = [np.asarray(value).reshape(-1) for value in supplied_metadata.values()]
                 if any(len(value) != len(features) for value in values):
                     raise ValueError("dataset metadata columns must match X row count")
-                wrapped.add_metadata(np.column_stack(values), headers=columns)
+                wrapped.add_metadata(pl.DataFrame(dict(zip(columns, values, strict=True))))
             return wrapped
         # The public array mapping uses X/y; the file/config loader uses
         # partition-prefixed keys. In particular an unnormalized lowercase y

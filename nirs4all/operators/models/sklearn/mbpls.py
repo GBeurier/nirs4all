@@ -7,6 +7,7 @@ to the latent variables according to its relevance to Y.
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_is_fitted
 
 
 def _check_jax_available():
@@ -244,6 +245,9 @@ def _mbpls_fit_multiblock_numpy(X_blocks, y, n_components, standardize=True):
 
         # Concatenated weight
         w_full = np.concatenate([block_weights[b][:, comp] for b in range(n_blocks)])
+        w_full = w_full / n_blocks
+        if t_norm > 1e-10:
+            w_full = w_full / t_norm
         W[:, comp] = w_full
 
         # Deflate each block
@@ -312,8 +316,8 @@ def _get_jax_mbpls_functions():
 
     jax.config.update("jax_enable_x64", True)
 
-    @partial(jax.jit, static_argnums=(2,))
-    def mbpls_fit_jax(X, y, n_components):
+    @partial(jax.jit, static_argnums=(2, 3))
+    def mbpls_fit_jax(X, y, n_components, standardize=True):
         """Fit single-block MBPLS using JAX (equivalent to NIPALS PLS).
 
         Returns
@@ -333,14 +337,14 @@ def _get_jax_mbpls_functions():
 
         # Center and scale
         X_mean = jnp.mean(X, axis=0, keepdims=True)
-        X_std = jnp.std(X, axis=0, keepdims=True, ddof=1)
+        X_std = jnp.std(X, axis=0, keepdims=True, ddof=1) if standardize else jnp.ones((1, n_features))
         X_std = jnp.where(X_std < 1e-10, 1.0, X_std)
         X_centered = (X - X_mean) / X_std
 
         y = y.reshape(-1, 1) if y.ndim == 1 else y
         n_targets = y.shape[1]
         y_mean = jnp.mean(y, axis=0, keepdims=True)
-        y_std = jnp.std(y, axis=0, keepdims=True, ddof=1)
+        y_std = jnp.std(y, axis=0, keepdims=True, ddof=1) if standardize else jnp.ones((1, n_targets))
         y_std = jnp.where(y_std < 1e-10, 1.0, y_std)
         y_centered = (y - y_mean) / y_std
 
@@ -415,7 +419,7 @@ def _get_cached_jax_mbpls():
         _JAX_MBPLS_FUNCS = _get_jax_mbpls_functions()
     return _JAX_MBPLS_FUNCS
 
-class MBPLS(BaseEstimator, RegressorMixin):
+class MBPLS(RegressorMixin, BaseEstimator):
     """Multiblock PLS (MB-PLS) regressor.
 
     MB-PLS fuses multiple X blocks (e.g., different preprocessing variants,
@@ -431,7 +435,8 @@ class MBPLS(BaseEstimator, RegressorMixin):
     standardize : bool, default=True
         Whether to standardize blocks before fitting.
     max_tol : float, default=1e-14
-        Convergence tolerance for NIPALS.
+        Compatibility parameter. The closed-form component updates do not
+        iterate to a tolerance; only the default value is supported.
     backend : str, default='numpy'
         Backend to use for computation. Options are:
         - 'numpy': Use NumPy backend (CPU only).
@@ -544,6 +549,11 @@ class MBPLS(BaseEstimator, RegressorMixin):
             If backend is not 'numpy' or 'jax', or if multiblock
             input is used with JAX backend.
         """
+        if self.method != 'NIPALS':
+            raise ValueError("MBPLS supports only method='NIPALS'.")
+        if self.max_tol != 1e-14:
+            raise ValueError("MBPLS closed-form updates support only the default max_tol=1e-14.")
+
         # Validate backend
         if self.backend not in ('numpy', 'jax'):
             raise ValueError(
@@ -594,7 +604,7 @@ class MBPLS(BaseEstimator, RegressorMixin):
             X_jax = jnp.asarray(X_blocks[0])
             y_jax = jnp.asarray(y)
 
-            result = mbpls_fit_jax(X_jax, y_jax, self.n_components_)
+            result = mbpls_fit_jax(X_jax, y_jax, self.n_components_, self.standardize)
             (self._B, self._W, self._P, self._Q, self._T,
              self._X_mean, self._X_std,
              self._y_mean, self._y_std) = result
@@ -625,6 +635,7 @@ class MBPLS(BaseEstimator, RegressorMixin):
             # Store coefficients
             self.coef_ = self._B
 
+        self._R = np.asarray(self._W) @ np.linalg.pinv(np.asarray(self._P).T @ np.asarray(self._W))
         return self
 
     def predict(self, X):
@@ -640,6 +651,7 @@ class MBPLS(BaseEstimator, RegressorMixin):
         y_pred : ndarray of shape (n_samples,) or (n_samples, n_targets)
             Predicted values.
         """
+        check_is_fitted(self, ['_B', '_W'])
         # Handle single array or list of blocks
         if isinstance(X, list):
             X_blocks = [np.asarray(x) for x in X]
@@ -692,6 +704,7 @@ class MBPLS(BaseEstimator, RegressorMixin):
         T : ndarray of shape (n_samples, n_components)
             Latent variables (scores).
         """
+        check_is_fitted(self, ['_R'])
         if isinstance(X, list):
             X_blocks = [np.asarray(x) for x in X]
         else:
@@ -703,17 +716,17 @@ class MBPLS(BaseEstimator, RegressorMixin):
 
             X_jax = jnp.asarray(X_blocks[0])
             X_centered = (X_jax - self._X_mean) / self._X_std
-            return np.asarray(X_centered @ self._W)
+            return np.asarray(X_centered @ jnp.asarray(self._R))
         else:
             if self._is_multiblock:
                 return _mbpls_transform_multiblock_numpy(
-                    X_blocks, self._W,
+                    X_blocks, self._R,
                     self._X_means, self._X_stds,
                     self._block_sizes
                 )
             else:
                 return _mbpls_transform_numpy(
-                    X_blocks[0], self._W,
+                    X_blocks[0], self._R,
                     self._X_mean, self._X_std
                 )
 
@@ -752,9 +765,7 @@ class MBPLS(BaseEstimator, RegressorMixin):
         self : MBPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
-        return self
+        return super().set_params(**params)
 
     def __repr__(self):
         """Return string representation."""

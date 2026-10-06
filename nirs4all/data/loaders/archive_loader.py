@@ -492,6 +492,8 @@ class EnhancedZipLoader(FileLoader):
         import os
         import tempfile
 
+        from .csv_loader_new import CSVLoader
+
         # Write to temp file for loader
         with tempfile.NamedTemporaryFile(
             suffix=inner_ext,
@@ -508,15 +510,16 @@ class EnhancedZipLoader(FileLoader):
                 loader = registry.get_loader(tmp_path)
             except Exception:
                 # Fall back to CSV loader
-                from .csv_loader_new import CSVLoader
                 loader = CSVLoader()
 
+            inner_params = dict(params)
+            if isinstance(loader, CSVLoader):
+                inner_params['encoding'] = encoding
             result = loader.load(
                 tmp_path,
                 header_unit=header_unit,
                 data_type=data_type,
-                encoding=encoding,
-                **params,
+                **inner_params,
             )
 
             # Preserve archive info in result report

@@ -17,6 +17,67 @@ import numpy as np
 from sklearn.base import BaseEstimator
 
 
+def prepare_torch_runtime(pipeline: Any) -> None:
+    """Initialize Torch optimizer imports before entering native callbacks.
+
+    Torch lazily imports Dynamo when an optimizer is constructed. Prepare its
+    optional native dependencies before global TensorFlow seeding and before
+    Rust schedules model callbacks. Inspect declarations without constructing
+    components, so their constructors still observe the requested global seed.
+    """
+    from collections.abc import Mapping
+
+    from nirs4all.operators.models.multimodal import MultimodalRegressor
+    from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+
+    def model_declares_torch(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            reference = next((value[key] for key in ("class", "instance", "function") if key in value), None)
+            if reference is not None:
+                return model_declares_torch(reference) or (
+                    isinstance(value.get("params"), Mapping) and model_declares_torch(value["params"].get("model"))
+                )
+            if value.get("type") == "function":
+                function = value.get("func")
+                if isinstance(function, Mapping):
+                    function = function.get("func")
+                return value.get("framework") == "pytorch" and model_declares_torch(function)
+            return any(declares_torch(value[key]) for key in ("_or_", "_cartesian_", "_zip_", "_chain_") if key in value)
+        if isinstance(value, str):
+            from nirs4all.pipeline.config.component_serialization import build_aliases
+
+            module_name, _, name = build_aliases.get(value, value).rpartition(".")
+            if not module_name:
+                return False
+            try:
+                value = getattr(importlib.import_module(module_name), name)
+            except (ImportError, AttributeError):
+                return False  # Leave invalid declarations to the existing deserializer.
+        if isinstance(value, MultimodalRegressor):
+            return model_declares_torch(value.model)
+        model_type = value if inspect.isclass(value) else type(value)
+        return (inspect.getattr_static(value, "framework", None) == "pytorch"
+                or any(base.__module__.startswith("torch.") for base in model_type.__mro__))
+
+    def declares_torch(value: Any) -> bool:
+        if isinstance(value, PipelineConfigs):
+            return declares_torch(value.steps)
+        if isinstance(value, (list, tuple)):
+            return any(declares_torch(item) for item in value)
+        if isinstance(value, Mapping):
+            if "model" in value and model_declares_torch(value["model"]):
+                return True
+            if any(key in value for key in ("class", "instance", "function")):
+                return model_declares_torch(value)
+            return any(declares_torch(value[key]) for key in ("steps", "pipeline", "branch", "_or_", "_cartesian_", "_zip_", "_chain_") if key in value)
+        return model_declares_torch(value)
+
+    if declares_torch(pipeline):
+        # Torch owns the optional Triton check; CPU wheels without Triton remain
+        # supported. Importing Dynamo does not construct or fit an optimizer.
+        importlib.import_module("torch._dynamo")
+
+
 def torch_model_params(model: Any) -> dict[str, Any] | None:
     """Encode a PyTorch factory or module template for the DAG model node."""
     if isinstance(model, dict) and model.get("framework") == "pytorch" and model.get("type") == "function":

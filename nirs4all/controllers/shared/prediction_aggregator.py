@@ -228,7 +228,7 @@ class PredictionAggregator:
 
         # Normalize weights
         total = sum(weights)
-        weights = [w / total for w in weights]
+        weights = [w / total for w in weights] if total > 0 else [1.0 / len(weights)] * len(weights)
 
         logger.debug(
             f"Weighted mean weights: {list(zip(valid_models, [f'{w:.3f}' for w in weights], strict=False))}"
@@ -334,7 +334,7 @@ class PredictionAggregator:
 
             weights = []
             for score in fold_scores:
-                weight = 1.0 / (score + 1e-10) if score >= 0 else abs(score) if lower_is_better else max(score, 0.0)
+                weight = (1.0 / (score + 1e-10) if score >= 0 else abs(score)) if lower_is_better else max(score, 0.0)
                 weights.append(weight)
 
             # Normalize

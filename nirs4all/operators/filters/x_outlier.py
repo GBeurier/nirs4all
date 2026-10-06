@@ -91,7 +91,7 @@ class XOutlierFilter(SampleFilter):
         Args:
             method: Outlier detection method:
                    - "mahalanobis": Mahalanobis distance. Uses threshold as
-                                   number of standard deviations. Default threshold=3.0.
+                                   root-Mahalanobis distance; default sqrt(chi2.ppf(0.975, df=p)).
                    - "robust_mahalanobis": Robust version using MinCovDet estimator.
                                           More resistant to outliers in training data.
                    - "pca_residual": Q-statistic (squared reconstruction error).
@@ -103,8 +103,8 @@ class XOutlierFilter(SampleFilter):
                                         Uses contamination parameter.
                    - "lof": Local Outlier Factor. Uses contamination parameter.
             threshold: Detection threshold. If None, uses method-specific defaults:
-                      - mahalanobis/robust_mahalanobis: 3.0 (3 std deviations)
-                      - pca_residual/pca_leverage: Auto-computed from chi-squared distribution
+                      - mahalanobis/robust_mahalanobis: sqrt of the 97.5% chi-square quantile
+                      - pca_residual/pca_leverage: 95th percentile of training statistics
                       - isolation_forest/lof: Uses contamination parameter instead
             n_components: Number of PCA components for PCA-based methods and for
                          dimensionality reduction in Mahalanobis methods.

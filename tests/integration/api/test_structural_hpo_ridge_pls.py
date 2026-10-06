@@ -630,10 +630,9 @@ def test_public_active_numeric_proposal_refused_before_factory_or_fit(
         with pytest.raises(dag_ml.DagMlRuntimeError) as error:
             _run(dataset, tmp_path / "invalid", tuning={**tuning, "resume": True})
     assert type(error.value) is dag_ml.DagMlRuntimeError
-    assert str(error.value) == (
-        "runtime validation failed: python callback raised an exception: "
-        f"structural proposal value is outside the declared search domain: {path}"
-    )
+    message = str(error.value)
+    assert message.startswith("runtime validation failed: python callback raised ValueError: Traceback (most recent call last):\n")
+    assert message.splitlines()[-1] == f"ValueError: structural proposal value is outside the declared search domain: {path}"
     assert len(decoded) == 1 and decoded[0][path] == value
     assert (len(observer.callbacks), len(observer.entries), len(observer.candidate_factories)) == counts
     assert checkpoint.read_bytes() == before

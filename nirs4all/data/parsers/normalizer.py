@@ -222,7 +222,7 @@ class ConfigNormalizer:
 
         Returns:
             Tuple of (normalized_config, dataset_name).
-            Returns (None, 'Unknown_dataset') if parsing fails.
+            None input yields (None, 'Unknown_dataset'); invalid configurations raise ValueError.
         """
         # Handle None input
         if input_data is None:
@@ -262,21 +262,17 @@ class ConfigNormalizer:
             config, name = self._load_config_file(path_str)
             if config is None:
                 return None, name
-            return self._apply_key_aliases(config), name
+            normalized, _ = self._normalize_dict(config)
+            return normalized, name
 
-        # Otherwise, treat as folder path
+        path = Path(path_str)
+        if path.is_file():
+            return self._normalize_dict({"files": [{"path": path_str, "partition": "train"}]})
         parser = FolderParser()
-        if parser.can_parse(path_str):
-            result = parser.parse(path_str)
-            if result.success:
-                return result.config, result.dataset_name or 'Unknown_dataset'
-            else:
-                # Log errors
-                for _ in result.errors:
-                    pass  # Errors are in result, caller handles them
-                return None, 'Unknown_dataset'
-
-        return None, 'Unknown_dataset'
+        result = parser.parse(path_str)
+        if not result.success:
+            raise ValueError("Invalid dataset configuration: " + "; ".join(result.errors))
+        return result.config, result.dataset_name or 'Unknown_dataset'
 
     def _normalize_dict(
         self,
@@ -292,13 +288,18 @@ class ConfigNormalizer:
         """
         config = self._apply_key_aliases(config)
 
+        # Relation staging consumes source observations and shared references,
+        # not positional train_x blocks. Keep its full source topology intact.
+        if config.get('sources') and (config.get('experimental_relation_pipeline') or config.get('repetition_spec') or config.get('relations')):
+            return config, self._extract_name(config)
+
         # Check for 'folder' key first
         if 'folder' in config:
             folder_parser = FolderParser()
             result = folder_parser.parse(config)
             if result.success:
                 return result.config, result.dataset_name or 'Unknown_dataset'
-            return None, 'Unknown_dataset'
+            raise ValueError('Invalid dataset configuration: ' + '; '.join(result.errors))
 
         # Try each parser
         for parser in self.parsers:
@@ -334,7 +335,11 @@ class ConfigNormalizer:
                     else:
                         return result.config, dataset_name
                 # If parser matched but failed, don't try other parsers
-                return None, 'Unknown_dataset'
+                raise ValueError('Invalid dataset configuration: ' + '; '.join(result.errors))
+
+        for key in ('files', 'sources', 'variations'):
+            if key in config:
+                raise ValueError(f"'{key}' must be a nonempty list of valid data definitions")
 
         # No parser matched - return dict as-is with name extracted
         name = self._extract_name(config)

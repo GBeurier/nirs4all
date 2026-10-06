@@ -629,7 +629,7 @@ def _get_cached_jax_kernel_pls():
 # KernelPLS Estimator Class
 # =============================================================================
 
-class KernelPLS(BaseEstimator, RegressorMixin):
+class KernelPLS(RegressorMixin, BaseEstimator):
     """Nonlinear PLS using Kernel Methods (Kernel PLS / NL-PLS).
 
     Kernel PLS maps the input data X into a higher-dimensional feature space
@@ -666,7 +666,8 @@ class KernelPLS(BaseEstimator, RegressorMixin):
     center_kernel : bool, default=True
         Whether to center the kernel matrix. Recommended for most cases.
     scale_y : bool, default=True
-        Whether to center and scale Y to zero mean and unit variance.
+        Whether to scale Y to unit variance. Y is also centered when
+        center_kernel=True so its intercept is retained by the centered kernel.
     backend : str, default='numpy'
         Computational backend to use:
         - 'numpy': NumPy backend (CPU only).
@@ -683,7 +684,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
     K_train_ : ndarray of shape (n_train, n_train)
         Raw (uncentered) training kernel matrix.
     y_mean_ : ndarray of shape (n_targets,)
-        Mean of Y (if scale_y=True).
+        Mean of Y (if scale_y=True or center_kernel=True).
     y_std_ : ndarray of shape (n_targets,)
         Standard deviation of Y (if scale_y=True).
     x_scores_ : ndarray of shape (n_train, n_components)
@@ -886,12 +887,11 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         self.n_components_ = min(self.n_components, max_components)
 
         # Center and scale Y
+        self.y_mean_ = y.mean(axis=0) if self.scale_y or self.center_kernel else np.zeros(n_targets, dtype=np.float64)
         if self.scale_y:
-            self.y_mean_ = y.mean(axis=0)
             self.y_std_ = y.std(axis=0, ddof=1)
             self.y_std_ = np.where(self.y_std_ < 1e-10, 1.0, self.y_std_)
         else:
-            self.y_mean_ = np.zeros(n_targets, dtype=np.float64)
             self.y_std_ = np.ones(n_targets, dtype=np.float64)
 
         Y_centered = (y - self.y_mean_) / self.y_std_
@@ -1121,8 +1121,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         self : KernelPLS
             Estimator instance.
         """
-        for key, value in params.items():
-            setattr(self, key, value)
+        super().set_params(**params)
         return self
 
     def __repr__(self) -> str:

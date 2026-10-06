@@ -93,6 +93,7 @@ def lower_typed_choices(steps: list[Any], schemas: dict[str, Any]) -> dict[str, 
         )
     return {
         "id": "nirs4all-typed-structural-hpo",
+        "input": {"name": "x", "representation": "feature_block_set"},
         "pipeline": [
             {
                 "kind": "generator",
