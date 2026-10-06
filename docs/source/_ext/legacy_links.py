@@ -141,7 +141,7 @@ def reread_linked_documents(app: Sphinx, env: Any, added: set[str], changed: set
     return sorted(env.found_docs - removed)
 
 
-def refresh_viewcode_pages(app: Sphinx) -> None:
+def refresh_viewcode_pages(app: Sphinx) -> list[Any]:
     """Regenerate source HTML because backlink ownership may change alone.
 
     Viewcode otherwise skips pages whenever the Python file is older than its
@@ -150,13 +150,14 @@ def refresh_viewcode_pages(app: Sphinx) -> None:
     renders them again; source files and API descriptions remain untouched.
     """
     if app.builder.format != "html":
-        return
+        return []
     directory = (Path(app.outdir) / "_modules").resolve()
     suffix = getattr(app.builder, "out_suffix", ".html")
     for module in getattr(app.env, "_viewcode_modules", {}):
         page = (directory / (module.replace(".", "/") + suffix)).resolve()
         if page.is_relative_to(directory):
             page.unlink(missing_ok=True)
+    return []
 
 
 def setup(app: Sphinx) -> dict[str, Any]:
