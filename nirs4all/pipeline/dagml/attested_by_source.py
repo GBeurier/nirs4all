@@ -208,7 +208,9 @@ def _cli_training(*, request: dict[str, Any], envelopes: dict[str, Any], relatio
                   graph: dict[str, Any], dataset_path: str, dataset_pickle: str | None, workdir: Path,
                   cli: str, python: str, suffix: str) -> tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
     from .cli_runner import write_launcher_shim
+    from .dataset import _require_prepared_dataset_transport
 
+    _require_prepared_dataset_transport()
     workdir.mkdir(parents=True, exist_ok=False)
     documents = {"request": request, "data_envelopes": envelopes, "relations": relations, "influence": influence, "graph": graph}
     for name, document in documents.items():
