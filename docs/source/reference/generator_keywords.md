@@ -2,35 +2,39 @@
 
 This document provides a comprehensive reference for all generator keywords used in nirs4all pipeline configuration expansion.
 
+## Alphabetical keyword index
+
+[`_cartesian_`](#generator-keyword-cartesian), [`_chain_`](#generator-keyword-chain), [`_depends_on_`](#generator-keyword-depends-on), [`_exclude_`](#generator-keyword-exclude), [`_grid_`](#generator-keyword-grid), [`_log_range_`](#generator-keyword-log-range), [`_metadata_`](#generator-keyword-metadata), [`_mutex_`](#generator-keyword-mutex), [`_or_`](#generator-keyword-or), [`_preset_`](#generator-keyword-preset), [`_range_`](#generator-keyword-range), [`_requires_`](#generator-keyword-requires), [`_sample_`](#generator-keyword-sample), [`_seed_`](#generator-keyword-seed), [`_tags_`](#generator-keyword-tags), [`_weights_`](#generator-keyword-weights), [`_zip_`](#generator-keyword-zip), [`arrange`](#generator-keyword-arrange), [`count`](#generator-keyword-count), [`pick`](#generator-keyword-pick), [`then_arrange`](#generator-keyword-then-arrange), [`then_pick`](#generator-keyword-then-pick)
+
 ## Table of Contents
 
 1. [Overview](#overview)
 2. [Phase 1-2: Core Keywords](#phase-1-2-core-keywords)
-   - [_or_](#_or_)
-   - [_range_](#_range_)
-   - [pick](#pick)
-   - [arrange](#arrange)
-   - [then_pick](#then_pick)
-   - [then_arrange](#then_arrange)
-   - [count](#count)
+   - [_or_](#generator-keyword-or)
+   - [_range_](#generator-keyword-range)
+   - [pick](#generator-keyword-pick)
+   - [arrange](#generator-keyword-arrange)
+   - [then_pick](#generator-keyword-then-pick)
+   - [then_arrange](#generator-keyword-then-arrange)
+   - [count](#generator-keyword-count)
 3. [Phase 3: Advanced Keywords](#phase-3-advanced-keywords)
-   - [_log_range_](#_log_range_)
-   - [_grid_](#_grid_)
-   - [_zip_](#_zip_)
-   - [_chain_](#_chain_)
-   - [_sample_](#_sample_)
-   - [_tags_](#_tags_)
-   - [_metadata_](#_metadata_)
+   - [_log_range_](#generator-keyword-log-range)
+   - [_grid_](#generator-keyword-grid)
+   - [_zip_](#generator-keyword-zip)
+   - [_chain_](#generator-keyword-chain)
+   - [_sample_](#generator-keyword-sample)
+   - [_tags_](#generator-keyword-tags)
+   - [_metadata_](#generator-keyword-metadata)
 4. [Phase 4: Production Keywords](#phase-4-production-keywords)
-   - [_cartesian_](#_cartesian_)
-   - [_mutex_](#_mutex_)
-   - [_requires_](#_requires_)
-   - [_depends_on_](#_depends_on_)
-   - [_exclude_](#_exclude_)
-   - [_preset_](#_preset_)
+   - [_cartesian_](#generator-keyword-cartesian)
+   - [_mutex_](#generator-keyword-mutex)
+   - [_requires_](#generator-keyword-requires)
+   - [_depends_on_](#generator-keyword-depends-on)
+   - [_exclude_](#generator-keyword-exclude)
+   - [_preset_](#generator-keyword-preset)
 5. [Modifier Keywords](#modifier-keywords)
-   - [_seed_](#_seed_)
-   - [_weights_](#_weights_)
+   - [_seed_](#generator-keyword-seed)
+   - [_weights_](#generator-keyword-weights)
 6. [API Functions](#api-functions)
 7. [Selection Semantics: pick vs arrange](#selection-semantics-pick-vs-arrange)
 8. [Common Patterns and Examples](#common-patterns-and-examples)
@@ -155,6 +159,7 @@ from nirs4all.pipeline.config.generator import (
 
 ## Phase 1-2: Core Keywords
 
+(generator-keyword-or)=
 ### `_or_`
 
 Select from a list of alternatives. Each choice becomes a separate configuration variant.
@@ -186,6 +191,7 @@ Select from a list of alternatives. Each choice becomes a separate configuration
 
 ---
 
+(generator-keyword-range)=
 ### `_range_`
 
 Generate a sequence of numeric values.
@@ -214,6 +220,7 @@ Generate a sequence of numeric values.
 
 ---
 
+(generator-keyword-pick)=
 ### `pick`
 
 Unordered selection - combinations where order doesn't matter.
@@ -240,6 +247,7 @@ Unordered selection - combinations where order doesn't matter.
 
 ---
 
+(generator-keyword-arrange)=
 ### `arrange`
 
 **(Explicit)** Ordered arrangement - permutations where order matters.
@@ -266,6 +274,7 @@ Unordered selection - combinations where order doesn't matter.
 
 ---
 
+(generator-keyword-then-pick)=
 ### `then_pick`
 
 Second-order operation: apply combinations to the results of a primary selection.
@@ -286,6 +295,7 @@ Second-order operation: apply combinations to the results of a primary selection
 
 ---
 
+(generator-keyword-then-arrange)=
 ### `then_arrange`
 
 Second-order operation: apply permutations to the results of a primary selection.
@@ -306,6 +316,7 @@ Second-order operation: apply permutations to the results of a primary selection
 
 ---
 
+(generator-keyword-count)=
 ### `count`
 
 Limit the number of results returned. With a seed, results are deterministic.
@@ -331,6 +342,7 @@ expand_spec({"_or_": ["A", "B", "C", "D", "E"], "count": 2}, seed=42)
 
 ## Phase 3: Advanced Keywords
 
+(generator-keyword-log-range)=
 ### `_log_range_`
 
 **Purpose**: Generate logarithmically-spaced numeric sequences. Useful for hyperparameter optimization over values spanning multiple orders of magnitude (e.g., learning rates, regularization).
@@ -375,6 +387,7 @@ pipeline = [
 
 ---
 
+(generator-keyword-grid)=
 ### `_grid_`
 
 **Purpose**: Generate Cartesian product of parameter spaces (full grid search). Similar to sklearn's `ParameterGrid` - creates all possible combinations of parameters.
@@ -420,6 +433,7 @@ pipeline = [
 
 ---
 
+(generator-keyword-zip)=
 ### `_zip_`
 
 **Purpose**: Parallel iteration - pair values at the same index (like Python's `zip()`). Use when parameters should vary together, not independently.
@@ -469,6 +483,7 @@ pipeline = [
 
 ---
 
+(generator-keyword-chain)=
 ### `_chain_`
 
 **Purpose**: Sequential ordered choices. Preserves exact order of configurations (unlike `_or_` which may randomize with `count`). Ideal for progressive experiments.
@@ -515,6 +530,7 @@ pipeline = [
 
 ---
 
+(generator-keyword-sample)=
 ### `_sample_`
 
 **Purpose**: Statistical sampling from probability distributions. Use for random search in large hyperparameter spaces instead of exhaustive grid search.
@@ -575,6 +591,7 @@ pipeline = [
 
 ---
 
+(generator-keyword-tags)=
 ### `_tags_`
 
 Add tags to configurations for filtering and categorization.
@@ -586,6 +603,7 @@ Add tags to configurations for filtering and categorization.
 
 ---
 
+(generator-keyword-metadata)=
 ### `_metadata_`
 
 Attach arbitrary metadata to configurations.
@@ -599,6 +617,7 @@ Attach arbitrary metadata to configurations.
 
 ## Phase 4: Production Keywords
 
+(generator-keyword-cartesian)=
 ### `_cartesian_`
 
 **Purpose**: Generate the Cartesian product of multiple stages (each with `_or_` choices), then optionally apply pick/arrange selection on the resulting complete pipelines. Key pattern for preprocessing pipeline generation.
@@ -684,6 +703,7 @@ pipeline = [
 
 ---
 
+(generator-keyword-mutex)=
 ### `_mutex_`
 
 Mutual exclusion constraint - certain items cannot appear together.
@@ -703,6 +723,7 @@ Mutual exclusion constraint - certain items cannot appear together.
 
 ---
 
+(generator-keyword-requires)=
 ### `_requires_`
 
 Dependency constraint - if item A is selected, item B must also be selected.
@@ -722,6 +743,7 @@ Dependency constraint - if item A is selected, item B must also be selected.
 
 ---
 
+(generator-keyword-depends-on)=
 ### `_depends_on_`
 
 Conditional expansion - expansion depends on the value of another parameter.
@@ -737,6 +759,7 @@ Conditional expansion - expansion depends on the value of another parameter.
 
 ---
 
+(generator-keyword-exclude)=
 ### `_exclude_`
 
 Exclude specific combinations from results.
@@ -755,6 +778,7 @@ Exclude specific combinations from results.
 
 ---
 
+(generator-keyword-preset)=
 ### `_preset_`
 
 Reference a named preset configuration.
@@ -798,6 +822,7 @@ results = expand_spec(resolved)
 
 ## Modifier Keywords
 
+(generator-keyword-seed)=
 ### `_seed_`
 
 Provide a deterministic seed for random operations within a node. This ensures reproducible generation when using `count` or random sampling.
@@ -821,6 +846,7 @@ Provide a deterministic seed for random operations within a node. This ensures r
 
 ---
 
+(generator-keyword-weights)=
 ### `_weights_`
 
 Provide weights for weighted random selection when using `count`.

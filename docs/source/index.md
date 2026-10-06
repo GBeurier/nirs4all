@@ -1,4 +1,4 @@
-# Welcome to NIRS4ALL's documentation!
+# nirs4all: from data to deployed predictions
 
 <div align="center" style="margin-bottom: 20px;">
 <img src="_static/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo" style="margin-bottom: 15px;">
@@ -8,17 +8,17 @@
 
 **NIRS4ALL** is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
-> 🚀 **New here? Start with {doc}`Getting Started <getting_started/index>`** — install, run your first pipeline, then follow the tutorial. The other sections below are for when you need them.
+> Start with the {doc}`common user and developer guide <guide/index>`: choose your language, define data, evaluate candidates, save the refit model and predict. Use the detailed references when you need exact parameters.
 
 ::::{grid} 3
 :gutter: 3
 
-:::{grid-item-card} Getting Started
-:link: getting_started/index
+:::{grid-item-card} Common workflow guide
+:link: guide/index
 :link-type: doc
 :class-card: sd-bg-light
 
-New to nirs4all? Installation, quickstart, and a progressive tutorial.
+Task-oriented chapters for Python, R, JS/WASM, MATLAB/Octave, Rust and CLI.
 
 +++
 {bdg-primary}`Beginner` {bdg-info}`5-20 min`
@@ -138,6 +138,7 @@ See {doc}`examples/index` for 50+ working examples organized by topic.
 :maxdepth: 3
 :caption: Documentation
 
+guide/index
 getting_started/index
 concepts/index
 user_guide/index

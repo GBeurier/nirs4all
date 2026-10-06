@@ -9,7 +9,7 @@ dataset.yaml or dataset.json
 pipeline.yaml or pipeline.json
 ```
 
-The public Python API runs that contract directly. The CLI currently validates and manages datasets, configs, workspaces, and artifacts; it does not expose a native training `run` subcommand in this repository.
+The public Python API runs the supported pipeline/dataset contracts. The CLI provides `workflow run/predict/retrain/export/load`, `results` and `tuning` in addition to dataset/config/workspace/artifact management; it has no general top-level `nirs4all run`. Start with the {doc}`common interface matrix </guide/interfaces>` and {doc}`task guide </guide/tasks>` to select the correct product and profile.
 
 ## Python API
 
