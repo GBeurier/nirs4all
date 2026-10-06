@@ -16,12 +16,19 @@ point for everything that happened during training.
 
 | Property               | What it returns                                    |
 |------------------------|----------------------------------------------------|
-| `result.best_score`    | Best pooled OOF score (RMSECV for regression)      |
-| `result.best_rmse`     | Best RMSE (alias for regression tasks)             |
-| `result.best_r2`       | Best R-squared                                     |
+| `result.best_score`    | Primary `test_score` of the selected entry         |
+| `result.cv_best_score` | Validation score of the best CV entry              |
+| `result.best_rmse`     | RMSE of the same selected entry as `best_score`     |
+| `result.best_r2`       | R-squared of that same selected entry              |
 | `result.final`         | Refit entry (`fold_id="final"`)                    |
 | `result.final_score`   | Refit model's test score (RMSEP)                   |
 | `result.num_predictions` | Total number of prediction entries                |
+
+`result.best` prefers the selected refit entry when one exists and otherwise
+uses the best CV entry. `best_score` is its primary test-score field, not an
+alias for pooled RMSECV. Use `cv_best_score` to read CV validation evidence;
+inspect the entry's partition and evaluation metadata before interpreting a
+score as held-out performance.
 
 ### Ranking variants
 
