@@ -105,3 +105,35 @@ def test_transport_context_is_nested_and_thread_local():
             dataset._require_prepared_dataset_transport()
     finally:
         dataset._DATASET_TRANSPORT_PREPARED.reset(outer)
+
+
+@pytest.mark.parametrize("late_change", ["mode", "extension"])
+def test_by_source_late_cli_dispatch_refuses_before_writes(monkeypatch, tmp_path, late_change):
+    from nirs4all.pipeline.dagml import attested_by_source
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    x = np.arange(48, dtype=float).reshape(12, 4)
+    supplied = SpectroDataset("by-source-transport")
+    supplied.add_samples([x[:, :2], x[:, 2:]], indexes={"partition": "train"})
+    supplied.add_targets(x[:, 0] * 0.7 + x[:, 1] * 0.2)
+
+    class ModeFlipKFold(KFold):
+        def split(self, *args, **kwargs):
+            monkeypatch.setenv("N4A_DAGML_INPROCESS", "0")
+            yield from super().split(*args, **kwargs)
+
+    if late_change == "extension":
+        checks = iter([True, True, False])
+        monkeypatch.setattr(in_process_runner, "_dagml_extension_loads", lambda: next(checks))
+    splitter = ModeFlipKFold(3) if late_change == "mode" else KFold(3)
+    pipeline = [splitter, {"branch": {"by_source": True, "steps": {f"source_{i}": [{"model": Ridge()}] for i in range(2)}}}, {"merge": "auto"}]
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("unprepared by_source dataset must not reach subprocess launch")
+
+    monkeypatch.setattr(attested_by_source.subprocess, "run", forbidden)
+    with pytest.raises(RuntimeError, match="changed to CLI"):
+        run_backend.run_via_dagml(pipeline, supplied, workdir=tmp_path, dagml_cli=str(run_backend._default_dagml_cli()), save_charts=False, save_artifacts=False, verbose=0)
+    assert not list(tmp_path.rglob("request.json"))
+    assert not list(tmp_path.rglob("n4a_adapter"))
+    assert dataset._DATASET_TRANSPORT_PREPARED.get() is True
