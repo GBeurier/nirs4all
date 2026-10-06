@@ -63,6 +63,7 @@ jobs:
 
       - name: Build documentation
         run: |
+          set -o pipefail
           cd docs
           sphinx-build -b html source _build/html -W --keep-going 2>&1 | tee build.log
 
@@ -115,6 +116,7 @@ jobs:
 
       - name: Check external links
         run: |
+          set -o pipefail
           cd docs
           sphinx-build -b linkcheck source _build/linkcheck -W --keep-going 2>&1 | tee linkcheck.log
 
