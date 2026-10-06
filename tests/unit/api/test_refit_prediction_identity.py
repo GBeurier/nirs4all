@@ -103,6 +103,12 @@ def test_real_legacy_refit_overlap_and_reopened_store(tmp_path):
             merged = _result(finals, stored)._refit_predictions().filter_predictions(fold_id="final")
             assert len(merged) == 1
             np.testing.assert_allclose(merged[0]["y_pred"].ravel(), x.ravel(), atol=1e-6)
+        with Predictions.from_workspace(tmp_path, load_arrays=False) as metadata_only:
+            rows = metadata_only.filter_predictions(fold_id="final", load_arrays=False)
+            merged = _result(finals, rows)._refit_predictions().filter_predictions(fold_id="final")
+            assert len(merged) == 1
+            np.testing.assert_array_equal(merged[0]["sample_indices"], finals[0]["sample_indices"])
+            np.testing.assert_array_equal(merged[0]["y_pred"], finals[0]["y_pred"])
     finally:
         result.close()
 
@@ -173,3 +179,16 @@ def test_storage_named_metadata_and_nonempty_provenance_conflicts_refused():
         second.update(change)
         with pytest.raises(ValueError, match="Conflicting final prediction evidence"):
             _result([first], [second]).final
+
+
+@pytest.mark.parametrize("field", ["y_true", "y_pred", "y_proba", "X", "spectra", "weights", "sample_indices"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_explicit_sample_axes_are_not_discarded(field, reverse):
+    values = np.arange(6.).reshape(3, 2)
+    first = _row(**{field: values})
+    second = deepcopy(first)
+    second[field] = values.reshape(2, 3)
+    if reverse:
+        first, second = second, first
+    with pytest.raises(ValueError, match="Conflicting final prediction evidence"):
+        _result([first], [second]).final
