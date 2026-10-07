@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title description">
+<title id="title">Tag a sample without removing it</title><desc id="description">An IQR criterion flags one unusually high target value in this teaching dataset.</desc>
+<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#243B53" flood-opacity=".07"/></filter><marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L8,4.5 L0,9" fill="none" stroke="#64788C" stroke-width="1.4"/></marker></defs>
+<style>text{font-family:Inter,DejaVu Sans,Arial,sans-serif;fill:#162C46}</style>
+<rect width="1200" height="720" rx="24" fill="#F3F6FA"/>
+<rect x="32" y="32" width="6" height="66" rx="3" fill="#1463A0"/>
+<text x="56" y="59" font-size="30" font-weight="700" text-anchor="start" style="fill:#162C46">Tag a sample without removing it</text>
+<text x="56" y="94" font-size="19" font-weight="400" text-anchor="start" style="fill:#4C6278">An IQR criterion flags one unusually high target value in this teaching dataset.</text>
+<rect x="40" y="167" width="370" height="308" rx="10" fill="white" stroke="#D9E2EC"/>
+<rect x="40" y="167" width="370" height="44" rx="10" fill="#EAF0F7" stroke="#D9E2EC"/>
+<text x="56" y="196" font-size="19" font-weight="600" text-anchor="start" style="fill:#162C46">Sample</text>
+<text x="181" y="196" font-size="19" font-weight="600" text-anchor="start" style="fill:#162C46">Target</text>
+<text x="301" y="196" font-size="19" font-weight="600" text-anchor="start" style="fill:#162C46">IQR flag</text>
+<text x="56" y="240" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">A</text>
+<text x="181" y="240" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">10</text>
+<text x="301" y="240" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">keep</text>
+<text x="56" y="284" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">B</text>
+<text x="181" y="284" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">11</text>
+<text x="301" y="284" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">keep</text>
+<text x="56" y="328" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">C</text>
+<text x="181" y="328" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">12</text>
+<text x="301" y="328" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">keep</text>
+<text x="56" y="372" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">D</text>
+<text x="181" y="372" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">13</text>
+<text x="301" y="372" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">keep</text>
+<text x="56" y="416" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">E</text>
+<text x="181" y="416" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">14</text>
+<text x="301" y="416" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">keep</text>
+<rect x="41" y="431" width="368" height="44" rx="0" fill="#FFF1E5" stroke="none"/>
+<text x="56" y="460" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">F</text>
+<text x="181" y="460" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">50</text>
+<text x="301" y="460" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">flag</text>
+<rect x="475" y="177" width="685" height="163" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="475" y="177" width="7" height="163" rx="3" fill="#7150A5" stroke="#7150A5"/>
+<text x="499" y="219" font-size="23" font-weight="700" text-anchor="start" style="fill:#7150A5">Criterion</text>
+<text x="499" y="256" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Q1 = 11.25 · Q3 = 13.75 · IQR = 2.5</text>
+<text x="499" y="285" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Bounds: 7.5 to 17.5; sample F lies above the upper bound</text>
+<rect x="475" y="375" width="685" height="165" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="475" y="375" width="7" height="165" rx="3" fill="#007B71" stroke="#007B71"/>
+<text x="499" y="417" font-size="23" font-weight="700" text-anchor="start" style="fill:#007B71">After tag</text>
+<text x="499" y="454" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Fit still uses A, B, C, D, E, F: 6 training rows</text>
+<text x="499" y="483" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">F carries a flag for analysis or routing</text>
+<text x="499" y="512" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">The tag is information, not an exclusion</text>
+<rect x="40" y="604" width="1120" height="88" rx="12" fill="white" stroke="#D9E2EC"/>
+<text x="60" y="631" font-size="17" font-weight="700" text-anchor="start" style="fill:#007B71">EXPECTED RESULT</text>
+<text x="60" y="657" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">All 6 rows remain. F receives an outlier tag so its behavior can be inspected separately.</text>
+</svg>

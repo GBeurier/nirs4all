@@ -1,20 +1,104 @@
 # Augmentation Operators Reference
 
-Augmentation operators generate variations of training spectra to improve model robustness. They are applied during training only and are not replayed during prediction.
+An augmentation operator perturbs spectra. The sample-augmentation node creates origin-linked training copies; the feature-augmentation node creates representations. Choose the physical change you expect at deployment before selecting noise, drift, wavelength warp or masking. Check that the target remains valid.
 
-## Usage in Pipeline
+## Choose a perturbation that resembles real acquisition variability
+
+Read {doc}`nodes/sample_augmentation` for the worked result figure, expected dimensions and exercises. Choose a family below to compare the enumerated operators.
+
+## Same worked recipe in JSON, YAML and Python
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "pipeline": [
+    {
+      "split": {
+        "class": "sklearn.model_selection.KFold",
+        "params": {
+          "n_splits": 3
+        }
+      }
+    },
+    {
+      "sample_augmentation": {
+        "transformers": [
+          {
+            "class": "nirs4all.operators.augmentation.GaussianAdditiveNoise",
+            "params": {
+              "sigma": 0.01
+            }
+          }
+        ],
+        "count": 2,
+        "selection": "random",
+        "random_state": 42
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition.PLSRegression",
+        "params": {
+          "n_components": 2
+        }
+      }
+    }
+  ]
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+pipeline:
+- split:
+    class: sklearn.model_selection.KFold
+    params:
+      n_splits: 3
+- sample_augmentation:
+    transformers:
+    - class: nirs4all.operators.augmentation.GaussianAdditiveNoise
+      params:
+        sigma: 0.01
+    count: 2
+    selection: random
+    random_state: 42
+- model:
+    class: sklearn.cross_decomposition.PLSRegression
+    params:
+      n_components: 2
+```
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
-from nirs4all.operators.augmentation import GaussianAdditiveNoise, WavelengthShift
+from sklearn.model_selection import KFold
+from sklearn.cross_decomposition import PLSRegression
+from nirs4all.operators.augmentation import GaussianAdditiveNoise
 
 pipeline = [
-    {"sample_augmentation": GaussianAdditiveNoise(sigma=0.01)},
-    SNV(),
-    {"model": PLSRegression(n_components=10)},
+    KFold(n_splits=3),
+    {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 2, "selection": "random", "random_state": 42,
+    }},
+    {"model": PLSRegression(n_components=2)},
 ]
 ```
+:::
 
-All operators below are imported from `nirs4all.operators.augmentation`.
+::::
+
+These are Python SDK operators. Native R/Octave/WASM recipes use their own method IDs and facade; see {doc}`/guide/languages`.
 
 ---
 
@@ -151,3 +235,62 @@ Available detector models for `DetectorRollOffAugmenter`:
 
 - {doc}`../reference/transforms` -- Preprocessing transforms reference
 - {doc}`../reference/pipeline_keywords` -- Pipeline keyword syntax (including `sample_augmentation` and `feature_augmentation`)
+
+## What the perturbations mean
+
+```{figure} /assets/guide/augmentation.svg
+:alt: The original synthetic spectrum shares peak positions with versions perturbed by additive noise and by a gain plus offset.
+
+Illustrative acquisition changes. Copies share the original sample's identity
+and target assumptions; they do not add independent validation evidence.
+```
+
+| Mechanism | Operators | Interpretation and important limit |
+|---|---|---|
+| Detector noise | GaussianAdditiveNoise, HeteroscedasticNoiseAugmenter | Constant-relative versus signal-dependent uncertainty; too much noise erases weak peaks |
+| Gain/scatter | MultiplicativeNoise, PathLengthAugmenter, ScatterSimulationMSC | Alters intensity without moving peaks; may conflict with a concentration target if used beyond plausible acquisition variability |
+| Baseline | LinearBaselineDrift, PolynomialBaselineDrift, BatchEffectAugmenter | Adds nuisance offset/slope/curvature; batch-wide perturbations differ from independent sample noise |
+| Calibration drift | WavelengthShift, WavelengthStretch, LocalWavelengthWarp | Moves spectral features; shift/scale/warp have different geometry and boundary behavior |
+| Local amplitude | SmoothMagnitudeWarp, BandPerturbation | Alters broad envelopes or particular bands; can change the chemical meaning of a band |
+| Resolution | GaussianSmoothingJitter, InstrumentalBroadeningAugmenter, UnsharpSpectralMask | Blur or sharpen local detail; broadening is a more direct resolution model than arbitrary sharpening |
+| Missing/saturated channels | BandMasking, ChannelDropout, DeadBandAugmenter, LocalClipping, SpikeNoise | Simulates failures rather than an alternative physical sample; zero masking and interpolation produce different signatures |
+| Inter-sample mixing | MixupAugmenter, LocalMixupAugmenter | Requires a meaningful mixed-target assumption; nearest-neighbor structure and source origins matter |
+| Spline perturbations | Spline_Smoothing, Spline_X_Perturbations, Spline_Y_Perturbations, Spline_X_Simplification, Spline_Curve_Simplification | Changes curve smoothness, axis, amplitude or representation; distinguish displacement from simplification |
+| Environmental changes | TemperatureAugmenter, MoistureAugmenter | Models effects associated with temperature/water; those effects may also affect the true target |
+| Particle scattering | ParticleSizeAugmenter, EMSCDistortionAugmenter | Empirical wavelength-dependent scattering; not a complete physical scattering simulation |
+| Detector edges | DetectorRollOffAugmenter, StrayLightAugmenter, EdgeCurvatureAugmenter, TruncatedPeakAugmenter, EdgeArtifactsAugmenter | Models edge sensitivity, flattening, curvature or truncated peaks; detector range and wavelength units are essential |
+| General geometry | Rotate_Translate, Random_X_Operation | Broad numerical transformations; justify their relation to actual instrument variability |
+
+These mechanisms are hypotheses about deployment variability. Use an unchanged
+baseline and the same independent-unit folds to test each hypothesis. A visibly
+plausible curve does not establish target-label validity or improved accuracy.
+
+## Sample versus feature augmentation
+
+```{figure} /assets/guide/sample_augmentation.svg
+:alt: Training copies keep origin identities while validation remains unchanged.
+
+Educational workflow result; read the accompanying explanation for scope and interpretation.
+```
+
+Sample augmentation increases training observations; feature augmentation
+adds representations of each observation. Prediction must replay the feature
+construction needed by the fitted model, while training-only sample generation
+is skipped. The container, rather than the augmentation class name alone,
+determines workflow semantics. See {doc}`nodes/sample_augmentation` and
+{doc}`nodes/feature_augmentation` for layout, counts and replay rules.
+
+Augmented rows must remain with their original in every train/validation split.
+If an operator combines several origins, its relation must be accounted for;
+arbitrary random splitting after augmentation creates leakage. The reported
+sample count should distinguish independent samples from generated rows.
+
+## Diagnose an augmentation experiment
+
+Inspect before/after overlays, peak positions, signal ranges and target
+distribution. Check that held-out rows are unchanged and original-to-copy
+relations are recorded. Compare per-origin errors, not only errors averaged
+over generated rows. If augmentation helps one instrument but harms another,
+report the subgroup effect and revisit the assumed perturbation distribution.
+For parameter and method details use `nirs4all.operators.augmentation` under
+{doc}`/api/modules`.

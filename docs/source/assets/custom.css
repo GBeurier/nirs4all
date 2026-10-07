@@ -84,3 +84,73 @@ body.wide-view .wy-nav-content {
 .wy-side-nav-search input[type="text"] {
     border-color: #ccc !important;
 }
+
+/* User lessons: keep explanatory figures readable and code translations together. */
+.wy-nav-content {
+    max-width: 1120px;
+}
+
+.rst-content p {
+    max-width: 86ch;
+    line-height: 1.65;
+}
+
+.rst-content figure {
+    margin: 1.8rem 0 2.2rem;
+}
+
+.rst-content figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+}
+
+.rst-content figcaption {
+    margin: .8rem .4rem 0;
+    color: #40576b;
+    font-size: .95rem;
+}
+
+.rst-content .sd-tab-set {
+    border: 1px solid #d6e1eb;
+    border-radius: 12px;
+    padding: .7rem .8rem .2rem;
+    background: #f8fafc;
+    box-shadow: 0 3px 12px rgb(22 44 70 / 5%);
+    margin: 1.2rem 0 1.8rem;
+}
+
+.rst-content .sd-tab-set > label {
+    padding: .65rem .95rem;
+    font-weight: 600;
+    color: #40576b;
+}
+
+.rst-content .sd-tab-set > input:checked + label {
+    color: #1463a0;
+    border-bottom-color: #1463a0;
+}
+
+.rst-content .sd-tab-content {
+    padding: .7rem .1rem .2rem;
+}
+
+.rst-content .sd-tab-content .highlight {
+    border-radius: 8px;
+    background: #fff;
+}
+
+.rst-content .sd-tab-set > input:focus-visible + label {
+    outline: 3px solid #1463a0;
+    outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+    .rst-content .sd-tab-set {
+        padding: .35rem .3rem .1rem;
+    }
+    .rst-content .sd-tab-set > label {
+        padding: .55rem .65rem;
+    }
+}

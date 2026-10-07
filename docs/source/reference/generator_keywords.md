@@ -1,1218 +1,1381 @@
-# Generator Keywords Reference
+# Generator keywords: choices, combinations and their exact outputs
 
-This document provides a comprehensive reference for all generator keywords used in nirs4all pipeline configuration expansion.
+Start with {doc}`/reference/nodes/generators` for the six-recipe walkthrough.
+This page answers the next question: **what exactly does each keyword produce?**
+Each small example has the same input in JSON, YAML and Python. The Python tab
+calls the real generator and prints the expanded values without fitting a model.
+The letter examples are expansion exercises, not importable operators.
 
-## Alphabetical keyword index
+:::{note}
+These tabs express the same **Python SDK workflow**. JSON and YAML are recipe
+files; Python can also use sklearn/nirs4all objects. R, Octave and WASM native
+pipeline facades do not execute this host-controller node directly.
+For a recipe that runs in those languages, use {doc}`/guide/languages`.
+:::
 
-[`_cartesian_`](#generator-keyword-cartesian), [`_chain_`](#generator-keyword-chain), [`_depends_on_`](#generator-keyword-depends-on), [`_exclude_`](#generator-keyword-exclude), [`_grid_`](#generator-keyword-grid), [`_log_range_`](#generator-keyword-log-range), [`_metadata_`](#generator-keyword-metadata), [`_mutex_`](#generator-keyword-mutex), [`_or_`](#generator-keyword-or), [`_preset_`](#generator-keyword-preset), [`_range_`](#generator-keyword-range), [`_requires_`](#generator-keyword-requires), [`_sample_`](#generator-keyword-sample), [`_seed_`](#generator-keyword-seed), [`_tags_`](#generator-keyword-tags), [`_weights_`](#generator-keyword-weights), [`_zip_`](#generator-keyword-zip), [`arrange`](#generator-keyword-arrange), [`count`](#generator-keyword-count), [`pick`](#generator-keyword-pick), [`then_arrange`](#generator-keyword-then-arrange), [`then_pick`](#generator-keyword-then-pick)
+```{figure} /assets/guide/generators.svg
+:alt: Two preprocessing choices and three model-complexity choices produce six recipes.
+:width: 100%
 
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Phase 1-2: Core Keywords](#phase-1-2-core-keywords)
-   - [_or_](#generator-keyword-or)
-   - [_range_](#generator-keyword-range)
-   - [pick](#generator-keyword-pick)
-   - [arrange](#generator-keyword-arrange)
-   - [then_pick](#generator-keyword-then-pick)
-   - [then_arrange](#generator-keyword-then-arrange)
-   - [count](#generator-keyword-count)
-3. [Phase 3: Advanced Keywords](#phase-3-advanced-keywords)
-   - [_log_range_](#generator-keyword-log-range)
-   - [_grid_](#generator-keyword-grid)
-   - [_zip_](#generator-keyword-zip)
-   - [_chain_](#generator-keyword-chain)
-   - [_sample_](#generator-keyword-sample)
-   - [_tags_](#generator-keyword-tags)
-   - [_metadata_](#generator-keyword-metadata)
-4. [Phase 4: Production Keywords](#phase-4-production-keywords)
-   - [_cartesian_](#generator-keyword-cartesian)
-   - [_mutex_](#generator-keyword-mutex)
-   - [_requires_](#generator-keyword-requires)
-   - [_depends_on_](#generator-keyword-depends-on)
-   - [_exclude_](#generator-keyword-exclude)
-   - [_preset_](#generator-keyword-preset)
-5. [Modifier Keywords](#modifier-keywords)
-   - [_seed_](#generator-keyword-seed)
-   - [_weights_](#generator-keyword-weights)
-6. [API Functions](#api-functions)
-7. [Selection Semantics: pick vs arrange](#selection-semantics-pick-vs-arrange)
-8. [Common Patterns and Examples](#common-patterns-and-examples)
-
----
-
-## Overview
-
-The generator module expands pipeline configuration specifications into concrete pipeline variants. It takes a single configuration with combinatorial keywords and generates all possible combinations.
-
-### Basic Import
-
-```python
-from nirs4all.pipeline.config.generator import (
-    # Core API
-    expand_spec,
-    expand_spec_with_choices,
-    count_combinations,
-
-    # Iterator API
-    expand_spec_iter,
-    batch_iter,
-    iter_with_progress,
-
-    # Validation
-    validate_spec,
-    validate_config,
-    validate_expanded_configs,
-
-    # Presets
-    PRESET_KEYWORD,
-    register_preset,
-    unregister_preset,
-    get_preset,
-    get_preset_info,
-    list_presets,
-    clear_presets,
-    has_preset,
-    is_preset_reference,
-    resolve_preset,
-    resolve_presets_recursive,
-    export_presets,
-    import_presets,
-    register_builtin_presets,
-
-    # Constraints
-    apply_mutex_constraint,
-    apply_requires_constraint,
-    apply_exclude_constraint,
-    apply_all_constraints,
-    parse_constraints,
-    validate_constraints,
-
-    # Export utilities
-    to_dataframe,
-    diff_configs,
-    summarize_configs,
-    get_expansion_tree,
-    print_expansion_tree,
-    format_config_table,
-    ExpansionTreeNode,
-
-    # Keyword constants
-    OR_KEYWORD,
-    RANGE_KEYWORD,
-    LOG_RANGE_KEYWORD,
-    GRID_KEYWORD,
-    ZIP_KEYWORD,
-    CHAIN_KEYWORD,
-    SAMPLE_KEYWORD,
-    CARTESIAN_KEYWORD,
-    COUNT_KEYWORD,
-    SEED_KEYWORD,
-    WEIGHTS_KEYWORD,
-    PICK_KEYWORD,
-    ARRANGE_KEYWORD,
-    THEN_PICK_KEYWORD,
-    THEN_ARRANGE_KEYWORD,
-    TAGS_KEYWORD,
-    METADATA_KEYWORD,
-    MUTEX_KEYWORD,
-    REQUIRES_KEYWORD,
-    DEPENDS_ON_KEYWORD,
-    EXCLUDE_KEYWORD,
-
-    # Detection functions
-    is_generator_node,
-    is_pure_or_node,
-    is_pure_range_node,
-    is_pure_log_range_node,
-    is_pure_grid_node,
-    is_pure_zip_node,
-    is_pure_chain_node,
-    is_pure_sample_node,
-    is_pure_cartesian_node,
-
-    # Extraction functions
-    extract_modifiers,
-    extract_base_node,
-    extract_or_choices,
-    extract_range_spec,
-    extract_tags,
-    extract_metadata,
-    extract_constraints,
-
-    # Strategies (advanced usage)
-    ExpansionStrategy,
-    get_strategy,
-    register_strategy,
-    RangeStrategy,
-    OrStrategy,
-    LogRangeStrategy,
-    GridStrategy,
-    ZipStrategy,
-    ChainStrategy,
-    SampleStrategy,
-    CartesianStrategy,
-)
+Independent choice counts multiply. Inspect expansion before committing to model fitting.
 ```
 
----
 
-## Phase 1-2: Core Keywords
+## Clickable keyword index
+
+| Task | Keywords |
+|---|---|
+| Generate choices | {ref}`generator-keyword-or`, {ref}`generator-keyword-range`, {ref}`generator-keyword-log-range`, {ref}`generator-keyword-sample` |
+| Combine parameters or stages | {ref}`generator-keyword-grid`, {ref}`generator-keyword-zip`, {ref}`generator-keyword-cartesian`, {ref}`generator-keyword-chain` |
+| Select sets or sequences | {ref}`generator-keyword-pick`, {ref}`generator-keyword-arrange`, {ref}`generator-keyword-then-pick`, {ref}`generator-keyword-then-arrange` |
+| Limit/reproduce selection | {ref}`generator-keyword-count`, {ref}`generator-keyword-seed`, {ref}`generator-keyword-weights` |
+| Constrain choices | {ref}`generator-keyword-mutex`, {ref}`generator-keyword-requires`, {ref}`generator-keyword-exclude` |
+| Reuse choices | {ref}`generator-keyword-preset` |
+| Advanced/reserved names | {ref}`generator-keyword-tags`, {ref}`generator-keyword-metadata`, {ref}`generator-keyword-depends-on` |
+
+## Alternatives and numeric values
 
 (generator-keyword-or)=
 ### `_or_`
 
-Select from a list of alternatives. Each choice becomes a separate configuration variant.
+Choose one alternative. Use this for one preprocessing operator, model family or categorical setting per recipe.
 
-**Syntax:**
-```python
-{"_or_": [choice1, choice2, ...]}
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "SNV",
+    "MSC",
+    "raw"
+  ]
+}
 ```
+:::
 
-**Examples:**
-```python
-# Simple string choices
-{"_or_": ["StandardScaler", "MinMaxScaler", "RobustScaler"]}
-# → ["StandardScaler", "MinMaxScaler", "RobustScaler"]
+:::{tab-item} YAML
+:sync: yaml
 
-# Dictionary choices
-{"_or_": [
-    {"class": "PCA", "n_components": 10},
-    {"class": "SVD", "n_components": 10},
-]}
-# → [{"class": "PCA", "n_components": 10}, {"class": "SVD", "n_components": 10}]
-
-# Mixed types
-{"_or_": [None, 5, {"window": 11}]}
-# → [None, 5, {"window": 11}]
+```yaml
+_or_:
+- SNV
+- MSC
+- raw
 ```
+:::
 
-**Modifiers:** `pick`, `arrange`, `then_pick`, `then_arrange`, `count`
+:::{tab-item} Python
+:sync: python
 
----
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['SNV', 'MSC', 'raw']}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** `SNV`, `MSC`, `raw`: three independent choices.
+
+At pipeline level, put actual importable operator descriptions in place of these labels. To apply several choices together, add `pick` or `arrange` below.
 
 (generator-keyword-range)=
 ### `_range_`
 
-Generate a sequence of numeric values.
+Generate a numeric sequence with an **inclusive** upper bound. In `[start, end, step]`, the third value is the increment, not the number of points.
 
-**Syntax:**
-```python
-# Array syntax
-{"_range_": [start, end]}              # Inclusive, step=1
-{"_range_": [start, end, step]}        # With custom step
+::::{tab-set}
+:sync-group: language
 
-# Dict syntax
-{"_range_": {"from": start, "to": end, "step": step}}
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_range_": [
+    2,
+    8,
+    2
+  ]
+}
 ```
+:::
 
-**Examples:**
-```python
-{"_range_": [1, 5]}
-# → [1, 2, 3, 4, 5]
+:::{tab-item} YAML
+:sync: yaml
 
-{"_range_": [0, 20, 5]}
-# → [0, 5, 10, 15, 20]
-
-{"_range_": {"from": 10, "to": 50, "step": 10}}
-# → [10, 20, 30, 40, 50]
+```yaml
+_range_:
+- 2
+- 8
+- 2
 ```
+:::
 
----
+:::{tab-item} Python
+:sync: python
 
-(generator-keyword-pick)=
-### `pick`
-
-Unordered selection - combinations where order doesn't matter.
-
-**Syntax:**
 ```python
-{"_or_": [...], "pick": n}           # Fixed size
-{"_or_": [...], "pick": (min, max)}  # Range of sizes
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_range_': [2, 8, 2]}
+print(expand_spec(spec))
 ```
+:::
 
-**Mathematical formula:** C(n, k) = n! / (k! × (n-k)!)
+::::
 
-**Examples:**
-```python
-# Pick 2 from 3 → C(3,2) = 3
-{"_or_": ["A", "B", "C"], "pick": 2}
-# → [["A", "B"], ["A", "C"], ["B", "C"]]
-```
+**Expanded result:** `[2, 4, 6, 8]`: four PLS component counts.
 
-**Use cases:**
-- `concat_transform` where feature order doesn't matter
-- `feature_augmentation` for parallel channels
-- Any scenario where [A, B] and [B, A] should be treated as equivalent
-
----
-
-(generator-keyword-arrange)=
-### `arrange`
-
-**(Explicit)** Ordered arrangement - permutations where order matters.
-
-**Syntax:**
-```python
-{"_or_": [...], "arrange": n}           # Fixed size
-{"_or_": [...], "arrange": (min, max)}  # Range of sizes
-```
-
-**Mathematical formula:** P(n, k) = n! / (n-k)!
-
-**Examples:**
-```python
-# Arrange 2 from 3 → P(3,2) = 6
-{"_or_": ["A", "B", "C"], "arrange": 2}
-# → [["A", "B"], ["A", "C"], ["B", "A"], ["B", "C"], ["C", "A"], ["C", "B"]]
-```
-
-**Use cases:**
-- Sequential preprocessing pipelines
-- Any scenario where order of operations affects results
-- When [A, B] and [B, A] should be treated as different configurations
-
----
-
-(generator-keyword-then-pick)=
-### `then_pick`
-
-Second-order operation: apply combinations to the results of a primary selection.
-
-**Syntax:**
-```python
-{"_or_": [...], "pick": n1, "then_pick": n2}
-{"_or_": [...], "arrange": n1, "then_pick": n2}
-```
-
-**Example:**
-```python
-# Pick 2, then pick 2 from those 3 results
-{"_or_": ["A", "B", "C"], "pick": 2, "then_pick": 2}
-# Step 1: pick=2 → C(3,2) = 3 combos: [A,B], [A,C], [B,C]
-# Step 2: then_pick=2 → C(3,2) = 3 selections of those combos
-```
-
----
-
-(generator-keyword-then-arrange)=
-### `then_arrange`
-
-Second-order operation: apply permutations to the results of a primary selection.
-
-**Syntax:**
-```python
-{"_or_": [...], "pick": n1, "then_arrange": n2}
-{"_or_": [...], "arrange": n1, "then_arrange": n2}
-```
-
-**Example:**
-```python
-# Pick 2, then arrange 2 from those results
-{"_or_": ["A", "B", "C"], "pick": 2, "then_arrange": 2}
-# Step 1: pick=2 → 3 combos: [A,B], [A,C], [B,C]
-# Step 2: then_arrange=2 → P(3,2) = 6 arrangements
-```
-
----
-
-(generator-keyword-count)=
-### `count`
-
-Limit the number of results returned. With a seed, results are deterministic.
-
-**Syntax:**
-```python
-{"_or_": [...], "count": n}
-{"_or_": [...], "pick": k, "count": n}
-```
-
-**Example:**
-```python
-# Get 2 random items from 5
-{"_or_": ["A", "B", "C", "D", "E"], "count": 2}
-# → 2 randomly selected items
-
-# With seed for reproducibility
-expand_spec({"_or_": ["A", "B", "C", "D", "E"], "count": 2}, seed=42)
-# → Same 2 items every time with seed=42
-```
-
----
-
-## Phase 3: Advanced Keywords
+The two-value form `[2, 4]` defaults to step 1 and produces 2, 3, 4. A mapping can use `from`, `to`, `step`. Floating steps and descending ranges are supported. Step must be nonzero and point in the intended direction. Avoid assigning more PLS components than the training rank permits.
 
 (generator-keyword-log-range)=
 ### `_log_range_`
 
-**Purpose**: Generate logarithmically-spaced numeric sequences. Useful for hyperparameter optimization over values spanning multiple orders of magnitude (e.g., learning rates, regularization).
+Generate a specified **number of points** spaced multiplicatively. Use this when strengths span orders of magnitude.
 
-**Syntax:**
-```python
-# Array syntax: [from, to, num_values]
-{"_log_range_": [start, end, num]}
+::::{tab-set}
+:sync-group: language
 
-# Dict syntax
-{"_log_range_": {"from": start, "to": end, "num": n}}
-{"_log_range_": {"from": start, "to": end, "base": b}}  # Custom base (default: 10)
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_log_range_": [
+    0.001,
+    1.0,
+    4
+  ]
+}
 ```
+:::
 
-**Result**: Generates `num` values logarithmically spaced from `start` to `end`.
+:::{tab-item} YAML
+:sync: yaml
 
-**Examples:**
-```python
-# 4 values from 0.001 to 1 (base 10)
-{"_log_range_": [0.001, 1, 4]}
-# → [0.001, 0.01, 0.1, 1.0]
-
-# Learning rate search spanning 4 orders of magnitude
-{"_log_range_": [0.0001, 0.1, 5]}
-# → [0.0001, 0.001, 0.01, 0.1]  (approximately)
-
-# Base 2 powers for depth/width parameters
-{"_log_range_": {"from": 1, "to": 256, "num": 9, "base": 2}}
-# → [1, 2, 4, 8, 16, 32, 64, 128, 256]
-
-# Pipeline example: regularization search
-pipeline = [
-    {"model": PLSRegression},
-    {"alpha": {"_log_range_": [0.0001, 10, 8]}}
-]
-# Generates 8 pipeline variants with exponentially spaced alpha values
+```yaml
+_log_range_:
+- 0.001
+- 1.0
+- 4
 ```
+:::
 
-**See also**: `_range_` (linear spacing), `_sample_` (random sampling)
+:::{tab-item} Python
+:sync: python
 
-**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
-
----
-
-(generator-keyword-grid)=
-### `_grid_`
-
-**Purpose**: Generate Cartesian product of parameter spaces (full grid search). Similar to sklearn's `ParameterGrid` - creates all possible combinations of parameters.
-
-**Syntax:**
 ```python
-{"_grid_": {"param1": [v1, v2, ...], "param2": [v3, v4, ...]}}
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_log_range_': [0.001, 1.0, 4]}
+print(expand_spec(spec))
 ```
+:::
 
-**Result**: Generates all combinations (param1 × param2 × ...). Returns list of dicts.
+::::
 
-**Examples:**
-```python
-# 2×3 = 6 combinations
-{"_grid_": {"learning_rate": [0.01, 0.1], "batch_size": [16, 32, 64]}}
-# → [{"learning_rate": 0.01, "batch_size": 16},
-#    {"learning_rate": 0.01, "batch_size": 32},
-#    {"learning_rate": 0.01, "batch_size": 64},
-#    {"learning_rate": 0.1, "batch_size": 16},
-#    {"learning_rate": 0.1, "batch_size": 32},
-#    {"learning_rate": 0.1, "batch_size": 64}]
+**Expanded result:** approximately `[0.001, 0.01, 0.1, 1.0]`.
 
-# Grid with nested generator
-{"_grid_": {
-    "n_components": {"_range_": [5, 15, 5]},  # [5, 10, 15]
-    "scale": [True, False]
-}}
-# → 3 × 2 = 6 combinations
-
-# Pipeline example: full grid search
-pipeline = [
-    {"_grid_": {
-        "preprocessing": ["SNV", "MSC", None],
-        "n_components": [5, 10, 15]
-    }, "model": PLSRegression}
-]
-# Generates 3 × 3 = 9 pipeline variants
-```
-
-**See also**: `_zip_` (paired iteration), `_cartesian_` (for lists, not dicts), `_sample_` (random subset)
-
-**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
-
----
-
-(generator-keyword-zip)=
-### `_zip_`
-
-**Purpose**: Parallel iteration - pair values at the same index (like Python's `zip()`). Use when parameters should vary together, not independently.
-
-**Syntax:**
-```python
-{"_zip_": {"param1": [v1, v2, ...], "param2": [v3, v4, ...]}}
-```
-
-**Result**: Generates N configurations where N = min(len(param1), len(param2), ...). Pairs by position.
-
-**Examples:**
-```python
-# 3 paired configurations
-{"_zip_": {"x": [1, 2, 3], "y": ["A", "B", "C"]}}
-# → [{"x": 1, "y": "A"}, {"x": 2, "y": "B"}, {"x": 3, "y": "C"}]
-
-# Mismatched lengths: shortest list wins
-{"_zip_": {"x": [1, 2, 3, 4], "y": ["A", "B"]}}
-# → [{"x": 1, "y": "A"}, {"x": 2, "y": "B"}]  # Only 2 configurations
-
-# Pipeline example: paired hyperparameters
-pipeline = [
-    {"_zip_": {
-        "alpha": [0.1, 1.0, 10.0],
-        "l1_ratio": [0.2, 0.5, 0.8]  # Paired with alpha
-    }, "model": ElasticNet}
-]
-# Generates 3 variants: (0.1, 0.2), (1.0, 0.5), (10.0, 0.8)
-```
-
-**Comparison with `_grid_`:**
-```python
-# _zip_: 2 paired configurations (N pairs)
-{"_zip_": {"x": [1, 2], "y": ["A", "B"]}}
-# → [{"x": 1, "y": "A"}, {"x": 2, "y": "B"}]
-
-# _grid_: 4 all-combinations (N × M)
-{"_grid_": {"x": [1, 2], "y": ["A", "B"]}}
-# → [{"x": 1, "y": "A"}, {"x": 1, "y": "B"},
-#    {"x": 2, "y": "A"}, {"x": 2, "y": "B"}]
-```
-
-**See also**: `_grid_` (all combinations), `_chain_` (sequential)
-
-**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
-
----
-
-(generator-keyword-chain)=
-### `_chain_`
-
-**Purpose**: Sequential ordered choices. Preserves exact order of configurations (unlike `_or_` which may randomize with `count`). Ideal for progressive experiments.
-
-**Syntax:**
-```python
-{"_chain_": [config1, config2, config3, ...]}
-```
-
-**Result**: Generates configurations in the exact order provided. Behaves like `_or_` but with guaranteed order.
-
-**Examples:**
-```python
-# 3 configurations in exact order
-{"_chain_": [
-    {"model": "baseline", "complexity": "low"},
-    {"model": "improved", "complexity": "medium"},
-    {"model": "best", "complexity": "high"}
-]}
-# → Returns in that exact order
-
-# Pipeline example: progressive preprocessing complexity
-pipeline = [
-    {"_chain_": [
-        {},                    # No preprocessing (baseline)
-        {"transform": "SNV"},  # Simple SNV
-        {"transform": "SNV", "derivative": 1},  # SNV + 1st derivative
-        {"transform": "SNV", "derivative": 2}   # SNV + 2nd derivative
-    ]},
-    PLSRegression(n_components=10)
-]
-# Runs 4 variants in order of increasing complexity
-```
-
-**Use cases:**
-- Progressive experiments: baseline → improved → best
-- Ablation studies with defined order
-- When configuration order has semantic meaning
-- Avoiding randomization from `count`
-
-**See also**: `_or_` (unordered choices), `_zip_` (paired parameters)
-
-**Example**: See {download}`examples/developer/02_generators/D02_generator_advanced.py <../../../examples/developer/02_generators/D02_generator_advanced.py>`
-
----
+The third value is `num`, unlike `_range_` where it is a step. Endpoints must be positive. A mapping can use `from`, `to`, `num`; prefer explicit `num` to avoid ambiguity.
 
 (generator-keyword-sample)=
 ### `_sample_`
 
-**Purpose**: Statistical sampling from probability distributions. Use for random search in large hyperparameter spaces instead of exhaustive grid search.
+Draw parameter values from a probability distribution. This is random-search planning, not sampling training observations.
 
-**Syntax:**
-```python
-{"_sample_": {"distribution": "uniform|log_uniform|normal|choice", ...}}
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_sample_": {
+    "distribution": "uniform",
+    "from": 0,
+    "to": 1,
+    "num": 3
+  },
+  "_seed_": 42
+}
 ```
+:::
 
-**Distributions:**
+:::{tab-item} YAML
+:sync: yaml
 
-| Distribution | Parameters | Description | Use Case |
-|-------------|------------|-------------|----------|
-| `uniform` | `from`, `to`, `num` | Uniform distribution | Regularization, dropout rates |
-| `log_uniform` | `from`, `to`, `num` | Log-uniform (logarithmic scale) | Learning rates, decay factors |
-| `normal`/`gaussian` | `mean`, `std`, `num` | Normal/Gaussian distribution | Random initialization |
-| `choice` | `values`, `num` | Random selection with replacement | Categorical parameters |
-
-**Result**: Generates `num` random values from specified distribution. Use `_seed_` modifier for reproducibility.
-
-**Examples:**
-```python
-# Uniform sampling (0 to 1)
-{"_sample_": {"distribution": "uniform", "from": 0.1, "to": 1.0, "num": 5}}
-# → 5 random values uniformly distributed: [0.32, 0.67, 0.15, 0.89, 0.44]
-
-# Log-uniform (learning rate search)
-{"_sample_": {"distribution": "log_uniform", "from": 0.0001, "to": 0.1, "num": 5}}
-# → 5 values log-uniformly distributed: [0.0003, 0.002, 0.015, 0.0008, 0.05]
-
-# Normal distribution
-{"_sample_": {"distribution": "normal", "mean": 0, "std": 1, "num": 5}}
-# → 5 values from standard normal: [-0.32, 1.15, 0.05, -0.89, 0.67]
-
-# Random choice from list
-{"_sample_": {"distribution": "choice", "values": ["A", "B", "C", "D"], "num": 3}}
-# → 3 randomly selected values: ["B", "A", "B"]  (with replacement)
-
-# Reproducible sampling with seed
-{"_sample_": {"distribution": "uniform", "from": 0, "to": 1, "num": 10}, "_seed_": 42}
-# → Same 10 values every time with seed=42
-
-# Pipeline example: random regularization search
-pipeline = [
-    {"alpha": {"_sample_": {
-        "distribution": "log_uniform",
-        "from": 0.0001,
-        "to": 10.0,
-        "num": 20
-    }}, "model": Ridge}
-]
-# Generates 20 pipeline variants with random alpha values
+```yaml
+_sample_:
+  distribution: uniform
+  from: 0
+  to: 1
+  num: 3
+_seed_: 42
 ```
+:::
 
-**See also**: `_log_range_` (deterministic log scale), `_or_` with `count` (random subset)
+:::{tab-item} Python
+:sync: python
 
-**Example**: See {download}`examples/developer/02_generators/D02_generator_advanced.py <../../../examples/developer/02_generators/D02_generator_advanced.py>`
-
----
-
-(generator-keyword-tags)=
-### `_tags_`
-
-Add tags to configurations for filtering and categorization.
-
-**Syntax:**
 ```python
-{"_or_": [...], "_tags_": ["tag1", "tag2"]}
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_sample_': {'distribution': 'uniform', 'from': 0, 'to': 1, 'num': 3}, '_seed_': 42}
+print(expand_spec(spec))
 ```
+:::
 
----
+::::
 
-(generator-keyword-metadata)=
-### `_metadata_`
+**Expanded result:** approximately `[0.6394268, 0.0250108, 0.2750293]`.
 
-Attach arbitrary metadata to configurations.
+`_seed_` makes the draw repeatable. Without a seed, repeated expansion may produce different candidate values.
 
-**Syntax:**
+| Distribution | Required settings | Useful for |
+|---|---|---|
+| `uniform` | `from`, `to`, `num` | Bounded continuous parameters |
+| `log_uniform` | Positive `from`, `to`, `num` | Regularization/learning rates across orders of magnitude |
+| `normal` / `gaussian` | `mean`, `std`, `num` | Values centered around a plausible mean |
+| `choice` | `values`, `num` | Categories; draws can repeat |
+
+## Products, paired parameters and ordered alternatives
+
+(generator-keyword-grid)=
+### `_grid_`
+
+Try every parameter combination. Each result is a mapping of constructor parameters.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_grid_": {
+    "alpha": [
+      0.1,
+      1.0
+    ],
+    "fit_intercept": [
+      true,
+      false
+    ]
+  }
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_grid_:
+  alpha:
+  - 0.1
+  - 1.0
+  fit_intercept:
+  - true
+  - false
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
 ```python
-{"_or_": [...], "_metadata_": {"key": "value", ...}}
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_grid_': {'alpha': [0.1, 1.0], 'fit_intercept': [True, False]}}
+print(expand_spec(spec))
 ```
+:::
 
----
+::::
 
-## Phase 4: Production Keywords
+**Expanded result:** four mappings: `(0.1, true)`, `(0.1, false)`, `(1.0, true)`, `(1.0, false)`.
+
+Place this under a serialized estimator's `params`. The two lists each have length 2, so the product has 4 results. Nested generators such as `_range_` can supply parameter values.
+
+(generator-keyword-zip)=
+### `_zip_`
+
+Pair values by their positions instead of trying every combination. This is useful for approved smoothing-window/polynomial settings.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_zip_": {
+    "window_length": [
+      7,
+      11,
+      15
+    ],
+    "polyorder": [
+      2,
+      3,
+      3
+    ]
+  }
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_zip_:
+  window_length:
+  - 7
+  - 11
+  - 15
+  polyorder:
+  - 2
+  - 3
+  - 3
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_zip_': {'window_length': [7, 11, 15], 'polyorder': [2, 3, 3]}}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** three mappings: `(7, 2)`, `(11, 3)`, `(15, 3)`.
+
+`_grid_` would create nine combinations. `_zip_` creates three. **Unequal lists stop at the shortest list**; the current implementation does not raise a length-mismatch error. Keep lengths equal and inspect output so longer-list candidates are not lost.
 
 (generator-keyword-cartesian)=
 ### `_cartesian_`
 
-**Purpose**: Generate the Cartesian product of multiple stages (each with `_or_` choices), then optionally apply pick/arrange selection on the resulting complete pipelines. Key pattern for preprocessing pipeline generation.
+Combine a choice at each ordered stage. Each result is an ordered list, suitable for a preprocessing sequence.
 
-**Syntax:**
-```python
-{"_cartesian_": [stage1, stage2, ...]}
-{"_cartesian_": [stage1, stage2, ...], "pick": N}
-{"_cartesian_": [stage1, stage2, ...], "arrange": N}
-{"_cartesian_": [stage1, stage2, ...], "pick": (min, max), "count": N}
-```
+::::{tab-set}
+:sync-group: language
 
-**Result**:
-- First expands all stages → generates stage1 × stage2 × ... complete pipeline lists
-- Then optionally selects subset using `pick` (combinations) or `arrange` (permutations)
-- Returns list of lists (each inner list is a complete pipeline)
+:::{tab-item} JSON
+:sync: json
 
-**Examples:**
-```python
-# Generate all 2×2 = 4 complete pipelines
-{"_cartesian_": [
-    {"_or_": ["SNV", "MSC"]},
-    {"_or_": ["Deriv1", "Deriv2"]}
-]}
-# → [["SNV", "Deriv1"], ["SNV", "Deriv2"],
-#    ["MSC", "Deriv1"], ["MSC", "Deriv2"]]
-
-# Generate 3×3×3 = 27 pipelines, then pick 2-combinations
-{"_cartesian_": [
-    {"_or_": ["MSC", "SNV", "EMSC"]},        # Scatter correction
-    {"_or_": ["SavGol", "Gaussian", None]},  # Smoothing
-    {"_or_": [None, "Deriv1", "Deriv2"]}     # Derivative
-], "pick": 2}
-# → C(27, 2) = 351 pairs of complete pipelines
-
-# Pick 1-3 complete pipelines with count limit
-{"_cartesian_": [
-    {"_or_": ["A", "B"]},
-    {"_or_": ["X", "Y"]}
-], "pick": (1, 3), "count": 20}
-# → Up to 20 random selections from all 1-, 2-, and 3-combinations
-
-# Pipeline example: preprocessing pipeline search
-pipeline = [
-    {"_cartesian_": [
-        {"_or_": [SNV(), MSC(), None]},         # 3 scatter corrections
-        {"_or_": [FirstDerivative(), None]},    # 2 derivative options
-        {"_or_": [Detrend(order=1), None]}      # 2 detrending options
-    ], "pick": 1, "count": 10},  # Select 10 random complete pipelines
-    PLSRegression(n_components=10)
-]
-# From 3×2×2=12 possible pipelines, randomly select 10
-```
-
-**Difference from `_grid_`:**
-
-| Feature | `_grid_` | `_cartesian_` |
-|---------|----------|---------------|
-| Output | Dict (parameters) | List of lists (stages) |
-| Use case | Hyperparameters | Pipeline stages |
-| Example | `{"x": 1, "y": 2}` | `[step1, step2, step3]` |
-| Selection | Not applicable | Can use `pick`/`arrange` |
-
-```python
-# _grid_ for parameters
-{"_grid_": {"alpha": [0.1, 1.0], "beta": [2, 3]}}
-# → [{"alpha": 0.1, "beta": 2}, {"alpha": 0.1, "beta": 3}, ...]
-
-# _cartesian_ for pipeline stages
-{"_cartesian_": [{"_or_": ["A", "B"]}, {"_or_": ["X", "Y"]}]}
-# → [["A", "X"], ["A", "Y"], ["B", "X"], ["B", "Y"]]
-```
-
-**Use cases:**
-- Preprocessing pipeline generation (scatter correction → smoothing → derivative)
-- Any staged pipeline where order matters
-- Selecting subset of complete pipeline variants
-- Exploring combinations of sequential transformations
-
-**See also**: `_grid_` (for dicts), `_or_` with `arrange` (for single stage)
-
-**Example**: See {download}`examples/developer/02_generators/D01_generator_syntax.py <../../../examples/developer/02_generators/D01_generator_syntax.py>`
-
----
-
-(generator-keyword-mutex)=
-### `_mutex_`
-
-Mutual exclusion constraint - certain items cannot appear together.
-
-**Syntax:**
-```python
-{"_or_": [...], "pick": n, "_mutex_": [[item1, item2], [item3, item4]]}
-```
-
-**Example:**
-```python
-# A and B cannot appear together
-{"_or_": ["A", "B", "C", "D"], "pick": 2, "_mutex_": [["A", "B"]]}
-# All combinations: [A,B], [A,C], [A,D], [B,C], [B,D], [C,D]
-# After _mutex_:    [A,C], [A,D], [B,C], [B,D], [C,D]  (A,B excluded)
-```
-
----
-
-(generator-keyword-requires)=
-### `_requires_`
-
-Dependency constraint - if item A is selected, item B must also be selected.
-
-**Syntax:**
-```python
-{"_or_": [...], "pick": n, "_requires_": [[trigger, required1, required2]]}
-```
-
-**Example:**
-```python
-# If A is selected, C must also be selected
-{"_or_": ["A", "B", "C", "D"], "pick": 2, "_requires_": [["A", "C"]]}
-# Valid: [A,C], [B,C], [B,D], [C,D]
-# Invalid: [A,B], [A,D] (A without C)
-```
-
----
-
-(generator-keyword-depends-on)=
-### `_depends_on_`
-
-Conditional expansion - expansion depends on the value of another parameter.
-
-**Syntax:**
-```python
-{"_or_": [...], "_depends_on_": "other_param"}
-```
-
-**Use cases:**
-- Conditional hyperparameter spaces
-- Parameters that only apply when another parameter has a certain value
-
----
-
-(generator-keyword-exclude)=
-### `_exclude_`
-
-Exclude specific combinations from results.
-
-**Syntax:**
-```python
-{"_or_": [...], "pick": n, "_exclude_": [[combo1], [combo2]]}
-```
-
-**Example:**
-```python
-# Exclude specific combinations [A,C] and [B,D]
-{"_or_": ["A", "B", "C", "D"], "pick": 2, "_exclude_": [["A", "C"], ["B", "D"]]}
-# Remaining: [A,B], [A,D], [B,C], [C,D]
-```
-
----
-
-(generator-keyword-preset)=
-### `_preset_`
-
-Reference a named preset configuration.
-
-**Syntax:**
-```python
-{"_preset_": "preset_name"}
-```
-
-**Usage:**
-```python
-from nirs4all.pipeline.config.generator import register_preset, resolve_presets_recursive
-
-# Register presets
-register_preset(
-    "spectral_transforms",
-    {"_or_": ["SNV", "MSC", "Detrend"], "pick": (1, 2)},
-    description="Common spectral preprocessing"
-)
-
-register_preset(
-    "pls_components",
-    {"_range_": [2, 15]}
-)
-
-# Use in configuration
-config = {
-    "transforms": {"_preset_": "spectral_transforms"},
-    "model": {
-        "class": "PLSRegression",
-        "n_components": {"_preset_": "pls_components"}
+```json
+{
+  "_cartesian_": [
+    {
+      "_or_": [
+        "SNV",
+        "MSC"
+      ]
+    },
+    {
+      "_or_": [
+        "smooth",
+        "derivative"
+      ]
     }
+  ]
 }
-
-# Resolve presets before expansion
-resolved = resolve_presets_recursive(config)
-results = expand_spec(resolved)
 ```
+:::
 
----
+:::{tab-item} YAML
+:sync: yaml
 
-## Modifier Keywords
+```yaml
+_cartesian_:
+- _or_:
+  - SNV
+  - MSC
+- _or_:
+  - smooth
+  - derivative
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_cartesian_': [{'_or_': ['SNV', 'MSC']}, {'_or_': ['smooth', 'derivative']}]}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** `[SNV, smooth]`, `[SNV, derivative]`, `[MSC, smooth]`, `[MSC, derivative]`.
+
+The argument must be a **list of stages**, not a named dictionary. Each recipe keeps the stage order. `null` can represent a skipped stage where the containing workflow accepts it. Optional `pick`/`arrange` then select from the resulting complete stage sequences; that is a second selection level, not a request to select transforms within one stage.
+
+(generator-keyword-chain)=
+### `_chain_`
+
+Enumerate alternatives in a deliberate order, such as a baseline, an improved recipe and a more complex recipe.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_chain_": [
+    {
+      "label": "baseline"
+    },
+    {
+      "label": "normalized"
+    },
+    {
+      "label": "normalized_and_smoothed"
+    }
+  ],
+  "count": 2
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_chain_:
+- label: baseline
+- label: normalized
+- label: normalized_and_smoothed
+count: 2
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_chain_': [{'label': 'baseline'},
+             {'label': 'normalized'},
+             {'label': 'normalized_and_smoothed'}],
+ 'count': 2}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** the first two mappings: baseline, then normalized.
+
+**This is not sequential transformation.** A `preprocessing` list applies successive operators; `_chain_` lists candidate alternatives. With `count` and no seed it retains the first candidates. An explicit `_seed_` or API `seed` makes that limited selection random instead. Leave the seed unset if order is the point of this node.
+
+## Sets and sequences: why order changes the count
+
+With three options A, B and C:
+
+| Selection | Results | Count |
+|---|---|---:|
+| `pick: 2` | AB, AC, BC | 3 |
+| `arrange: 2` | AB, AC, BA, BC, CA, CB | 6 |
+
+Parallel feature collections often use `pick`. Sequential preprocessing often
+uses `arrange`: normalize then differentiate can differ from differentiate then
+normalize. These modifiers choose without repeating an item within a selection.
+
+(generator-keyword-pick)=
+### `pick`
+
+Select an unordered subset. This treats A+B and B+A as the same selected set.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B",
+    "C"
+  ],
+  "pick": 2
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+pick: 2
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C'], 'pick': 2}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** `[[A, B], [A, C], [B, C]]`.
+
+For `n` choices taken `k` at a time there are `n! / (k! (n-k)!)` sets. `pick: [1, 2]` means every size from 1 through 2, producing three singles and three pairs here. The selected output preserves a deterministic column order; keep that order when replaying a model.
+
+(generator-keyword-arrange)=
+### `arrange`
+
+Select an ordered sequence. A then B and B then A are separate choices.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B",
+    "C"
+  ],
+  "arrange": 2
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+arrange: 2
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C'], 'arrange': 2}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** six sequences: AB, AC, BA, BC, CA, CB.
+
+There are `n! / (n-k)!` sequences. `arrange: [1, 2]` allows sequence lengths one through two. Use actual operator declarations inside a `preprocessing` wrapper when these sequences should become transform chains.
+
+(generator-keyword-then-pick)=
+### `then_pick`
+
+Select unordered groups **from results of the first selection**. This builds collections of already-generated sequences.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B",
+    "C"
+  ],
+  "arrange": 2,
+  "then_pick": 2
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+arrange: 2
+then_pick: 2
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C'], 'arrange': 2, 'then_pick': 2}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** 15 unordered pairs of the six ordered two-item sequences. The first is `[[A, B], [A, C]]`.
+
+First `arrange: 2` produces 6 sequences. Then `then_pick: 2` produces 6 choose 2 = 15 pairs of sequences. The output is nested. Use it only when the containing node expects a collection of sequences; it is not a plain list of individual operators.
+
+(generator-keyword-then-arrange)=
+### `then_arrange`
+
+Select ordered collections **from results of the first selection**.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B",
+    "C"
+  ],
+  "pick": 2,
+  "then_arrange": 2
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+pick: 2
+then_arrange: 2
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C'], 'pick': 2, 'then_arrange': 2}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** six ordered pairs of the three subsets. First: `[[A, B], [A, C]]`; reversing that pair is another result.
+
+First `pick: 2` produces 3 subsets. Then `then_arrange: 2` produces 3 × 2 = 6 sequences of subsets. Nested output requires a compatible consuming node. Start with `pick`/`arrange` before using these second-order modifiers.
+
+## Search size and reproducibility
+
+(generator-keyword-count)=
+### `count`
+
+Limit the number of expanded alternatives at this node. For `_or_`, this is a sampled subset, not the first items.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E"
+  ],
+  "count": 2,
+  "_seed_": 42
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+- D
+- E
+count: 2
+_seed_: 42
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C', 'D', 'E'], 'count': 2, '_seed_': 42}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** two distinct choices, reproducibly selected with seed 42.
+
+A positive count limits results; zero or negative count is treated as no limit by the strategies. Set a positive value deliberately. A local count limits only its node: two sampled transforms combined with three component counts still yield six recipes. `_chain_` has the special ordered behavior explained above.
 
 (generator-keyword-seed)=
 ### `_seed_`
 
-Provide a deterministic seed for random operations within a node. This ensures reproducible generation when using `count` or random sampling.
+Make random generator selection repeatable without changing model or splitter randomness.
 
-**Syntax:**
-```python
-{"_or_": [...], "count": N, "_seed_": 42}
-{"_sample_": {...}, "_seed_": 42}
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "count": 2,
+  "_seed_": 17
+}
 ```
+:::
 
-**Examples:**
-```python
-# Reproducible random selection
-{"_or_": ["A", "B", "C", "D", "E"], "count": 2, "_seed_": 42}
-# → Same 2 items every time
+:::{tab-item} YAML
+:sync: yaml
 
-# Reproducible sampling
-{"_sample_": {"distribution": "uniform", "from": 0, "to": 1, "num": 5}, "_seed_": 123}
-# → Same 5 values every time
+```yaml
+_or_:
+- A
+- B
+- C
+- D
+count: 2
+_seed_: 17
 ```
+:::
 
----
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C', 'D'], 'count': 2, '_seed_': 17}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** the same two choices every time this specification is expanded.
+
+Generator seed, splitter `random_state` and model `random_state` are separate settings. Fix each source of randomness relevant to your experiment. The API can also supply `seed`; a node-local `_seed_` overrides it.
 
 (generator-keyword-weights)=
 ### `_weights_`
 
-Provide weights for weighted random selection when using `count`.
+Bias random alternative selection toward some choices. This changes sampling probability, not statistical model coefficients.
 
-**Syntax:**
-```python
-{"_or_": [...], "count": N, "_weights_": [w1, w2, ...]}
-```
+::::{tab-set}
+:sync-group: language
 
-**Examples:**
-```python
-# Weighted random selection (A is 3x more likely than others)
-{"_or_": ["A", "B", "C", "D"], "count": 2, "_weights_": [3, 1, 1, 1]}
-```
+:::{tab-item} JSON
+:sync: json
 
----
-
-## API Functions
-
-### Core Functions
-
-```python
-# Expand a specification to all variants
-results = expand_spec(spec, seed=None)
-
-# Expand with choice tracking (returns configs and choice paths)
-results, choices = expand_spec_with_choices(spec, seed=None)
-
-# Count variants without generating
-count = count_combinations(spec)
-```
-
-### Iterator Functions
-
-```python
-# Lazy iteration for large spaces
-for config in expand_spec_iter(spec, seed=None):
-    process(config)
-
-# With sampling (uses reservoir sampling for uniform distribution)
-configs = list(expand_spec_iter(spec, seed=42, sample_size=100))
-
-# Batch processing
-for batch in batch_iter(spec, batch_size=10):
-    process_batch(batch)
-
-# With progress reporting
-for i, config in iter_with_progress(spec, report_every=1000):
-    process(config)
-```
-
-### Preset Functions
-
-```python
-# Register a preset
-register_preset(name, spec, description=None, tags=None, overwrite=False)
-
-# Get preset specification
-spec = get_preset(name)
-
-# Get preset info (spec, description, tags)
-info = get_preset_info(name)
-
-# List and manage presets
-names = list_presets(tags=None)  # Filter by tags optionally
-has_preset(name)
-unregister_preset(name)
-clear_presets()
-
-# Resolve presets in a config (handles circular reference detection)
-resolved = resolve_presets_recursive(config)
-
-# Check if a node is a preset reference
-is_preset_reference(node)
-
-# Export/import presets
-presets_dict = export_presets()
-count = import_presets(presets_dict, overwrite=False)
-
-# Register built-in presets (standard_scalers, pls_components, learning_rates)
-register_builtin_presets()
-```
-
-### Constraint Functions
-
-```python
-# Apply individual constraints
-filtered = apply_mutex_constraint(results, mutex_groups)
-filtered = apply_requires_constraint(results, requires_groups)
-filtered = apply_exclude_constraint(results, exclude_combos)
-
-# Apply all constraints at once
-filtered = apply_all_constraints(results, mutex_groups, requires_groups, exclude_combos)
-
-# Parse and validate constraints
-parsed = parse_constraints(constraint_spec)
-errors = validate_constraints(constraint_spec)
-```
-
-### Export Functions
-
-```python
-# Convert to pandas DataFrame
-df = to_dataframe(configs, flatten=True, prefix_sep=".", include_index=True)
-
-# Compare configurations
-diff = diff_configs(config1, config2)
-
-# Summary statistics
-summary = summarize_configs(configs, max_unique=10)
-
-# Tree visualization
-tree_str = print_expansion_tree(spec, indent="  ", show_counts=True, max_depth=None)
-tree_node = get_expansion_tree(spec)
-
-# ASCII table formatting
-table_str = format_config_table(configs, columns=None, max_rows=20)
-```
-
-### Validation Functions
-
-```python
-# Validate a specification
-result = validate_spec(spec)
-if not result.is_valid:
-    print(result.errors)
-
-# Validate a config dict
-result = validate_config(config, schema=None)
-
-# Validate expanded configs
-results = validate_expanded_configs(configs, schema=None)
-```
-
-### Detection Functions
-
-```python
-# Check if a node contains any generator keywords
-is_generator_node(node)  # True if has _or_, _range_, etc.
-
-# Check for specific node types
-is_pure_or_node(node)       # Only OR-related keys
-is_pure_range_node(node)    # Only range-related keys
-is_pure_log_range_node(node)
-is_pure_grid_node(node)
-is_pure_zip_node(node)
-is_pure_chain_node(node)
-is_pure_sample_node(node)
-is_pure_cartesian_node(node)
-
-# Check for specific keywords
-has_or_keyword(node)
-has_range_keyword(node)
-has_log_range_keyword(node)
-has_grid_keyword(node)
-has_zip_keyword(node)
-has_chain_keyword(node)
-has_sample_keyword(node)
-has_cartesian_keyword(node)
-```
-
-### Extraction Functions
-
-```python
-# Extract modifiers (count, pick, arrange, etc.)
-modifiers = extract_modifiers(node)
-
-# Extract non-keyword keys
-base = extract_base_node(node)
-
-# Extract specific elements
-choices = extract_or_choices(node)      # From _or_ node
-range_spec = extract_range_spec(node)   # From _range_ node
-tags = extract_tags(node)               # From _tags_
-metadata = extract_metadata(node)       # From _metadata_
-constraints = extract_constraints(node) # From _mutex_, _requires_, etc.
-```
-
----
-
-## Selection Semantics: pick vs arrange
-
-| Aspect | `pick` (Combinations) | `arrange` (Permutations) |
-|--------|----------------------|--------------------------|
-| Order matters? | No | Yes |
-| [A, B] vs [B, A] | Same | Different |
-| Formula | C(n,k) = n!/(k!(n-k)!) | P(n,k) = n!/(n-k)! |
-| Count for 3 choose 2 | 3 | 6 |
-| Use case | Feature sets | Processing pipelines |
-
-**When to use `pick`:**
-- `concat_transform` where feature order doesn't matter
-- `feature_augmentation` for parallel channels
-- Any unordered collection
-
-**When to use `arrange`:**
-- Sequential preprocessing steps
-- When operation order affects results
-- Pipeline stages with dependencies
-
----
-
-## Common Patterns and Examples
-
-### 1. Hyperparameter Grid Search
-
-```python
+```json
 {
-    "_grid_": {
-        "model": ["PLS", "RF", "SVR"],
-        "n_components": {"_range_": [5, 20, 5]},
-        "preprocessing": ["StandardScaler", "MinMaxScaler", None]
-    }
+  "_or_": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "count": 2,
+  "_weights_": [
+    3,
+    1,
+    1,
+    1
+  ],
+  "_seed_": 42
 }
 ```
+:::
 
-### 2. Learning Rate Search
+:::{tab-item} YAML
+:sync: yaml
 
-```python
-{
-    "optimizer": "Adam",
-    "learning_rate": {"_log_range_": [0.0001, 0.1, 10]},
-    "batch_size": {"_or_": [16, 32, 64, 128]}
-}
+```yaml
+_or_:
+- A
+- B
+- C
+- D
+count: 2
+_weights_:
+- 3
+- 1
+- 1
+- 1
+_seed_: 42
 ```
+:::
 
-### 3. Preprocessing Pipeline Combinations
+:::{tab-item} Python
+:sync: python
 
 ```python
-{
-    "feature_augmentation": {
-        "_or_": [
-            {"class": "SNV"},
-            {"class": "MSC"},
-            {"class": "Detrend", "order": {"_or_": [1, 2]}},
-            {"class": "SavitzkyGolay", "window": {"_or_": [5, 11, 21]}}
-        ],
-        "pick": (1, 3)  # 1 to 3 transforms
-    }
-}
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C', 'D'], 'count': 2, '_weights_': [3, 1, 1, 1], '_seed_': 42}
+print(expand_spec(spec))
 ```
+:::
 
-### 4. Constrained Combinations
+::::
 
-```python
+**Expanded result:** two sampled choices; A has a larger selection weight than B, C or D.
+
+Provide one weight per alternative, with valid nonnegative weights and a positive total. The example does not guarantee that A appears. Weighted selection is a search-budget choice, not evidence that A is scientifically preferable. `_weights_` supports simple `_or_` + `count` sampling; combining it with `pick`, `arrange`, `then_pick` or `then_arrange` is rejected.
+
+## Constraints: remove choices you do not want to test
+
+(generator-keyword-mutex)=
+### `_mutex_`
+
+Prevent specified items from appearing together. Use this to remove incompatible parallel choices.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
 {
-    "_or_": ["PCA", "ICA", "NMF", "UMAP"],
-    "pick": 2,
-    "_mutex_": [["PCA", "ICA"]],  # PCA and ICA can't be together
-    "_requires_": [["UMAP", "NMF"]]  # If UMAP selected, NMF required
-}
-```
-
-### 5. Progressive Experiments with Chain
-
-```python
-{
-    "_chain_": [
-        {"model": "baseline", "transforms": []},
-        {"model": "baseline", "transforms": ["SNV"]},
-        {"model": "improved", "transforms": ["SNV", "Detrend"]},
-        {"model": "best", "transforms": ["SNV", "Detrend", "SavGol"]}
+  "_or_": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "pick": 2,
+  "_mutex_": [
+    [
+      "A",
+      "B"
     ]
+  ]
 }
 ```
+:::
 
-### 6. Using Presets for Reusable Patterns
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+- D
+pick: 2
+_mutex_:
+- - A
+  - B
+```
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
-# Define presets
-register_preset("standard_preprocessing", {
-    "_or_": [
-        {"class": "StandardScaler"},
-        {"class": "MinMaxScaler"},
-        None
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C', 'D'], 'pick': 2, '_mutex_': [['A', 'B']]}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** five pairs: AC, AD, BC, BD, CD. AB is removed.
+
+Constraints match the actual selected items. In a real operator specification, use the corresponding complete item descriptions rather than unrelated labels. Inspect filtered expansion before fitting.
+
+(generator-keyword-requires)=
+### `_requires_`
+
+If the first item is selected, require the other listed items too. The dependency is one-directional.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "pick": 2,
+  "_requires_": [
+    [
+      "A",
+      "C"
     ]
-})
-
-register_preset("pls_search", {
-    "_grid_": {
-        "class": ["PLSRegression"],
-        "n_components": {"_range_": [2, 20]}
-    }
-})
-
-# Use in pipeline
-config = [
-    {"preprocessing": {"_preset_": "standard_preprocessing"}},
-    {"model": {"_preset_": "pls_search"}}
-]
-```
-
-### 7. Memory-Efficient Large Space Processing
-
-```python
-from itertools import islice
-
-large_spec = {
-    "_grid_": {
-        "param1": {"_range_": [1, 100]},
-        "param2": {"_range_": [1, 100]},
-        "param3": {"_range_": [1, 100]}
-    }
+  ]
 }
-
-# Don't do this! (1M configurations in memory)
-# all_configs = expand_spec(large_spec)
-
-# Do this instead (lazy iteration)
-for config in expand_spec_iter(large_spec):
-    process(config)
-
-# Or sample
-sample = list(expand_spec_iter(large_spec, seed=42, sample_size=1000))
 ```
+:::
 
-### 8. Preprocessing Pipeline with Cartesian
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+- D
+pick: 2
+_requires_:
+- - A
+  - C
+```
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
-# Generate all stage combinations, then select complete pipelines
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C', 'D'], 'pick': 2, '_requires_': [['A', 'C']]}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** four pairs: AC, BC, BD, CD. A without C is removed.
+
+C does not require A in this example. This is selection compatibility, not execution order. Use `arrange` or an explicit sequential list if A must run after C.
+
+(generator-keyword-exclude)=
+### `_exclude_`
+
+Remove specific selected combinations after expansion.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
 {
-    "_cartesian_": [
-        # Stage 1: Scatter correction
-        {"_or_": ["MSC", "SNV", "EMSC", None]},
-        # Stage 2: Smoothing
-        {"_or_": [
-            {"class": "SavitzkyGolay", "window": 11},
-            {"class": "Gaussian", "sigma": 2},
-            None
-        ]},
-        # Stage 3: Derivative
-        {"_or_": [
-            {"class": "FirstDerivative"},
-            {"class": "SecondDerivative"},
-            None
-        ]}
+  "_or_": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "pick": 2,
+  "_exclude_": [
+    [
+      "A",
+      "C"
     ],
-    "pick": (1, 3),  # Select 1-3 complete pipelines
-    "count": 50       # Limit to 50 variants
+    [
+      "B",
+      "D"
+    ]
+  ]
 }
 ```
+:::
 
-### 9. Reproducible Random Search
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+- C
+- D
+pick: 2
+_exclude_:
+- - A
+  - C
+- - B
+  - D
+```
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
-# Use _seed_ for reproducible random selection
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B', 'C', 'D'], 'pick': 2, '_exclude_': [['A', 'C'], ['B', 'D']]}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+**Expanded result:** four pairs: AB, AD, BC, CD.
+
+`_mutex_` expresses a general incompatibility; `_exclude_` records particular combinations to omit. These filters apply to selected combinations; validate that the intended items match your actual operator descriptions.
+
+## Reuse a search specification
+
+(generator-keyword-preset)=
+### `_preset_`
+
+A preset gives a reusable name to a specification. Register it in the Python
+process, resolve the reference, then expand it. A recipe naming an unknown preset
+is not self-contained: share the preset definition as well.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
 {
-    "_or_": [
-        {"class": "PLS", "n_components": {"_range_": [2, 20]}},
-        {"class": "RF", "n_estimators": {"_or_": [100, 200, 500]}},
-        {"class": "SVR", "C": {"_log_range_": [0.1, 100, 10]}}
-    ],
-    "count": 10,
-    "_seed_": 42  # Same 10 configs every time
+  "_preset_": "documented_components"
 }
 ```
+:::
 
----
+:::{tab-item} YAML
+:sync: yaml
 
-## See Also
+```yaml
+_preset_: documented_components
+```
+:::
 
-- {doc}`/examples/index` - Working examples organized by topic
-- {doc}`/reference/pipeline_syntax` - Pipeline syntax reference
-- {doc}`/reference/combination_generator` - Combination generator syntax
+:::{tab-item} Python
+:sync: python
 
----
+```python
+from nirs4all.pipeline.config.generator import (
+    expand_spec, register_preset, resolve_presets_recursive, unregister_preset,
+)
 
-*Document updated: December 27, 2025*
-*Version: Phase 4+ Complete*
+register_preset("documented_components", {"_range_": [2, 4]}, overwrite=True)
+try:
+    resolved = resolve_presets_recursive({"_preset_": "documented_components"})
+    print(expand_spec(resolved))
+finally:
+    unregister_preset("documented_components")
+```
+:::
+
+::::
+
+
+**Expanded result:** `[2, 3, 4]`. Resolve before expansion. Circular references
+are rejected. Built-in preset registration is explicit; do not assume a name
+exists just because another notebook registered it.
+
+## Advanced names with limited effects
+
+(generator-keyword-tags)=
+### `_tags_`
+
+Tags can describe a generator specification or a registered preset. They do not
+create sample tags: use {doc}`/reference/nodes/tag` for that.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B"
+  ],
+  "_tags_": [
+    "scatter_search"
+  ]
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+_tags_:
+- scatter_search
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B'], '_tags_': ['scatter_search']}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+
+**Expanded result:** `['A', 'B']`. The plain expansion API does not attach the tag
+to returned scalar choices. Keep annotations with the original recipe when you
+need them for reporting.
+
+(generator-keyword-metadata)=
+### `_metadata_`
+
+Metadata describes the generator specification. It does not become biological
+sample metadata and does not change estimator parameters.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    "A",
+    "B"
+  ],
+  "_metadata_": {
+    "purpose": "baseline comparison"
+  }
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- A
+- B
+_metadata_:
+  purpose: baseline comparison
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': ['A', 'B'], '_metadata_': {'purpose': 'baseline comparison'}}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+
+**Expanded result:** `['A', 'B']`, without metadata injected into each choice.
+Keep the original specification with its annotations.
+
+(generator-keyword-depends-on)=
+### `_depends_on_`
+
+This name is registered in keyword utilities, but the current expansion
+strategies do **not implement conditional expansion through this field**.
+It is not an executable recipe for parameter dependency.
+
+To express a conditional model family, enumerate complete valid alternatives
+with `_or_`. For example, Ridge has `alpha`, whereas a forest has
+`n_estimators`; each valid alternative carries only its own parameters:
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "_or_": [
+    {
+      "class": "sklearn.linear_model.Ridge",
+      "params": {
+        "alpha": 0.1
+      }
+    },
+    {
+      "class": "sklearn.ensemble.RandomForestRegressor",
+      "params": {
+        "n_estimators": 100,
+        "random_state": 17
+      }
+    }
+  ]
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+_or_:
+- class: sklearn.linear_model.Ridge
+  params:
+    alpha: 0.1
+- class: sklearn.ensemble.RandomForestRegressor
+  params:
+    n_estimators: 100
+    random_state: 17
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import expand_spec
+
+spec = {'_or_': [{'class': 'sklearn.linear_model.Ridge', 'params': {'alpha': 0.1}},
+          {'class': 'sklearn.ensemble.RandomForestRegressor',
+           'params': {'n_estimators': 100, 'random_state': 17}}]}
+print(expand_spec(spec))
+```
+:::
+
+::::
+
+
+**Expanded result:** two valid serialized estimator mappings. Wrap the selected
+mapping under `model` in an actual pipeline.
+
+## Inspect before fitting
+
+Expansion is cheap relative to fitting, but enormous products can still consume
+memory. `PipelineConfigs` also checks a generation ceiling (default 10,000).
+Start by counting, expanding a small specimen, and reviewing the concrete recipes.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all.pipeline.config.generator import (
+    count_combinations, expand_spec, expand_spec_iter, validate_spec,
+)
+
+spec = {"_grid_": {"alpha": [0.1, 1.0], "fit_intercept": [True, False]}}
+validation = validate_spec(spec)
+if not validation.is_valid:
+    raise ValueError(validation.errors)
+print("Candidate count:", count_combinations(spec))
+for candidate in expand_spec(spec):
+    print(candidate)
+# For a large compatible specification, iterate without keeping every result:
+for candidate in expand_spec_iter(spec):
+    print(candidate)
+```
+:::
+
+::::
+
+
+**Expected result:** candidate count 4 and the four parameter mappings listed in
+the `_grid_` example. Iteration changes storage behavior, not the experiment's
+meaning. Constraints can filter candidates; inspect actual expanded results
+rather than relying only on a theoretical count.
+
+Generator tools also provide `expand_spec_with_choices` for choice tracking,
+`batch_iter` for batches, `to_dataframe`/`format_config_table` for inspection and
+preset export/import. Their Python API signatures are documented in
+{doc}`/reference/combination_generator`.
+
+Executable tutorials:
+[D01 generator syntax](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/02_generators/D01_generator_syntax.py),
+[D02 advanced generation](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/02_generators/D02_generator_advanced.py).

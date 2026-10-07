@@ -1,40 +1,66 @@
 # Filters Reference
 
-Filters identify and mark samples for exclusion or tagging based on statistical criteria. They are non-destructive -- they mark samples in the dataset indexer rather than removing data.
+A filter answers a concrete question about an observation: unusual target, unfamiliar spectrum, failed acquisition, influential position or ineligible metadata. A flag is evidence to inspect. Tagging keeps the row; exclusion omits flagged training rows from fitting. Neither proves the observation is wrong.
 
-## Usage in Pipeline
+## Choose a criterion, then decide what its flag means
 
-Filters are used with the `tag` (mark without removing) or `exclude` (remove from training) keywords:
+Read {doc}`nodes/tag` for the worked result figure, expected dimensions and exercises. Choose a family below to compare the enumerated operators.
+
+## Same worked recipe in JSON, YAML and Python
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "pipeline": [
+    {
+      "tag": {
+        "class": "nirs4all.operators.filters.YOutlierFilter",
+        "params": {
+          "method": "iqr",
+          "threshold": 1.5,
+          "tag_name": "extreme_target"
+        }
+      }
+    }
+  ]
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+pipeline:
+- tag:
+    class: nirs4all.operators.filters.YOutlierFilter
+    params:
+      method: iqr
+      threshold: 1.5
+      tag_name: extreme_target
+```
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
-from nirs4all.operators.filters import YOutlierFilter, XOutlierFilter
+from nirs4all.operators.filters import YOutlierFilter
 
-# Tag samples (mark for analysis, do not remove)
-pipeline = [
-    {"tag": YOutlierFilter(method="iqr", threshold=1.5)},
-    SNV(),
-    {"model": PLSRegression(n_components=10)},
-]
-
-# Exclude samples from training
-pipeline = [
-    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
-    SNV(),
-    {"model": PLSRegression(n_components=10)},
-]
-
-# Multiple filters with mode
-pipeline = [
-    {"exclude": [
-        YOutlierFilter(method="iqr"),
-        XOutlierFilter(method="mahalanobis", threshold=3.0),
-    ], "mode": "any"},  # Exclude if ANY filter flags the sample
-    SNV(),
-    {"model": PLSRegression(n_components=10)},
-]
+pipeline = [{"tag": YOutlierFilter(
+    method="iqr", threshold=1.5, tag_name="extreme_target",
+)}]
 ```
+:::
 
-All filters below are imported from `nirs4all.operators.filters`.
+::::
+
+These are Python SDK operators. Native R/Octave/WASM recipes use their own method IDs and facade; see {doc}`/guide/languages`.
 
 ---
 
@@ -136,9 +162,17 @@ Filters samples based on metadata column values.
 | `values_to_exclude` | `None` | List of values that should be excluded |
 | `values_to_keep` | `None` | List of values that should be kept |
 
-Usage examples:
+Usage examples (the callable condition is Python-only; value-list filters serialize in SDK recipes):
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} Python
+:sync: python
 
 ```python
+from nirs4all.operators.filters import MetadataFilter
+
 # Exclude specific values
 MetadataFilter(column="quality_flag", values_to_exclude=["bad", "corrupted"])
 
@@ -148,6 +182,8 @@ MetadataFilter(column="sample_type", values_to_keep=["control", "treatment"])
 # Custom condition
 MetadataFilter(column="temperature", condition=lambda x: 20 <= x <= 30)
 ```
+:::
+::::
 
 ---
 
@@ -160,6 +196,40 @@ Combines multiple filters with AND/OR logic.
 | `filters` | *(required)* | List of `SampleFilter` instances |
 | `mode` | `"any"` | Combination logic: `"any"` (OR) or `"all"` (AND) |
 
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "class": "nirs4all.operators.filters.base.CompositeFilter",
+  "params": {
+    "filters": [
+      "nirs4all.operators.filters.y_outlier.YOutlierFilter",
+      "nirs4all.operators.filters.x_outlier.XOutlierFilter"
+    ]
+  }
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+class: nirs4all.operators.filters.base.CompositeFilter
+params:
+  filters:
+  - nirs4all.operators.filters.y_outlier.YOutlierFilter
+  - nirs4all.operators.filters.x_outlier.XOutlierFilter
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
 ```python
 from nirs4all.operators.filters import CompositeFilter, YOutlierFilter, XOutlierFilter
 
@@ -171,6 +241,9 @@ composite = CompositeFilter(
     mode="any",  # Exclude if ANY filter flags the sample
 )
 ```
+:::
+
+::::
 
 ---
 
@@ -189,3 +262,52 @@ composite = CompositeFilter(
 - {doc}`../reference/pipeline_keywords` -- Full pipeline keyword reference (including `tag` and `exclude`)
 - {doc}`../reference/splitters` -- Cross-validation splitters
 - {doc}`../reference/transforms` -- Preprocessing transforms
+
+## Read a flag as evidence, not a diagnosis
+
+```{figure} /assets/guide/tag.svg
+:alt: An IQR criterion flags target 50 while retaining the original observations.
+
+Educational workflow result; read the accompanying explanation for scope and interpretation.
+```
+
+A criterion yields a flag and reason. Tagging preserves the observation;
+exclusion changes the fitting population. Neither establishes that a
+measurement is wrong. Retain flags, independent sample IDs and the original
+population when reporting outcomes. Do not improve a reported test score by
+discarding difficult test samples after observing their targets.
+
+`YOutlierFilter` tests target extremeness using IQR, z-score, percentile or MAD.
+An extreme concentration may be valid and important for extrapolation. It
+also requires labels, so it cannot screen unlabeled future acquisitions.
+`XOutlierFilter` tests a different question: distance, reconstruction error,
+leverage or local density in feature space. The result depends strongly on
+preprocessing, dimensionality and the reference training population.
+
+`SpectralQualityFilter` detects numerical acquisition problems such as NaN,
+infinity, flat spectra, saturation or excessive zeros. Its cutoffs must match
+the input signal units. `HighLeverageFilter` detects influential feature
+positions; influence is not the same as a large prediction residual.
+`MetadataFilter` applies explicit domain rules and needs the named metadata
+column and a clear keep/exclude convention. `CompositeFilter` expresses
+union (`any`) or intersection (`all`) of criteria.
+
+For two flag sets A and B, `any` removes A ∪ B and `all` removes A ∩ B.
+For example, if A flags rows 1 and 2 and B flags 2 and 3, `any` flags three
+rows while `all` flags only row 2. Keep individual reasons so this difference
+can be inspected after running the recipe.
+
+## Where filtering belongs in a workflow
+
+Estimate statistical cutoffs on training rows under the engine's supported
+filter profile. Decide the policy before model selection and use the same
+policy for candidate comparisons. Tag first when investigating an unfamiliar
+dataset; inspect subgroup counts and errors before choosing exclusion.
+Check how exclusion interacts with groups, scarce target ranges and folds:
+removing a few rows can leave an entire fold with too few independent samples.
+
+Use `U03_sample_filtering.py`, `U05_tagging_analysis.py` and
+`U06_exclusion_strategies.py` for full examples. The exact node contracts are
+{doc}`nodes/tag` and {doc}`nodes/exclude`; class-level fit/mask methods are in
+`nirs4all.operators.filters` under {doc}`/api/modules`. The serialized Python
+class form and the native capability profile must be checked separately.

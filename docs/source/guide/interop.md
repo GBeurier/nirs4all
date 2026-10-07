@@ -1,134 +1,161 @@
-# Native pipeline and workspace interoperability
+# Move a native model or a complete experiment
 
-This recipe uses the Core 0.4.4 / R 0.7.1 cohort described in
-{doc}`interfaces`. It separates a portable fitted model from a modern SDK
-workspace, so each consumer uses the correct artifact.
+**Your goal:** use a model in another supported CPU host, or relocate a full workspace without losing the data needed to explain your result. These are two different exercises.
 
-## Prepare the runtime and data
+Start with {doc}`languages` for one recipe and {doc}`deployment` for cold prediction. This chapter adds the packaging and workspace details you need when handing the work to a colleague.
 
-Use Python 3.11+, Core 0.4.4, IO 0.2.6, DAG 0.3.39 and the Methods 1.3.4 native
-library. Set `NIRS4ALL_CORE_CLI` to the matching Core executable and
-`N4M_LIBRARY_PATH` to the matching Methods shared library. Workspace commands
-also require the full Python SDK. A Methods library path on CPU is distinct
-from the Methods WASM module loaded in a browser.
+## Exercise A · Predict from another CPU language
 
-Download the {download}`dense dataset </_downloads/dense-workflow.dataset.json>`
-as `dense-workflow.dataset.json`. Its twelve synthetic samples exercise software
-behavior; they are not an instrument validation cohort.
+1. Fit the StandardScaler → Ridge recipe in {doc}`start` in Python Core, R or Octave.
+2. Keep the original `ridge.native.json` and `predict.json` files.
+3. Close the producer. Move the files to the colleague's machine or directory.
+4. Run the colleague's language reload tab in {doc}`languages`.
+5. Compare the complete predicted matrix numerically and sample/target IDs exactly.
 
-## Fit and reload a finite native recipe
+The CPU pipeline facade uses the same supported package across these hosts. Node's `NativePipeline.load` takes exact text rather than a path or parsed object. A browser pipeline has its own browser loader and package; use the direction-specific supported archive route for CPU/browser transport.
+
+```{figure} /assets/guide/deployment.svg
+:alt: Learned transformations and model state move together to a fresh consumer, which predicts raw observations without refitting.
+
+**The handoff contains learned state.** Sharing only a recipe would ask the recipient to train again. The saved predictor carries the transformations and model needed for the same computation.
+```
+
+| Compare exactly | Compare with a stated numerical tolerance |
+|---|---|
+| Requested sample IDs and order | Every predicted target value |
+| Target names and order | The whole matrix, not just the first cell |
+| Output dimensions | Any profile-specific numerical reference |
+| Prediction-only replay phase | Producer versus consumer replay |
+
+Use matching installed Core, IO, DAG and Methods versions, and configure the Methods library path as in {doc}`start`. Current Python Core wheels execute through their embedded dispatcher; R, Octave and Node CPU need the matching external CLI. A browser loads WASM modules instead of these CPU files.
+
+## Exercise B · Relocate the scientific workspace
+
+A workspace contains scores and prediction arrays as well as selected models. This exercise needs an **existing supported SDK workspace** named `workspace-source`, containing a native run with a portable selected predictor. It is not the finite `ridge.native.json` file. Provide raw `predict.json` compatible with that workspace model's feature count/order.
+
+Choose fresh destinations: `snapshot.n4w` and `workspace-relocated` must not already exist. R and Octave workspace bridges need a Python installation with Core and the full SDK. Set `NIRS4ALL_WORKSPACE_PYTHON` if its executable is not the default `python3`.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+A workspace snapshot is a stored experiment, not a JSON/YAML recipe. The full SDK relocation/query/session bridge shown here is a CPU operation. Browser openWorkspace reads validated bytes and native experiments; it does not provide this SQLite/Parquet importer. Use Python, R or Octave for this exercise.
+
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+A workspace snapshot is a stored experiment, not a JSON/YAML recipe. The full SDK relocation/query/session bridge shown here is a CPU operation. Browser openWorkspace reads validated bytes and native experiments; it does not provide this SQLite/Parquet importer. Use Python, R or Octave for this exercise.
+
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
 import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from nirs4all_core import open_workspace, import_workspace
 
-from nirs4all_core import NativePipeline, run_pipeline
-
-data = json.loads(Path("dense-workflow.dataset.json").read_text())
-recipe = {
-    "steps": [
-        {"method_id": "preprocessing.scaling.standard_scale",
-         "role": "transformer", "params": {}},
-        {"method_id": "models.regularized.ridge",
-         "role": "regressor", "params": {"scale_x": False}},
-    ],
-    "candidates": [{"alpha": 0.1}, {"alpha": 1.0}],
-}
-model = run_pipeline(data, recipe)
-x = data["dataset"]["sources"][0]["array"]["values"][:2]
-with TemporaryDirectory() as directory:
-    path = model.export(Path(directory) / "ridge.json")
-    loaded = NativePipeline.load(path)
-    replay = loaded.predict(x, sample_ids=["demo:new:0", "demo:new:1"])
-    assert {item["phase"] for item in replay["lineage"]} == {"PREDICT"}
-    print(replay["outputs"][0]["predictions"][0]["values"])
+fresh = json.loads(Path("predict.json").read_text())
+with open_workspace("workspace-source") as source:
+    run_id = source.runs()[0]["native_run_id"]
+    rows = source.query_predictions(run_id)
+    snapshot = source.export("snapshot.n4w")
+with import_workspace(snapshot, "workspace-relocated") as relocated:
+    assert len(relocated.query_predictions(run_id)) == len(rows)
+    session = relocated.session(run_id)
+    try:
+        prediction = session.predict(fresh["x"], sample_ids=fresh["sample_ids"])
+        print(prediction.y_pred)
+    finally:
+        session.close()
 ```
 
-The original training invocation owns CV, out-of-fold scoring, candidate
-selection and refit. Loading and predicting imports that selected state. Use a
-fresh process and independent data for a deployment qualification; the two-row
-replay above only demonstrates the API and lifecycle. Raw PLS has a separately
-compared profile. Additional catalog methods require their own evidence.
+:::
 
-For partial labels, use IO's explicit `to_masked_matrix_regression` (JavaScript
-`toMaskedMatrixRegression`) projection. A classification target matrix must
-have int64 dtype, distinct target names and a boolean mask of the same shape.
-Each native model selects its own target column and observed rows before FIT,
-refit and scoring. False cells are normalized to zero, including null or large
-placeholders; a true cell must be finite and its class exactly representable in
-float32. No implicit ordinal remapping occurs. The complete matrix projection
-continues to reject a classification target matrix.
+:::{tab-item} R
+:sync: r
 
-## Relocate a modern SDK workspace
-
-This second recipe requires an existing **native experiment directory** with a
-selected portable Archive V2 model. It is not the `ridge.json` record above.
-Create such an experiment with `save_experiment(native_results_dir, destination,
-run_id=..., winner_variant_id=..., model_archive=...)`, using identifiers from
-the actual native result manifest. Set `EXPERIMENT_PATH` to its directory and
-`PREDICTION_INPUT` to a JSON file containing `x` (rows in the frozen model's
-feature order) and distinct `sample_ids` for a new cohort.
-
-```python
-import json
-import os
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from nirs4all_core import import_workspace, save_workspace
-
-cohort = json.loads(Path(os.environ["PREDICTION_INPUT"]).read_text())
-with TemporaryDirectory() as directory:
-    root = Path(directory)
-    with save_workspace([os.environ["EXPERIMENT_PATH"]], root / "workspace") as workspace:
-        run_id = workspace.runs()[0]["native_run_id"]
-        rows = workspace.query_predictions(run_id)
-        assert rows
-        archive = workspace.export(root / "snapshot.n4w")
-    with import_workspace(archive, root / "relocated") as relocated:
-        assert len(relocated.query_predictions(run_id)) == len(rows)
-        session = relocated.session(run_id)
-        try:
-            predicted = session.predict(cohort["x"], sample_ids=cohort["sample_ids"])
-            assert predicted.y_pred.shape[0] == len(cohort["sample_ids"])
-        finally:
-            session.close()
+```r
+library(nirs4all)
+fresh <- jsonlite::fromJSON("predict.json")
+source <- nirs4all_open_workspace("workspace-source")
+run_id <- nirs4all_workspace_runs(source)[[1]]$native_run_id
+rows <- nirs4all_workspace_predictions(source, run_id)
+snapshot <- nirs4all_workspace_export(source, "snapshot.n4w")
+nirs4all_workspace_close(source)
+relocated <- nirs4all_import_workspace(snapshot, "workspace-relocated")
+session <- nirs4all_workspace_session(relocated, run_id)
+tryCatch({
+  print(nirs4all_workspace_predict(session, fresh$x, fresh$sample_ids))
+}, finally = {
+  nirs4all_workspace_close(session)
+  nirs4all_workspace_close(relocated)
+})
 ```
 
-The snapshot includes the SDK SQLite metadata, Parquet arrays and native
-experiments/models. The importer verifies both inventory and semantic links.
-It refuses active journals and changed metadata rather than trusting SQLite
-alone. A loaded session predicts without fitting. Keep the snapshot after
-qualification when it is your durable deliverable; this example uses temporary
-directories for repeatable execution.
+:::
 
-R opens the relocated directory with `nirs4all_open_workspace(path, python=...)`;
-MATLAB/Octave uses `nirs4all.Workspace(path, python)`. The supplied Python
-executable must import Core and the full SDK. These handles issue JSON commands
-with argument arrays, reopen the snapshot per command and close Python/native
-resources before returning. Close the workspace and child session when done;
-operations after close fail. They do not retain a database snapshot between
-commands. Paths containing spaces or Unicode need no shell quoting inside the
-API call.
+:::{tab-item} Octave / MATLAB
+:sync: matlab
 
-Browser `openWorkspace` accepts index bytes plus the exact member bytes. It
-checks hashes and native experiments and exposes native result queries and
-`predictMethods`; it does not open a SQL engine. Preserve its exported bytes
-when handing the workspace back to the SDK gateway.
+```matlab
+fresh = jsondecode(fileread('predict.json'));
+source = nirs4all.Workspace('workspace-source');
+runs = source.runs(); run_id = runs(1).native_run_id;
+rows = source.predictions(run_id);
+snapshot = source.export('snapshot.n4w');
+source.close();
+relocated = nirs4all.Workspace.importSnapshot(snapshot, 'workspace-relocated');
+cleanup = onCleanup(@() relocated.close());
+session = relocated.session(run_id);
+output = session.predict(fresh.x, fresh.sample_ids);
+disp(output);
+session.close();
+```
 
-## Transport browser tuning state
+:::
 
-A browser SNV/Savitzky–Golay/PLS study exported as
-`nirs4all.browser-tuning.v1` is consumed on CPU with
-`load_browser_tuning(path).predict(target_free_dataset)`. Keep its package,
-search and optimizer snapshot together; the native validation gate rejects
-altered study provenance. CPU prediction reuses Methods state without FIT.
-Optimizer resumption on CPU is outside this transport profile.
+:::{tab-item} WASM / JavaScript
+:sync: javascript
 
-For CPU → browser conformal calibration, use the separately qualified
-`methods.pls` Archive V2 profile and explicit calibration/test cohorts. DAG
-replays the frozen predictor with the browser controller, then fits the
-calibrator from observed calibration targets. See {doc}`deployment` for the
-direction-specific contracts and PLS-LDA reference limits, and {doc}`results`
-for workspace validation and resource ownership.
+A workspace snapshot is a stored experiment, not a JSON/YAML recipe. The full SDK relocation/query/session bridge shown here is a CPU operation. Browser openWorkspace reads validated bytes and native experiments; it does not provide this SQLite/Parquet importer. Use Python, R or Octave for this exercise.
+
+:::
+
+::::
+
+**Expected result:** the relocated workspace retains the run and prediction evidence. Its loaded session predicts new measurements using the saved selected model without fitting. Python compares the number of stored prediction rows before/after relocation; also inspect the identities and values if this handoff is part of a scientific report.
+
+Closing the parent workspace invalidates its child sessions. Export before closing, then close both session and workspace when finished. The R/Octave bridges issue commands through Python and reopen/validate stored resources for each command; they are not an open SQL database connection.
+
+## Choose the loader by what you saved
+
+| Producer | Saved artifact | Consumer |
+|---|---|---|
+| Finite native `run_pipeline` | Exact native package JSON | CPU `NativePipeline.load` and corresponding host facade |
+| Browser `runBrowserPipeline` | Browser native pipeline package | `loadBrowserPipeline` |
+| Supported native training/archive | Archive V2 `.n4a` | Its documented archive/workflow consumer |
+| SDK workspace export | `.n4w` snapshot | Workspace importer/host gateway |
+| Browser tuning | `browser-tuning.v1` study plus predictor package | Its supported browser/CPU transport API |
+
+**Prediction support, retraining support and optimizer resume are separate capabilities.** Loading browser tuning state on CPU can reuse the predictor without continuing the browser optimizer there. Read the precise directions in {doc}`deployment`.
+
+## Do not lose identity while adapting arrays
+
+Keep rows as observations and columns as the trained feature sequence. Keep one-row inputs as matrices in R (`drop = FALSE`). Keep source order, feature names, physical coordinates and units. For multiple sources, join by sample IDs; a correct-looking row count is not enough.
+
+A live runtime handle points to memory in its process. A saved fitted artifact preserves scientific state for another process. Export the artifact rather than persisting a handle or object address.
+
+```{dropdown} Advanced: masked targets and workspace validation
+
+Native masked regression projections explicitly preserve target names and observation masks. Classification labels have separate dtype/exact-representation requirements. Missing labels do not become invented target zeros; false mask cells are placeholders excluded from fitting/scoring. Read {doc}`/reference/multimodal_execution_matrix` before mixing partial targets with a model profile.
+
+Workspace loading validates closed file inventories, hashes and links between runs, scores, predictions and models. It can reject active SQLite journals, altered metrics or inconsistent relationships even when files exist. Browser workspace readers validate hashes and native experiments; the Python gateway checks SDK SQLite/Parquet semantics before exporting the snapshot.
+```
+
+**Checkpoint:** identify whether your colleague needs only prediction or the full experiment record. Hand over the corresponding artifact and verify the actual consumer.

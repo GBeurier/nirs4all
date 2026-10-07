@@ -1,66 +1,225 @@
-# 7. Inspect results and manage the workspace
+# 7. Read the result and keep a useful experiment record
 
-A prediction value, an experiment, a workspace and a fitted-model export answer different needs. Preserve the smallest artifact that still supports the next operation, and keep the identities linking it to training and evaluation.
+**Your goal:** identify which recipe won, inspect held-out predictions, and save enough evidence to explain the result later.
 
-## What is stored?
+A result should answer four questions: **What data? Which recipe? Which evaluation? Which model can I reuse?** Start with one completed run before combining several experiments.
 
-| Object/artifact | Contains | Typical use |
+## Inspect the first native experiment
+
+This continues {doc}`start`. Reload the CPU export in Python/R/Octave, or the browser export in WASM. Read its effective plan and learned final nodes.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+JSON/YAML are recipe and data formats, not result-query languages. Inspect the outcome with one of the language APIs in this box; keep the original exported package intact.
+
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+JSON/YAML are recipe and data formats, not result-query languages. Inspect the outcome with one of the language APIs in this box; keep the original exported package intact.
+
+:::
+
+:::{tab-item} Python
+:sync: python
+
+```python
+from nirs4all_core import NativePipeline
+model = NativePipeline.load("ridge.native.json")
+plan = model.outcome["effective_plan"]
+print("Candidates:", len(plan["variants"]))
+print("Folds:", len(plan["fold_set"]["folds"]))
+print("Learned final nodes:", len(model.outcome["execution_bundle"]["refit_artifacts"]))
+```
+
+:::
+
+:::{tab-item} R
+:sync: r
+
+```r
+library(nirs4all)
+model <- nirs4all_pipeline_load("ridge.native.json")
+plan <- model$outcome$effective_plan
+print(length(plan$variants))
+print(length(plan$fold_set$folds))
+print(length(model$outcome$execution_bundle$refit_artifacts))
+```
+
+:::
+
+:::{tab-item} Octave / MATLAB
+:sync: matlab
+
+```matlab
+model = nirs4all.NativePipeline.load('ridge.native.json');
+plan = model.outcome.effective_plan;
+disp(numel(plan.variants));
+disp(numel(plan.fold_set.folds));
+disp(model.outcome.execution_bundle.refit_artifacts);
+```
+
+:::
+
+:::{tab-item} WASM / JavaScript
+:sync: javascript
+
+```javascript
+import {loadBrowserPipeline} from 'nirs4all';
+const model = await loadBrowserPipeline(localStorage.getItem('ridge-model'));
+const plan = model.outcome.effective_plan;
+console.log('Candidates:', plan.variants.length);
+console.log('Folds:', plan.fold_set.folds.length);
+console.log('Learned final nodes:', model.outcome.execution_bundle.refit_artifacts.length);
+```
+
+:::
+
+::::
+
+**Expected result:** two candidate variants and two learned refit nodes, the scaler and Ridge. Inspect the effective fold count from the actual outcome rather than guessing it from the number of candidates. A candidate, a fold and an observation are different counts.
+
+## Interpret scores before ranking models
+
+| Result field in Python SDK | What it tells you | Check |
 |---|---|---|
-| Training outcome | Evaluated plan, OOF, scores, selection and refit references | Audit the completed campaign |
-| Prediction result | Values, sample/target identities and provenance | Analyze predictions or compute observed metrics |
-| Native result directory | Manifest, score set and prediction Parquet | Reopen checked native results |
-| Experiment | Result inventory, view and optional selected model | Compare and reload a complete saved experiment |
-| SDK workspace | Runs, chains, metadata, prediction arrays and artifacts | Query many datasets/runs and reuse sessions |
-| Model archive | Fitted predictor state and frozen input binding | Predict without the training workspace |
+| `execution_engine` | Which runtime executed the recipe | Matches the intended example |
+| `cv_best` | Candidate selected using CV evidence | Recipe parameters and ranking metric |
+| `cv_best_score` | Its selection score | Metric direction and CV aggregation |
+| `final` | Final refit prediction entry, where present | Distinct from the temporary fold fits |
+| `final_score` | Refit test score, when an external test cohort exists | The test set was not used to select candidates |
+| `top(...)` | Ranked stored entries | Ranking partition and metric |
+| `num_predictions` | Number of stored prediction entries | Not the number of independent specimens |
 
-The SDK workspace uses SQLite metadata, Parquet arrays and content-addressed artifacts. Native result directories have a different defined layout. Opening a native result view does not imply the ability to open every historical SDK workspace. Use the workspace/session bridge for the supported portable profiles and an explicit migration for old formats.
+For the Python SDK exercise in {doc}`start`, inspect the result inside its `try` block before `result.close()`:
 
-## Inspect before comparing
+::::{tab-set}
+:sync-group: language
 
-Retain run ID, dataset identity, variant and fold identity, metric/direction, target names and selected-model references. Compare models evaluated on the same protocol; a favorable score from another split or target definition is not a like-for-like improvement. Filter and sort with the metric direction visible.
+:::{tab-item} JSON
+:sync: json
 
-The native experiment APIs provide result views, comparison and prediction extraction. Python uses `open_experiment` and `save_experiment`; R uses `nirs4all_open_experiment`, `nirs4all_save_experiment` and `nirs4all_result_*`; JavaScript uses `openExperiment`; MATLAB/Octave uses `saveExperiment`, `resultView`, `resultCompare` and `resultPredictions`. MATLAB has no `openExperiment` wrapper.
+This example uses Python SDK objects. An equivalent public operation is unavailable in this host. Use the shared native recipe in {doc}`languages` for the executable cross-language path.
 
-## Reload and move
+:::
 
-Use export/import to move a durable bundle. After relocation, validate member inventories, hashes, model/result links and the new runtime. A saved absolute path to the old training directory is not a portable reference. Refuse inconsistent or substituted archives before prediction. Keep atomic write behavior: failed exports must not leave a destination that looks complete.
+:::{tab-item} YAML
+:sync: yaml
 
-A session reuses execution configuration and runtime resources. A loaded prediction session imports saved state and must not train or run HPO. Close native objects and workers when finished, including on exceptions. A prediction cache, checkpoint and selected-model archive have distinct lifecycles and should not be silently substituted.
+This example uses Python SDK objects. An equivalent public operation is unavailable in this host. Use the shared native recipe in {doc}`languages` for the executable cross-language path.
 
-Read {doc}`/reference/workspace`, {doc}`/reference/storage`, {doc}`/reference/predictions_api`, {doc}`/user_guide/predictions/session_api` and {doc}`/user_guide/predictions/analyzing_results` for exact SDK accessors, query semantics and persistence layouts.
+:::
 
-## Modern workspace bridge
+:::{tab-item} Python
+:sync: python
 
-Core 0.4.4 exposes `save_workspace([experiment_path], destination)`,
-`open_workspace(path)` and `import_workspace(archive, destination)`. The returned
-`Workspace` queries the actual SDK SQLite store and its Parquet arrays through
-`runs()` and `query_predictions(native_run_id)`. `session(native_run_id)` opens
-a closeable SDK native prediction session; `export(destination)` publishes an
-immutable snapshot. The supported profile contains portable native predictors;
-it does not convert foreign host-model weights or import arbitrary old DuckDB
-workspaces.
+```python
+print("Engine:", result.execution_engine)
+print("Stored prediction entries:", result.num_predictions)
+print("Datasets:", result.get_datasets())
+print("Models:", result.get_models())
+print("CV winner:", result.cv_best)
+print("CV score:", result.cv_best_score)
+print("Final entry:", result.final)
+print("Final test score:", result.final_score)
+for entry in result.top(n=3, display_metrics=["rmse", "r2"]):
+    print(entry)
+```
 
-Opening verifies a closed file inventory and hashes, relational links, native
-result/score identity and Parquet prediction projection. Active or unlisted
-SQLite WAL/SHM files are refused. Altered metrics, model references or orphaned
-chains remain invalid even if a file hash is recomputed. Export/import retain
-sample, target, fold, variant/refit and provenance identity and reject unsafe
-member paths. Writes publish atomically without replacing an existing target.
+:::
 
-R uses `nirs4all_workspace_runs`, `nirs4all_workspace_predictions`,
-`nirs4all_workspace_session`, `nirs4all_workspace_predict`,
-`nirs4all_workspace_export` and `nirs4all_workspace_close`. MATLAB/Octave exposes
-`Workspace.runs`, `.predictions`, `.session`, `.export` and `.close`. Both are
-stateless JSON-command bridges requiring a Python executable with Core **and
-the full SDK** installed. Each command reopens and validates the workspace;
-a path handle does not hold a database snapshot between calls. Prediction
-loads native state without FIT, and the Python command closes its resources
-on completion or error. Closing the facade also invalidates its child sessions.
+:::{tab-item} R
+:sync: r
 
-Browser `openWorkspace(indexBytes, members)` preserves the exact SDK bytes and
-validates hashes plus native experiments. Its `predictions`/`compare` read native
-experiment results; `predictMethods` uses the qualified native model profile.
-It does not decode or independently validate SQLite/Parquet relational content.
-The Python gateway performs that validation before exporting the snapshot.
+This example uses Python SDK objects. An equivalent public operation is unavailable in this host. Use the shared native recipe in {doc}`languages` for the executable cross-language path.
 
-Follow {doc}`interop` for a relocation and session lifecycle recipe.
+:::
+
+:::{tab-item} Octave / MATLAB
+:sync: matlab
+
+This example uses Python SDK objects. An equivalent public operation is unavailable in this host. Use the shared native recipe in {doc}`languages` for the executable cross-language path.
+
+:::
+
+:::{tab-item} WASM / JavaScript
+:sync: javascript
+
+This example uses Python SDK objects. An equivalent public operation is unavailable in this host. Use the shared native recipe in {doc}`languages` for the executable cross-language path.
+
+:::
+
+::::
+
+A stored entry identifies a model/variant, fold and partition. Read its sample IDs and target names before extracting row-level values. An absent external test score does not mean training failed; it means that no such external evidence was supplied.
+
+## Use figures to ask specific questions
+
+```{figure} /assets/guide/results.svg
+:alt: Observed-versus-predicted values reveal agreement and residuals reveal systematic errors across the target range.
+
+**Two complementary diagnostics.** Points near the identity line have small prediction errors. Residuals should be inspected for bias, concentration-dependent patterns and acquisition-group differences. The teaching values are observed `[5, 8, 11]`, predicted `[4.8, 8.2, 10.9]`, and residuals `[-0.2, 0.2, -0.1]`; their RMSE is approximately 0.173 in arbitrary target units. Inspect your actual held-out observations the same way.
+```
+
+| Diagnostic | What to look for | Report beside it |
+|---|---|---|
+| Predicted versus observed | Offset, slope bias, poor extremes | Target unit, partition, sample count and RMSE |
+| Residual versus observed | Error changing with concentration | Residual sign and target range |
+| Residual by batch/instrument | Acquisition-specific errors | Group counts and group-specific metric |
+| Fold-score comparison | Variation and candidate consistency | Values, fold sizes and pooled/mean convention |
+| Confusion matrix | Which classes are mistaken for which | Class names, counts and class recall |
+| Coverage/interval width | Uncertainty useful for decisions | Requested/observed coverage and width units |
+
+The {doc}`prediction-chart guide </user_guide/visualization/prediction_charts>` gives plotting APIs. A classification result is needed for a confusion matrix; a regression outcome is not its input.
+
+## What should you save?
+
+| You want to… | Save… | Contains |
+|---|---|---|
+| Reproduce the scientific comparison | Dataset declaration, recipe and experiment | Folds, predictions, metrics and candidate identities |
+| Predict new observations | Complete fitted model export | Learned preprocessing/model state and expected input schema |
+| Compare many runs | Workspace or result collection | Runs, score tables and prediction arrays |
+| Resume a supported optimizer | Its actual checkpoint | Search identity, completed history and optimizer state |
+| Explain intervals | Calibrator with the fixed predictor | Coverage settings and calibration evidence |
+
+A model archive is smaller than the full workspace because deployment does not need every candidate's historical predictions. Retain both when your scientific report needs traceability and your application needs a standalone predictor.
+
+## Make a report someone else can read
+
+Use a small record like this before adding plots:
+
+| Field | Example description |
+|---|---|
+| Question | Predict moisture, in percent, for a new specimen |
+| Data | NIR wavelengths and laboratory markers; acquisition campaign identified |
+| Independent unit | Specimen; three scans remain grouped |
+| Evaluation | Three group folds; separate later-campaign test set |
+| Search | SNV/MSC × 2/4/6 PLS components; eighteen fold fits |
+| Selection | Minimize pooled validation RMSE |
+| Selected recipe | Record the actual winning settings |
+| Final assessment | Record external test RMSE and specimen count |
+| Saved model | Export path, required source order and runtime |
+
+This is an example reporting template, not a measured experimental result. Supply your actual counts, scores and settings. A single model name and score are insufficient to explain a comparison.
+
+## Workspaces and sessions
+
+A **workspace** stores runs, metadata, predictions and models. A **session** keeps execution or loaded-predictor resources open. Use public export/import APIs to relocate a workspace, and close results/sessions after use. The {doc}`interoperability exercise <interop>` shows native model and workspace relocation separately.
+
+The full SDK uses SQLite metadata, Parquet prediction arrays and stored artifacts. The native result directory and a browser workflow record have different layouts. Use the loader corresponding to the producer API; changing an extension does not convert a workspace into a model.
+
+```{dropdown} Advanced: portable workspace readers and their requirements
+
+Core exposes `save_workspace`, `open_workspace` and `import_workspace`. Its `Workspace` queries `runs()` and `query_predictions(native_run_id)` and opens a closeable native prediction session with `session(native_run_id)`. Export creates an immutable `.n4w` snapshot.
+
+R uses `nirs4all_workspace_*` functions. Octave exposes `Workspace.runs`, `.predictions`, `.session`, `.export` and `.close`. These bridges require a Python executable with Core and the full SDK installed. Browser `openWorkspace(indexBytes, members)` validates hashes and native experiments; it does not become a SQLite engine.
+
+Workspace loading checks file inventories and relationships between scores, prediction arrays and selected models. Active journals or changed links can be refused. Consult {doc}`/reference/workspace` and {doc}`/reference/storage` for exact layouts and validation rules.
+```
+
+**Checkpoint:** write a report naming the ranking metric, validation data, winner and saved predictor. Continue to {doc}`deployment`.

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title description">
+<title id="title">SNV removes each spectrum&#x27;s offset and scale</title><desc id="description">Two spectra with the same shape become identical after row-wise normalization.</desc>
+<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#243B53" flood-opacity=".07"/></filter><marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L8,4.5 L0,9" fill="none" stroke="#64788C" stroke-width="1.4"/></marker></defs>
+<style>text{font-family:Inter,DejaVu Sans,Arial,sans-serif;fill:#162C46}</style>
+<rect width="1200" height="720" rx="24" fill="#F3F6FA"/>
+<rect x="32" y="32" width="6" height="66" rx="3" fill="#1463A0"/>
+<text x="56" y="59" font-size="30" font-weight="700" text-anchor="start" style="fill:#162C46">SNV removes each spectrum&#x27;s offset and scale</text>
+<text x="56" y="94" font-size="19" font-weight="400" text-anchor="start" style="fill:#4C6278">Two spectra with the same shape become identical after row-wise normalization.</text>
+<rect x="40" y="153" width="350" height="210" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="40" y="153" width="7" height="210" rx="3" fill="#1463A0" stroke="#1463A0"/>
+<text x="64" y="195" font-size="23" font-weight="700" text-anchor="start" style="fill:#1463A0">Before · two spectra</text>
+<text x="64" y="232" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">A: [1, 2, 3]</text>
+<text x="64" y="261" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">B: [3, 5, 7]</text>
+<text x="64" y="290" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Different offset and amplitude</text>
+<rect x="445" y="175" width="280" height="166" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="445" y="175" width="7" height="166" rx="3" fill="#7150A5" stroke="#7150A5"/>
+<text x="469" y="217" font-size="23" font-weight="700" text-anchor="start" style="fill:#7150A5">For each row</text>
+<text x="469" y="254" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Subtract its mean</text>
+<text x="469" y="283" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Divide by std (ddof=0)</text>
+<rect x="785" y="153" width="375" height="210" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="785" y="153" width="7" height="210" rx="3" fill="#007B71" stroke="#007B71"/>
+<text x="809" y="195" font-size="23" font-weight="700" text-anchor="start" style="fill:#007B71">After · same shape</text>
+<text x="809" y="232" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">A: [−1.225, 0, 1.225]</text>
+<text x="809" y="261" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">B: [−1.225, 0, 1.225]</text>
+<text x="809" y="290" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Still 2 samples × 3 features</text>
+<path d="M396,260 L435,260" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M731,260 L775,260" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M91,534 L481,534" fill="none" stroke="#DDE5EE" stroke-width="1"/>
+<text x="79" y="540" font-size="16" font-weight="400" text-anchor="end" style="fill:#4C6278">0</text>
+<path d="M91,482 L481,482" fill="none" stroke="#DDE5EE" stroke-width="1"/>
+<text x="79" y="488" font-size="16" font-weight="400" text-anchor="end" style="fill:#4C6278">4</text>
+<path d="M91,430 L481,430" fill="none" stroke="#DDE5EE" stroke-width="1"/>
+<text x="79" y="436" font-size="16" font-weight="400" text-anchor="end" style="fill:#4C6278">8</text>
+<path d="M91,430 L91,534" fill="none" stroke="#4C6278" stroke-width="2"/>
+<path d="M91,534 L481,534" fill="none" stroke="#4C6278" stroke-width="2"/>
+<text x="286" y="570" font-size="18" font-weight="400" text-anchor="middle" style="fill:#4C6278">Feature 1 → feature 3</text>
+<text x="91" y="412" font-size="18" font-weight="400" text-anchor="start" style="fill:#4C6278">Input signal</text>
+<polyline points="91.00,521.00 286.00,508.00 481.00,495.00" fill="none" stroke="#1463A0" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="91" cy="521" r="4" fill="#1463A0"/>
+<circle cx="286" cy="508" r="4" fill="#1463A0"/>
+<circle cx="481" cy="495" r="4" fill="#1463A0"/>
+<polyline points="91.00,495.00 286.00,469.00 481.00,443.00" fill="none" stroke="#7150A5" stroke-width="3" stroke-linejoin="round" stroke-dasharray="8 5"/>
+<rect x="87" y="491" width="8" height="8" rx="1" fill="white" stroke="#7150A5"/>
+<rect x="282" y="465" width="8" height="8" rx="1" fill="white" stroke="#7150A5"/>
+<rect x="477" y="439" width="8" height="8" rx="1" fill="white" stroke="#7150A5"/>
+<path d="M744,534 L1134,534" fill="none" stroke="#DDE5EE" stroke-width="1"/>
+<text x="732" y="540" font-size="16" font-weight="400" text-anchor="end" style="fill:#4C6278">-1.5</text>
+<path d="M744,482 L1134,482" fill="none" stroke="#DDE5EE" stroke-width="1"/>
+<text x="732" y="488" font-size="16" font-weight="400" text-anchor="end" style="fill:#4C6278">0</text>
+<path d="M744,430 L1134,430" fill="none" stroke="#DDE5EE" stroke-width="1"/>
+<text x="732" y="436" font-size="16" font-weight="400" text-anchor="end" style="fill:#4C6278">1.5</text>
+<path d="M744,430 L744,534" fill="none" stroke="#4C6278" stroke-width="2"/>
+<path d="M744,534 L1134,534" fill="none" stroke="#4C6278" stroke-width="2"/>
+<text x="939" y="570" font-size="18" font-weight="400" text-anchor="middle" style="fill:#4C6278">Feature 1 → feature 3</text>
+<text x="744" y="412" font-size="18" font-weight="400" text-anchor="start" style="fill:#4C6278">Normalized signal</text>
+<polyline points="744.00,524.46 939.00,482.00 1134.00,439.54" fill="none" stroke="#1463A0" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="744" cy="524.458" r="4" fill="#1463A0"/>
+<circle cx="939" cy="482" r="4" fill="#1463A0"/>
+<circle cx="1134" cy="439.542" r="4" fill="#1463A0"/>
+<polyline points="744.00,524.46 939.00,482.00 1134.00,439.54" fill="none" stroke="#7150A5" stroke-width="3" stroke-linejoin="round" stroke-dasharray="8 5"/>
+<rect x="740" y="520.458" width="8" height="8" rx="1" fill="white" stroke="#7150A5"/>
+<rect x="935" y="478" width="8" height="8" rx="1" fill="white" stroke="#7150A5"/>
+<rect x="1130" y="435.542" width="8" height="8" rx="1" fill="white" stroke="#7150A5"/>
+<rect x="40" y="604" width="1120" height="88" rx="12" fill="white" stroke="#D9E2EC"/>
+<text x="60" y="631" font-size="17" font-weight="700" text-anchor="start" style="fill:#007B71">EXPECTED RESULT</text>
+<text x="60" y="657" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">The curves overlap. SNV changes feature values; it does not add samples or feature columns.</text>
+</svg>
