@@ -380,10 +380,12 @@ class MaterializationResolver:
         """
         sample_ints = [self._identity.to_int(sample_id) for sample_id in sample_ids]
         uniq = list(dict.fromkeys(sample_ints))
+        from nirs4all.data._dataset.target_accessor import TargetAccessor
         from nirs4all.data.dataset import SpectroDataset
 
         selected = None
         if (type(self._dataset) is SpectroDataset
+                and type(self._dataset._target_accessor) is TargetAccessor
                 and self._dataset._target_accessor._indexer is self._dataset._indexer
                 and self._dataset._target_accessor._block is self._dataset._targets):
             selected = self._dataset._indexer.x_indices({"sample": uniq}, include_augmented=False, include_excluded=include_excluded)

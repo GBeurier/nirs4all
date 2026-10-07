@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from nirs4all.core.task_type import TaskType
+from nirs4all.data._dataset.target_accessor import TargetAccessor
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.targets import Targets
 from nirs4all.pipeline.dagml.identity import mint_identity
@@ -121,3 +122,28 @@ def test_replaced_live_accessor_block_preserves_actual_target_values() -> None:
     requested = [identity.to_wire(index) for index in [4, 1, 4]]
     assert dataset._targets is not replacement
     assert resolver.resolve_targets(requested)["values"] == [[1008, 1009], [1002, 1003], [1008, 1009]]
+
+
+def test_same_alias_accessor_override_preserves_actual_target_values() -> None:
+    class OffsetAccessor(TargetAccessor):
+        def y(self, selector=None, include_augmented=True, include_excluded=False):
+            return super().y(selector, include_augmented, include_excluded) + 500
+
+    dataset = _dataset(2)
+    identity = mint_identity(dataset)
+    dataset._target_accessor = OffsetAccessor(dataset._indexer, dataset._targets)
+    requested = [identity.to_wire(index) for index in [4, 1, 4]]
+    assert MaterializationResolver(dataset, identity).resolve_targets(requested)["values"] == [[518, 519], [512, 513], [518, 519]]
+
+
+def test_same_alias_accessor_refusal_is_preserved() -> None:
+    class RefusingAccessor(TargetAccessor):
+        def y(self, selector=None, include_augmented=True, include_excluded=False):
+            raise ValueError("live accessor refusal")
+
+    dataset = _dataset(2)
+    identity = mint_identity(dataset)
+    dataset._target_accessor = RefusingAccessor(dataset._indexer, dataset._targets)
+    requested = [identity.to_wire(index) for index in [4, 1, 4]]
+    with pytest.raises(ValueError, match="live accessor refusal"):
+        MaterializationResolver(dataset, identity).resolve_targets(requested)
