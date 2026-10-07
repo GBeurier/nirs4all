@@ -104,7 +104,7 @@ Order changes the result: smoothing then differentiation is not generally equiva
 
 Resampling and feature-selection operators have specialized controllers to maintain wavelength/feature metadata. A required wavelength axis must exist in the dataset; a matrix column index is not automatically a wavelength in nm. These transforms apply to each selected source/view; source-specific recipes belong in {doc}`branch`.
 
-**Worked source:** [U01 preprocessing](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U01_preprocessing_basics.py), [signal conversion](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U04_signal_conversion.py). See {doc}`/reference/transforms` for the operator-by-operator parameters.
+**Worked source:** [U01 preprocessing](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U01_preprocessing_basics.py), [signal conversion](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U04_signal_conversion.py). See {doc}`/reference/transforms` for the operator-by-operator parameters.
 
 ## Reproduce the short SNV example in your language
 

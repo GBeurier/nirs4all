@@ -97,7 +97,7 @@ During training, the legacy controller fits the criterion on base training rows 
 
 `YOutlierFilter` requires known targets to evaluate an observation. Use it for training diagnostics; for unlabeled prediction routes, choose a criterion that uses available spectra or metadata. A metadata route also requires that column in every prediction request. Tags preserve observations, making them useful for reporting a model's error separately on flagged and unflagged cohorts.
 
-**Worked source:** [sample filtering tutorial](https://github.com/nirs4all/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py). Filter masks and thresholds are detailed in {doc}`/reference/filters`.
+**Worked source:** [sample filtering tutorial](https://github.com/GBeurier/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py). Filter masks and thresholds are detailed in {doc}`/reference/filters`.
 
 ## Run the recipe on the downloadable observations
 

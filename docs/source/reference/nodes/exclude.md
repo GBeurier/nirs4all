@@ -125,7 +125,7 @@ Fit quality criteria on permitted training observations. Removing difficult vali
 
 The controller fits filters on base training rows and can cascade exclusion to their augmented descendants. Its `cascade_to_augmented` configuration controls that relation. Keep origin identity intact so an excluded original cannot continue influencing fitting through a synthetic copy. After filtering, check that every cohort still supports the requested fold count and model capacity. The legacy controller warns and keeps one row if a rule would exclude the entire training cohort; that safeguard is not a usable model-training protocol.
 
-**Worked source:** [U03 sample filtering](https://github.com/nirs4all/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py). Use {doc}`tag` to preserve rows while inspecting unusual cohorts.
+**Worked source:** [U03 sample filtering](https://github.com/GBeurier/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py). Use {doc}`tag` to preserve rows while inspecting unusual cohorts.
 
 ## Run the recipe on the downloadable observations
 

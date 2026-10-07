@@ -168,7 +168,7 @@ Noise intensity should represent plausible instrument/sample variation. A wavele
 
 Augmentation is training-only. Replaying a deployed model should return one prediction for each submitted observation without adding random copies. Legacy augmentation runs at its pipeline stage and can precede CV creation, while supported DAG-ML augmentation is fold-scoped. Equal refit predictions therefore do not establish equal CV semantics across engines.
 
-**Worked source:** [U03 sample augmentation](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U03_sample_augmentation.py), [serialized augmentation](https://github.com/nirs4all/nirs4all/blob/main/examples/pipeline_samples/03_sample_augmentation.yaml).
+**Worked source:** [U03 sample augmentation](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U03_sample_augmentation.py), [serialized augmentation](https://github.com/GBeurier/nirs4all/blob/main/examples/pipeline_samples/03_sample_augmentation.yaml).
 
 ## Run the recipe on the downloadable observations
 

@@ -219,4 +219,4 @@ the top-level example before nesting searches into branches.
 6. **Picking with the test set.** Preserve an untouched final evaluation cohort.
 
 Continue with {doc}`/reference/generator_keywords` for exact inputs and outputs.
-Runnable source: [D01 generator syntax](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/02_generators/D01_generator_syntax.py).
+Runnable source: [D01 generator syntax](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D01_generator_syntax.py).

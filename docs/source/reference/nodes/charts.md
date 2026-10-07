@@ -160,7 +160,7 @@ These outputs are diagnostics, not transformations fed to a learner. Host chart 
 
 When publishing a chart, accompany it with its question, units, cohort, sample count and a text summary of the finding. Use labels or line patterns as well as colors. Provide data or a table when readers need exact values. A PCA chart should identify whether the projection was fitted for descriptive inspection or within a training-only evaluation protocol.
 
-**Worked source:** [sample filtering charts](https://github.com/nirs4all/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py), [augmentation charts](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U03_sample_augmentation.py).
+**Worked source:** [sample filtering charts](https://github.com/GBeurier/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py), [augmentation charts](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U03_sample_augmentation.py).
 
 ## Run the recipe on the downloadable observations
 

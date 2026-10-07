@@ -197,7 +197,7 @@ This requires a `Sample_ID` metadata column and at least three independent group
 
 Fold files carry sample IDs, not arbitrary positions after filtering or joins. The assignment CSV format has `sample_id,fold` columns: each unique fold value identifies that cohort's validation samples. Keep IDs stable across loading, exclusion, augmentation and replay. See `tests/integration/pipeline/test_fold_file_loading.py` in the source tree for supported CSV/JSON/YAML cases.
 
-**Worked source:** [sample filtering and CV](https://github.com/nirs4all/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py). See {doc}`/guide/evaluation` for metric interpretation.
+**Worked source:** [sample filtering and CV](https://github.com/GBeurier/nirs4all/blob/main/examples/user/05_cross_validation/U03_sample_filtering.py). See {doc}`/guide/evaluation` for metric interpretation.
 
 ## Run the recipe on the downloadable observations
 

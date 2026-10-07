@@ -139,7 +139,7 @@ Keep `n_components` below the rank/size available in the smallest fitting fold. 
 
 A sequence of two `model` nodes records/evaluates successive models on the active features; it is not automatically a chain in which the second learns from the first model's predictions. Use {doc}`merge` or an explicit meta-model for stacking and {doc}`residual` for additive correction.
 
-**Worked source:** [stacking configuration](https://github.com/nirs4all/nirs4all/blob/main/examples/pipeline_samples/05_stacking_merge.yaml). See {doc}`/guide/results` to select and interpret results and {doc}`/guide/deployment` for export/replay contracts.
+**Worked source:** [stacking configuration](https://github.com/GBeurier/nirs4all/blob/main/examples/pipeline_samples/05_stacking_merge.yaml). See {doc}`/guide/results` to select and interpret results and {doc}`/guide/deployment` for export/replay contracts.
 
 ## A portable model recipe in all six representations
 

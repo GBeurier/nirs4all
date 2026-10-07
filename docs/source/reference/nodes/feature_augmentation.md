@@ -303,6 +303,6 @@ The first example is one experiment with three views; this is three experiments.
   for unequal-width blocks consumed as a matrix.
 - A 3D layout does not teach a matrix-only estimator to accept tensors.
 
-Runnable [U02 tutorial](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U02_feature_augmentation.py).
+Runnable [U02 tutorial](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U02_feature_augmentation.py).
 See {doc}`operator_step` for layouts and
 {doc}`/reference/multimodal_execution_matrix` for supported shapes.

@@ -295,7 +295,7 @@ does not rerun the selection for every batch.
 - Treating distribution alignment as proof of analyte prediction accuracy.
 
 Runnable selector analysis:
-[D01 transfer analysis](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/04_transfer_learning/D01_transfer_analysis.py).
+[D01 transfer analysis](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/04_transfer_learning/D01_transfer_analysis.py).
 Pipeline/replay evidence:
-[auto-transfer parity tests](https://github.com/nirs4all/nirs4all/blob/main/tests/integration/parity/test_auto_transfer_preproc.py).
+[auto-transfer parity tests](https://github.com/GBeurier/nirs4all/blob/main/tests/integration/parity/test_auto_transfer_preproc.py).
 Continue with {doc}`/user_guide/deployment/retrain_transfer` for a full adaptation protocol.
