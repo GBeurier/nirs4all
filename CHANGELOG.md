@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.4.6] — 2026-10-07
+
+### Fixed
+
+- Resolve aligned base target rows through one sample filter in DAG execution.
+- Refuse inconsistent target row counts before reshaping, preventing excluded,
+  augmented or unlabeled rows from silently changing the target width.
+
+
 ## [1.4.5] — 2026-10-07
 
 ### Fixed
