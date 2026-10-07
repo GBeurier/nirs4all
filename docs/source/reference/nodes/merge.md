@@ -469,5 +469,5 @@ aggregation. See {doc}`/reference/pipeline_keywords` for exact mappings.
 - Silently skipping missing branches changes the meaning of model columns.
 
 Executable fusion and stacking companion:
-[D08](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D08_documented_multisource_stacking.py).
+[D08](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D08_documented_multisource_stacking.py).
 Start with {doc}`branch` if merge inputs remain unclear.

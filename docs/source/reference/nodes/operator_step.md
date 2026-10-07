@@ -233,5 +233,5 @@ supported **method IDs** through the native language facade. Use
   supported operators and pipeline shape.
 
 Runnable source:
-[U01 preprocessing basics](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U01_preprocessing_basics.py).
+[U01 preprocessing basics](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U01_preprocessing_basics.py).
 Continue with {doc}`preprocessing`, {doc}`model`, and {doc}`/reference/operator_catalog`.

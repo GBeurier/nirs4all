@@ -379,7 +379,7 @@ pipeline = [{'split': KFold(n_splits=3, shuffle=True, random_state=17)},
 
 **Expected result:** 31 spectral + three marker columns make a 34-column matrix.
 Physical-sample IDs must align across sources. This fragment needs that two-source
-dataset; the [D08 multisource example](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D08_documented_multisource_stacking.py)
+dataset; the [D08 multisource example](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D08_documented_multisource_stacking.py)
 provides complete data construction and prediction replay.
 
 ## Route observations using metadata
@@ -773,6 +773,6 @@ for the requested CV folds or PLS components.
 - New metadata values require a routing decision; they are not automatically
   interchangeable with training sites.
 
-Runnable sources: [D01 branching basics](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D01_branching_basics.py),
-[D06 separation branches](https://github.com/nirs4all/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D06_separation_branches.py).
+Runnable sources: [D01 branching basics](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D01_branching_basics.py),
+[D06 separation branches](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D06_separation_branches.py).
 Full schema: {doc}`/reference/pipeline_keywords`.

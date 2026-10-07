@@ -331,5 +331,5 @@ branching, and retain its plan for prediction. Do not combine it with another
 repetition reshaping mechanism in the same recipe.
 
 Implementation-backed examples:
-[repetition tests](https://github.com/nirs4all/nirs4all/blob/main/tests/unit/controllers/data/test_repetition.py),
-[relation-fusion tests](https://github.com/nirs4all/nirs4all/blob/main/tests/unit/controllers/data/test_rep_fusion.py).
+[repetition tests](https://github.com/GBeurier/nirs4all/blob/main/tests/unit/controllers/data/test_repetition.py),
+[relation-fusion tests](https://github.com/GBeurier/nirs4all/blob/main/tests/unit/controllers/data/test_rep_fusion.py).

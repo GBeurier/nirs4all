@@ -268,5 +268,5 @@ The short list form is usually sufficient. The detailed mapping supports
 - Every block must preserve the same row IDs and row order.
 - Different-width blocks are allowed when concatenated; different row counts are not.
 
-Runnable context: [U02 feature augmentation](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U02_feature_augmentation.py).
+Runnable context: [U02 feature augmentation](https://github.com/GBeurier/nirs4all/blob/main/examples/user/03_preprocessing/U02_feature_augmentation.py).
 Full option schema: {doc}`/reference/pipeline_keywords`.

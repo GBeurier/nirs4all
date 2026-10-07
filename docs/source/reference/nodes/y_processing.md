@@ -114,7 +114,7 @@ The legacy target controller fits on training-partition targets and tracks each 
 
 **Check:** fit the transform only on permitted targets, preserve target column order, verify `inverse_transform`, and report metrics in an explicit scale. For log transforms, handle the mathematical domain and the distinction between inverse-transforming a point prediction and estimating a mean on the original scale.
 
-**Worked source:** [stacking with target scaling](https://github.com/nirs4all/nirs4all/blob/main/examples/pipeline_samples/05_stacking_merge.yaml). {doc}`/reference/transforms` lists the target discretizers.
+**Worked source:** [stacking with target scaling](https://github.com/GBeurier/nirs4all/blob/main/examples/pipeline_samples/05_stacking_merge.yaml). {doc}`/reference/transforms` lists the target discretizers.
 
 ## Run the recipe on the downloadable observations
 
