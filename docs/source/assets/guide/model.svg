@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title description">
+<title id="title">A model learns to predict the laboratory target</title><desc id="description">Compare predictions with held-out measurements to see error magnitude and direction.</desc>
+<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#243B53" flood-opacity=".07"/></filter><marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L8,4.5 L0,9" fill="none" stroke="#64788C" stroke-width="1.4"/></marker></defs>
+<style>text{font-family:Inter,DejaVu Sans,Arial,sans-serif;fill:#162C46}</style>
+<rect width="1200" height="720" rx="24" fill="#F3F6FA"/>
+<rect x="32" y="32" width="6" height="66" rx="3" fill="#1463A0"/>
+<text x="56" y="59" font-size="30" font-weight="700" text-anchor="start" style="fill:#162C46">A model learns to predict the laboratory target</text>
+<text x="56" y="94" font-size="19" font-weight="400" text-anchor="start" style="fill:#4C6278">Compare predictions with held-out measurements to see error magnitude and direction.</text>
+<rect x="40" y="155" width="321" height="165" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="40" y="155" width="7" height="165" rx="3" fill="#1463A0" stroke="#1463A0"/>
+<text x="64" y="197" font-size="23" font-weight="700" text-anchor="start" style="fill:#1463A0">Training</text>
+<text x="64" y="234" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Input features X + target y</text>
+<text x="64" y="263" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Fit learned model state</text>
+<path d="M368,239 L428,239" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="439" y="155" width="321" height="165" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="439" y="155" width="7" height="165" rx="3" fill="#7150A5" stroke="#7150A5"/>
+<text x="463" y="197" font-size="23" font-weight="700" text-anchor="start" style="fill:#7150A5">Prediction</text>
+<text x="463" y="234" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">New X → fitted model</text>
+<text x="463" y="263" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">One prediction per sample</text>
+<path d="M767,239 L827,239" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="838" y="155" width="321" height="165" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="838" y="155" width="7" height="165" rx="3" fill="#007B71" stroke="#007B71"/>
+<text x="862" y="197" font-size="23" font-weight="700" text-anchor="start" style="fill:#007B71">Evaluation</text>
+<text x="862" y="234" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Prediction minus</text>
+<text x="862" y="263" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">observation</text>
+<text x="862" y="292" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Inspect the signed residual</text>
+<rect x="220" y="378" width="760" height="176" rx="10" fill="white" stroke="#D9E2EC"/>
+<rect x="220" y="378" width="760" height="44" rx="10" fill="#EAF0F7" stroke="#D9E2EC"/>
+<text x="236" y="407" font-size="19" font-weight="600" text-anchor="start" style="fill:#162C46">Sample</text>
+<text x="396" y="407" font-size="19" font-weight="600" text-anchor="start" style="fill:#162C46">Observed</text>
+<text x="596" y="407" font-size="19" font-weight="600" text-anchor="start" style="fill:#162C46">Predicted</text>
+<text x="796" y="407" font-size="19" font-weight="600" text-anchor="start" style="fill:#162C46">Residual</text>
+<text x="236" y="451" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">A</text>
+<text x="396" y="451" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">5.0</text>
+<text x="596" y="451" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">4.8</text>
+<text x="796" y="451" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">−0.2</text>
+<text x="236" y="495" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">B</text>
+<text x="396" y="495" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">8.0</text>
+<text x="596" y="495" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">8.2</text>
+<text x="796" y="495" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">+0.2</text>
+<text x="236" y="539" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">C</text>
+<text x="396" y="539" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">11.0</text>
+<text x="596" y="539" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">10.9</text>
+<text x="796" y="539" font-size="19" font-weight="400" text-anchor="start" style="fill:#162C46">−0.1</text>
+<rect x="40" y="604" width="1120" height="88" rx="12" fill="white" stroke="#D9E2EC"/>
+<text x="60" y="631" font-size="17" font-weight="700" text-anchor="start" style="fill:#007B71">EXPECTED RESULT</text>
+<text x="60" y="657" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Three predictions in target units. Illustrative RMSE = √[(0.04 + 0.04 + 0.01) / 3] ≈ 0.173.</text>
+</svg>

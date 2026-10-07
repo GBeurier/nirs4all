@@ -1,25 +1,52 @@
 # Transforms Reference
 
-All transforms listed here are sklearn-compatible `TransformerMixin` classes that can be used as pipeline steps directly.
+A transform changes the features presented to a model. Choose it from a measurement question, then verify that useful signal survives. For example, scatter correction removes gain/offset differences; smoothing suppresses rapid oscillations; derivatives emphasize slopes; resampling changes where spectra are evaluated.
 
-```{note}
-Any sklearn `TransformerMixin` class (e.g., `StandardScaler`, `PCA`, `MinMaxScaler`) can also be used directly as a pipeline step.
+## Choose a transform by the effect you want to remove
+
+Read {doc}`nodes/preprocessing` for the worked result figure, expected dimensions and exercises. Choose a family below to compare the enumerated operators.
+
+## Same worked recipe in JSON, YAML and Python
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "pipeline": [
+    {
+      "class": "nirs4all.operators.transforms.StandardNormalVariate"
+    }
+  ]
+}
 ```
+:::
 
-## Usage in Pipeline
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+pipeline:
+- class: nirs4all.operators.transforms.StandardNormalVariate
+```
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
-from nirs4all.operators.transforms import SNV, SavitzkyGolay, FirstDerivative
-from sklearn.cross_decomposition import PLSRegression
+from nirs4all.operators.transforms import SNV
 
-pipeline = [
-    SNV(),
-    SavitzkyGolay(window_length=11, polyorder=3, deriv=1),
-    {"model": PLSRegression(n_components=10)},
-]
+pipeline = [SNV()]
 ```
+:::
 
-All transforms below are imported from `nirs4all.operators.transforms` unless otherwise noted.
+::::
+
+These are Python SDK operators. Native R/Octave/WASM recipes use their own method IDs and facade; see {doc}`/guide/languages`.
 
 ---
 
@@ -55,7 +82,7 @@ All transforms below are imported from `nirs4all.operators.transforms` unless ot
 | `FirstDerivative` | `delta=1.0`, `edge_order=2` | First numerical derivative using `numpy.gradient` along the feature axis |
 | `SecondDerivative` | `delta=1.0`, `edge_order=2` | Second numerical derivative using `numpy.gradient` applied twice |
 | `NorrisWilliams` | `gap=5`, `segment=5`, `deriv=1`, `delta=1.0` | Gap derivative with segment smoothing (Norris-Williams method) |
-| `Derivate` | `order=1`, `delta=1` | Nth-order derivative using `numpy.gradient` along axis 0 |
+| `Derivate` | `order=1`, `delta=1`, `axis=1` | Nth-order wavelength derivative; `axis=0` explicitly differentiates along samples |
 
 ---
 
@@ -163,3 +190,208 @@ All baseline correction classes below wrap the [pybaselines](https://pybaselines
 - {doc}`../reference/augmentations` -- Data augmentation operators
 - {doc}`../reference/pipeline_keywords` -- Pipeline keyword syntax reference
 - {doc}`../reference/operator_catalog` -- Full operator catalog
+
+## How to interpret and combine the families
+
+```{figure} /assets/guide/preprocessing_node.svg
+:alt: Spectra with offset and gain differences become the same row-normalized shape after SNV.
+
+Educational SNV example: `[1, 2, 3]` and `[3, 5, 7]` both become approximately
+`[-1.225, 0, 1.225]`. The mechanism removes gain/offset, not sample identity.
+```
+
+**Scatter correction.** `StandardNormalVariate` uses each row's mean and
+standard deviation; it does not estimate the population mean spectrum.
+`LocalStandardNormalVariate` uses local windows and can alter peak contrast
+at window boundaries. `RobustStandardNormalVariate` substitutes median and
+MAD, reducing the influence of spikes on normalization. MSC learns the mean
+training spectrum and corrects each row using a fitted offset and slope.
+EMSC extends that regression with polynomial nuisance terms. The current
+MSC `scale` argument is retained for API compatibility and does not change
+the raw-spectrum reference calculation. Fit its reference on training rows.
+Area normalization compares relative spectral contributions; it can discard
+absolute intensity that was useful for predicting concentration.
+
+**Smoothing and derivatives.** Savitzky–Golay fits a local polynomial to a
+window. Increase `window_length` to suppress more noise at the cost of
+blurring narrow peaks; `polyorder` must be smaller than the window length.
+Set `deriv=0` for smoothing and `deriv=1` or `2` for smoothed derivatives.
+`delta` is the grid spacing and controls derivative units. The usual choice
+is an odd window no longer than the spectrum. Gaussian filtering spreads
+each point over its neighbors; `sigma` controls that scale. First/second
+derivatives differentiate along the spectral axis, while Norris–Williams
+adds segment averaging and a gap. Wavelet denoising thresholds detail
+coefficients; its level, boundary mode and threshold can change edge peaks.
+Inspect those boundaries before comparing validation scores.
+
+**Baseline correction.** Detrend removes a linear trend. AsLS and IAsLS
+balance smoothness (`lam`) against asymmetric treatment of peaks (`p`);
+AirPLS and ArPLS adapt weights iteratively. ModPoly and IModPoly use
+polynomial baselines; SNIP iteratively clips peaks, RollingBall uses a
+morphological envelope, and BEADS combines sparse signal and baseline
+estimation. These methods encode different beliefs about the baseline.
+Do not choose a method solely because it makes a spectrum visually flat:
+broad chemical peaks may also be removed. Optional `pybaselines` is needed
+for its wrappers.
+
+**Orthogonalization.** OSC learns directions in X that are orthogonal to y.
+It is supervised even though it appears before the model. EPO learns a
+spectral interference subspace from external parameters `d`, such as
+temperature; `d` is not the prediction target. EPO's fitted projection can
+then transform future spectra without requiring `d`. Both learn state
+inside training folds. See `U05_orthogonalization.py` for external-parameter
+binding in a full workflow.
+
+**Physical conversions.** Reflectance-to-absorbance computes `-log10(R)` for
+fractional reflectance; percent reflectance requires dividing by 100 first
+or declaring the appropriate source type. `FromAbsorbance` applies the
+inverse exponential. `SignalTypeConverter` selects the conversion from its
+declared source and target types; it does not establish those types from
+chemistry. Kubelka–Munk computes `(1-R)^2/(2R)` for diffuse reflectance.
+LogTransform is a general numerical logarithm with offset rules, which need
+not have a physical absorbance interpretation. Keep units and signal type
+with the source schema, especially across language boundaries.
+
+**Representation and selection.** Wavelet/Haar return coefficients;
+WaveletFeatures summarizes coefficients at multiple scales. WaveletPCA and
+WaveletSVD learn reductions at each scale, so their fitted bases must be
+reused at prediction. FlexiblePCA centers its input and FlexibleSVD offers
+a truncated SVD representation. CARS and MCUVE use y to select wavelengths;
+their internal selection must not see outer validation targets. Cropping
+removes indexed channels, resampling changes the grid, and flattening joins
+preprocessing views. Each changes how downstream feature positions should
+be interpreted. An index crop does not imply a particular physical
+wavelength range unless the schema establishes that mapping.
+
+## A complete, small transformation experiment
+
+This standalone Python example exposes fitted state explicitly. It creates
+training and future rows, fits MSC on training only, then reuses its reference.
+It is a numerical experiment rather than a cross-validation pipeline.
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} Python
+:sync: python
+
+```python
+import numpy as np
+from nirs4all.operators.transforms import MSC, SNV, SavitzkyGolay
+
+wavelengths = np.linspace(1000, 2200, 241)  # 5 nm spacing
+peak = np.exp(-((wavelengths - 1450) / 100) ** 2)
+X_train = np.stack([peak, 1.2 * peak + 0.1, 0.8 * peak - 0.05])
+X_future = np.stack([1.1 * peak + 0.08])
+
+msc = MSC().fit(X_train)
+corrected_train = msc.transform(X_train)
+corrected_future = msc.transform(X_future)
+assert corrected_future.shape == (1, 241)
+
+snv = SNV().fit_transform(X_train)
+assert np.allclose(snv.mean(axis=1), 0, atol=1e-12)
+derivative = SavitzkyGolay(
+    window_length=11, polyorder=3, deriv=1, delta=5.0
+).fit_transform(X_train)
+assert derivative.shape == X_train.shape
+```
+:::
+::::
+
+For workflow-level fit scope use {doc}`nodes/preprocessing`, not manual
+prefitting on the whole dataset. A Python SDK serialized preprocessing node
+can be written as follows; this import-path form is not a portable native ID:
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+preprocessing:
+  class: nirs4all.operators.transforms.SavitzkyGolay
+  params:
+    window_length: 11
+    polyorder: 3
+    deriv: 1
+    delta: 5.0
+```
+:::
+::::
+
+## Learning exercises and exact APIs
+
+Run `U01_preprocessing_basics.py` to compare transformations, then
+`U04_signal_conversion.py` to inspect declared units and
+`U06_wavelet_denoise.py` to inspect scale and boundary behavior. Compare one
+factor at a time on the same folds. Preserve the fitted transform and feature
+schema with the final model.
+
+The {doc}`/api/modules` tree contains per-class constructor and method
+documentation under `nirs4all.operators.transforms`. The native operator IDs
+and binding availability are separate contracts: consult
+{doc}`/guide/interfaces` before translating an import path to another host.
+
+## Ragged temporal encoding: SequenceSummary
+
+```{figure} /assets/guide/ragged_series.svg
+:alt: Variable-length sequences become five fixed summary columns: mean, population standard deviation, minimum, maximum and observation count.
+
+Educational one-channel example. Sequences of length 2, 3 and 4 keep their sample identity while becoming a matrix with three rows and five columns. Values are described below.
+```
+
+| Observed sequence | Mean | Population SD | Minimum | Maximum | Length |
+|---|---|---|---|---|---|
+| `[1, 3]` | 2 | 1 | 1 | 3 | 2 |
+| `[2, 4, 6]` | 4 | 1.633 | 2 | 6 | 3 |
+| `[0, 2, 4, 6]` | 3 | 2.236 | 0 | 6 | 4 |
+
+The summary uses equally weighted observations. It ignores time-coordinate spacing and loses the ordering of measurements. With several channels, summaries are constructed per channel and channel identity must remain fixed. The observation-count feature is optional; it is not elapsed time.
+
+
+`SequenceSummary` accepts an IO `RaggedSeriesBatch`: one variable-length
+multichannel series per sample. It computes an ordered subset of `mean`,
+`std`, `min` and `max` for each channel, optionally appending observation count.
+For two channels, four statistics and `include_length=True`, output width
+is `2 × 4 + 1 = 9`, regardless of individual series lengths. Columns are
+ordered by channel, then statistic; length is last. Standard deviation uses
+`ddof=0`.
+
+
+Each sample is summarized independently into the same column contract.
+Sequence lengths are allowed to differ; channel identities must stay fixed.
+The optional length feature describes measurement count, not elapsed time.
+
+The encoder deliberately ignores time coordinates and weights observations
+equally. Therefore an arithmetic mean is not a time-weighted mean for
+irregular sampling; order and dynamics are lost. Use it when aggregate
+behavior is a plausible representation, and compare against an appropriate
+temporal representation when dynamics matter.
+
+`channel_names` supplies stable names. `min_observations=1` accepts singleton
+series; a larger value makes an explicit applicability rule.
+`channel_bounds` supplies inclusive finite domain limits per channel and is
+not inferred from held-out observations. Empty series and nonfinite observed
+values are refused. A missing modality must be handled by its presence policy
+before reaching the encoder; do not pad it with fake measurements.
+
+Fit records the channel contract, not training values or lengths. Run
+`U12_multimodal_ragged_series.py`, `U13_multimodal_late_missing_sources.py`
+and {doc}`/guide/datasets` for workflow, missingness and domain
+examples. Availability of this Python encoder does not imply an identical
+ragged runtime profile in every binding.
+
+## Fixed convolution features: FCKStaticTransformer
+
+`FCKStaticTransformer` applies a constructor-defined bank of normalized
+fractional convolution filters along wavelengths. The defaults combine four
+orders, two scales and two kernel sizes into 16 filters. With flattening,
+`(n, p)` becomes `(n, 16p)`; `flatten=False` retains `(n, 16, p)`.
+`alphas`, `scales`, `kernel_sizes` and `sigma` define the bank;
+`mode` defines boundary handling. It does not learn filters from y or the
+training population, but selecting its hyperparameters still requires
+training/validation separation. Large banks increase memory and model
+complexity. Compare its added representations against a simple derivative
+baseline rather than treating more columns as additional independent evidence.

@@ -1,131 +1,60 @@
-# Operator Catalog
+# Operator catalog: choose a job, then inspect the method
 
-This catalog enumerates every pipeline operator exposed across the `nirs4all` backend and the `nirs4all_ui` component library after the October 2025 restructuring. The component manifest is generated from `scripts/generate_component_library.py`, which populates `public/component-library.json` by introspecting the codebase and the installed scikit-learn distribution.
+An **operator** is a numerical operation such as SNV, a learner such as PLS, or a sampling rule. A **node** tells the pipeline how to use it: transform features, transform targets, create training copies, tag observations or fit a model. The same transformer under sample augmentation and ordinary preprocessing has different effects on the dataset.
 
-## Category Overview
+Start from the job you need. Each link below leads to the parameter table and explanation; the corresponding node links lead to a worked recipe, expected result figure, exercise and common mistake.
 
-| Category | Feather icon | Subcategories | Components | Description |
-| --- | --- | --- | --- | --- |
-| Augmentation | `GitBranch` | 5 | 30+ | Spectral augmentation operators (noise, baseline, wavelength, physical, mixup) |
-| Spectral Preprocessing | `Sliders` | 9 | 25+ | Baseline, scatter, smoothing, derivatives, orthogonalization, wavelet denoise |
-| Feature Engineering | `Layers` | 7 | 45 | scikit-learn TransformerMixin utilities and feature builders |
-| Dimension Reduction | `Minimize2` | 3 | 39 | Operators that change feature dimensionality |
-| NIRS Models | `Zap` | 1 | 18+ | Built-in PLS variants (AOM-PLS, POP-PLS, OPLS, DiPLS, MBPLS, etc.) |
-| Classical Models | `BarChart2` | 16 | 99 | scikit-learn estimators (regressors, classifiers, wrappers) |
-| Deep Learning | `Cpu` | 1 | 29 | TensorFlow models bundled with nirs4all |
-| Validation & Splitting | `DivideSquare` | 1 | 19 | Cross-validation and sampling strategies |
-| Target Processing | `Crosshair` | 1 | 2 | Transformations applied to the target variable (`y`) |
-| Prediction & Outputs | `Target` | 1 | 3 | Prediction helpers and probability calibration |
-| Pipeline Utilities | `Box` | 3 | 11 | Containers, generators, and visualization helpers |
+| Job | Detailed method list | Workflow example |
+|---|---|---|
+| Correct spectra or change features | {doc}`transforms` | {doc}`nodes/preprocessing` |
+| Scale or discretize the target | {doc}`transforms` | {doc}`nodes/y_processing` |
+| Predict a number or category | {doc}`models` | {doc}`nodes/model` |
+| Assign independent validation units | {doc}`splitters` | {doc}`nodes/split` |
+| Diagnose unusual observations | {doc}`filters` | {doc}`nodes/tag` |
+| Exclude eligible training observations | {doc}`filters` | {doc}`nodes/exclude` |
+| Generate plausible training variants | {doc}`augmentations` | {doc}`nodes/sample_augmentation` |
+| Build multiple representations | {doc}`transforms` | {doc}`nodes/feature_augmentation` and {doc}`nodes/concat_transform` |
+| Combine sources or fitted predictions | {doc}`models` | {doc}`nodes/branch` and {doc}`nodes/merge` |
+| Correct a base prediction | {doc}`models` | {doc}`nodes/residual` |
+| Generate alternative recipes | {doc}`generator_keywords` | {doc}`nodes/generators` |
+| Inspect spectra, folds, copies or exclusions | {doc}`nodes/charts` | {doc}`/user_guide/visualization/index` |
 
-## Augmentation
+## Enumerated spectroscopy methods
 
-- **Spline-based** – `Spline Smoothing`, `Spline X Perturbations`, `Spline Y Perturbations`, `Spline X Simplification`, `Spline Curve Simplification`
-- **Random** – `Rotate & Translate`, `Random X Operation`
-- **Spectral Noise & Drift** – `GaussianAdditiveNoise`, `MultiplicativeNoise`, `SpikeNoise`, `LinearBaselineDrift`, `PolynomialBaselineDrift`
-- **Wavelength Transforms** – `WavelengthShift`, `WavelengthStretch`, `LocalWavelengthWarp`
-- **Spectral Manipulation** – `SmoothMagnitudeWarp`, `BandPerturbation`, `GaussianSmoothingJitter`, `UnsharpSpectralMask`, `BandMasking`, `ChannelDropout`, `LocalClipping`
-- **Mixup** – `MixupAugmenter`, `LocalMixupAugmenter`
-- **Scatter Simulation** – `ScatterSimulationMSC`
-- **Physical/Instrumental** – `PathLengthAugmenter`, `BatchEffectAugmenter`, `InstrumentalBroadeningAugmenter`, `HeteroscedasticNoiseAugmenter`, `DeadBandAugmenter`
+These are the Python SDK's maintained spectroscopy families, not UI component counts. A class listed here does not imply native/WASM execution support. For native IDs, supported host/runtime combinations and portable recipes, consult {doc}`/guide/catalog` and {doc}`/guide/languages`.
 
-## Spectral Preprocessing
+### Transforms
 
-- **Baseline Correction** – `Baseline Removal`, `Detrend`, `ASLSBaseline`, `AirPLS`, `ArPLS`, `IModPoly`, `ModPoly`, `SNIP`, `RollingBall`, `IASLS`, `BEADS`
-- **Scatter & Normalization** – `MSC`, `EMSC`, `Standard Normal Variate`, `Robust Normal Variate`, `Area Normalization`
-- **Smoothing** – `Savitzky-Golay`, `Gaussian Filter`
-- **Derivatives** – `First Derivative`, `Second Derivative`, `Sample Derivative`, `Norris-Williams Gap Derivative`
-- **Orthogonalization** – `OSC` (Orthogonal Signal Correction), `EPO` (External Parameter Orthogonalization)
-- **Wavelet & Denoising** – `Wavelet Transform`, `Haar Wavelet`, `Wavelet Denoise`
-- **Spectral Transforms** – `Log Transform`, `Reflectance to Absorbance`, `To Absorbance`, `From Absorbance`, `Kubelka-Munk`
-- **Signal Type Conversion** – `SignalTypeConverter`, `PercentToFraction`, `FractionToPercent`
-- **NIRS Scaling** – `Normalize Rows`, `Simple Scale`
-- **Resampling & Alignment** – `Adaptive Resampler`, `Crop Transformer`, `Resample Transformer`
-- **Feature Selection** – `CARS`, `MCUVE`, `FlexiblePCA`, `FlexibleSVD`
+[StandardNormalVariate](transforms.md#scatter-correction-and-normalization) · [LocalStandardNormalVariate](transforms.md#scatter-correction-and-normalization) · [RobustStandardNormalVariate](transforms.md#scatter-correction-and-normalization) · [MultiplicativeScatterCorrection](transforms.md#scatter-correction-and-normalization) · [ExtendedMultiplicativeScatterCorrection](transforms.md#scatter-correction-and-normalization) · [AreaNormalization](transforms.md#scatter-correction-and-normalization) · [Normalize](transforms.md#scatter-correction-and-normalization) · [SimpleScale](transforms.md#scatter-correction-and-normalization) · [SavitzkyGolay](transforms.md#smoothing) · [Gaussian](transforms.md#smoothing) · [WaveletDenoise](transforms.md#smoothing) · [FirstDerivative](transforms.md#derivatives) · [SecondDerivative](transforms.md#derivatives) · [NorrisWilliams](transforms.md#derivatives) · [Derivate](transforms.md#derivatives) · [Baseline](transforms.md#baseline-correction) · [Detrend](transforms.md#baseline-correction) · [PyBaselineCorrection](transforms.md#baseline-correction) · [ASLSBaseline](transforms.md#baseline-correction) · [AirPLS](transforms.md#baseline-correction) · [ArPLS](transforms.md#baseline-correction) · [IModPoly](transforms.md#baseline-correction) · [ModPoly](transforms.md#baseline-correction) · [SNIP](transforms.md#baseline-correction) · [RollingBall](transforms.md#baseline-correction) · [IASLS](transforms.md#baseline-correction) · [BEADS](transforms.md#baseline-correction) · [OSC](transforms.md#orthogonalization) · [EPO](transforms.md#orthogonalization) · [ReflectanceToAbsorbance](transforms.md#signal-conversion) · [ToAbsorbance](transforms.md#signal-conversion) · [FromAbsorbance](transforms.md#signal-conversion) · [SignalTypeConverter](transforms.md#signal-conversion) · [KubelkaMunk](transforms.md#signal-conversion) · [LogTransform](transforms.md#signal-conversion) · [PercentToFraction](transforms.md#signal-conversion) · [FractionToPercent](transforms.md#signal-conversion) · [Wavelet](transforms.md#wavelet-transforms-and-feature-extraction) · [Haar](transforms.md#wavelet-transforms-and-feature-extraction) · [WaveletFeatures](transforms.md#wavelet-transforms-and-feature-extraction) · [WaveletPCA](transforms.md#wavelet-transforms-and-feature-extraction) · [WaveletSVD](transforms.md#wavelet-transforms-and-feature-extraction) · [CARS](transforms.md#feature-selection) · [MCUVE](transforms.md#feature-selection) · [FlexiblePCA](transforms.md#feature-selection) · [FlexibleSVD](transforms.md#feature-selection) · [Resampler](transforms.md#resampling-and-cropping) · [CropTransformer](transforms.md#resampling-and-cropping) · [ResampleTransformer](transforms.md#resampling-and-cropping) · [FlattenPreprocessing](transforms.md#resampling-and-cropping) · [IntegerKBinsDiscretizer](transforms.md#target-transforms) · [RangeDiscretizer](transforms.md#target-transforms)
 
-## Feature Engineering (scikit-learn TransformerMixin)
+### Models
 
-- **scikit-learn Scalers** – `Binarizer`, `FunctionTransformer`, `KernelCenterer`, `MaxAbsScaler`, `MinMaxScaler`, `Normalizer`, `PolynomialFeatures`, `PowerTransformer`, `QuantileTransformer`, `RobustScaler`, `SplineTransformer`, `StandardScaler`
-- **Encoding & Binning** – `KBinsDiscretizer`, `LabelBinarizer`, `LabelEncoder`, `MultiLabelBinarizer`, `OneHotEncoder`, `OrdinalEncoder`, `TargetEncoder`
-- **Imputation** – `KNNImputer`, `MissingIndicator`, `SimpleImputer`
-- **Dimensionality Reduction** – `CCA`, `DictionaryLearning`, `FactorAnalysis`, `FastICA`, `IncrementalPCA`, `Isomap`, `KernelPCA`, `LatentDirichletAllocation`, `LocallyLinearEmbedding`, `MiniBatchDictionaryLearning`, `MiniBatchNMF`, `MiniBatchSparsePCA`, `NMF`, `PCA`, `PLSCanonical`, `PLSRegression`, `PLSSVD`, `SparseCoder`, `SparsePCA`, `TSNE`, `TruncatedSVD`
-- **Feature Selection** – `GenericUnivariateSelect`, `RFE`, `RFECV`, `SelectFdr`, `SelectFpr`, `SelectFromModel`, `SelectFwe`, `SelectKBest`, `SelectPercentile`, `SequentialFeatureSelector`, `VarianceThreshold`
-- **Kernel & Projection** – `AdditiveChi2Sampler`, `GaussianRandomProjection`, `Nystroem`, `PolynomialCountSketch`, `RBFSampler`, `SkewedChi2Sampler`, `SparseRandomProjection`
-- **Feature Extraction** – `DictVectorizer`, `FeatureHasher`, `HashingVectorizer`, `PatchExtractor`, `TfidfTransformer`
-- **Cluster & Neighbors** – `Birch`, `BisectingKMeans`, `FeatureAgglomeration`, `KMeans`, `KNeighborsTransformer`, `MiniBatchKMeans`, `NeighborhoodComponentsAnalysis`, `RadiusNeighborsTransformer`
-- **Meta Transformers** – `ColumnTransformer`, `FeatureUnion`, `RandomTreesEmbedding`, `StackingClassifier`, `StackingRegressor`, `VotingClassifier`, `VotingRegressor`
-- **Miscellaneous Transformers** – `BernoulliRBM`, `IsotonicRegression`, `LinearDiscriminantAnalysis`
+[AOMPLSRegressor](models.md#adaptive-pls-auto-preprocessing) · [AOMPLSClassifier](models.md#adaptive-pls-auto-preprocessing) · [POPPLSRegressor](models.md#adaptive-pls-auto-preprocessing) · [POPPLSClassifier](models.md#adaptive-pls-auto-preprocessing) · [AOMRidgeRegressor](models.md#aom-ridge-and-fastaom) · [AOMRidgeAutoSelector](models.md#aom-ridge-and-fastaom) · [AOMRidgeBlender](models.md#aom-ridge-and-fastaom) · [FastAOMPLSRidge](models.md#aom-ridge-and-fastaom) · [PLSDA](models.md#standard-pls) · [IKPLS](models.md#standard-pls) · [SIMPLS](models.md#standard-pls) · [RobustPLS](models.md#standard-pls) · [RecursivePLS](models.md#standard-pls) · [OPLS](models.md#orthogonal-pls) · [OPLSDA](models.md#orthogonal-pls) · [KOPLS](models.md#orthogonal-pls) · [MBPLS](models.md#multi-block-and-domain-invariant) · [DiPLS](models.md#multi-block-and-domain-invariant) · [SparsePLS](models.md#sparse-and-interval) · [IntervalPLS](models.md#sparse-and-interval) · [KernelPLS](models.md#kernel-pls) · [OKLMPLS](models.md#kernel-pls) · [FCKPLS](models.md#kernel-pls) · [LWPLS](models.md#locally-weighted) · [NLPLS](models.md#nonlinear-pls) · [MetaModel](models.md#meta-model-stacking) · [IdentityOperator](models.md#aom-pls-operator-bank) · [SavitzkyGolayOperator](models.md#aom-pls-operator-bank) · [DetrendProjectionOperator](models.md#aom-pls-operator-bank) · [NorrisWilliamsOperator](models.md#aom-pls-operator-bank) · [FiniteDifferenceOperator](models.md#aom-pls-operator-bank) · [WaveletProjectionOperator](models.md#aom-pls-operator-bank) · [FFTBandpassOperator](models.md#aom-pls-operator-bank) · [LinearOperator](models.md#aom-pls-operator-bank) · [ComposedOperator](models.md#aom-pls-operator-bank)
+
+### Splitters
+
+[KennardStoneSplitter](splitters.md#nirs-specific-splitters) · [SPXYSplitter](splitters.md#nirs-specific-splitters) · [KMeansSplitter](splitters.md#nirs-specific-splitters) · [KBinsStratifiedSplitter](splitters.md#nirs-specific-splitters) · [SystematicCircularSplitter](splitters.md#nirs-specific-splitters) · [SPlitSplitter](splitters.md#nirs-specific-splitters) · [SPXYFold](splitters.md#nirs-specific-splitters) · [SPXYGFold](splitters.md#nirs-specific-splitters) · [BinnedStratifiedGroupKFold](splitters.md#nirs-specific-splitters) · [GroupedSplitterWrapper](splitters.md#nirs-specific-splitters) · [KFold](splitters.md#commonly-used-sklearn-splitters) · [StratifiedKFold](splitters.md#commonly-used-sklearn-splitters) · [ShuffleSplit](splitters.md#commonly-used-sklearn-splitters) · [RepeatedKFold](splitters.md#commonly-used-sklearn-splitters) · [LeaveOneOut](splitters.md#commonly-used-sklearn-splitters) · [GroupKFold](splitters.md#commonly-used-sklearn-splitters) · [StratifiedGroupKFold](splitters.md#commonly-used-sklearn-splitters)
+
+### Filters
 
 
-## Dimension Reduction
 
-- **Dimensionality Reduction** - `CCA`, `DictionaryLearning`, `FactorAnalysis`, `FastICA`, `IncrementalPCA`, `Isomap`, `KernelPCA`, `LatentDirichletAllocation`, `LocallyLinearEmbedding`, `MiniBatchDictionaryLearning`, `MiniBatchNMF`, `MiniBatchSparsePCA`, `NMF`, `PCA`, `PLSCanonical`, `PLSRegression`, `PLSSVD`, `SparseCoder`, `SparsePCA`, `TSNE`, `TruncatedSVD`
-- **Feature Selection** - `GenericUnivariateSelect`, `RFE`, `RFECV`, `SelectFdr`, `SelectFpr`, `SelectFromModel`, `SelectFwe`, `SelectKBest`, `SelectPercentile`, `SequentialFeatureSelector`, `VarianceThreshold`
-- **Kernel & Projection** - `AdditiveChi2Sampler`, `GaussianRandomProjection`, `Nystroem`, `PolynomialCountSketch`, `RBFSampler`, `SkewedChi2Sampler`, `SparseRandomProjection`
+### Augmentations
 
-> _Note_: Transformer lists are derived automatically via `sklearn.utils.all_estimators(type_filter="transformer")`, ensuring parity with the installed scikit-learn version.
+[GaussianAdditiveNoise](augmentations.md#noise) · [MultiplicativeNoise](augmentations.md#noise) · [SpikeNoise](augmentations.md#noise) · [HeteroscedasticNoiseAugmenter](augmentations.md#noise) · [LinearBaselineDrift](augmentations.md#baseline-drift) · [PolynomialBaselineDrift](augmentations.md#baseline-drift) · [WavelengthShift](augmentations.md#wavelength-distortion) · [WavelengthStretch](augmentations.md#wavelength-distortion) · [LocalWavelengthWarp](augmentations.md#wavelength-distortion) · [SmoothMagnitudeWarp](augmentations.md#spectral-distortion) · [BandPerturbation](augmentations.md#spectral-distortion) · [GaussianSmoothingJitter](augmentations.md#spectral-distortion) · [UnsharpSpectralMask](augmentations.md#spectral-distortion) · [BandMasking](augmentations.md#spectral-distortion) · [ChannelDropout](augmentations.md#spectral-distortion) · [LocalClipping](augmentations.md#spectral-distortion) · [MixupAugmenter](augmentations.md#mixup) · [LocalMixupAugmenter](augmentations.md#mixup) · [ScatterSimulationMSC](augmentations.md#mixup) · [PathLengthAugmenter](augmentations.md#physical--instrumental) · [BatchEffectAugmenter](augmentations.md#physical--instrumental) · [InstrumentalBroadeningAugmenter](augmentations.md#physical--instrumental) · [DeadBandAugmenter](augmentations.md#physical--instrumental) · [TemperatureAugmenter](augmentations.md#environmental) · [MoistureAugmenter](augmentations.md#environmental) · [ParticleSizeAugmenter](augmentations.md#scattering) · [EMSCDistortionAugmenter](augmentations.md#scattering) · [DetectorRollOffAugmenter](augmentations.md#edge-artifacts) · [StrayLightAugmenter](augmentations.md#edge-artifacts) · [EdgeCurvatureAugmenter](augmentations.md#edge-artifacts) · [TruncatedPeakAugmenter](augmentations.md#edge-artifacts) · [EdgeArtifactsAugmenter](augmentations.md#edge-artifacts) · [Spline_Smoothing](augmentations.md#spline-based) · [Spline_X_Perturbations](augmentations.md#spline-based) · [Spline_Y_Perturbations](augmentations.md#spline-based) · [Spline_X_Simplification](augmentations.md#spline-based) · [Spline_Curve_Simplification](augmentations.md#spline-based) · [Rotate_Translate](augmentations.md#random-geometric) · [Random_X_Operation](augmentations.md#random-geometric)
 
-## NIRS Models (Built-in PLS Variants)
+## Compatible host estimators beyond this list
 
-- **Adaptive PLS** – `AOMPLSRegressor` (Adaptive Operator-Mixture PLS), `AOMPLSClassifier`, `POPPLSRegressor` (Per-Operator-Per-component PLS), `POPPLSClassifier`
-- **Standard PLS** – `PLSDA`, `IKPLS`, `SIMPLS`, `RobustPLS`, `RecursivePLS`
-- **Orthogonal PLS** – `OPLS`, `OPLSDA`, `KOPLS`
-- **Multi-Block/Domain** – `MBPLS`, `DiPLS`
-- **Sparse & Interval** – `SparsePLS`, `IntervalPLS`
-- **Kernel PLS** – `KernelPLS`, `NLPLS`, `KPLS`, `OKLMPLS`
-- **Advanced PLS** – `FCKPLS` (Fractional Convolution Kernel), `LWPLS` (Locally Weighted)
-- **Meta-model** – `MetaModel` (stacking configuration), `StackingConfig`
+The Python SDK also accepts compatible sklearn estimators and installed neural frameworks. For regression, useful comparison families include Ridge/Lasso/ElasticNet, PLS, SVR, random forests, boosting, Gaussian processes and a dummy baseline. Classification counterparts include logistic regression, discriminant analysis, PLSDA, SVC, tree ensembles and calibrated probability models. Their input and target constraints still apply; discovery alone does not establish that an estimator is suitable.
 
-> _Note_: AOM-PLS and POP-PLS include built-in operator banks for automatic preprocessing selection. Use `default_operator_bank()` or `extended_operator_bank()` for AOM-PLS, and `pop_pls_operator_bank()` for POP-PLS.
+Examples connect these choices to experiments: [multiple models](https://github.com/nirs4all/nirs4all/blob/main/examples/user/04_models/U01_multi_model.py), [PLS variants](https://github.com/nirs4all/nirs4all/blob/main/examples/user/04_models/U04_pls_variants.py), [augmentation](https://github.com/nirs4all/nirs4all/blob/main/examples/user/03_preprocessing/U03_sample_augmentation.py), and [CV strategies](https://github.com/nirs4all/nirs4all/blob/main/examples/user/05_cross_validation/U01_cv_strategies.py). Exact constructors, fitting methods and learned attributes are under {doc}`/api/modules`.
 
-## Classical Models (scikit-learn estimators)
+## How to use a catalog entry
 
-- **Baseline Models** – `DummyClassifier`, `DummyRegressor`
-- **Cross Decomposition** – `CCA`, `PLSCanonical`, `PLSRegression`
-- **Decision Trees** – `DecisionTreeClassifier`, `DecisionTreeRegressor`, `ExtraTreeClassifier`, `ExtraTreeRegressor`
-- **Discriminant Analysis** – `LinearDiscriminantAnalysis`, `QuadraticDiscriminantAnalysis`
-- **Ensemble Methods** – `AdaBoostClassifier`, `AdaBoostRegressor`, `BaggingClassifier`, `BaggingRegressor`, `ExtraTreesClassifier`, `ExtraTreesRegressor`, `GradientBoostingClassifier`, `GradientBoostingRegressor`, `HistGradientBoostingClassifier`, `HistGradientBoostingRegressor`, `RandomForestClassifier`, `RandomForestRegressor`, `StackingClassifier`, `StackingRegressor`, `VotingClassifier`, `VotingRegressor`
-- **Gaussian Process** – `GaussianProcessClassifier`, `GaussianProcessRegressor`
-- **Kernel Ridge & Friends** – `KernelRidge`
-- **Linear Models** – `ARDRegression`, `BayesianRidge`, `ElasticNet`, `ElasticNetCV`, `GammaRegressor`, `HuberRegressor`, `Lars`, `LarsCV`, `Lasso`, `LassoCV`, `LassoLars`, `LassoLarsCV`, `LassoLarsIC`, `LinearRegression`, `LogisticRegression`, `LogisticRegressionCV`, `MultiTaskElasticNet`, `MultiTaskElasticNetCV`, `MultiTaskLasso`, `MultiTaskLassoCV`, `OrthogonalMatchingPursuit`, `OrthogonalMatchingPursuitCV`, `PassiveAggressiveClassifier`, `PassiveAggressiveRegressor`, `Perceptron`, `PoissonRegressor`, `QuantileRegressor`, `RANSACRegressor`, `Ridge`, `RidgeCV`, `RidgeClassifier`, `RidgeClassifierCV`, `SGDClassifier`, `SGDRegressor`, `TheilSenRegressor`, `TweedieRegressor`
-- **Meta Estimators** – `ClassifierChain`, `MultiOutputClassifier`, `MultiOutputRegressor`, `OneVsOneClassifier`, `OneVsRestClassifier`, `OutputCodeClassifier`, `RegressorChain`, `TransformedTargetRegressor`
-- **Naive Bayes** – `BernoulliNB`, `CategoricalNB`, `ComplementNB`, `GaussianNB`, `MultinomialNB`
-- **Nearest Neighbors** – `KNeighborsClassifier`, `KNeighborsRegressor`, `NearestCentroid`, `RadiusNeighborsClassifier`, `RadiusNeighborsRegressor`
-- **Neural Networks (sklearn)** – `MLPClassifier`, `MLPRegressor`
-- **Probabilistic & Calibration** – `CalibratedClassifierCV`, `FixedThresholdClassifier`, `IsotonicRegression`, `TunedThresholdClassifierCV`
-- **Semi-supervised** – `LabelPropagation`, `LabelSpreading`, `SelfTrainingClassifier`
-- **Support Vector Machines** – `LinearSVC`, `LinearSVR`, `NuSVC`, `NuSVR`, `SVC`, `SVR`
-- **Miscellaneous Models** – *(currently empty; all estimators are classified above)*
+1. Identify the measurement or prediction question.
+2. Open the family reference and compare mechanisms and parameters.
+3. Open the node page to understand shape, sample count, fitting population and prediction behavior.
+4. Choose your language's supported recipe from {doc}`/guide/languages`.
+5. Run the matching example and inspect its expected artifacts before composing a larger pipeline.
 
-> _Note_: Model listings are produced via `sklearn.utils.all_estimators` for both classifiers and regressors, preserving compatibility with the runtime environment.
-
-## Deep Learning (TensorFlow)
-
-`CONV_LSTM`, `Custom_Residuals`, `Custom_VG_Residuals`, `Custom_VG_Residuals2`, `FFT_Conv`, `MLP`, `ResNetV2_model`, `SEResNet_model`, `UNET`, `UNet_NIRS`, `VGG_1D`, `XCeption1D`, `bard`, `customizable_decon`, `customizable_nicon`, `customizable_nicon_classification`, `decon`, `decon_classification`, `decon_layer_classification`, `inception1D`, `nicon`, `nicon_VG`, `nicon_VG_classification`, `nicon_classification`, `senseen_origin`, `transformer`, `transformer_VG`, `transformer_VG_classification`, `transformer_classification`
-
-These factories are tagged via the `framework("tensorflow")` decorator and are surfaced under the `TensorFlowModelController`.
-
-## Validation & Splitting
-
-- **Splitting Strategies** - `Shuffle Split`, `K-Fold`, `Stratified K-Fold`, `Repeated K-Fold`, `Repeated Stratified K-Fold`, `Group K-Fold`, `Group Shuffle Split`, `Stratified Shuffle Split`, `Time Series Split`, `Leave-One-Out`, `Leave-P-Out`, `Kennard-Stone Splitter`, `SPXY Splitter`, `SPXY Fold` (K-Fold via SPXY), `SPXY Group Fold`, `KMeans Splitter`, `SPlit Splitter`, `Systematic Circular`, `KBins Stratified`, `Binned Stratified Group KFold`
-
-## Target Processing
-
-- **Target Transforms** – `Integer KBins Discretizer`, `Range Discretizer`
-
-## Prediction & Outputs
-
-- **Prediction Utilities** – `Batch Prediction`, `Real-time Prediction`, `Probability Calibration`
-
-## Pipeline Utilities
-
-- **Containers** - `Feature Augmentation`, `Sample Augmentation`, `Sequential`, `Pipeline`, `Y Processing` (augmentation/processing containers accept only preprocessing, augmentation, or feature-engineering nodes; `Y Processing` is limited to target transforms; `Pipeline` remains unrestricted)
-- **Generators** – `_OR_`, `_RANGE_` (parameter sweep and branching)
-- **Visualization** – `2D Chart`, `Y Distribution Chart`, `Fold Chart`
-
-## Maintenance Notes
-
-- Run `python scripts/generate_component_library.py` from `nirs4all_ui` to regenerate the library after adding new operators. The script introspects nirs4all modules and calls `sklearn.utils.all_estimators` to keep the catalog aligned with the installed version.
-- UI components consume `public/component-library.json`; the pipeline editor reads this file via `libraryDataLoader`.
-- Container rules use category tokens (e.g. `category:preprocessing`) so augmentation and preprocessing containers reject models or incompatible nodes while `Pipeline` stays unrestricted.
-- If new TensorFlow models are added under `nirs4all.operators.models`, ensure they carry the `framework("tensorflow")` decorator so they are picked up automatically.
+For typed sources, missing measurements, early/late fusion and target masks, use {doc}`/guide/datasets` and {doc}`multimodal_execution_matrix`. Preserve sample identity and source schema throughout.

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title description">
+<title id="title">Two ways to combine modalities</title><desc id="description">Early fusion combines measurements. Late fusion combines source-specific model predictions.</desc>
+<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#243B53" flood-opacity=".07"/></filter><marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto-start-reverse"><path d="M0,0 L8,4.5 L0,9" fill="none" stroke="#64788C" stroke-width="1.4"/></marker></defs>
+<style>text{font-family:Inter,DejaVu Sans,Arial,sans-serif;fill:#162C46}</style>
+<rect width="1200" height="820" rx="24" fill="#F3F6FA"/>
+<rect x="32" y="32" width="6" height="66" rx="3" fill="#1463A0"/>
+<text x="56" y="59" font-size="30" font-weight="700" text-anchor="start" style="fill:#162C46">Two ways to combine modalities</text>
+<text x="56" y="94" font-size="19" font-weight="400" text-anchor="start" style="fill:#4C6278">Early fusion combines measurements. Late fusion combines source-specific model predictions.</text>
+<text x="44" y="157" font-size="21" font-weight="700" text-anchor="start" style="fill:#1463A0">EARLY · join features before fitting</text>
+<rect x="40" y="180" width="330" height="126" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="40" y="180" width="7" height="126" rx="3" fill="#1463A0" stroke="#1463A0"/>
+<text x="64" y="222" font-size="23" font-weight="700" text-anchor="start" style="fill:#1463A0">Spectral features</text>
+<text x="64" y="259" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">48 samples × 31 columns</text>
+<rect x="40" y="329" width="330" height="126" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="40" y="329" width="7" height="126" rx="3" fill="#7150A5" stroke="#7150A5"/>
+<text x="64" y="371" font-size="23" font-weight="700" text-anchor="start" style="fill:#7150A5">Marker features</text>
+<text x="64" y="408" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">48 samples × 3 columns</text>
+<rect x="447" y="246" width="303" height="151" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="447" y="246" width="7" height="151" rx="3" fill="#007B71" stroke="#007B71"/>
+<text x="471" y="288" font-size="23" font-weight="700" text-anchor="start" style="fill:#007B71">Concatenate</text>
+<text x="471" y="325" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">31 + 3 = 34 features</text>
+<text x="471" y="354" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">48 aligned rows</text>
+<rect x="830" y="246" width="330" height="151" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="830" y="246" width="7" height="151" rx="3" fill="#007B71" stroke="#007B71"/>
+<text x="854" y="288" font-size="23" font-weight="700" text-anchor="start" style="fill:#007B71">Fit one model</text>
+<text x="854" y="325" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Use both measurements</text>
+<text x="854" y="354" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Predict one target per row</text>
+<path d="M376,243 L438,302" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M376,390 L438,334" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M756,321 L820,321" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="44" y="505" font-size="21" font-weight="700" text-anchor="start" style="fill:#7150A5">LATE · learn from held-out source predictions</text>
+<rect x="40" y="535" width="330" height="40" rx="10" fill="white" stroke="#1463A0"/>
+<text x="205" y="562" font-size="18" font-weight="600" text-anchor="middle" style="fill:#1463A0">Spectral model → OOF prediction</text>
+<rect x="40" y="598" width="330" height="40" rx="10" fill="white" stroke="#7150A5"/>
+<text x="205" y="625" font-size="19" font-weight="600" text-anchor="middle" style="fill:#7150A5">Marker model → OOF prediction</text>
+<rect x="447" y="529" width="303" height="121" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="447" y="529" width="7" height="121" rx="3" fill="#7150A5" stroke="#7150A5"/>
+<text x="471" y="571" font-size="23" font-weight="700" text-anchor="start" style="fill:#7150A5">Join predictions</text>
+<text x="471" y="608" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">48 × 2 prediction columns</text>
+<rect x="830" y="529" width="330" height="121" rx="16" fill="white" stroke="#D9E2EC" filter="url(#shadow)"/>
+<rect x="830" y="529" width="7" height="121" rx="3" fill="#007B71" stroke="#007B71"/>
+<text x="854" y="571" font-size="23" font-weight="700" text-anchor="start" style="fill:#007B71">Fit meta-model</text>
+<text x="854" y="608" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Learn a prediction</text>
+<text x="854" y="637" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">combination</text>
+<path d="M376,555 L438,575" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M376,617 L438,599" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M756,589 L820,589" fill="none" stroke="#64788C" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="40" y="704" width="1120" height="88" rx="12" fill="white" stroke="#D9E2EC"/>
+<text x="60" y="731" font-size="17" font-weight="700" text-anchor="start" style="fill:#007B71">EXPECTED RESULT</text>
+<text x="60" y="757" font-size="20" font-weight="400" text-anchor="start" style="fill:#162C46">Early: 34 feature columns. Late: 2 held-out prediction columns for the combining model.</text>
+</svg>

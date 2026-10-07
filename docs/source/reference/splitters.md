@@ -1,27 +1,80 @@
 # Splitters Reference
 
-Splitters define how data is divided into training and test sets for cross-validation or hold-out evaluation. nirs4all provides NIRS-specific splitters alongside all standard sklearn splitters.
+Your independent unit may be a specimen, subject, batch or instrument. The splitter assigns these units to training and validation. Random splitting, stratification, group splitting and calibration sampling answer different questions. The tables enumerate each strategy and its parameters.
 
-## Usage in Pipeline
+## Choose what must remain unseen before choosing a splitter
+
+Read {doc}`nodes/split` for the worked result figure, expected dimensions and exercises. Choose a family below to compare the enumerated operators.
+
+## Same worked recipe in JSON, YAML and Python
+
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "pipeline": [
+    {
+      "split": {
+        "class": "sklearn.model_selection.KFold",
+        "params": {
+          "n_splits": 3,
+          "shuffle": true,
+          "random_state": 42
+        }
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition.PLSRegression",
+        "params": {
+          "n_components": 2
+        }
+      }
+    }
+  ]
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+pipeline:
+- split:
+    class: sklearn.model_selection.KFold
+    params:
+      n_splits: 3
+      shuffle: true
+      random_state: 42
+- model:
+    class: sklearn.cross_decomposition.PLSRegression
+    params:
+      n_components: 2
+```
+:::
+
+:::{tab-item} Python
+:sync: python
 
 ```python
-from nirs4all.operators.splitters import KennardStoneSplitter, SPXYFold
-from sklearn.model_selection import ShuffleSplit
+from sklearn.model_selection import KFold
+from sklearn.cross_decomposition import PLSRegression
 
-# Single hold-out split
 pipeline = [
-    SNV(),
-    KennardStoneSplitter(test_size=0.2),
-    {"model": PLSRegression(n_components=10)},
-]
-
-# K-fold cross-validation
-pipeline = [
-    SNV(),
-    SPXYFold(n_splits=5),
-    {"model": PLSRegression(n_components=10)},
+    KFold(n_splits=3, shuffle=True, random_state=42),
+    {"model": PLSRegression(n_components=2)},
 ]
 ```
+:::
+
+::::
+
+These are Python SDK operators. Native R/Octave/WASM recipes use their own method IDs and facade; see {doc}`/guide/languages`.
 
 ---
 
@@ -59,6 +112,35 @@ These produce multiple folds for cross-validation.
 | `GroupedSplitterWrapper` | `splitter`, `aggregation="mean"`, `y_aggregation=None` | Wraps any sklearn splitter to add group-awareness; aggregates samples by group and ensures no group leakage |
 
 Usage:
+::::{tab-set}
+:sync-group: language
+
+:::{tab-item} JSON
+:sync: json
+
+```json
+{
+  "class": "nirs4all.operators.splitters.grouped_wrapper.GroupedSplitterWrapper",
+  "params": {
+    "splitter": "sklearn.model_selection._split.KFold"
+  }
+}
+```
+:::
+
+:::{tab-item} YAML
+:sync: yaml
+
+```yaml
+class: nirs4all.operators.splitters.grouped_wrapper.GroupedSplitterWrapper
+params:
+  splitter: sklearn.model_selection._split.KFold
+```
+:::
+
+:::{tab-item} Python
+:sync: python
+
 ```python
 from nirs4all.operators.splitters import GroupedSplitterWrapper
 from sklearn.model_selection import KFold
@@ -66,6 +148,9 @@ from sklearn.model_selection import KFold
 # Any splitter becomes group-aware
 wrapper = GroupedSplitterWrapper(KFold(n_splits=5))
 ```
+:::
+
+::::
 
 ---
 
@@ -103,3 +188,56 @@ These are imported from `sklearn.model_selection` and work directly in nirs4all 
 - {doc}`../reference/pipeline_keywords` -- Pipeline keyword syntax
 - {doc}`../reference/filters` -- Sample filtering operators
 - {doc}`../reference/models` -- Built-in models reference
+
+## Choose the independent unit before the algorithm
+
+```{figure} /assets/guide/split.svg
+:alt: Each validation fold holds out distinct independent observations.
+
+Educational workflow result; read the accompanying explanation for scope and interpretation.
+```
+
+The split defines the generalization claim. New samples, new physical
+subjects, future acquisitions and unseen instruments are different questions.
+Repeated scans, pixels from one specimen, augmented copies and repeated
+source observations do not become independent because they occupy different
+rows. Group them by the appropriate origin before assigning folds.
+
+| Strategy | Why choose it | What it does not establish |
+|---|---|---|
+| Shuffled KFold/ShuffleSplit | Exchangeable independent samples from one population | Generalization to unseen batches or future drift |
+| StratifiedKFold | Preserve class coverage across classification folds | Independence between repeated measurements |
+| GroupKFold/GroupedSplitterWrapper | Hold out complete origins, subjects or batches | Class or target balance without a separate balancing policy |
+| BinnedStratifiedGroupKFold | Balance continuous-target bins while preserving groups | Exact balance when groups are large or scarce |
+| Kennard–Stone | Cover feature-space diversity in calibration rows | Random-population test performance or unseen-target extrapolation |
+| SPXY/SPXYFold/SPXYGFold | Represent joint X/y space, optionally respecting groups | Prospective selection without labels for future samples |
+| KMeansSplitter | Representative calibration based on cluster structure | A guarantee of coverage for small rare subgroups |
+| KBinsStratified/SystematicCircular | Spread target ranges across partitions | A deployment drift test |
+| SPlitSplitter | Representative subset through data twinning | Independence if repeated origins were not grouped |
+| TimeSeriesSplit | Respect temporal ordering in ordered observations | Protection against overlap when one origin spans dates |
+| LeaveOneOut | Train on nearly all available independent samples | Low variance of the estimated score or freedom from selection bias |
+
+Kennard–Stone uses a max-min distance criterion to spread selected calibration
+samples. The metric, scaling and optional PCA therefore define what “diverse”
+means. SPXY adds target distances: selection uses known targets and must be
+described as retrospective calibration design. Group-aware variants avoid
+splitting origins, but still require sufficient independent groups in every
+fold. Stratification and grouping solve different problems.
+
+## Folds are part of the experiment
+
+The number of folds changes training size and compute. Repeated folds increase
+resampling evidence but are correlated because rows recur. Report how scores
+are aggregated; an unweighted mean of fold RMSE is not pooled RMSE when folds
+have unequal sizes. Avoid selecting a preprocessing or model using the final
+test fold. Use nested selection or a separate development/holdout design.
+
+Record row IDs, group/origin relations, partition roles, seeds and any
+distance-based representation used to create the folds. Reusing identical
+folds makes candidate comparisons easier to interpret. Resume and artifact
+audit also depend on these identities, not merely on `random_state=42`.
+
+For runnable group binding see `U02_group_splitting.py`; for comparisons run
+`U01_cv_strategies.py`. The `split` node, fold files and group metadata are
+documented in {doc}`nodes/split`. Check {doc}`/guide/evaluation` before adding
+nested search, ensembles or calibration on top of a splitter.

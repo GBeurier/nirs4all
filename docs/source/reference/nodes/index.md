@@ -1,24 +1,94 @@
-# Pipeline Nodes Reference
+# Choose a pipeline node by what you want to do
 
-This section answers the practical question: **what can I put in `pipeline.yaml` or `pipeline.json`?**
+A pipeline is a recipe: start with observations, prepare useful features,
+evaluate a model on held-out observations, and save the resulting predictor.
+Each **node** performs one step. Click a node below for its worked recipe,
+explanatory figure, expected output and common mistakes.
 
-NIRS4ALL parses each pipeline entry as one of these node types:
+New to pipelines? Read {doc}`operator_step`, {doc}`preprocessing`, {doc}`split`
+and {doc}`model` first. Then add views, paths or searches as your question requires.
 
-- a serialized operator (`class`, `function`, `instance`, `module`, `object`, `pipeline`);
-- a workflow keyword (`model`, `split`, `branch`, `merge`, `feature_augmentation`, and others);
-- a generator keyword (`_or_`, `_range_`, `_cartesian_`, and related search syntax);
-- a direct Python object, when you build the pipeline in Python instead of YAML/JSON.
+## Start with the ordinary learning workflow
 
-:::{note}
-This table describes the full NIRS4ALL pipeline language. The `dag-ml` engine
-currently covers a subset of pipeline shapes natively. Unsupported shapes and
-unavailable runtime dependencies fail closed; they do not fall back to the
-legacy Python engine. Direct Python callers may select `engine="legacy"`
-explicitly only for the rollback-capable compatibility lane.
-:::
+| Your goal | Node | What changes |
+|---|---|---|
+| Describe an algorithm and its settings | {doc}`operator_step` | Declares the operator |
+| Normalize, smooth or reduce features | {doc}`preprocessing` | Feature values or columns |
+| Define cross-validation observations | {doc}`split` | Which rows train/validate each fit |
+| Predict concentration or class | {doc}`model` | Learns a predictor |
+| Scale/encode targets and invert predictions | {doc}`y_processing` | Target representation |
+| Inspect spectra, targets and folds | {doc}`charts` | Adds a diagnostic figure |
+
+## Add information without confusing rows and columns
+
+| Your goal | Node | What changes |
+|---|---|---|
+| Retain raw, normalized and derivative views | {doc}`feature_augmentation` | View axis |
+| Join several transformed feature blocks | {doc}`concat_transform` | Column count |
+| Create perturbed training observations | {doc}`sample_augmentation` | Training row count |
+| Annotate unusual observations | {doc}`tag` | Metadata, no deletion |
+| Remove flagged rows from training | {doc}`exclude` | Fitting population |
+| Handle several scans of each material | {doc}`repetitions` | Grouping or repetition representation |
+
+## Compose more advanced experiments
+
+| Your goal | Node | What to learn next |
+|---|---|---|
+| Keep several preprocessing/model paths | {doc}`branch` | Duplication, separation and source routing |
+| Join features, model predictions or rows | {doc}`merge` | Output axes and OOF stacking |
+| Compare many alternative recipes | {doc}`generators` | Two transforms × three complexities = six recipes |
+| Learn errors left by a base model | {doc}`residual` | Base prediction plus correction |
+| Adapt preprocessing to another instrument | {doc}`auto_transfer_preproc` | Adaptation cohort and recommendations |
+
+## Complete spelling index
+
+| Spellings | Explanation |
+|---|---|
+| `class`, `function`, `instance`, direct object, import-path string | {doc}`operator_step` |
+| `params`, `name`, `force_layout` | {doc}`operator_step` |
+| `model` | {doc}`model` |
+| `split`, direct splitter object | {doc}`split` |
+| `preprocessing`, bare transformer, sequential subpipeline list | {doc}`preprocessing` |
+| `y_processing` | {doc}`y_processing` |
+| `feature_augmentation`, `action` | {doc}`feature_augmentation` |
+| `concat_transform` | {doc}`concat_transform` |
+| `sample_augmentation` | {doc}`sample_augmentation` |
+| `tag`, `exclude` | {doc}`tag`, {doc}`exclude` |
+| `branch`, `by_source`, `by_metadata`, `by_tag`, `by_filter` | {doc}`branch` |
+| `merge`, `merge_sources`, `merge_predictions` | {doc}`merge` |
+| `rep_to_sources`, `rep_to_pp`, `rep_fusion` | {doc}`repetitions` |
+| `residual` | {doc}`residual` |
+| `auto_transfer_preproc` | {doc}`auto_transfer_preproc` |
+| `chart_2d`, `chart_3d`, `y_chart`, `chart_y` | {doc}`charts` |
+| `fold_chart`, `chart_fold`, `fold_*` | {doc}`charts` |
+| `spectra_dist`, `spectral_distribution`, `spectra_envelope` | {doc}`charts` |
+| `augment_chart`, `augmentation_chart`, `augment_details_chart`, `augmentation_details_chart` | {doc}`charts` |
+| `exclusion_chart`, `chart_exclusion` | {doc}`charts` |
+| `_or_`, `_range_`, `_log_range_`, `_grid_`, `_zip_`, `_cartesian_`, `_chain_`, `_sample_` | {doc}`generators` |
+| `pick`, `arrange`, `then_pick`, `then_arrange`, `count` | {doc}`/reference/generator_keywords` |
+| `_seed_`, `_weights_`, `_mutex_`, `_requires_`, `_exclude_`, `_preset_` | {doc}`/reference/generator_keywords` |
+| `_tags_`, `_metadata_`, `_depends_on_` | {doc}`/reference/generator_keywords` (advanced/reserved limits) |
+
+## Choose the execution environment once
+
+A recipe file describes intent. The runtime must actually support its algorithms
+and topology. The worked tabs identify which route is used:
+
+| Route | Appropriate scope |
+|---|---|
+| Native language facade | Qualified finite method recipes in Python/R/Octave/WASM |
+| Python `dag-ml` | Supported host operators and graph workflows |
+| Python `legacy` | Historical host controllers explicitly selected in examples |
+
+These are not interchangeable claims of portability. Complex Python controller
+recipes cannot be made native simply by changing JSON keys. Start with
+{doc}`/guide/languages` for complete examples in your language. Consult
+{doc}`/reference/native_capability_preflight` or
+{doc}`/reference/multimodal_execution_matrix` when extending the topology.
 
 ```{toctree}
 :maxdepth: 1
+:hidden:
 
 operator_step
 model
@@ -39,64 +109,5 @@ charts
 generators
 ```
 
-## Complete Node Table
-
-| Node / keyword | Runs in YAML/JSON | Runs as Python object | Purpose | Dedicated page |
-| --- | --- | --- | --- | --- |
-| `class` | Yes | N/A | Instantiate a Python class by import path. | {doc}`operator_step` |
-| `function` | Yes | N/A | Reference a callable by import path. | {doc}`operator_step` |
-| `instance` | Yes | N/A | Restore a serialized runtime instance when produced by NIRS4ALL internals. | {doc}`operator_step` |
-| direct operator | No | Yes | Use an already-created sklearn/nirs4all object. | {doc}`operator_step` |
-| string import path | Yes | Yes | Short serialized class/function syntax such as `sklearn.preprocessing.StandardScaler`. | {doc}`operator_step` |
-| `model` | Yes | Yes | Mark an estimator as the supervised model step. | {doc}`model` |
-| `split` | Yes | Yes | Create CV folds from a splitter object or load fold files. | {doc}`split` |
-| splitter object | No | Yes | Any sklearn-compatible object with `split(X, ...)`. | {doc}`split` |
-| `preprocessing` | Yes | Yes | Explicit preprocessing wrapper for one operator or a list of operators. | {doc}`preprocessing` |
-| bare transformer | Yes, via `class` | Yes | Apply an sklearn-compatible transformer to X. | {doc}`preprocessing` |
-| `y_processing` | Yes | Yes | Transform targets during training and inverse-transform predictions. | {doc}`y_processing` |
-| `feature_augmentation` | Yes | Yes | Create multiple feature views from preprocessing operators. | {doc}`feature_augmentation` |
-| `sample_augmentation` | Yes | Yes | Add augmented training samples; skipped during prediction. | {doc}`sample_augmentation` |
-| `concat_transform` | Yes | Yes | Apply several transforms and concatenate their feature outputs. | {doc}`concat_transform` |
-| `auto_transfer_preproc` | Yes | Yes | Select transfer preprocessing automatically for transfer workflows. | {doc}`auto_transfer_preproc` |
-| `tag` | Yes | Yes | Mark samples for later analysis/branching without removing them. | {doc}`tag` |
-| `exclude` | Yes | Yes | Exclude flagged training samples. | {doc}`exclude` |
-| `branch` | Yes | Yes | Create duplication or separation branches. | {doc}`branch` |
-| subpipeline list | Yes | Yes | Nested list of steps, usually inside `branch`. | {doc}`branch` |
-| `merge` | Yes | Yes | Merge branch features, predictions, separation branches, or sources. | {doc}`merge` |
-| `merge_sources` | Yes | Yes | Source-merge alias handled by the merge controller. | {doc}`merge` |
-| `merge_predictions` | Yes | Yes | Prediction-merge alias handled by the merge controller. | {doc}`merge` |
-| `rep_to_sources` | Yes | Yes | Convert repetitions into multi-source layout. | {doc}`repetitions` |
-| `rep_to_pp` | Yes | Yes | Convert repetitions into preprocessing-pipeline views. | {doc}`repetitions` |
-| `rep_fusion` | Yes | Yes | Materialize relation-aware repetition/source fusion. | {doc}`repetitions` |
-| `residual` | Yes | Yes | Fit a base model plus residual learner. | {doc}`residual` |
-| `chart_2d`, `chart_3d` | Yes | Yes | Save spectral scatter/visualization charts. | {doc}`charts` |
-| `y_chart`, `chart_y` | Yes | Yes | Save target-distribution charts. | {doc}`charts` |
-| `fold_chart`, `chart_fold`, `fold_*` | Yes | Yes | Save fold visualization charts. | {doc}`charts` |
-| `spectra_dist`, `spectral_distribution`, `spectra_envelope` | Yes | Yes | Save spectral envelope/distribution charts. | {doc}`charts` |
-| `augment_chart`, `augmentation_chart` | Yes | Yes | Save augmentation comparison charts. | {doc}`charts` |
-| `augment_details_chart`, `augmentation_details_chart` | Yes | Yes | Save detailed augmentation charts. | {doc}`charts` |
-| `exclusion_chart`, `chart_exclusion` | Yes | Yes | Save included/excluded sample charts. | {doc}`charts` |
-| `force_layout` | Yes | Yes | Metadata key that forces `2d`, `2d_interleaved`, `3d`, or `3d_transpose` layout for a step. | {doc}`operator_step` |
-| `name` | Yes | Yes | Metadata key for display/report names. | {doc}`operator_step` |
-| `_or_` | Yes | Yes | Expand alternatives. | {doc}`generators` |
-| `_range_` | Yes | Yes | Expand numeric ranges. | {doc}`generators` |
-| `_log_range_` | Yes | Yes | Expand log-spaced numeric ranges. | {doc}`generators` |
-| `_grid_` | Yes | Yes | Expand a parameter grid. | {doc}`generators` |
-| `_zip_` | Yes | Yes | Expand parallel choices position-by-position. | {doc}`generators` |
-| `_chain_` | Yes | Yes | Build ordered chains from generated components. | {doc}`generators` |
-| `_sample_` | Yes | Yes | Randomly sample generated choices. | {doc}`generators` |
-| `_cartesian_` | Yes | Yes | Explicit cartesian product expansion. | {doc}`generators` |
-| `pick`, `arrange`, `then_pick`, `then_arrange`, `count` | Yes | Yes | Selection modifiers for generated alternatives. | {doc}`generators` |
-| `_mutex_`, `_requires_`, `_depends_on_`, `_exclude_` | Yes | Yes | Constraints on generated combinations. | {doc}`generators` |
-| `_preset_`, `_tags_`, `_metadata_`, `_seed_`, `_weights_` | Yes | Yes | Generator presets, annotations, reproducibility, and sampling weights. | {doc}`generators` |
-
-## Parser Priority
-
-When a step is a dictionary, NIRS4ALL applies this order:
-
-1. Serialization operators first: `class`, `function`, `module`, `object`, `pipeline`, `instance`.
-2. Priority workflow keywords: `model`, `preprocessing`, `feature_augmentation`, `auto_transfer_preproc`, `concat_transform`, `y_processing`, `sample_augmentation`, `branch`.
-3. The first non-reserved key is used as a workflow keyword and routed to matching controllers.
-4. If nothing matches, the dictionary is treated as a serialized component.
-
-Reserved metadata keys are not selected as node keywords: `params`, `metadata`, `steps`, `name`, `finetune_params`, `train_params`, `refit_params`, `fit_on_all`, `force_layout`, `na_policy`, and `fill_value`.
+Full schemas and internal parser details remain in {doc}`/reference/pipeline_keywords`.
+The {doc}`/reference/operator_catalog` lists algorithms, distinct from workflow nodes.
