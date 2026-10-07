@@ -1,5 +1,5 @@
 {% set name = "nirs4all" %}
-{% set version = "1.4.5" %}
+{% set version = "1.4.6" %}
 {% set python_min = "3.11" %}
 
 package:
@@ -8,8 +8,8 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
-  # Verified against the published PyPI 1.4.5 source distribution.
-  sha256: 23eb2f9a59faa9f7abe84ea5890f57ceb5a1e5934a00f886117a057016f339f4
+  # Verified against the published PyPI 1.4.6 source distribution.
+  sha256: 822b7ab5f36a172a94c2d07e44ace383dcb1860192d47e1d13d01372fc67b6a0
 
 build:
   noarch: python
