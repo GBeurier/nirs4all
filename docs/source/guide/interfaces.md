@@ -69,7 +69,7 @@ that every cross-language combination has been qualified.
 | Formats | 0.2.11 | Reader bindings; both Python and Rust use 0.2.11 |
 | R product | 0.7.1 | R native workflow and workspace facades |
 | UI | 0.1.15 | Shared React components |
-| Cluster | 0.1.15 | Distributed orchestration and prediction evidence |
+| Cluster | 0.1.5 | Distributed orchestration and prediction evidence |
 | Studio | 0.15.0 | Public desktop installer; 0.15.1 qualification and publication are pending |
 
 The standalone DAG release and Core's exact Rust dependency are distinct
