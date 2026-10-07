@@ -899,6 +899,7 @@ print(expand_spec(spec))
 
 Provide one weight per alternative, with valid nonnegative weights and a positive total. The example does not guarantee that A appears. Weighted selection is a search-budget choice, not evidence that A is scientifically preferable. `_weights_` supports simple `_or_` + `count` sampling; combining it with `pick`, `arrange`, `then_pick` or `then_arrange` is rejected.
 
+(phase-4-production-keywords)=
 ## Constraints: remove choices you do not want to test
 
 (generator-keyword-mutex)=
