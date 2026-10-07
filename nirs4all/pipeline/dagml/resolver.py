@@ -380,8 +380,27 @@ class MaterializationResolver:
         """
         sample_ints = [self._identity.to_int(sample_id) for sample_id in sample_ids]
         uniq = list(dict.fromkeys(sample_ints))
-        returned = self._dataset.index_column("sample", {"sample": uniq})
-        block = np.asarray(self._dataset.y({"sample": uniq}, include_augmented=False, include_excluded=include_excluded)).reshape(len(returned), -1)
+        from nirs4all.data.dataset import SpectroDataset
+
+        selected = None
+        if (type(self._dataset) is SpectroDataset
+                and self._dataset._target_accessor._indexer is self._dataset._indexer
+                and self._dataset._target_accessor._block is self._dataset._targets):
+            selected = self._dataset._indexer.x_indices({"sample": uniq}, include_augmented=False, include_excluded=include_excluded)
+        if selected is not None and len(selected) == len(uniq):
+            # Every requested base row survived the same target selector. Its
+            # storage order therefore also gives index_column's order, without
+            # evaluating that sample-membership filter a second time.
+            returned = selected.tolist()
+            block = np.asarray(self._dataset._targets.y(selected, "numeric"))
+        else:
+            # Preserve subclass target access and existing refusals when the
+            # unqualified index rows and base/non-excluded targets diverge.
+            returned = self._dataset.index_column("sample", {"sample": uniq})
+            block = np.asarray(self._dataset.y({"sample": uniq}, include_augmented=False, include_excluded=include_excluded))
+        if len(block) != len(returned):
+            raise ValueError("DAG-ML target rows do not cover the requested index rows; excluded, augmented or unlabeled rows cannot change target width")
+        block = block.reshape(len(returned), -1)
         row_of = {sample_int: row for row, sample_int in enumerate(returned)}
         rows = [row_of[sample_int] for sample_int in sample_ints]
         ordered = block[rows]
