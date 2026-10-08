@@ -55,31 +55,34 @@ See {doc}`/reference/public_interfaces` for the SDK API and runtime contracts, {
 
 ## Current published packages
 
-The following releases are publicly available as of 7 October 2026. Each
-package retains its own supported profiles; this inventory does not establish
-that every cross-language combination has been qualified.
+The following package and source releases are published as of 8 October 2026.
+Distribution status is explicit where a registry build is pending. Each package
+retains its own supported profiles; this inventory does not establish that every
+cross-language combination has been qualified.
 
 | Product | Public version | Runtime boundary |
 |---|---|---|
-| Python SDK | 1.4.6 | Python execution with the supported native/DAG routes |
-| DAG | 0.3.40 | Public Python, WASM, Rust and R bindings |
-| Core | 0.4.4 | Portable host facades; its published Rust dependencies pin DAG 0.3.39 |
+| Python SDK | 1.4.7 | Python execution with the supported native/DAG routes |
+| DAG | 0.3.41 | Public Python, WASM, Rust and R bindings |
+| Core | 0.4.5 | Portable host facades; its compiled Rust dependency is DAG 0.3.41 |
 | IO | 0.2.6 | Dataset assembly and explicit matrix/mask projections |
 | Methods | 1.3.4 | Numerical engine, ABI 2.17.0; the `pls4all` companion is also 1.3.4 |
 | Formats | 0.2.11 | Reader bindings; both Python and Rust use 0.2.11 |
-| R product | 0.7.1 | R native workflow and workspace facades |
+| R product | 0.7.2 | R native workflow and workspace facades; GitHub source and R-universe distributions published |
 | UI | 0.1.15 | Shared React components |
 | Cluster | 0.1.5 | Distributed orchestration and prediction evidence |
 | Studio | 0.15.0 | Public desktop installer; 0.15.1 qualification and publication are pending |
 
-The standalone DAG release and Core's exact Rust dependency are distinct
-versions. Installing DAG 0.3.40 does not change Core 0.4.4's compiled DAG 0.3.39
-implementation. Keep that boundary explicit when recording a runtime cohort.
+The standalone DAG package and Core's compiled DAG dependency are separate
+runtime boundaries. Both are now 0.3.41; installing another standalone DAG
+version does not replace Core 0.4.5's compiled implementation. Record both
+versions when describing a runtime cohort.
 
 ## Versions used by the shared native examples
 
-The recorded shared-example cohort uses Core 0.4.4 and R 0.7.1 with IO 0.2.6,
-DAG 0.3.39 and Methods 1.3.4. Its qualification covers the explicit profiles described here;
+The historical shared-example qualification uses Core 0.4.4 and R 0.7.1 with IO 0.2.6,
+DAG 0.3.39 and Methods 1.3.4. These recorded results retain their original cohort.
+Their qualification covers the explicit profiles described here;
 other operator combinations require their own checks. See {doc}`interop` for
 input and runtime requirements.
 

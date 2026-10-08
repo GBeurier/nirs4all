@@ -1,0 +1,5 @@
+extend = "pyproject.toml"
+
+# Preserve executed proof bytes; active code retains the existing project rules.
+[lint.extend-per-file-ignores]
+"qualification/*/originals/6-run_sdk147_local_commands_v1.py" = ["UP017", "SIM105"]
