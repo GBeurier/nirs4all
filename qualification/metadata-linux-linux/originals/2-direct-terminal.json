@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/bin/python",
+    "-I",
+    "-B",
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/scripts/smoke_installed_package.py",
+    "--source-root",
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source"
+  ],
+  "direct_command_exit_code": 0,
+  "started_at": "2026-10-08T05:03:19.792357+00:00",
+  "finished_at": "2026-10-08T05:03:29.805635+00:00",
+  "seconds": 10.01328580500558,
+  "pid": 3444509
+}

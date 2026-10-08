@@ -1,0 +1,396 @@
+[
+  {
+    "host": "linux",
+    "wheel_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/core045-public-pypi-v1/nirs4all_core-0.4.5-cp311-abi3-manylinux_2_28_x86_64.whl",
+    "wheel_sha256": "20986b7f16fa8f02bf162e58d3d11b3f2f37f9e638414e181226faa81efc4cdc",
+    "installed_site": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages",
+    "wheel_record_path": "nirs4all_core-0.4.5.dist-info/RECORD",
+    "wheel_record_sha256": "359710819fb65e4cdc35f8f1cc321d4c85ac6f66756f1cfde03f20e396f13eca",
+    "all_nonempty_wheel_record_rows_verified_in_installed_prefix": [
+      {
+        "path": "n4a/__init__.py",
+        "sha256": "a277a71c13fd9bde30dbb7e53b973ffe09c502bd99b080e1446de3c3bc90ad52",
+        "bytes": 1753
+      },
+      {
+        "path": "n4a/py.typed",
+        "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "bytes": 1
+      },
+      {
+        "path": "nirs4all_core/__init__.py",
+        "sha256": "5003ce72edd434c03678698ce3bc88eba2585451473a0f50fb99a82416d44365",
+        "bytes": 4882
+      },
+      {
+        "path": "nirs4all_core/_archive.py",
+        "sha256": "31d3329e46d41657ef2c5f63ce41793bcd8367843edfb5997323c5bf0d56d01d",
+        "bytes": 16986
+      },
+      {
+        "path": "nirs4all_core/_browser_tuning.py",
+        "sha256": "344152393b279fd2a4199cd119b44714b99f7b953f8062f36930ee5628a8ef86",
+        "bytes": 8350
+      },
+      {
+        "path": "nirs4all_core/_capabilities.py",
+        "sha256": "6c75574ae93e81ac61c9573961878e8ac95edfe5196de1228833be2b2f3769a4",
+        "bytes": 10007
+      },
+      {
+        "path": "nirs4all_core/_conformal.py",
+        "sha256": "67ee67a4bf397acf9ad47df54abb4e7758db1f18e2ea18f1fc72e72e7d40cb58",
+        "bytes": 5651
+      },
+      {
+        "path": "nirs4all_core/_dataset.py",
+        "sha256": "f3b3afa8b2da70dd40d00c45c2b7eeaf3e239c412c9aedc88552a99857491d80",
+        "bytes": 886
+      },
+      {
+        "path": "nirs4all_core/_execution.py",
+        "sha256": "df473948e5273563692260eb82af4a407f8244367b91b570e218c5eebe2dd11f",
+        "bytes": 13358
+      },
+      {
+        "path": "nirs4all_core/_multimodal.py",
+        "sha256": "5bf76510c260daeb07eedb057546d889888b48b5c9f1a0bee0cd0c9b7562f1ac",
+        "bytes": 5584
+      },
+      {
+        "path": "nirs4all_core/_multimodal_archive.py",
+        "sha256": "df759469151dc197980bf5e341bf02060b2f3825319f4eb6716f98d3c31cd514",
+        "bytes": 2177
+      },
+      {
+        "path": "nirs4all_core/_n4m_roles.py",
+        "sha256": "74e4df9dac3974d0b520a1087bfa1aa3d73e4645dfe139d0039696d5866d232a",
+        "bytes": 12181
+      },
+      {
+        "path": "nirs4all_core/_native.abi3.so",
+        "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7",
+        "bytes": 40305872
+      },
+      {
+        "path": "nirs4all_core/_native_multimodal.py",
+        "sha256": "2f4705f27e16e76d76b15c0102b6fc914d7bb606570e89c5f5275b49811fa144",
+        "bytes": 3510
+      },
+      {
+        "path": "nirs4all_core/_native_pipeline.py",
+        "sha256": "8ddc88df3aeb53344456a76816adb0e724902e202c61fee7570be5b38cc39048",
+        "bytes": 4205
+      },
+      {
+        "path": "nirs4all_core/_pipeline.py",
+        "sha256": "b63a7732a30e3adc4d80a6d3372029d4f642a04b88d26284a63c359285f11d2d",
+        "bytes": 6329
+      },
+      {
+        "path": "nirs4all_core/_results.py",
+        "sha256": "f563436531c1b91eb347b13436f3301f3f6e0bb2a7de9bc1bb7f508c44d8c117",
+        "bytes": 14715
+      },
+      {
+        "path": "nirs4all_core/_robustness.py",
+        "sha256": "f82508fd2bf5dc1a373a524baaface32f64d9a7bec48d291e85da60607dfae39",
+        "bytes": 1527
+      },
+      {
+        "path": "nirs4all_core/_topology.py",
+        "sha256": "c323b81ccb88f52e8a2d219e0512eca78ed9a9efc40b00e1bcabd7ad850486e7",
+        "bytes": 17790
+      },
+      {
+        "path": "nirs4all_core/_tuning.py",
+        "sha256": "fe20654b037b2592ca4f77f78efbd6305bfa13954a86b54e63b83ecdd8270b27",
+        "bytes": 6529
+      },
+      {
+        "path": "nirs4all_core/_upstreams.py",
+        "sha256": "ff4823f634987846e5bbf5a3ef0622125323cae052b46b9c39db08031b92ab4a",
+        "bytes": 4481
+      },
+      {
+        "path": "nirs4all_core/_workflow.py",
+        "sha256": "6f9d0785107c9c617d32000451f5b939ce6f14ff335a58f8d0f2e382f00c267b",
+        "bytes": 9263
+      },
+      {
+        "path": "nirs4all_core/_workspace.py",
+        "sha256": "e90bc5d5cdd6359b8a180af198253d701a05f8b0e8a425100ed0627da8ef75cd",
+        "bytes": 21296
+      },
+      {
+        "path": "nirs4all_core/py.typed",
+        "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "bytes": 1
+      },
+      {
+        "path": "nirs4all_core/workspace_cli.py",
+        "sha256": "a7725e62444ce838adbc4f5e45b0b6fa0d0785557f6f03f799c067c7c2253995",
+        "bytes": 4320
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/METADATA",
+        "sha256": "f8c8e4566b39c9fd48e65c49bf54dcd1823529e70027cd8118e8818f59a13b3e",
+        "bytes": 9185
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/WHEEL",
+        "sha256": "d6ef5e0a74f57394b6b6f26d88cf0e687862a6157a09a5f177cd7211acb9ee9f",
+        "bytes": 109
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSE",
+        "sha256": "d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee",
+        "bytes": 34020
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSING.md",
+        "sha256": "46c57e67ed1e40c98a714f32a968b343650b02df3627744c28e9ceba011b7447",
+        "bytes": 2058
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/THIRD_PARTY_NOTICES.md",
+        "sha256": "36239a5e2cfb203f0f9b1a4d78578e938b35fc696e7bedc613e4030954ba14ac",
+        "bytes": 1582
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/AGPL-3.0-or-later.txt",
+        "sha256": "d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee",
+        "bytes": 34020
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/Apache-2.0.txt",
+        "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+        "bytes": 10280
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/BSD-3-Clause.txt",
+        "sha256": "5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d",
+        "bytes": 1460
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/COMMERCIAL-LICENSE.md",
+        "sha256": "4340124a3a1d3c82577ea3aebc834cb9d37ee196d83fbf320af218a751449702",
+        "bytes": 674
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/COMMERCIAL-LICENSE_FR.md",
+        "sha256": "e05393d17534ba7129cd04f51c2ebe00448a4b427a50204f52ea37e906bf115a",
+        "bytes": 763
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/CeCILL-2.1.txt",
+        "sha256": "4ea234937bc7b0aa5247e436690d1eb9324875bc7590ecde50befd38e35190a5",
+        "bytes": 21778
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/MIT.txt",
+        "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+        "bytes": 1078
+      }
+    ],
+    "installed_record_sha256": "1825f4cac9c927e7bbae7974b9dcc9ba3e502a36f37c36ef769ec2d65cfd99b1",
+    "metadata_correction": "Original37payload checks remain genuine. Prior field wheel_record_sha256 described the pip-rewritten installed RECORD. This explicit correction distinguishes original wheel RECORD bytes from installed RECORD bytes; no historical measurement or tests are recreated."
+  },
+  {
+    "host": "windows",
+    "wheel_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/core045-public-pypi-v1/nirs4all_core-0.4.5-cp311-abi3-win_amd64.whl",
+    "wheel_sha256": "12a7b4c05dabbf2d17526e71d86bf9f6da189a3ca19c3d5fe70e74e5684bf095",
+    "installed_site": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages",
+    "wheel_record_path": "nirs4all_core-0.4.5.dist-info/RECORD",
+    "wheel_record_sha256": "b34b43111c6e31f40ca16b772c5cb93a570bf7266646f5a337579a699392dd93",
+    "all_nonempty_wheel_record_rows_verified_in_installed_prefix": [
+      {
+        "path": "n4a/__init__.py",
+        "sha256": "de74ec41617ca9e352607663fe3ff8b0aa8ba6b5b82510138b776e3f2cb2e872",
+        "bytes": 1804
+      },
+      {
+        "path": "n4a/py.typed",
+        "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+        "bytes": 2
+      },
+      {
+        "path": "nirs4all_core/__init__.py",
+        "sha256": "31c0ced968eb3ff278424e091de24f997e2455091c02c6433d22ae5ca27f253c",
+        "bytes": 5058
+      },
+      {
+        "path": "nirs4all_core/_archive.py",
+        "sha256": "ff24c5f6759b8c1aa31bb7151b29f79acceb949188df720317f4700be8b74f17",
+        "bytes": 17415
+      },
+      {
+        "path": "nirs4all_core/_browser_tuning.py",
+        "sha256": "c5fde48586c03b9690e7cb1b2258b3bae95b4d6db335830b9d5067df12a06412",
+        "bytes": 8480
+      },
+      {
+        "path": "nirs4all_core/_capabilities.py",
+        "sha256": "ee7f0572a032f404fc56c061c10403c0d836d71431013464192fc8312695609b",
+        "bytes": 10289
+      },
+      {
+        "path": "nirs4all_core/_conformal.py",
+        "sha256": "5a3d8c1d7e612bad4f6d2ca884fb58985e7a1ab2dec4a4d0f569a7c9a3212840",
+        "bytes": 5771
+      },
+      {
+        "path": "nirs4all_core/_dataset.py",
+        "sha256": "1d7291ae3bbfb3a50c21128cc076658a8a3ab3f529e7ee6c19dcc27797622fe6",
+        "bytes": 913
+      },
+      {
+        "path": "nirs4all_core/_execution.py",
+        "sha256": "e99260592404f21ba018db3d5b5d8f3c04be6ff0725b32cc0fa44635d2dda4f7",
+        "bytes": 13696
+      },
+      {
+        "path": "nirs4all_core/_multimodal.py",
+        "sha256": "9e7be7f8f181446ef05adbffafddd89b20ac7cf2b9bb038c53de2cee1ef5e324",
+        "bytes": 5693
+      },
+      {
+        "path": "nirs4all_core/_multimodal_archive.py",
+        "sha256": "f49359a19a1d1ad3033f7e7ef5762bbf506b01406dc192e24ca87e71c32a7ade",
+        "bytes": 2220
+      },
+      {
+        "path": "nirs4all_core/_n4m_roles.py",
+        "sha256": "6a1e4ac176b4125a1cc964eff070a7afc911f902e4177edf180fb535d60a908a",
+        "bytes": 12456
+      },
+      {
+        "path": "nirs4all_core/_native.pyd",
+        "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4",
+        "bytes": 32053760
+      },
+      {
+        "path": "nirs4all_core/_native_multimodal.py",
+        "sha256": "7bb51afcefb283f0bb891b2d38ac4ae58ea4ef8bcf6631f17c534d82e4c7a30b",
+        "bytes": 3631
+      },
+      {
+        "path": "nirs4all_core/_native_pipeline.py",
+        "sha256": "1e069289b0e6c849b794d07f2623483e8ff45920941bb0db7ede33fc39f83aef",
+        "bytes": 4343
+      },
+      {
+        "path": "nirs4all_core/_pipeline.py",
+        "sha256": "013f8ce4465d5b436fff415ed0b837116cb62b90a5b38162aee24dbdc79a8b33",
+        "bytes": 6525
+      },
+      {
+        "path": "nirs4all_core/_results.py",
+        "sha256": "ddd0143966c25367d1f8288d19fc0c846d0a6442fb66a034e2cefb90eae3867f",
+        "bytes": 15032
+      },
+      {
+        "path": "nirs4all_core/_robustness.py",
+        "sha256": "c47b6d0bc5e62dadd9a628ab31c36046b40f45ad13c4b0cdde8fbf6d3c21caf0",
+        "bytes": 1557
+      },
+      {
+        "path": "nirs4all_core/_topology.py",
+        "sha256": "ebad0578ed7aa1cea80215985e15c8e4393d057313fc26d7e6f1c3df0723c115",
+        "bytes": 18369
+      },
+      {
+        "path": "nirs4all_core/_tuning.py",
+        "sha256": "b33bc7733160051e40fd3e01fad135d34be0e9da5f54f50cb6cae558a290f40f",
+        "bytes": 6648
+      },
+      {
+        "path": "nirs4all_core/_upstreams.py",
+        "sha256": "4c4c1840709dfc2c74614b427bb34fad818919364b4204d9206e77b046847009",
+        "bytes": 4634
+      },
+      {
+        "path": "nirs4all_core/_workflow.py",
+        "sha256": "2dfbd72d322d9ecc066c5d1b5ad76be739cb7b90a74fbbf5e841924a051cb248",
+        "bytes": 9452
+      },
+      {
+        "path": "nirs4all_core/_workspace.py",
+        "sha256": "6b6496964e06e7406c182fc4551949ed7fdb58ac50bb62108d5e8b43d218e9aa",
+        "bytes": 21670
+      },
+      {
+        "path": "nirs4all_core/py.typed",
+        "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+        "bytes": 2
+      },
+      {
+        "path": "nirs4all_core/workspace_cli.py",
+        "sha256": "2e03de167df3332bd13c32eaded665448745c046decad8b11e309041924340d8",
+        "bytes": 4404
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/METADATA",
+        "sha256": "f1db19d260e320e32e8e11b067d136f17b6b77f538f84bcc01d739f949da28d5",
+        "bytes": 9324
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/WHEEL",
+        "sha256": "9efe56059dbb731c438c822ac4132a2b670e174db90f09059aa246a8bdd2a575",
+        "bytes": 96
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSE",
+        "sha256": "79735a75d0274d2a5dcc240d11a0f81e34cfc3533939b7fce8e84e35a150a238",
+        "bytes": 34255
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/AGPL-3.0-or-later.txt",
+        "sha256": "79735a75d0274d2a5dcc240d11a0f81e34cfc3533939b7fce8e84e35a150a238",
+        "bytes": 34255
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/Apache-2.0.txt",
+        "sha256": "9bf4e882bdd75e8d10fc788c53d0a787ef0f59cead1fe1f0878c240896fc8610",
+        "bytes": 10353
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/BSD-3-Clause.txt",
+        "sha256": "dd7b9b02281cd35b83271d126e47316bcf6e1e4e8bb93c868f863f3592eae9fa",
+        "bytes": 1471
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/COMMERCIAL-LICENSE.md",
+        "sha256": "a0d22e055872d5e411819e3ddb27685f3d11d513e91ba4a898c5d2d95b728709",
+        "bytes": 688
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/COMMERCIAL-LICENSE_FR.md",
+        "sha256": "647b1d62f90be3f229f304574475bceac354637a2d21eef92c7cc819f45e8b05",
+        "bytes": 778
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/CeCILL-2.1.txt",
+        "sha256": "c2d779dbc8b419a016a48a883720a6dd8a5b0eaebc31b4a3b7045306a1fa2a18",
+        "bytes": 22296
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSES/MIT.txt",
+        "sha256": "32303ab887b8c90b6e6fe49e2f031ca01b23b5190e236447d94e1944684dc769",
+        "bytes": 1096
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/LICENSING.md",
+        "sha256": "35c366e73c29f3763fd378cb464d0d507e3f0e16bacd64d656ea71bc27a918c1",
+        "bytes": 2106
+      },
+      {
+        "path": "nirs4all_core-0.4.5.dist-info/licenses/THIRD_PARTY_NOTICES.md",
+        "sha256": "965b6d8b55110ff81272adb8e5f73a2c7d7874c37a5a13e8ab4d610dcb7915d0",
+        "bytes": 1609
+      }
+    ],
+    "installed_record_sha256": "9a13fb26cf61700af42ff0700b2e0bc635e9ef9bdb58eca104cdbc7c514a8001",
+    "metadata_correction": "Original37payload checks remain genuine. Prior field wheel_record_sha256 described the pip-rewritten installed RECORD. This explicit correction distinguishes original wheel RECORD bytes from installed RECORD bytes; no historical measurement or tests are recreated."
+  }
+]

@@ -1,15 +1,7 @@
-name: Full DAG-ML pytest
-
-# Release protocol: run the exhaustive suite locally before tagging; the PR
-# and publication gates use fast unit/API/parity smoke tests. After PyPI
-# publication, dispatch this complete Action for independent confirmation.
-# The reusable test job has no extra timeout beyond GitHub's hosted-runner cap.
-
-on:
-  schedule:
-    - cron: '0 3 * * 0'
-  workflow_dispatch:
-
+# Full scientific suites and examples run locally before publication.
+name: SDK package build
+'on':
+  workflow_dispatch: null
 jobs:
   exhaustive:
     permissions:

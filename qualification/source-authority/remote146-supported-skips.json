@@ -1,0 +1,579 @@
+{
+  "source_commit": "1cc6b83d4c6d3904a0ce78f7b844056e47efd794",
+  "sdk_version": "1.4.6",
+  "publisher_run": 37581133485,
+  "occurrences": 65,
+  "unique_ids": 42,
+  "supported_occurrences": 60,
+  "deferred_occurrences": 5,
+  "records": [
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.parity.test_dagml_gpu::test_public_dagml_run_executes_model_fit_on_requested_cuda_device",
+      "reason": "optional GPU environment unavailable: requires a CUDA-capable PyTorch runtime",
+      "status": "DEFERRED_CONSOLIDATED_GPU_OR_LICENSE_PROFILE",
+      "proof": null,
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_hpo_five_raw_models_and_installed_replay_without_fit",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[trust]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[unsigned_phase]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[raw_bytes]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[missing_raw]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[aliased_raw]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_replay_failure_releases_every_native_state",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_parallel_typed_hpo::test_actual_native_hpo_fit_overlap_has_serialized_negative_control[typed]",
+      "reason": "native test probe is opt-in; release qualification requires this witness",
+      "status": "HISTORICAL145_WITNESS_WITH_EXPLICIT_PROFILE_EQUIVALENCE",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk145-supported-skips/hpo-overlap-qualification.json",
+      "equivalence": "Original typed/topology HPO overlap fixture is raw MultimodalDataset, handled by MultimodalSpectroDataset subclass: the new exact-SpectroDataset/TargetAccessor optimized selector is not selected. SDK native HPO scheduler/callback/parallelization sources, Methods probe and DAG040 native library remain identical to historical145 proof; original tests/fixtures byte-identical. Added target row-count guard preserves already-correct fixtures and fresh actual146 target/dataplane/multimodal73 tests validate guard. This is reuse of unchanged finite native overlap semantics, not fresh HPO overlap execution under146."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_parallel_typed_hpo::test_actual_native_hpo_fit_overlap_has_serialized_negative_control[topology]",
+      "reason": "native test probe is opt-in; release qualification requires this witness",
+      "status": "HISTORICAL145_WITNESS_WITH_EXPLICIT_PROFILE_EQUIVALENCE",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk145-supported-skips/hpo-overlap-qualification.json",
+      "equivalence": "Original typed/topology HPO overlap fixture is raw MultimodalDataset, handled by MultimodalSpectroDataset subclass: the new exact-SpectroDataset/TargetAccessor optimized selector is not selected. SDK native HPO scheduler/callback/parallelization sources, Methods probe and DAG040 native library remain identical to historical145 proof; original tests/fixtures byte-identical. Added target row-count guard preserves already-correct fixtures and fresh actual146 target/dataplane/multimodal73 tests validate guard. This is reuse of unchanged finite native overlap semantics, not fresh HPO overlap execution under146."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_true_native_refit_capture_exports_exact_raw_and_replays_installed_without_fit[n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_true_native_refit_capture_exports_exact_raw_and_replays_installed_without_fit[role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[0-phase_controls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[0-hpo]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[41-phase_controls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[41-hpo]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[raw_state-n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[raw_state-role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[missing_member-n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[missing_member-role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[cross_reference-n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[cross_reference-role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_genuine_package_and_archive_collision_preserve_existing_bytes_and_failed_new_write_is_removed[n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_genuine_package_and_archive_collision_preserve_existing_bytes_and_failed_new_write_is_removed[role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.parity.test_rt_goldens::test_runtime_goldens_validate_against_current_schemas[https://github.com/GBeurier/nirs4all-ecosystem/schemas/runtime/rt_result.v1.schema.json-rt_result.success.v1.json]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.parity.test_rt_goldens::test_runtime_goldens_validate_against_current_schemas[https://github.com/GBeurier/nirs4all-ecosystem/schemas/runtime/rt_result.v1.schema.json-rt_result.legacy_fallback.v1.json]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.parity.test_rt_goldens::test_runtime_goldens_validate_against_current_schemas[https://github.com/GBeurier/nirs4all-ecosystem/schemas/runtime/rt_error.v1.schema.json-rt_error.scheduler_fallback.v1.json]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.parity.test_rt_goldens::test_runtime_goldens_validate_against_current_schemas[https://github.com/GBeurier/nirs4all-ecosystem/schemas/runtime/rt_error.v1.schema.json-rt_error.strict_scheduler_refusal.v1.json]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/full-integration.xml",
+      "id": "tests.integration.parity.test_rt_goldens::test_runtime_goldens_validate_against_current_schemas[https://github.com/GBeurier/nirs4all-ecosystem/schemas/runtime/rt_error.v1.schema.json-rt_error.unsupported_shape.v1.json]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "::tests.unit.docs.test_legacy_links",
+      "reason": "collection skipped",
+      "status": "UNCHANGED_NONPACKAGED_DOC_SOURCE_EQUIVALENCE",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk145-supported-skips/legacy-doc-extension-unchanged-proof.json",
+      "equivalence": "Nine docs extension tests and extension source nonpackaged, unchanged146 versus145; original nine PASS retained, actualSource146 official strict docs1150 publication separately qualified."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.operators.models.test_tabpfn_nirs::test_fit_predict_shape",
+      "reason": "TabPFN cannot obtain model weights in this environment: TabPFNLicenseError",
+      "status": "DEFERRED_CONSOLIDATED_GPU_OR_LICENSE_PROFILE",
+      "proof": null,
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.operators.models.test_tabpfn_nirs::test_fit_populates_attributes",
+      "reason": "TabPFN cannot obtain model weights in this environment: TabPFNLicenseError",
+      "status": "DEFERRED_CONSOLIDATED_GPU_OR_LICENSE_PROFILE",
+      "proof": null,
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.operators.models.test_tabpfn_nirs::test_subsample_when_p_exceeds_max_features",
+      "reason": "TabPFN cannot obtain model weights in this environment: TabPFNLicenseError",
+      "status": "DEFERRED_CONSOLIDATED_GPU_OR_LICENSE_PROFILE",
+      "proof": null,
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.docs.test_keyword_registry_extension::test_keyword_registry_extension_writes_static_json_artifact",
+      "reason": "could not import 'docutils': No module named 'docutils'",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/public146/targeted-runtime-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.docs.test_keyword_registry_extension::test_keyword_registry_extension_skips_static_json_after_failed_build",
+      "reason": "could not import 'docutils': No module named 'docutils'",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/public146/targeted-runtime-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.pipeline.test_rt_envelopes::test_to_dict_validates_against_ecosystem_schema[error]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.pipeline.test_rt_envelopes::test_to_dict_validates_against_ecosystem_schema[run_request]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.pipeline.test_rt_envelopes::test_to_dict_validates_against_ecosystem_schema[result]",
+      "reason": "sibling nirs4all-ecosystem runtime schemas not checked out",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.pipeline.dagml.test_gpu_resources::test_gpu_scope_runs_real_pytorch_operation_on_requested_device",
+      "reason": "requires a CUDA-capable PyTorch runtime",
+      "status": "DEFERRED_CONSOLIDATED_GPU_OR_LICENSE_PROFILE",
+      "proof": null,
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.pipeline.dagml.test_training_contracts::test_tcv1_request_fingerprint_matches_native_fixture",
+      "reason": "sibling dag-ml training fixture is not available",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/training-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.pipeline.dagml.test_training_contracts::test_training_data_identity_from_binding_matches_native_fixture",
+      "reason": "sibling dag-ml training fixture is not available",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/training-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.unit.pipeline.dagml.test_training_contracts::test_assemble_training_request_reproduces_and_validates_native_fixture",
+      "reason": "sibling dag-ml training fixture is not available",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/training-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_hpo_five_raw_models_and_installed_replay_without_fit",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[trust]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[unsigned_phase]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[raw_bytes]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[missing_raw]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_archive_refuses_invalid_authority_before_callbacks[aliased_raw]",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_octave_multimodal_role_archive::test_public_octave_replay_failure_releases_every_native_state",
+      "reason": "Set real Octave/MEX, fresh Node capture and installed Python paths: missing capture; missing octave; missing installed_python; missing mex; Octave campaign helper does not exist: /home/runner/work/nirs4all/dag-ml/scripts/qualify_multimodal_methods_hpo_octave.py",
+      "status": "FRESH_PUBLIC146_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json",
+      "equivalence": null
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_parallel_typed_hpo::test_actual_native_hpo_fit_overlap_has_serialized_negative_control[typed]",
+      "reason": "native test probe is opt-in; release qualification requires this witness",
+      "status": "HISTORICAL145_WITNESS_WITH_EXPLICIT_PROFILE_EQUIVALENCE",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk145-supported-skips/hpo-overlap-qualification.json",
+      "equivalence": "Original typed/topology HPO overlap fixture is raw MultimodalDataset, handled by MultimodalSpectroDataset subclass: the new exact-SpectroDataset/TargetAccessor optimized selector is not selected. SDK native HPO scheduler/callback/parallelization sources, Methods probe and DAG040 native library remain identical to historical145 proof; original tests/fixtures byte-identical. Added target row-count guard preserves already-correct fixtures and fresh actual146 target/dataplane/multimodal73 tests validate guard. This is reuse of unchanged finite native overlap semantics, not fresh HPO overlap execution under146."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_parallel_typed_hpo::test_actual_native_hpo_fit_overlap_has_serialized_negative_control[topology]",
+      "reason": "native test probe is opt-in; release qualification requires this witness",
+      "status": "HISTORICAL145_WITNESS_WITH_EXPLICIT_PROFILE_EQUIVALENCE",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk145-supported-skips/hpo-overlap-qualification.json",
+      "equivalence": "Original typed/topology HPO overlap fixture is raw MultimodalDataset, handled by MultimodalSpectroDataset subclass: the new exact-SpectroDataset/TargetAccessor optimized selector is not selected. SDK native HPO scheduler/callback/parallelization sources, Methods probe and DAG040 native library remain identical to historical145 proof; original tests/fixtures byte-identical. Added target row-count guard preserves already-correct fixtures and fresh actual146 target/dataplane/multimodal73 tests validate guard. This is reuse of unchanged finite native overlap semantics, not fresh HPO overlap execution under146."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_true_native_refit_capture_exports_exact_raw_and_replays_installed_without_fit[n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_true_native_refit_capture_exports_exact_raw_and_replays_installed_without_fit[role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[0-phase_controls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[0-hpo]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[41-phase_controls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_public_role_pipeline_parent_run_fresh_full_refit_and_cold_archive_oracle[41-hpo]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[raw_state-n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[raw_state-role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[missing_member-n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[missing_member-role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[cross_reference-n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_actual_native_archive_tampering_refuses_before_replay[cross_reference-role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_genuine_package_and_archive_collision_preserve_existing_bytes_and_failed_new_write_is_removed[n4me-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    },
+    {
+      "phase": "nirs4all/nirs4all/fast-dagml-pytest-report/junit.xml",
+      "id": "tests.integration.api.test_xl03_native_v3_families::test_xl03_genuine_package_and_archive_collision_preserve_existing_bytes_and_failed_new_write_is_removed[role-pls]",
+      "reason": "set NIRS4ALL_REQUIRE_XL03_INSTALLED=1 with genuine native captures and exact installed wheels",
+      "status": "FRESH_PUBLIC146_XL_CASE_PASS",
+      "proof": "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json",
+      "equivalence": "Original 14 XL03 cases all pass on actual146; three sibling fixture collection skips are independently closed by training-final 4PASS/0SKIP; original XML retained without relabel."
+    }
+  ],
+  "proof_sha256": {
+    "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/octave-final-qualification.json": "15b17b4d3ecda6428ecaca2d45413a8b246910a1c779287be159c5ddd5c5f4c6",
+    "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk145-supported-skips/hpo-overlap-qualification.json": "d77c7844197e7688878b17745c75a4b701b94d12fc57377169841b7f2939f405",
+    "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-final-qualification.json": "967f49a39ad6d2c70a77166b09a075ed59a50ebe93f37dc4eccdaf920eb5a0f5",
+    "/home/delete/nirs4all/_audits/2026-10-06-debt-extension/sdk146-schema-public/qualification.json": "30cf716512901381ec1ed8a0919c7b1d9d63620beb7392c2be7c8a8190790662",
+    "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk145-supported-skips/legacy-doc-extension-unchanged-proof.json": "ec1a725bb100d09821a0e457441e76e9082d891867003c3cf0cc49a7c49d8a35",
+    "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/public146/targeted-runtime-qualification.json": "0359b9d8674a8e859dd9773b6c57a0997f940896b1eff847ba5a35892c7d50d1",
+    "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/training-final-qualification.json": "562f5e6f0fda10ce1a5c58dea6a1ceccff06c3d42fbde27e48c19ab9de30bfd0",
+    "/home/delete/nirs4all/_audits/2026-10-06-sdk-polars/sdk146-supported-skips/xl03-supported-cases-public146.json": "a2444b7528e60ace28a63b322ec99da50c4fb23a768d0dd51d8bff95484be10c"
+  },
+  "historical_equivalence_source_identity": {
+    "tests/integration/api/test_parallel_typed_hpo.py": {
+      "identical": true,
+      "sha256_145": "a9ba5621b1ae30c4b17a6851135b6a685e2bfe50b95cd8453f82e881e13a1767",
+      "sha256_146": "a9ba5621b1ae30c4b17a6851135b6a685e2bfe50b95cd8453f82e881e13a1767"
+    },
+    "tests/unit/docs/test_legacy_links.py": {
+      "identical": true,
+      "sha256_145": "80e6a78e942c070565bf932f35e9a4a0433c70e83983b5e6d015467fe5d0d42f",
+      "sha256_146": "80e6a78e942c070565bf932f35e9a4a0433c70e83983b5e6d015467fe5d0d42f"
+    },
+    "docs/source/_ext/legacy_links.py": {
+      "identical": true,
+      "sha256_145": "943e3c55c0fb89aedcf331480a86f7863d447d9a25f86b9d5c10d54e5e7e89c1",
+      "sha256_146": "943e3c55c0fb89aedcf331480a86f7863d447d9a25f86b9d5c10d54e5e7e89c1"
+    },
+    "nirs4all/pipeline/dagml/structural_tuning.py": {
+      "identical": true,
+      "sha256_145": "affc78bc4cdda1d2e422e01e85491141007c0b278bc14217d5402f8c30257c95",
+      "sha256_146": "affc78bc4cdda1d2e422e01e85491141007c0b278bc14217d5402f8c30257c95"
+    },
+    "nirs4all/pipeline/dagml/multimodal_tuning.py": {
+      "identical": true,
+      "sha256_145": "85f989d9bd28925b58541a2e29f587beacacc7f4693f0ab8f6019821894180f9",
+      "sha256_146": "85f989d9bd28925b58541a2e29f587beacacc7f4693f0ab8f6019821894180f9"
+    },
+    "nirs4all/pipeline/dagml/cancellation.py": {
+      "identical": true,
+      "sha256_145": "5572a5d450bf72d5ec0858668442d4d6372d2acdb4dc495f20dde0bf0d502407",
+      "sha256_146": "5572a5d450bf72d5ec0858668442d4d6372d2acdb4dc495f20dde0bf0d502407"
+    },
+    "docs/source/_ext/keyword_registry.py": {
+      "identical": true,
+      "sha256_145": "e7eab855f02c4a961b3b5168b1e694d5914f7a045d659d5a1aaeb5eedd8c7cf5",
+      "sha256_146": "e7eab855f02c4a961b3b5168b1e694d5914f7a045d659d5a1aaeb5eedd8c7cf5"
+    }
+  },
+  "scope": "Actual146 fresh public SDK imported with closed RECORD; historical145 overlap/docs witnesses reused only via explicit unchanged finite-profile equivalence, never relabeled fresh146. CUDA/TabPFN remain explicit limits. Separate from strict ALL11/Docker/70."
+}

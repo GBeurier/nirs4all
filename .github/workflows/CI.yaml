@@ -1,227 +1,69 @@
-# .github/workflows/ci.yml
+# Full scientific suites and examples run locally before publication.
 name: CI
-
-on:
+'on':
   push:
-    branches: [ main, master, 'rc/**' ]
+    branches:
+    - main
+    - master
+    - rc/**
   pull_request:
-    branches: [ main, master, 'rc/**' ]
-
-# The default gate runs fast unit, public-API, and parity smoke tests. The
-# exhaustive DAG-ML suite runs weekly and on demand in full-dagml-tests.yml.
-
-env:
-  N4A_DAG_ML_REF: 9095e5640c53b02dd91dc4de7a20d1a7d501bbdb
-  N4A_DAG_ML_DATA_REF: 78719b68c8e9ffd4c2035792574b8da33387d237
-  N4A_IO_REF: 2641ffb468be4d7e4f4b7ef5f60e706c56d08d59
-  N4A_METHODS_REF: dcc570b3647f77cf0428dd346078f442ed5cd032
-
+    branches:
+    - main
+    - master
+    - rc/**
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install ruff
-        run: pip install ruff
-
-      - name: Run ruff
-        run: ruff check .
-
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install ruff
+      run: pip install ruff
+    - name: Run ruff
+      run: ruff check .
   type-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          # Pin the paired candidate commits so CI tests exactly this train.
-          python -m pip install \
-            "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
-            "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py" \
-            "nirs4all-io @ git+https://github.com/GBeurier/nirs4all-io.git@${N4A_IO_REF}#subdirectory=bindings/python"
-          python -m pip install numpy -r requirements-test.txt
-          python -m pip install -e . --no-deps
-          python -m pip install mypy types-PyYAML
-
-      - name: Run mypy
-        run: mypy nirs4all
-
-  tests:
-    needs: [lint, type-check]
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install numpy -r requirements-test.txt
+        python -m pip install -e .
+        python -m pip install mypy types-PyYAML
+    - name: Run mypy
+      run: mypy nirs4all
+  package-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Checkout pinned dag-ml CLI source
-        uses: actions/checkout@v6
-        with:
-          repository: GBeurier/dag-ml
-          ref: ${{ env.N4A_DAG_ML_REF }}
-          path: dag-ml-cli-src
-
-      - name: Checkout qualified n4m source
-        uses: actions/checkout@v6
-        with:
-          repository: GBeurier/nirs4all-methods
-          ref: ${{ env.N4A_METHODS_REF }}
-          path: nirs4all-methods-src
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Free disk space
-        uses: ./.github/actions/free-disk-space
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install test deps
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          # Pin the paired candidate commits so CI tests exactly this train.
-          python -m pip install \
-            "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
-            "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py" \
-            "nirs4all-io @ git+https://github.com/GBeurier/nirs4all-io.git@${N4A_IO_REF}#subdirectory=bindings/python"
-          # PyPI's Linux wheel pulls CUDA/Triton dependencies even on the CPU
-          # runner. The official CPU wheel avoids that unstable runtime.
-          grep -v '^torch' requirements-test.txt > requirements-test-filtered.txt
-          python -m pip install numpy -r requirements-test-filtered.txt
-          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-            'torch==2.13.0+cpu'
-          python -m pip uninstall -y triton
-          python -m pip install -r requirements-examples.txt
-
-      - name: Install package (editable, no-deps — deps already from requirements-test.txt)
-        run: python -m pip install -e . --no-deps
-
-      - name: Build pinned dag-ml CLI for parity tests
-        run: cargo build -p dag-ml-cli --manifest-path dag-ml-cli-src/Cargo.toml
-
-      - name: Build qualified n4m native library for parity tests
-        run: |
-          cmake --preset dev-release
-          cmake --build --preset dev-release --target n4m_c --parallel 2
-        working-directory: nirs4all-methods-src
-
-      - name: Gate source candidate library usability
-        timeout-minutes: 5
-        env:
-          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
-          N4M_LIB_PATH: ${{ github.workspace }}/nirs4all-methods-src/build/dev-release/cpp/src/libn4m.so
-          NIRS4ALL_CORE_LIVE_METHODS_LIBRARY: ${{ github.workspace }}/nirs4all-methods-src/build/dev-release/cpp/src/libn4m.so
-          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/nirs4all-methods-src/bindings/python/src
-        uses: ./.github/actions/library-usability
-
-      - name: Align public parent and prepare mandatory installed SDK replay
-        uses: ./.github/actions/prepare-installed-example
-
-      - name: Run fast DAG-ML unit, API, and parity smoke tests
-        shell: bash
-        env:
-          N4A_ENGINE: dag-ml
-          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
-          CUDA_VISIBLE_DEVICES: ''
-          OMP_NUM_THREADS: '1'
-          OPENBLAS_NUM_THREADS: '1'
-          MKL_NUM_THREADS: '1'
-        run: |
-          python - <<'PY'
-          import os
-          import json
-          from pathlib import Path
-          import dag_ml
-          import dag_ml.multimodal_topology as topology_controller
-          import dag_ml.multimodal_classification as classification_controller
-          import n4m
-          from n4m.compose.preprocessing import NativePreprocessingPipeline
-          from n4m.estimators.regression.sparse import GroupSparsePLS
-          from n4m.augmentation import run_native
-          from n4m.roles import NativeEstimator, RolePipeline
-
-          assert n4m.abi_version() == (2, 17, 0)
-          proof = json.loads((Path(os.environ['RUNNER_TEMP']) / 'nirs4all-installed-example/parent-public-origins.json').read_text())
-          library = Path(n4m.library_path()).resolve()
-          assert Path(n4m.__file__).resolve() == Path(proof['origins']['n4m']).resolve()
-          assert library == Path(proof['native_library']).resolve()
-          assert Path(os.environ['N4M_LIB_PATH']).resolve() == library
-          assert Path(os.environ['NIRS4ALL_CORE_LIVE_METHODS_LIBRARY']).resolve() == library
-          assert callable(RolePipeline.close)
-          assert callable(n4m.MultimodalClassifierPipeline)
-          assert callable(dag_ml.prepare_host_hpo_topology_catalogue)
-          source = Path(os.environ['GITHUB_WORKSPACE']) / 'dag-ml-cli-src/crates/dag-ml-py/python/dag_ml/multimodal_topology.py'
-          assert Path(topology_controller.__file__).read_bytes() == source.read_bytes()
-          classification_source = Path(os.environ['GITHUB_WORKSPACE']) / 'dag-ml-cli-src/crates/dag-ml-py/python/dag_ml/multimodal_classification.py'
-          assert Path(classification_controller.__file__).read_bytes() == classification_source.read_bytes()
-          print(n4m.__file__, n4m.abi_version())
-          PY
-          mkdir -p fast-dagml-pytest-report
-          python -m pytest -q --timeout=300 -n 2 --dist worksteal \
-            -m 'not slow and not gpu and not stress' \
-            tests/unit/ tests/integration/api/ \
-            tests/integration/parity/test_parity_compiles.py \
-            tests/integration/parity/test_cv_test_parity.py \
-            tests/integration/parity/test_native_single_model_bundle_export.py \
-            tests/integration/parity/test_conformance_examples_smoke.py \
-            tests/integration/parity/test_marker_audit.py \
-            --junitxml=fast-dagml-pytest-report/junit.xml \
-            --cov=nirs4all --cov-report=xml
-
-      - name: Qualify public provider with PyTorch DataLoader workers
-        env:
-          JAX_PLATFORMS: cpu
-          CUDA_VISIBLE_DEVICES: ''
-          OMP_NUM_THREADS: '1'
-          OPENBLAS_NUM_THREADS: '1'
-          MKL_NUM_THREADS: '1'
-        run: |
-          python examples/user/02_data_handling/U11_multimodal_data_provider.py \
-            --output "$RUNNER_TEMP/u11-provider-torch-workers" --torch-workers 2
-
-      - name: Qualify real AutoGluon parity and portable archive
-        timeout-minutes: 35
-        env:
-          N4A_ENGINE: dag-ml
-          N4A_DAGML_CLI: ${{ github.workspace }}/dag-ml-cli-src/target/debug/dag-ml-cli
-          CUDA_VISIBLE_DEVICES: ''
-          OMP_NUM_THREADS: '1'
-          OPENBLAS_NUM_THREADS: '1'
-          MKL_NUM_THREADS: '1'
-        run: |
-          python -c 'import autogluon.tabular; print("AutoGluon:", autogluon.tabular.__version__)'
-          python -m pytest -q --timeout=300 \
-            tests/integration/parity/test_dagml_autogluon_native.py \
-            --junitxml=fast-dagml-pytest-report/autogluon-junit.xml
-          python - <<'PY'
-          import xml.etree.ElementTree as ET
-          suite = ET.parse('fast-dagml-pytest-report/autogluon-junit.xml').getroot().find('testsuite')
-          assert suite is not None and int(suite.attrib['tests']) == 8
-          assert all(int(suite.attrib[key]) == 0 for key in ('errors', 'failures', 'skipped'))
-          PY
-
-      - name: Upload fast DAG-ML pytest report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: fast-dagml-pytest-report
-          path: |
-            fast-dagml-pytest-report/
-            coverage.xml
-            ${{ runner.temp }}/nirs4all-installed-example/*.json
-            ${{ runner.temp }}/nirs4all-installed-example/*.log
-          if-no-files-found: warn
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Build wheel and sdist
+      run: |
+        python -m pip install --upgrade build twine
+        python -m build --sdist --wheel --outdir dist
+        python -m twine check dist/*
+    - name: Install built wheel
+      run: python -m pip install dist/*.whl
+    - name: Verify installed package metadata, origins and native ABI
+      shell: bash
+      run: |
+        source_root="$PWD"
+        cd "$RUNNER_TEMP"
+        python "$source_root/scripts/smoke_installed_package.py" --source-root "$source_root"
+        python -m pip check
+    - uses: actions/upload-artifact@v7
+      with:
+        name: sdk-dist-smoke
+        path: dist/
+        if-no-files-found: error

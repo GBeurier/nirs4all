@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Scripts/python.exe",
+    "-I",
+    "-B",
+    "-c",
+    "import os,json,pathlib,sys; names=['TMPDIR', 'TMP', 'TEMP', 'PYTHONDONTWRITEBYTECODE', 'N4A_ENGINE', 'OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'CUDA_VISIBLE_DEVICES', 'MPLCONFIGDIR', 'XDG_CACHE_HOME', 'N4A_SMOKE_ROOT', 'N4A_DAGML_INPROCESS', 'N4A_FULL_HPO_MATRIX']; o={k:os.environ.get(k) for k in names};print(json.dumps({\"prefix\":sys.prefix,\"platform\":sys.platform,\"environment\":o},indent=2));assert pathlib.Path(o[\"N4A_SMOKE_ROOT\"]).is_absolute();assert all(o[k]==\"1\" for k in [\"OMP_NUM_THREADS\",\"OPENBLAS_NUM_THREADS\",\"MKL_NUM_THREADS\",\"N4A_DAGML_INPROCESS\",\"N4A_FULL_HPO_MATRIX\"]);assert o[\"N4A_ENGINE\"]==\"dag-ml\";assert o[\"CUDA_VISIBLE_DEVICES\"]==\"-1\""
+  ],
+  "exit_code": 0,
+  "started_at": "2026-10-08T05:09:27.334777+00:00",
+  "finished_at": "2026-10-08T05:09:28.246602+00:00",
+  "stdout_sha256": "2ae9368ee02ef5093fb209b84b1bc8533eb6874facb87f0aaa5ee0d7ce01e7df",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

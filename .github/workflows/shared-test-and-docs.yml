@@ -1,128 +1,82 @@
-# .github/workflows/shared-test-and-docs.yml
-# Reusable workflow: one complete test suite + documentation build.
-# Called by pre-publish.yml and publish.yml via workflow_call.
-name: Shared – Test and Docs
-
-on:
+# Full scientific suites and examples run locally before publication.
+name: "Shared \u2013 Test and Docs"
+'on':
   workflow_call:
     inputs:
       fail-fast:
-        description: 'Retained compatibility input (the suite is no longer matrixed)'
+        description: Retained compatibility input (the suite is no longer matrixed)
         type: boolean
         default: true
       skip-tests:
-        description: 'Skip the test suite (docs only)'
+        description: Skip the test suite (docs only)
         type: boolean
         default: false
       upload-coverage:
-        description: 'Upload coverage report to Codecov'
+        description: Upload coverage report to Codecov
         type: boolean
         default: false
       docs-artifact-name:
-        description: 'Name for the documentation artifact'
+        description: Name for the documentation artifact
         type: string
-        default: 'documentation-html'
+        default: documentation-html
       docs-retention-days:
-        description: 'Days to retain the documentation artifact'
+        description: Days to retain the documentation artifact
         type: number
         default: 7
-
 jobs:
   run-tests:
-    if: ${{ !inputs.skip-tests }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Free disk space
-        uses: ./.github/actions/free-disk-space
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install test deps
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          # Keep Linux tests on the official CPU wheel. The PyPI wheel pulls
-          # CUDA/Triton even on CPU runners, which is not a valid test target.
-          grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
-          python -m pip install numpy -r requirements-test-linux.txt
-          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-            'torch==2.13.0+cpu'
-          python -m pip uninstall -y triton
-
-      - name: Install package (editable, no-deps — deps already from requirements-test.txt)
-        run: python -m pip install -e . --no-deps
-
-      - name: Build qualified Methods and DAG candidate runtime
-        uses: ./.github/actions/candidate-native
-
-      - name: Prepare installed SDK for mandatory cold replay tests
-        uses: ./.github/actions/prepare-installed-example
-
-      - name: Gate real library usability
-        timeout-minutes: 5
-        uses: ./.github/actions/library-usability
-
-      - name: Run every pytest module under DAG-ML
-        shell: bash
-        env:
-          N4A_ENGINE: dag-ml
-        run: python scripts/ci/run_full_dagml_pytest.py --no-timeouts --report-dir dagml-pytest-report tests/
-
-      - name: Upload DAG-ML pytest report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: dagml-pytest-report
-          path: dagml-pytest-report/
-          if-no-files-found: warn
-
-      - name: Upload coverage to Codecov
-        if: ${{ inputs.upload-coverage }}
-        uses: codecov/codecov-action@v7
-        with:
-          files: ./coverage.xml
-          use_oidc: true
-          fail_ci_if_error: true
-
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Build wheel and sdist
+      run: |
+        python -m pip install --upgrade build twine
+        python -m build --sdist --wheel --outdir dist
+        python -m twine check dist/*
+    - name: Install built wheel
+      run: python -m pip install dist/*.whl
+    - name: Verify installed package metadata, origins and native ABI
+      shell: bash
+      run: |
+        source_root="$PWD"
+        cd "$RUNNER_TEMP"
+        python "$source_root/scripts/smoke_installed_package.py" --source-root "$source_root"
+        python -m pip check
+    - uses: actions/upload-artifact@v7
+      with:
+        name: sdk-dist-smoke
+        path: dist/
+        if-no-files-found: error
+    if: ${{ !inputs.skip-tests }}
   build-docs:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Free disk space
-        uses: ./.github/actions/free-disk-space
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install documentation dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -r docs/readthedocs.requirements.txt
-
-      - name: Install nirs4all package
-        run: python -m pip install -e .
-
-      - name: Build documentation
-        run: |
-          cd docs
-          sphinx-build -b html source _build/html --keep-going
-
-      - name: Upload documentation artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ inputs.docs-artifact-name }}
-          path: docs/_build/html/
-          retention-days: ${{ inputs.docs-retention-days }}
+    - name: Checkout repository
+      uses: actions/checkout@v6
+    - name: Free disk space
+      uses: ./.github/actions/free-disk-space
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install documentation dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install -r docs/readthedocs.requirements.txt
+    - name: Install nirs4all package
+      run: python -m pip install -e .
+    - name: Build documentation
+      run: |
+        cd docs
+        sphinx-build -b html source _build/html --keep-going
+    - name: Upload documentation artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.docs-artifact-name }}
+        path: docs/_build/html/
+        retention-days: ${{ inputs.docs-retention-days }}

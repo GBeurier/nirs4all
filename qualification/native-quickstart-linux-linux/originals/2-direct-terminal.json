@@ -1,0 +1,20 @@
+{
+  "command": [
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/bin/python",
+    "-I",
+    "-B",
+    "-m",
+    "pytest",
+    "-q",
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/tests/integration/api/test_installed_native_quickstart.py",
+    "--basetemp",
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-owned-tmp/pytest-basetemp",
+    "--junitxml",
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-quickstart-junit.xml"
+  ],
+  "direct_command_exit_code": 0,
+  "started_at": "2026-10-08T05:09:29.110815+00:00",
+  "finished_at": "2026-10-08T05:09:49.125041+00:00",
+  "seconds": 20.01422283303691,
+  "pid": 3446435
+}

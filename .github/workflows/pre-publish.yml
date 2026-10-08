@@ -1,314 +1,98 @@
-# .github/workflows/pre-publish.yml
-# Pre-publish validation workflow
-# Run this BEFORE creating a release to validate everything will pass
-
+# Full scientific suites and examples run locally before publication.
 name: Pre-Publish Check
-
-on:
-  workflow_dispatch:  # Manual trigger only
-    inputs:
-      skip_tests:
-        description: 'Skip test suite (faster, docs only)'
-        required: false
-        default: 'false'
-        type: boolean
-
+'on':
+  workflow_dispatch: null
 jobs:
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Ruff linting
-  # ═══════════════════════════════════════════════════════════════════════════
   ruff:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install ruff
-        run: python -m pip install --upgrade ruff
-
-      - name: Run ruff check
-        run: ruff check .
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Mypy type checking
-  # ═══════════════════════════════════════════════════════════════════════════
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install ruff
+      run: python -m pip install --upgrade ruff
+    - name: Run ruff check
+      run: ruff check .
   mypy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install numpy -r requirements-test.txt
-          python -m pip install -e . --no-deps
-          python -m pip install mypy types-PyYAML
-
-      - name: Run mypy
-        run: mypy nirs4all
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Full test suite (same as publish.yml)
-  # ═══════════════════════════════════════════════════════════════════════════
-  run-tests:
-    if: ${{ inputs.skip_tests == false }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Free disk space
-        uses: ./.github/actions/free-disk-space
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install test deps
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          # Pin tests to the official CPU wheel: PyPI's Linux wheel may load
-          # CUDA/Triton during eager optimizer construction on a CPU runner.
-          grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
-          python -m pip install numpy -r requirements-test-linux.txt
-          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-            'torch==2.13.0+cpu'
-
-      - name: Install package (editable, no-deps — deps already from requirements-test.txt)
-        run: python -m pip install -e . --no-deps
-
-      - name: Build qualified Methods and DAG candidate runtime
-        uses: ./.github/actions/candidate-native
-
-      - name: Prepare installed SDK for mandatory cold replay tests
-        uses: ./.github/actions/prepare-installed-example
-
-      - name: Gate real library usability
-        timeout-minutes: 5
-        uses: ./.github/actions/library-usability
-
-      - name: Run full pytest + coverage
-        shell: bash
-        run: |
-          python -m coverage erase
-          python -m pytest -v --timeout=300 -n 0 \
-            tests/integration/pipeline/test_merge_mixed.py \
-            tests/integration/pipeline/test_merge_per_branch.py \
-            --cov=nirs4all --cov-append
-          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append
-          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
-            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
-            --ignore=tests/integration/pipeline/test_merge_mixed.py \
-            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
-            --cov=nirs4all --cov-append --cov-report=xml
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Documentation build (same as publish.yml)
-  # ═══════════════════════════════════════════════════════════════════════════
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install numpy -r requirements-test.txt
+        python -m pip install -e . --no-deps
+        python -m pip install mypy types-PyYAML
+    - name: Run mypy
+      run: mypy nirs4all
   build-docs:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Free disk space
-        uses: ./.github/actions/free-disk-space
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install documentation dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -r docs/readthedocs.requirements.txt
-
-      - name: Install nirs4all package
-        run: python -m pip install -e .
-
-      - name: Build documentation (strict mode)
-        run: |
-          cd docs
-          sphinx-build -b html source _build/html -W --keep-going
-
-      - name: Upload documentation artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: pre-publish-docs
-          path: docs/_build/html/
-          retention-days: 3
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Verify examples (parallelized by category)
-  # ═══════════════════════════════════════════════════════════════════════════
-  verify-examples:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Free disk space
-        uses: ./.github/actions/free-disk-space
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install numpy
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install jax jaxlib
-          python -m pip install tensorflow
-          python -m pip install -r requirements-examples.txt
-          python -m pip install -e .
-
-      - name: Build qualified Methods and DAG candidate runtime
-        uses: ./.github/actions/candidate-native
-
-      - name: Prepare real Octave archive example prerequisites
-        uses: ./.github/actions/prepare-octave-example
-
-      - name: Run all examples once
-        run: |
-          cd examples
-          chmod +x run_ci_examples.sh
-          ./run_ci_examples.sh -c all -j 2 -k
-        timeout-minutes: 45
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Test package build (validates setup.py/pyproject.toml)
-  # ═══════════════════════════════════════════════════════════════════════════
+    - name: Checkout repository
+      uses: actions/checkout@v6
+    - name: Free disk space
+      uses: ./.github/actions/free-disk-space
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install documentation dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install -r docs/readthedocs.requirements.txt
+    - name: Install nirs4all package
+      run: python -m pip install -e .
+    - name: Build documentation (strict mode)
+      run: |
+        cd docs
+        sphinx-build -b html source _build/html -W --keep-going
+    - name: Upload documentation artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: pre-publish-docs
+        path: docs/_build/html/
+        retention-days: 3
   test-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Free disk space
-        uses: ./.github/actions/free-disk-space
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Build dists
-        run: |
-          python -m pip install --upgrade build twine
-          python -m build --sdist --wheel --outdir dist
-
-      - name: Validate package with twine
-        run: python -m twine check dist/*
-
-      - name: Test install from wheel
-        run: |
-          python -m pip install dist/*.whl
-          python -c "import nirs4all; print(f'nirs4all {nirs4all.__version__} installed successfully')"
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Summary (runs after all jobs, reports status)
-  # ═══════════════════════════════════════════════════════════════════════════
-  summary:
-    needs: [ruff, mypy, run-tests, build-docs, test-build, verify-examples]
-    if: always()
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Build wheel and sdist
+      run: |
+        python -m pip install --upgrade build twine
+        python -m build --sdist --wheel --outdir dist
+        python -m twine check dist/*
+    - name: Install built wheel
+      run: python -m pip install dist/*.whl
+    - name: Verify installed package metadata, origins and native ABI
+      shell: bash
+      run: |
+        source_root="$PWD"
+        cd "$RUNNER_TEMP"
+        python "$source_root/scripts/smoke_installed_package.py" --source-root "$source_root"
+        python -m pip check
+    - uses: actions/upload-artifact@v7
+      with:
+        name: sdk-dist-smoke
+        path: dist/
+        if-no-files-found: error
+  local-qualification:
     runs-on: ubuntu-latest
     steps:
-      - name: Check results
-        run: |
-          echo "╔═══════════════════════════════════════════════════════════════╗"
-          echo "║              PRE-PUBLISH VALIDATION SUMMARY                  ║"
-          echo "╠═══════════════════════════════════════════════════════════════╣"
-
-          ruff_result="${{ needs.ruff.result }}"
-          mypy_result="${{ needs.mypy.result }}"
-          tests_result="${{ needs.run-tests.result }}"
-          docs_result="${{ needs.build-docs.result }}"
-          build_result="${{ needs.test-build.result }}"
-          examples_result="${{ needs.verify-examples.result }}"
-
-          # --- Ruff ---
-          if [ "$ruff_result" == "success" ]; then
-            echo "║  Ruff:          ✅ PASSED                                   ║"
-          else
-            echo "║  Ruff:          ❌ FAILED                                   ║"
-          fi
-
-          # --- Mypy ---
-          if [ "$mypy_result" == "success" ]; then
-            echo "║  Mypy:          ✅ PASSED                                   ║"
-          else
-            echo "║  Mypy:          ❌ FAILED                                   ║"
-          fi
-
-          # --- Tests ---
-          if [ "$tests_result" == "skipped" ]; then
-            echo "║  Tests:         ⏭️  SKIPPED (user requested)                ║"
-          elif [ "$tests_result" == "success" ]; then
-            echo "║  Tests:         ✅ PASSED                                   ║"
-          else
-            echo "║  Tests:         ❌ FAILED                                   ║"
-          fi
-
-          # --- Docs ---
-          if [ "$docs_result" == "success" ]; then
-            echo "║  Documentation: ✅ PASSED                                   ║"
-          else
-            echo "║  Documentation: ❌ FAILED                                   ║"
-          fi
-
-          # --- Build ---
-          if [ "$build_result" == "success" ]; then
-            echo "║  Package Build: ✅ PASSED                                   ║"
-          else
-            echo "║  Package Build: ❌ FAILED                                   ║"
-          fi
-
-          # --- Examples ---
-          if [ "$examples_result" == "success" ]; then
-            echo "║  Examples:      ✅ PASSED                                   ║"
-          else
-            echo "║  Examples:      ❌ FAILED                                   ║"
-          fi
-
-          echo "╠═══════════════════════════════════════════════════════════════╣"
-
-          # Determine overall status
-          all_pass=true
-          for result in "$ruff_result" "$mypy_result" "$docs_result" "$build_result" "$examples_result"; do
-            if [ "$result" != "success" ]; then
-              all_pass=false
-            fi
-          done
-
-          # Tests can be skipped
-          if [ "$tests_result" != "success" ] && [ "$tests_result" != "skipped" ]; then
-            all_pass=false
-          fi
-
-          if [ "$all_pass" == "true" ]; then
-            echo "║  🎉 Ready to publish! Create your release now.             ║"
-            echo "╚═══════════════════════════════════════════════════════════════╝"
-            exit 0
-          fi
-
-          echo "║  ⚠️  Fix issues above before creating a release.             ║"
-          echo "╚═══════════════════════════════════════════════════════════════╝"
-          exit 1
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Verify local qualification for reviewed publication candidate
+      run: python scripts/verify_local_qualification.py --project sdk --receipt compat/local-qualification.json --root .

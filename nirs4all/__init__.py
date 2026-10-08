@@ -56,7 +56,7 @@ Synthetic Data Generation:
 
 See examples/ for more usage examples.
 """
-__version__ = "1.4.6"
+__version__ = "1.4.7"
 
 # Module-level API (primary interface) - Phase 2
 # Resolve public exports only when requested. Eagerly importing the entire API

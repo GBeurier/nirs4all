@@ -1,0 +1,10 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Temp\n4a-downstream041-20261008\sdk147-local-prefix-v1\source
+configfile: pyproject.toml
+collected 1 item
+
+source\tests\integration\api\test_installed_native_quickstart.py .       [100%]
+
+- generated xml file: C:\Temp\n4a-downstream041-20261008\sdk147-local-prefix-v1\windows-quickstart-junit.xml -
+============================= 1 passed in 11.77s ==============================

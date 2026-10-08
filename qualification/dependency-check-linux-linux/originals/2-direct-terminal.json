@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/bin/python",
+    "-I",
+    "-B",
+    "-m",
+    "pip",
+    "check"
+  ],
+  "direct_command_exit_code": 0,
+  "started_at": "2026-10-08T05:05:57.219408+00:00",
+  "finished_at": "2026-10-08T05:06:02.228568+00:00",
+  "seconds": 5.009161358000711,
+  "pid": 3445646
+}
