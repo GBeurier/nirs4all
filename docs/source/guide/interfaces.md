@@ -71,7 +71,7 @@ cross-language combination has been qualified.
 | R product | 0.7.2 | R native workflow and workspace facades; GitHub source and R-universe distributions published |
 | UI | 0.1.15 | Shared React components |
 | Cluster | 0.1.5 | Distributed orchestration and prediction evidence |
-| Studio | 0.15.0 | Public desktop installer; 0.15.1 qualification and publication are pending |
+| Studio | 0.15.2 | Public desktop installers and Docker using SDK 1.4.7, DAG 0.3.41 and Core 0.4.5; unpublished 0.15.1 is superseded |
 
 The standalone DAG package and Core's compiled DAG dependency are separate
 runtime boundaries. Both are now 0.3.41; installing another standalone DAG
