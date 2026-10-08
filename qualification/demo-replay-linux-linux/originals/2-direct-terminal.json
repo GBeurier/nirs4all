@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/bin/python",
+    "-I",
+    "-B",
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/tests/qualification/installed_multimodal_demo.py"
+  ],
+  "direct_command_exit_code": 0,
+  "started_at": "2026-10-08T05:05:30.326911+00:00",
+  "finished_at": "2026-10-08T05:06:45.346858+00:00",
+  "seconds": 75.0199437480187,
+  "pid": 3445418
+}

@@ -1,0 +1,20 @@
+{
+  "prefix": "C:\\Temp\\n4a-downstream041-20261008\\sdk147-local-prefix-v1\\windows-prefix",
+  "platform": "win32",
+  "environment": {
+    "TMPDIR": "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-owned-tmp",
+    "TMP": "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-owned-tmp",
+    "TEMP": "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-owned-tmp",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "N4A_ENGINE": "dag-ml",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "CUDA_VISIBLE_DEVICES": "-1",
+    "MPLCONFIGDIR": "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-matplotlib",
+    "XDG_CACHE_HOME": "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-cache",
+    "N4A_SMOKE_ROOT": "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-provider45-output",
+    "N4A_DAGML_INPROCESS": "1",
+    "N4A_FULL_HPO_MATRIX": "1"
+  }
+}

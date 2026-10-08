@@ -1,77 +1,15 @@
-# .github/workflows/examples.yml
-# Example verification workflow
-# Runs examples to verify documentation accuracy
-
-name: Verify Examples
-
-on:
-  # Examples only run on schedule or manual trigger to save CI time
-  # Regular push/PR only run unit/integration tests (see CI.yaml)
-  schedule:
-    # Run weekly on Sunday at 00:00 UTC
-    - cron: '0 0 * * 0'
-  workflow_dispatch:  # Allow manual trigger
-
+# Full scientific suites and examples run locally before publication.
+name: Example source validation
+'on':
+  workflow_dispatch: null
 jobs:
-  verify-examples:
+  example-source:
     runs-on: ubuntu-latest
     steps:
-      - name: Free disk space
-        run: |
-          echo "=== Initial disk space ==="
-          df -h /
-          echo "=== Removing unnecessary tools ==="
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /opt/hostedtoolcache/go
-          sudo rm -rf /opt/hostedtoolcache/Ruby
-          sudo rm -rf /opt/hostedtoolcache/node
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /usr/local/share/edge_driver
-          sudo rm -rf /usr/local/share/gecko_driver
-          sudo rm -rf /usr/local/share/chromedriver-linux64
-          sudo rm -rf /opt/microsoft
-          sudo docker image prune --all --force
-          sudo apt-get clean
-          echo "=== Final disk space ==="
-          df -h /
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install numpy
-          # Install PyTorch CPU-only (faster, no GPU needed in CI)
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          # Install JAX CPU-only
-          python -m pip install jax jaxlib
-          # Install TensorFlow (CPU by default)
-          python -m pip install tensorflow
-          # Install remaining example dependencies (PLS libs, etc.)
-          python -m pip install -r requirements-examples.txt
-          python -m pip install -e .
-
-      - name: Build qualified Methods and DAG candidate runtime
-        uses: ./.github/actions/candidate-native
-
-      - name: Prepare real Octave archive example prerequisites
-        uses: ./.github/actions/prepare-octave-example
-
-      - name: Run all examples once
-        run: |
-          cd examples
-          chmod +x run_ci_examples.sh
-          ./run_ci_examples.sh -c all -j 2 -k
-        timeout-minutes: 45
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Validate example Python syntax
+      run: python -m compileall -q examples/user examples/developer examples/reference

@@ -1,0 +1,1108 @@
+{
+  "schema": "nirs4all.local-qualification.v1",
+  "project": "sdk",
+  "proposal_incomplete_not_for_publication": false,
+  "gates": [
+    {
+      "id": "metadata-linux",
+      "hosts": [
+        "linux"
+      ],
+      "commands": {
+        "linux": [
+          "python",
+          "-I",
+          "-B",
+          "{root}/source/scripts/smoke_installed_package.py",
+          "--source-root",
+          "{root}/source"
+        ]
+      },
+      "executable_paths": {
+        "linux": [
+          "{root}/linux-prefix/bin/python"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "scripts/smoke_installed_package.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "sdk_version",
+          "op": "eq",
+          "value": "1.4.7"
+        },
+        {
+          "field": "dag_version",
+          "op": "eq",
+          "value": "0.3.41"
+        },
+        {
+          "field": "core_version",
+          "op": "eq",
+          "value": "0.4.5"
+        },
+        {
+          "field": "methods_abi",
+          "op": "eq",
+          "value": [
+            2,
+            17,
+            0
+          ]
+        },
+        {
+          "field": "methods_sha256",
+          "op": "eq",
+          "value": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": ""
+      },
+      "raw_authority": {
+        "receipt_sha256": "1cc5a3179ff3c7098b264150ed038881682207a2bc66bca627cb55ce54eafcd2",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/metadata-linux/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67282,
+            "sha256": "c46f98b21f2c2af7423cd9e7f7f89a996046f0810604537617f8ee211f81e62c"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "bytes": 41309632,
+            "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "bytes": 40305872,
+            "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13379312,
+            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so.2.17.0",
+            "bytes": 5449304,
+            "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider45-linux",
+      "hosts": [
+        "linux"
+      ],
+      "commands": {
+        "linux": [
+          "python",
+          "-I",
+          "-B",
+          "{root}/source/tests/qualification/installed_multimodal_provider.py"
+        ]
+      },
+      "executable_paths": {
+        "linux": [
+          "{root}/linux-prefix/bin/python"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "tests/qualification/installed_multimodal_provider.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "hpo_matrix_cases",
+          "op": "eq",
+          "value": 45
+        },
+        {
+          "field": "xy_scores",
+          "op": "eq",
+          "value": [
+            0.07686970070139053,
+            0.07686970070139053
+          ]
+        },
+        {
+          "field": "cv_rmse",
+          "op": "eq",
+          "value": 0.6258026393364535
+        },
+        {
+          "field": "hpo_best_value",
+          "op": "eq",
+          "value": 1.7648325926211568
+        },
+        {
+          "field": "resume_trials",
+          "op": "eq",
+          "value": 2
+        },
+        {
+          "field": "pickle_bytes",
+          "op": "eq",
+          "value": 112726
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": "",
+        "N4A_DAGML_INPROCESS": "1",
+        "N4A_FULL_HPO_MATRIX": "1",
+        "N4A_SMOKE_ROOT": "{root}/linux-provider45-output"
+      },
+      "raw_authority": {
+        "receipt_sha256": "0a1a1a4d339d1d714871bc4d1bcdf12cd5e1cb001c62f0a58f8f2da062ebad20",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/provider45-linux/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67282,
+            "sha256": "c46f98b21f2c2af7423cd9e7f7f89a996046f0810604537617f8ee211f81e62c"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "bytes": 41309632,
+            "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "bytes": 40305872,
+            "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13379312,
+            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so.2.17.0",
+            "bytes": 5449304,
+            "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
+          }
+        ]
+      }
+    },
+    {
+      "id": "demo-replay-linux",
+      "hosts": [
+        "linux"
+      ],
+      "commands": {
+        "linux": [
+          "python",
+          "-I",
+          "-B",
+          "{root}/source/tests/qualification/installed_multimodal_demo.py"
+        ]
+      },
+      "executable_paths": {
+        "linux": [
+          "{root}/linux-prefix/bin/python"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "tests/qualification/installed_multimodal_demo.py",
+        "examples/user/02_data_handling/U07_multimodal.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "trial_count",
+          "op": "eq",
+          "value": 8
+        },
+        {
+          "field": "prediction_count",
+          "op": "eq",
+          "value": 12
+        },
+        {
+          "field": "fit_on_replay",
+          "op": "eq",
+          "value": false
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": ""
+      },
+      "raw_authority": {
+        "receipt_sha256": "e3cfefbfe5038804860a9c53dfb80aa8ad3e14e8bfa3787f3f45757c8918249e",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/demo-replay-linux/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67282,
+            "sha256": "c46f98b21f2c2af7423cd9e7f7f89a996046f0810604537617f8ee211f81e62c"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "bytes": 41309632,
+            "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "bytes": 40305872,
+            "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13379312,
+            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so.2.17.0",
+            "bytes": 5449304,
+            "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
+          }
+        ]
+      }
+    },
+    {
+      "id": "native-quickstart-linux",
+      "hosts": [
+        "linux"
+      ],
+      "commands": {
+        "linux": [
+          "python",
+          "-I",
+          "-B",
+          "-m",
+          "pytest",
+          "-q",
+          "{root}/source/tests/integration/api/test_installed_native_quickstart.py",
+          "--basetemp",
+          "{root}/linux-owned-tmp/pytest-basetemp",
+          "--junitxml",
+          "{root}/linux-quickstart-junit.xml"
+        ]
+      },
+      "executable_paths": {
+        "linux": [
+          "{root}/linux-prefix/bin/python"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "tests/integration/api/test_installed_native_quickstart.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "actual_quickstart_tests",
+          "op": "eq",
+          "value": 1
+        },
+        {
+          "field": "skips",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": "",
+        "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2": "1"
+      },
+      "raw_authority": {
+        "receipt_sha256": "dbbbef8fc717c804df2cff4252c1e579f6f395720916ece8c073e0670ed2457f",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/native-quickstart-linux/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67282,
+            "sha256": "c46f98b21f2c2af7423cd9e7f7f89a996046f0810604537617f8ee211f81e62c"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "bytes": 41309632,
+            "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "bytes": 40305872,
+            "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13379312,
+            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so.2.17.0",
+            "bytes": 5449304,
+            "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dependency-check-linux",
+      "hosts": [
+        "linux"
+      ],
+      "commands": {
+        "linux": [
+          "python",
+          "-I",
+          "-B",
+          "-m",
+          "pip",
+          "check"
+        ]
+      },
+      "executable_paths": {
+        "linux": [
+          "{root}/linux-prefix/bin/python"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "pip_check_ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": ""
+      },
+      "raw_authority": {
+        "receipt_sha256": "08b8fc23ce2e74cb1f52884a6065961a3f5d949db0d0fbb38783f66cbda8a8e3",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/dependency-check-linux/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67282,
+            "sha256": "c46f98b21f2c2af7423cd9e7f7f89a996046f0810604537617f8ee211f81e62c"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "bytes": 41309632,
+            "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "bytes": 40305872,
+            "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13379312,
+            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so.2.17.0",
+            "bytes": 5449304,
+            "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
+          }
+        ]
+      }
+    },
+    {
+      "id": "metadata-windows-env-v3",
+      "hosts": [
+        "windows"
+      ],
+      "commands": {
+        "windows": [
+          "python",
+          "-I",
+          "-B",
+          "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/scripts/smoke_installed_package.py",
+          "--source-root",
+          "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source"
+        ]
+      },
+      "executable_paths": {
+        "windows": [
+          "{root}/windows-prefix/Scripts/python.exe"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "scripts/smoke_installed_package.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "sdk_version",
+          "op": "eq",
+          "value": "1.4.7"
+        },
+        {
+          "field": "dag_version",
+          "op": "eq",
+          "value": "0.3.41"
+        },
+        {
+          "field": "core_version",
+          "op": "eq",
+          "value": "0.4.5"
+        },
+        {
+          "field": "methods_abi",
+          "op": "eq",
+          "value": [
+            2,
+            17,
+            0
+          ]
+        },
+        {
+          "field": "methods_sha256",
+          "op": "eq",
+          "value": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": "-1"
+      },
+      "raw_authority": {
+        "receipt_sha256": "2c06e24ba947fe9583e713cb1279410e866480303bebbfcad6f3ff8fddac2608",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/metadata-windows-env-v3/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67290,
+            "sha256": "83c252adc05cbd716cc8cc0903c45716fc6655341185da37bac70429edbb7bc1"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/dag_ml/_dag_ml.pyd",
+            "bytes": 34428928,
+            "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_core/_native.pyd",
+            "bytes": 32053760,
+            "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_io/_native.pyd",
+            "bytes": 9682432,
+            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/d/nirs4all-release-qualification-20261007/strict-b345054ef9584759a3c1121e3658056b/application/resources/backend/python-runtime/python/Lib/site-packages/n4m/lib/n4m.dll",
+            "bytes": 3863552,
+            "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider45-windows-env-v3",
+      "hosts": [
+        "windows"
+      ],
+      "commands": {
+        "windows": [
+          "python",
+          "-I",
+          "-B",
+          "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/tests/qualification/installed_multimodal_provider.py"
+        ]
+      },
+      "executable_paths": {
+        "windows": [
+          "{root}/windows-prefix/Scripts/python.exe"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "tests/qualification/installed_multimodal_provider.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "hpo_matrix_cases",
+          "op": "eq",
+          "value": 45
+        },
+        {
+          "field": "xy_scores",
+          "op": "eq",
+          "value": [
+            0.07686970070139033,
+            0.07686970070139033
+          ]
+        },
+        {
+          "field": "cv_rmse",
+          "op": "eq",
+          "value": 0.6258026393364533
+        },
+        {
+          "field": "hpo_best_value",
+          "op": "eq",
+          "value": 1.7648325926211583
+        },
+        {
+          "field": "resume_trials",
+          "op": "eq",
+          "value": 2
+        },
+        {
+          "field": "pickle_bytes",
+          "op": "eq",
+          "value": 112721
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": "-1",
+        "N4A_DAGML_INPROCESS": "1",
+        "N4A_FULL_HPO_MATRIX": "1",
+        "N4A_SMOKE_ROOT": "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-provider45-output"
+      },
+      "raw_authority": {
+        "receipt_sha256": "7dc657fe056047e3f3e744fffdd8a5174196654d97e511cee03606b7f30b1501",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/provider45-windows-env-v3/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67290,
+            "sha256": "83c252adc05cbd716cc8cc0903c45716fc6655341185da37bac70429edbb7bc1"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/dag_ml/_dag_ml.pyd",
+            "bytes": 34428928,
+            "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_core/_native.pyd",
+            "bytes": 32053760,
+            "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_io/_native.pyd",
+            "bytes": 9682432,
+            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/d/nirs4all-release-qualification-20261007/strict-b345054ef9584759a3c1121e3658056b/application/resources/backend/python-runtime/python/Lib/site-packages/n4m/lib/n4m.dll",
+            "bytes": 3863552,
+            "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
+          }
+        ]
+      }
+    },
+    {
+      "id": "demo-replay-windows-env-v3",
+      "hosts": [
+        "windows"
+      ],
+      "commands": {
+        "windows": [
+          "python",
+          "-I",
+          "-B",
+          "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/tests/qualification/installed_multimodal_demo.py"
+        ]
+      },
+      "executable_paths": {
+        "windows": [
+          "{root}/windows-prefix/Scripts/python.exe"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "tests/qualification/installed_multimodal_demo.py",
+        "examples/user/02_data_handling/U07_multimodal.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "trial_count",
+          "op": "eq",
+          "value": 8
+        },
+        {
+          "field": "prediction_count",
+          "op": "eq",
+          "value": 12
+        },
+        {
+          "field": "fit_on_replay",
+          "op": "eq",
+          "value": false
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": "-1"
+      },
+      "raw_authority": {
+        "receipt_sha256": "3e73590f24dc95f00aa7caede306fd19e2fb379eb289aabb1b7af9c85049f9d2",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/demo-replay-windows-env-v3/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67290,
+            "sha256": "83c252adc05cbd716cc8cc0903c45716fc6655341185da37bac70429edbb7bc1"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/dag_ml/_dag_ml.pyd",
+            "bytes": 34428928,
+            "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_core/_native.pyd",
+            "bytes": 32053760,
+            "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_io/_native.pyd",
+            "bytes": 9682432,
+            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/d/nirs4all-release-qualification-20261007/strict-b345054ef9584759a3c1121e3658056b/application/resources/backend/python-runtime/python/Lib/site-packages/n4m/lib/n4m.dll",
+            "bytes": 3863552,
+            "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
+          }
+        ]
+      }
+    },
+    {
+      "id": "native-quickstart-windows-env-v3",
+      "hosts": [
+        "windows"
+      ],
+      "commands": {
+        "windows": [
+          "python",
+          "-I",
+          "-B",
+          "-m",
+          "pytest",
+          "-q",
+          "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/tests/integration/api/test_installed_native_quickstart.py",
+          "--basetemp",
+          "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-owned-tmp/pytest-basetemp",
+          "--junitxml",
+          "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-quickstart-junit.xml"
+        ]
+      },
+      "executable_paths": {
+        "windows": [
+          "{root}/windows-prefix/Scripts/python.exe"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml",
+        "tests/integration/api/test_installed_native_quickstart.py"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "actual_quickstart_tests",
+          "op": "eq",
+          "value": 1
+        },
+        {
+          "field": "skips",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": "-1",
+        "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2": "1"
+      },
+      "raw_authority": {
+        "receipt_sha256": "59c073731f48fdad67af4a47db5aea1a987021cb1ba7580a672bbb0b758933c4",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/native-quickstart-windows-env-v3/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67290,
+            "sha256": "83c252adc05cbd716cc8cc0903c45716fc6655341185da37bac70429edbb7bc1"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/dag_ml/_dag_ml.pyd",
+            "bytes": 34428928,
+            "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_core/_native.pyd",
+            "bytes": 32053760,
+            "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_io/_native.pyd",
+            "bytes": 9682432,
+            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/d/nirs4all-release-qualification-20261007/strict-b345054ef9584759a3c1121e3658056b/application/resources/backend/python-runtime/python/Lib/site-packages/n4m/lib/n4m.dll",
+            "bytes": 3863552,
+            "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dependency-check-windows-env-v3",
+      "hosts": [
+        "windows"
+      ],
+      "commands": {
+        "windows": [
+          "python",
+          "-I",
+          "-B",
+          "-m",
+          "pip",
+          "check"
+        ]
+      },
+      "executable_paths": {
+        "windows": [
+          "{root}/windows-prefix/Scripts/python.exe"
+        ]
+      },
+      "input_paths": [
+        "nirs4all/",
+        "pyproject.toml"
+      ],
+      "minimum_passed": 1,
+      "allowed_skips": [],
+      "facts": [
+        {
+          "field": "pip_check_ok",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "required_environment": {
+        "N4A_ENGINE": "dag-ml",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "CUDA_VISIBLE_DEVICES": "-1"
+      },
+      "raw_authority": {
+        "receipt_sha256": "17e18674ce7895826c4b630b38f03d799e72b7d7b46efc825685953f15cbf244",
+        "original_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/local-raw-v2/dependency-check-windows-env-v3/raw-receipt.json"
+      },
+      "summary_basis": "One original completed qualifier per command; HPO45 count is a separate authentic producer fact, not45 invented pytest tests",
+      "input_exclusions": [],
+      "requires_provenance": true,
+      "provenance_requirements": {
+        "source_artifacts": [
+          {
+            "name": "sdk-installed-record",
+            "version": "1.4.7",
+            "origin": "Actual SDK147 candidate wheel installed in private prefix;655 wheel payloads equal reviewed staged source. Not yet publicly released",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all-1.4.7.dist-info/RECORD",
+            "bytes": 67290,
+            "sha256": "83c252adc05cbd716cc8cc0903c45716fc6655341185da37bac70429edbb7bc1"
+          }
+        ],
+        "dependency_origins": [
+          {
+            "name": "dag-native",
+            "version": "0.3.41",
+            "origin": "Actual public041 wheel, captured before and after original command",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/dag_ml/_dag_ml.pyd",
+            "bytes": 34428928,
+            "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
+          },
+          {
+            "name": "core-native",
+            "version": "0.4.5",
+            "origin": "Actual public045 wheel SHA/installedRECORD verified before qualification; Source566 tag",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_core/_native.pyd",
+            "bytes": 32053760,
+            "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
+          },
+          {
+            "name": "io-native",
+            "version": "0.2.6",
+            "origin": "Actual publicIO026 wheel, captured before and after",
+            "artifact_path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Lib/site-packages/nirs4all_io/_native.pyd",
+            "bytes": 9682432,
+            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+          },
+          {
+            "name": "methods-native",
+            "version": "1.3.4",
+            "origin": "Actual public134 engine1.3.4 ABI2.17 observed by installed metadata; genuine PRE/POST bytes",
+            "artifact_path": "/mnt/d/nirs4all-release-qualification-20261007/strict-b345054ef9584759a3c1121e3658056b/application/resources/backend/python-runtime/python/Lib/site-packages/n4m/lib/n4m.dll",
+            "bytes": 3863552,
+            "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
+          }
+        ]
+      }
+    }
+  ],
+  "source_basis": "Actual installed SDK147 local wheel; stageddeb0. 1966 source/test/example files unchanged146, init AST unchanged excluding version metadata; only DAG/Core minima refresh.",
+  "historical_unit_evidence": "Official GHA146 results remain remote historical Source146/DAG040/Core044, never relabelled as local147 execution. Exact source continuity690a and current8 local native gates cover the changed dependencies.",
+  "qualification_limits": [
+    "CUDA2 and licensed TabPFN3 remain exact deferred cases; these10 current command captures contain0skips.",
+    "CLI snapshot normal-exit cleanup is separate; static direct Python/R/Rust snapshots are unchanged and not claimed globally fixed.",
+    "No general full-unit/example rerun: scoped identical SDK code/fixtures retain historical remote evidence separately; current8 native gates and2dependency checks are local."
+  ]
+}

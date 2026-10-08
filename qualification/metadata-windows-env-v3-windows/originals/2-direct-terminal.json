@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Scripts/python.exe",
+    "-I",
+    "-B",
+    "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source/scripts/smoke_installed_package.py",
+    "--source-root",
+    "C:/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/source"
+  ],
+  "direct_command_exit_code": 0,
+  "started_at": "2026-10-08T05:11:13.889113+00:00",
+  "finished_at": "2026-10-08T05:11:23.904405+00:00",
+  "seconds": 10.0152907219599,
+  "pid": 3446795
+}

@@ -1,0 +1,25 @@
+{
+  "registry_url": "https://pypi.org/pypi/nirs4all-core/0.4.5/json",
+  "registry_sha256": "7c621172ed4992365f4666a898108ec59b164347e9a78b062fd3b303147eb6c1",
+  "registry_observed_at": "2026-10-08T05:01:12.715849+00:00",
+  "downloads": [
+    {
+      "path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/core045-public-pypi-v1/nirs4all_core-0.4.5-cp311-abi3-manylinux_2_28_x86_64.whl",
+      "filename": "nirs4all_core-0.4.5-cp311-abi3-manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/ac/80/9ce911f92c8dc4d0269102257358d6423cda4ee44dd58ebca5320686ced9/nirs4all_core-0.4.5-cp311-abi3-manylinux_2_28_x86_64.whl",
+      "bytes": 11854914,
+      "sha256": "20986b7f16fa8f02bf162e58d3d11b3f2f37f9e638414e181226faa81efc4cdc",
+      "registry_upload_time": "2026-10-08T04:58:19.838561Z",
+      "downloaded_at": "2026-10-08T05:01:10.352864+00:00"
+    },
+    {
+      "path": "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/core045-public-pypi-v1/nirs4all_core-0.4.5-cp311-abi3-win_amd64.whl",
+      "filename": "nirs4all_core-0.4.5-cp311-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/52/ab/78c70d90596884549c64fadc4be5b5d90ce2d72fd415f23d3ffc6cbca0fb/nirs4all_core-0.4.5-cp311-abi3-win_amd64.whl",
+      "bytes": 10759265,
+      "sha256": "12a7b4c05dabbf2d17526e71d86bf9f6da189a3ca19c3d5fe70e74e5684bf095",
+      "registry_upload_time": "2026-10-08T04:58:21.989568Z",
+      "downloaded_at": "2026-10-08T05:01:12.715763+00:00"
+    }
+  ]
+}

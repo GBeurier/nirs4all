@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/mnt/c/Temp/n4a-downstream041-20261008/sdk147-local-prefix-v1/windows-prefix/Scripts/python.exe",
+    "-I",
+    "-B",
+    "-m",
+    "pip",
+    "check"
+  ],
+  "direct_command_exit_code": 0,
+  "started_at": "2026-10-08T05:11:51.584467+00:00",
+  "finished_at": "2026-10-08T05:11:56.599549+00:00",
+  "seconds": 5.015082763042301,
+  "pid": 3447084
+}
