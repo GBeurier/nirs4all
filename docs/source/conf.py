@@ -210,8 +210,8 @@ autodoc_default_options = {
 linkcheck_ignore = [
     r"https://github\.com/.*",
 ]
-linkcheck_retries = 1
-linkcheck_timeout = 10
+linkcheck_retries = 3
+linkcheck_timeout = 30
 linkcheck_workers = 5
 
 # Optional ML backends are documented but not required to build docs.
