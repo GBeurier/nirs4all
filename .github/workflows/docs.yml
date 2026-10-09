@@ -23,10 +23,6 @@ on:
 permissions:
   contents: read
 
-env:
-  N4A_DAG_ML_REF: 9095e5640c53b02dd91dc4de7a20d1a7d501bbdb
-  N4A_DAG_ML_DATA_REF: 78719b68c8e9ffd4c2035792574b8da33387d237
-
 jobs:
   build-docs:
     runs-on: ubuntu-latest
@@ -56,9 +52,7 @@ jobs:
 
       - name: Install nirs4all package
         run: |
-          python -m pip install \
-            "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
-            "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
+          python -m pip install --only-binary=:all: "dag-ml==0.3.41" "dag-ml-data==0.2.13"
           python -m pip install -e .
 
       - name: Build documentation
@@ -109,9 +103,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -r docs/readthedocs.requirements.txt
-          python -m pip install \
-            "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
-            "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
+          python -m pip install --only-binary=:all: "dag-ml==0.3.41" "dag-ml-data==0.2.13"
           python -m pip install -e .
 
       - name: Check external links
