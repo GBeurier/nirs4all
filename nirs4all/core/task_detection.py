@@ -26,6 +26,21 @@ def detect_task_type(y: np.ndarray, threshold: float = 0.05) -> TaskType:
     # Flatten y to handle various shapes
     y_flat = np.asarray(y).ravel()
 
+    # Class names are valid targets. Preserve their identities instead of
+    # coercing labels to arbitrary integers or applying numeric ufuncs.
+    if y_flat.dtype.kind in "US" or (y_flat.dtype.kind == "O" and all(
+        value is None or isinstance(value, (str, np.str_))
+        or isinstance(value, (float, np.floating)) and np.isnan(value)
+        for value in y_flat
+    )):
+        labels = [str(value) for value in y_flat if isinstance(value, (str, np.str_)) and str(value).strip()]
+        if not labels:
+            raise ValueError("Target array contains no class labels")
+        return TaskType.BINARY_CLASSIFICATION if len(set(labels)) == 2 else TaskType.MULTICLASS_CLASSIFICATION
+
+    if y_flat.dtype.kind == "O":
+        y_flat = y_flat.astype(float)
+
     # Remove NaN values if any
     y_clean = y_flat[~np.isnan(y_flat)]
 

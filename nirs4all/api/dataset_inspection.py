@@ -279,6 +279,7 @@ def preview_dataset(
             target_distributions = {f"target_{column}": _target_distribution(values[:, column], dataset.is_regression) for column in range(values.shape[1])}
     first = per_source.get(0, {})
     summary = {"num_samples": dataset.num_samples, "num_features": train[0].shape[1],
+               "content_hash": dataset.content_hash(),
                "n_sources": dataset.n_sources, "features_per_source": [values.shape[1] for values in train],
                "train_samples": len(train[0]), "test_samples": len(test[0]),
                "has_targets": has_targets, "has_metadata": bool(dataset.metadata_columns),

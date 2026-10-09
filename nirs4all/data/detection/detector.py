@@ -468,6 +468,16 @@ class AutoDetector:
 
         avg_data_ratio = np.mean(data_numeric_ratios)
 
+        # Categorical target tables can contain text in every row. A known
+        # target-column name remains an explicit header even when numeric
+        # ratios cannot distinguish it from the class labels that follow.
+        if first_ratio == 0 and avg_data_ratio == 0 and len(first_row) == 1:
+            header = re.sub(r"[\s_-]+", "", first_row[0]).casefold()
+            target_headers = {"target", "targets", "label", "labels", "class", "classes", "y", "coffeetype"}
+            data_values = {row[0].strip().casefold() for row in data_rows if len(row) == 1}
+            if header in target_headers and first_row[0].strip().casefold() not in data_values:
+                return True, 0.8
+
         # If first row has significantly fewer numeric values, it's likely a header
         if first_ratio < avg_data_ratio - 0.3:
             raw_confidence = (avg_data_ratio - first_ratio) * 2

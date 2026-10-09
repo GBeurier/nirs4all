@@ -201,6 +201,19 @@ def test_available_tabpfn_preflight_does_not_construct_estimator(monkeypatch, op
     general._preflight_optional_product_operators([{"model": {"class": f"tabpfn.{operator}"}}])
 
 
+@pytest.mark.parametrize("package, operator", [("lightgbm", "LGBMClassifier"), ("xgboost", "XGBRegressor"), ("catboost", "CatBoostClassifier")])
+def test_missing_preset_dependency_fails_before_construction(monkeypatch, package, operator):
+    def missing(name):
+        assert name == package
+        raise ModuleNotFoundError(package)
+
+    monkeypatch.setattr(general, "import_module", missing)
+    with pytest.raises(general.StudioScientificJobError) as raised:
+        general._preflight_optional_product_operators([{"model": {"class": f"{package}.{operator}"}}])
+    assert raised.value.code == "dependency_missing"
+    assert package in str(raised.value)
+
+
 @pytest.mark.parametrize("operator", ["TabPFNRegressor", "TabPFNClassifier"])
 @pytest.mark.parametrize("failure", [ModuleNotFoundError("No module named 'tabpfn'"), AttributeError("operator unavailable")])
 def test_missing_tabpfn_execution_fails_before_instantiation_or_run(tmp_path, monkeypatch, operator, failure):

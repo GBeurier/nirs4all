@@ -92,6 +92,8 @@ def _normalize_param_sweep(node: dict[str, Any]) -> dict[str, Any]:
         return _inject(base)
     for opkw in _OPERATOR_WRAPPER_KEYS:  # operator wrapped under a step keyword
         op = base.get(opkw)
+        if isinstance(op, str):
+            op = {"class": op}
         if isinstance(op, Mapping) and "class" in op:
             return {**base, opkw: _inject(op)}
     return node  # unsupported shape (e.g. a constructed instance) -> leave unchanged
@@ -138,6 +140,8 @@ def _normalize_param_grid(node: dict[str, Any]) -> dict[str, Any]:
         return injected if injected is not None else node
     for opkw in _OPERATOR_WRAPPER_KEYS:  # operator wrapped under a step keyword
         op = base.get(opkw)
+        if isinstance(op, str):
+            op = {"class": op}
         if isinstance(op, Mapping) and "class" in op:
             injected = _inject(op)
             if injected is not None:
