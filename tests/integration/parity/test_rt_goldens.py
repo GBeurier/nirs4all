@@ -190,14 +190,14 @@ def test_parity_environment_dependencies_are_declared() -> None:
     assert "referencing" in project_dep_names
     assert "jsonschema" in project_dep_names
     assert str(project_deps["jsonschema"].specifier) == ">=4.18.0"
-    # The released multimodal runtime requires DAG-ML 0.3.37 or newer.
+    # The released multimodal runtime requires DAG-ML 0.3.41 or newer.
     dagml_specifier = project_deps["dag-ml"].specifier
-    assert "0.3.37" in dagml_specifier
-    assert "0.3.38" in dagml_specifier
-    assert "0.3.36" not in dagml_specifier
+    assert "0.3.41" in dagml_specifier
+    assert "0.3.42" in dagml_specifier
+    assert "0.3.40" not in dagml_specifier
     assert "0.4.0" not in dagml_specifier
     assert str(project_deps["dag-ml-data"].specifier) == "<0.3,>=0.2.13"
-    assert str(native_deps["nirs4all-core"].specifier) == "<0.5,>=0.4.2"
+    assert str(native_deps["nirs4all-core"].specifier) == "<0.5,>=0.4.5"
     assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.3.2"
     assert "shap" in explain_deps
     assert "shap" in dev_deps
