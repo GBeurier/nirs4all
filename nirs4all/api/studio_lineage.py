@@ -31,7 +31,7 @@ def record_studio_run_provenance(workspace_path: str | Path, run_ids: list[str],
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     resolved: dict[str, str] = {}
-    with WorkspaceStore(workspace_path) as store, store.transaction():
+    with WorkspaceStore(Path(workspace_path)) as store, store.transaction():
         for run_id in run_ids:
             record = store.get_run(run_id)
             if record is None:
@@ -159,8 +159,8 @@ def reconcile_studio_job_lineage(workspace_path: str | Path, job_id: str, **reco
     recovered = recover_studio_job_lineage(workspace_path, **recovery)
     if not recovered["run_ids"]:
         return recovered
-    mapping = {}
-    with WorkspaceStore(workspace_path) as store:
+    mapping: dict[str, str] = {}
+    with WorkspaceStore(Path(workspace_path)) as store:
         for run_id, dataset_id in recovered["dataset_run_ids"].items():
             run = store.get_run(run_id)
             datasets = run.get("datasets") if run else None
