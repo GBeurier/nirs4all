@@ -27,7 +27,8 @@ def test_manual_publish_is_opt_in_and_requires_preflight() -> None:
     assert "releases/tags/$INPUT_TAG" in preflight
     assert "pypi.org/pypi/nirs4all/$package_version/json" in preflight
     assert "tag_sha" in jobs["release-preflight"]["outputs"]
-    assert all(jobs[name]["needs"] == "release-preflight" for name in ("run-tests", "build-docs", "verify-examples"))
+    assert all(jobs[name]["needs"] == "release-preflight" for name in ("build-docs", "local-qualification"))
+    assert set(jobs["package-smoke"]["needs"]) == {"release-preflight", "build"}
     assert "release-preflight" in jobs["build"]["needs"]
     assert "needs.release-preflight.outputs.release_tag" in jobs["build"]["steps"][0]["with"]["ref"]
 
@@ -36,34 +37,28 @@ def test_publication_still_depends_on_tested_tagged_distribution() -> None:
     jobs = _workflow()["jobs"]
     preflight = next(step for step in jobs["release-preflight"]["steps"] if step.get("id") == "target")["run"]
     assert 'if [[ "$GITHUB_SHA" != "$tag_sha" ]]' in preflight
-    for name in ("run-tests", "build-docs", "verify-examples"):
+    for name in ("build-docs", "build", "package-smoke", "local-qualification"):
         checkout = next(step for step in jobs[name]["steps"] if step.get("uses") == "actions/checkout@v6")
         assert "needs.release-preflight.outputs.release_tag" in checkout["with"]["ref"]
         assert any(
             "EXPECTED_TAG_SHA" in step.get("env", {}) and
-            'test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"' in step.get("run", "")
+            '"$(git rev-parse HEAD)"' in step.get("run", "") and
+            '"$EXPECTED_TAG_SHA"' in step.get("run", "")
             for step in jobs[name]["steps"]
         )
-    complete = next(step for step in jobs["run-tests"]["steps"] if step.get("name") == "Run every integration test before publication")
-    assert complete["if"] == "github.event_name == 'release' || inputs.publish_release"
-    assert "tests/integration \\" in complete["run"]
-    assert "-m 'not" not in complete["run"]
-    assert "--ignore" not in complete["run"]
-    codecov = next(step for step in jobs["run-tests"]["steps"] if step.get("uses") == "codecov/codecov-action@v7")
-    assert codecov["if"] == "github.event_name == 'workflow_dispatch' && !inputs.publish_release"
-    assert codecov["continue-on-error"] == "true"
-    assert codecov["with"]["fail_ci_if_error"] == "false"
-
-    assert set(jobs["build"]["needs"]) >= {
-        "release-preflight", "run-tests", "build-docs", "verify-examples",
-    }
-    assert jobs["publish-pypi"]["needs"] == "build"
+    qualification = jobs["local-qualification"]
+    assert qualification["if"] == "github.event_name == 'release' || inputs.publish_release"
+    assert any(
+        "scripts/verify_local_qualification.py --project sdk --receipt compat/local-qualification.json --root ." in step.get("run", "")
+        for step in qualification["steps"]
+    )
+    assert set(jobs["publish-pypi"]["needs"]) == {"build", "build-docs", "package-smoke", "local-qualification"}
     assert "inputs.publish_release" in jobs["publish-pypi"]["if"]
     assert jobs["publish-pypi"]["environment"] == "pypi"
     assert jobs["publish-pypi"]["permissions"]["id-token"] == "write"
 
     docker = jobs["publish-docker"]
-    assert set(docker["needs"]) >= {"release-preflight", "build", "publish-pypi"}
+    assert set(docker["needs"]) >= {"release-preflight", "build", "publish-pypi", "local-qualification"}
     assert "inputs.publish_release" in docker["if"]
     assert "needs.release-preflight.outputs.release_tag" in docker["steps"][0]["with"]["ref"]
     metadata = next(step for step in docker["steps"] if step.get("id") == "meta")

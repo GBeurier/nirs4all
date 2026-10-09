@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import inspect
 import math
+from collections.abc import Hashable
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import Any, cast, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -222,9 +223,9 @@ def _get_arrays(store: Any, prediction_id: str) -> dict[str, Any] | None:
     """Get prediction arrays with fallback for stores without get_prediction_arrays."""
     get_arrays = getattr(store, "get_prediction_arrays", None)
     if callable(get_arrays):
-        return get_arrays(prediction_id)
+        return cast(dict[str, Any] | None, get_arrays(prediction_id))
     prediction = store.get_prediction(prediction_id, load_arrays=True)
-    return prediction
+    return cast(dict[str, Any] | None, prediction)
 
 
 def _normalize_score_ref_part(value: str | None, aliases: dict[str, str]) -> str | None:
@@ -436,10 +437,10 @@ def get_inspector_data(
                 if any(p in preps or p in steps for p in preprocessings):
                     filtered.append(r)
             records = filtered
-        metrics_set = sorted({r.get("metric") for r in facet_records if r.get("metric")})
-        models = sorted({r.get("model_class") for r in facet_records if r.get("model_class")})
-        datasets = sorted({r.get("dataset_name") for r in facet_records if r.get("dataset_name")})
-        runs = sorted({r.get("run_id") for r in facet_records if r.get("run_id")})
+        metrics_set = sorted({cast(str, r["metric"]) for r in facet_records if r.get("metric")})
+        models = sorted({cast(str, r["model_class"]) for r in facet_records if r.get("model_class")})
+        datasets = sorted({cast(str, r["dataset_name"]) for r in facet_records if r.get("dataset_name")})
+        runs = sorted({cast(str, r["run_id"]) for r in facet_records if r.get("run_id")})
         prep_steps: set[str] = set()
         for r in facet_records:
             for step in r.get("preprocessing_steps") or []:
@@ -469,7 +470,7 @@ def get_scatter_data(request: ScatterRequest):
         return ScatterResponse(points=[], partition=request.partition, total_samples=0)
     store = _get_store()
     try:
-        points: list[dict] = []
+        points: list[ScatterPoint] = []
         total_samples = 0
         score_field = {"val": "val_score", "test": "test_score", "train": "train_score"}.get(request.partition, "val_score")
         for chain_id in request.chain_ids:
@@ -517,7 +518,7 @@ def get_scatter_data(request: ScatterRequest):
                         sample_indices=all_indices if all_indices else None,
                         fold_id=None,
                         score=score,
-                    ).model_dump()
+                    )
                 )
         return ScatterResponse(points=points, partition=request.partition, total_samples=total_samples)
     finally:
@@ -547,12 +548,12 @@ def get_histogram_data(run_id: list[str] | None = None, dataset_name: list[str] 
             return HistogramResponse(bins=[], score_column=score_column, total_chains=0)
         scores_arr = np.array(scores)
         counts, bin_edges = np.histogram(scores_arr, bins=n_bins)
-        bins: list[dict] = []
+        bins: list[HistogramBin] = []
         for i in range(len(counts)):
             bin_start = float(bin_edges[i])
             bin_end = float(bin_edges[i + 1])
             bin_chain_ids = [cid for cid, s in zip(chain_ids_for_scores, scores, strict=False) if bin_start <= s < bin_end or (i == len(counts) - 1 and s == bin_end)]
-            bins.append(HistogramBin(bin_start=round(bin_start, 6), bin_end=round(bin_end, 6), count=int(counts[i]), chain_ids=bin_chain_ids).model_dump())
+            bins.append(HistogramBin(bin_start=round(bin_start, 6), bin_end=round(bin_end, 6), count=int(counts[i]), chain_ids=bin_chain_ids))
         return HistogramResponse(
             bins=bins, score_column=score_column, total_chains=len(scores), min_score=round(float(scores_arr.min()), 6), max_score=round(float(scores_arr.max()), 6), mean_score=round(float(scores_arr.mean()), 6)
         )
@@ -851,7 +852,7 @@ def get_branch_comparison(request: BranchComparisonRequest):
         store.close()
 
 
-def get_branch_topology(pipeline_id: str = ..., score_column: str = "cv_val_score", score_ref: str | None = None):
+def get_branch_topology(pipeline_id: str, score_column: str = "cv_val_score", score_ref: str | None = None):
     """Pipeline topology: DAG structure with metrics overlay.
 
     Uses nirs4all.pipeline.analysis.topology.analyze_topology() to parse
@@ -1290,7 +1291,7 @@ def get_bias_variance(request: BiasVarianceRequest):
             return BiasVarianceResponse(entries=[], score_column=effective_score_column, group_by=request.group_by, reason="No eligible chains were found for the requested comparison.")
         entries: list[dict] = []
         for label, chain_ids in groups.items():
-            sample_preds: dict[tuple[str, int], list[tuple[float, float]]] = {}
+            sample_preds: dict[Hashable, list[tuple[float, float]]] = {}
             total_folds = 0
             for cid in chain_ids:
                 record = records.get(cid, {})

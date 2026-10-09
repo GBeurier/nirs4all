@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 def workspace_chain_snapshot(workspace_path: str | Path, chain_id: str) -> list[Any] | None:
@@ -55,6 +55,8 @@ def workspace_chain_snapshot(workspace_path: str | Path, chain_id: str) -> list[
     training = loaded.get("training_pipeline") or []
     if isinstance(training, dict):
         training = training.get("pipeline", training.get("steps", []))
+    if not isinstance(training, list):
+        raise ValueError("chain snapshot training pipeline must be a list")
     for recorded in training:
         operator = deserialize_component(recorded)
         if isinstance(operator, FrozenDagMlSplitStep):
@@ -70,4 +72,4 @@ def workspace_chain_snapshot(workspace_path: str | Path, chain_id: str) -> list[
             steps.append({"y_processing": fresh_target})
     steps.extend(preprocessing)
     steps.append({"model": clone(estimator)})
-    return serialize_component(steps)
+    return cast(list[Any], serialize_component(steps))

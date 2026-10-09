@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.4.8] — 2026-10-09
+
+### Fixed
+
+- Repair Studio campaign execution, persisted result inspection, dataset
+  provenance and editable workspace chain snapshots.
+- Preserve string classification targets, categorical headers and valid
+  generator parameter sweeps in native execution.
+- Correct Studio API types and require the pipeline ID for topology inspection.
+- Align release contract tests with the current package and local qualification
+  gates, and exclude local code intelligence artifacts from wheel source copies.
+
+
 ## [1.4.6] — 2026-10-07
 
 ### Fixed

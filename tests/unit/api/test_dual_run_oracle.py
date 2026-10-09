@@ -374,7 +374,7 @@ def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None
     # installed package/test resource tree may receive setuptools outputs.
     build_source = tmp_path / "wheel-source"
     shutil.copytree(repo_root, build_source, ignore=shutil.ignore_patterns(
-        ".git", ".venv", ".pytest_cache", ".mypy_cache", ".ruff_cache", "__pycache__", "build", "dist", "*.egg-info",
+        ".git", ".venv", ".codegraph", ".pytest_cache", ".mypy_cache", ".ruff_cache", "__pycache__", "build", "dist", "*.egg-info",
     ))
     build = subprocess.run(
         [sys.executable, "-m", "build", "--wheel", "--no-isolation", "--outdir", str(tmp_path)],
