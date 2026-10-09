@@ -1,0 +1,90 @@
+"""Capture a direct local qualifier on the actual Linux or Windows host."""
+from __future__ import annotations
+
+import ctypes
+import hashlib
+import importlib
+import json
+import os
+import platform
+import socket
+import subprocess
+import sys
+import time
+from datetime import UTC, datetime
+from importlib.metadata import distribution, version
+from pathlib import Path
+
+
+def digest(path: Path) -> str:
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def write(path: Path, data: object) -> None:
+    path.write_text(json.dumps(data, indent=2, allow_nan=False) + '\n', encoding='utf-8')
+
+
+def observe() -> dict:
+    versions = {name: version(name) for name in ('nirs4all', 'dag-ml', 'dag-ml-data', 'nirs4all-core', 'nirs4all-io', 'nirs4all-methods', 'pls4all')}
+    artifacts = []
+    for name, module_name in [('dag-native', 'dag_ml._dag_ml'), ('core-native', 'nirs4all_core._native'), ('io-native', 'nirs4all_io._native')]:
+        module = importlib.import_module(module_name)
+        path = Path(module.__file__).resolve()
+        dist_name = {'dag-native': 'dag-ml', 'core-native': 'nirs4all-core', 'io-native': 'nirs4all-io'}[name]
+        artifacts.append({'name': name, 'version': versions[dist_name], 'origin': 'Public PyPI wheel installed in the dedicated candidate prefix', 'artifact_path': str(path), 'bytes': path.stat().st_size, 'sha256': digest(path)})
+    methods = importlib.import_module('n4m')
+    path = Path(methods.library_path()).resolve()
+    artifacts.append({'name': 'methods-native', 'version': versions['nirs4all-methods'], 'origin': 'Public PyPI wheel installed in the dedicated candidate prefix', 'artifact_path': str(path), 'bytes': path.stat().st_size, 'sha256': digest(path)})
+    record = Path(distribution('nirs4all')._path) / 'RECORD'
+    sdk_record = {'name': 'sdk-installed-record', 'version': versions['nirs4all'], 'origin': 'Actual candidate SDK wheel installed without editable hooks', 'artifact_path': str(record.resolve()), 'bytes': record.stat().st_size, 'sha256': digest(record)}
+    origins = {name: str(Path(importlib.import_module(name).__file__).resolve()) for name in ('nirs4all', 'dag_ml', 'nirs4all_core', 'nirs4all_io', 'n4m')}
+    for path in origins.values():
+        if not Path(path).is_relative_to(Path(sys.prefix).resolve()):
+            raise RuntimeError('Candidate import escaped the dedicated prefix: ' + path)
+    try:
+        import psutil
+        ram = psutil.virtual_memory().total
+    except ImportError:
+        if os.name == 'nt':
+            class MemoryStatus(ctypes.Structure):
+                _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong)] + [(name, ctypes.c_ulonglong) for name in ('total', 'available', 'page_total', 'page_available', 'virtual_total', 'virtual_available', 'extended')]
+            status = MemoryStatus(); status.length = ctypes.sizeof(status)
+            if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                raise RuntimeError('Cannot observe actual Windows memory')
+            ram = status.total
+        else:
+            ram = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+    return {'versions': versions, 'origins': origins, 'methods_abi': list(methods.abi_version()), 'source_artifacts': [sdk_record], 'dependency_origins': artifacts, 'host': {'id': 'windows-native' if os.name == 'nt' else 'linux-wsl', 'os_family': 'windows' if os.name == 'nt' else 'linux', 'os': platform.platform(), 'arch': platform.machine(), 'hostname': socket.gethostname(), 'cpu_count': os.cpu_count(), 'ram_bytes': ram, 'tools': {'python': platform.python_version(), 'pip': version('pip')}}}
+
+
+def main() -> int:
+    plan = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+    output = Path(plan['output']); output.mkdir(parents=True, exist_ok=False)
+    source = Path(plan['source_root'])
+    frozen = plan['runtime_inputs']
+    before = {name: digest(source / name) for name in frozen}
+    if before != frozen:
+        raise RuntimeError('Candidate sources differ before execution')
+    observation = observe()
+    command = plan['command']
+    environment = {**os.environ, **plan['environment']}
+    started = datetime.now(UTC).isoformat()
+    identity = {key: plan[key] for key in ('id', 'host', 'command', 'cwd', 'environment', 'input_fingerprints')}
+    identity['started_at'] = started
+    write(output / 'before.json', {'runtime_inputs': before, 'observation': observation, 'run_identity_before': identity})
+    start = time.monotonic()
+    with (output / 'stdout.log').open('wb') as stdout, (output / 'stderr.log').open('wb') as stderr:
+        result = subprocess.run(command, cwd=plan['cwd'], env=environment, stdout=stdout, stderr=stderr, check=False)
+    identity.update(finished_at=datetime.now(UTC).isoformat(), exit_code=result.returncode)
+    after = {name: digest(source / name) for name in frozen}
+    observed_after = observe()
+    if before != after or observation != observed_after:
+        raise RuntimeError('Source or installed artifacts changed during execution')
+    write(output / 'terminal.json', {'run_identity': identity, 'duration_seconds': time.monotonic() - start, 'source_sha': plan['source_sha'], 'runtime_inputs_before': before, 'runtime_inputs_after': after, 'observation_before': observation, 'observation_after': observed_after})
+    print(json.dumps({'gate': plan['id'], 'exit_code': result.returncode, 'platform': sys.platform}), flush=True)
+    return result.returncode
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,0 +1,1803 @@
+RUN user/01_getting_started/U01_hello_world.py
+
+============================================================
+U01 - Hello World: Your First nirs4all Pipeline
+============================================================
+
+📋 Pipeline defined:
+   1. MinMaxScaler() - scale features to [0,1]
+   2. y_processing - scale targets
+   3. ShuffleSplit - 3-fold cross-validation
+   4. PLSRegression - PLS model with 10 components
+
+------------------------------------------------------------
+Training the pipeline...
+------------------------------------------------------------
+Training pipeline with engine='dag-ml'
+DAG-ML completed: RMSECV=19.513277225676806
+
+------------------------------------------------------------
+Results
+------------------------------------------------------------
+
+📊 Pipeline Results:
+   Execution engine: dag-ml
+   Number of predictions: 17
+   Best primary score: 13.1868
+   Best RMSE: 13.1868
+   Best R²: 0.5567
+
+🏆 Best Model Details:
+   Model name: PLSRegression
+   Dataset: regression
+   Fold: final
+
+------------------------------------------------------------
+Top 3 Models
+------------------------------------------------------------
+   1. PLSRegression - RMSE: 13.1868, R²: 0.5567
+   2. PLSRegression - RMSE: 15.2935, R²: 0.4037
+   3. PLSRegression - RMSE: 12.9532, R²: 0.5722
+
+============================================================
+Summary
+============================================================
+
+What we learned:
+1. A pipeline is a list of processing steps
+2. Use nirs4all.run() to train - no boilerplate needed
+3. Results are accessed via result.best_score, result.top(n), etc.
+
+Key API:
+  result = nirs4all.run(pipeline, dataset, name, ...)
+  result.best_score   # Best model's primary score
+  result.best_rmse    # Best model's RMSE
+  result.best_r2      # Best model's R²
+  result.best         # Best prediction entry (dict)
+  result.top(n=5)     # Top N predictions
+
+Next: U02_basic_regression.py - Add preprocessing and visualization
+
+EXIT 0
+RUN user/01_getting_started/U02_basic_regression.py
+
+============================================================
+U02 - Basic Regression Pipeline
+============================================================
+
+📋 NIRS Preprocessing Options:
+   • StandardNormalVariate (SNV) - scatter correction
+   • MultiplicativeScatterCorrection (MSC) - scatter correction
+   • Detrend - baseline correction
+   • FirstDerivative - removes baseline, enhances peaks
+   • SavitzkyGolay - smoothing with differentiation
+   • Gaussian - smoothing filter
+   • Haar - wavelet transform
+
+------------------------------------------------------------
+Building Pipeline
+------------------------------------------------------------
+Pipeline includes:
+   • MinMaxScaler for feature and target scaling
+   • Feature augmentation with 3 preprocessing combinations
+   • 3 PLS models (5, 10, 15 components)
+
+------------------------------------------------------------
+Training Pipeline
+------------------------------------------------------------
+Training pipeline with engine='dag-ml'
+DAG-ML completed: RMSECV=14.81680238931478
+
+📊 Training complete!
+   Generated 137 predictions
+   Best Score (MSE): 13.0651
+
+------------------------------------------------------------
+Top 5 Models
+------------------------------------------------------------
+1. PLS-10 | RMSE: 14.4655 | R²: 0.4665
+   Preprocessing: 
+2. PLS-15 | RMSE: 14.6713 | R²: 0.4512
+   Preprocessing: 
+3. PLS-5 | RMSE: 13.1719 | R²: 0.5577
+   Preprocessing: 
+4. PLS-10 | RMSE: 13.0651 | R²: 0.5648
+   Preprocessing: 
+5. PLS-5 | RMSE: 12.1964 | R²: 0.6207
+   Preprocessing: 
+
+------------------------------------------------------------
+Creating Visualizations
+------------------------------------------------------------
+   ✓ Created top-k comparison plot
+   ✓ Created heatmap: models vs preprocessing
+   ✓ Created candlestick chart
+   ✓ Created histogram
+
+============================================================
+Summary
+============================================================
+
+What we learned:
+1. NIRS-specific preprocessing (SNV, MSC, derivatives, smoothing)
+2. Feature augmentation to explore preprocessing combinations
+3. PredictionAnalyzer for comprehensive visualizations
+4. Comparing models with different hyperparameters
+
+Key preprocessing options:
+  SNV/MSC     - Scatter correction
+  Detrend     - Baseline correction
+  Derivatives - Enhance spectral features
+  SavitzkyGolay/Gaussian - Smoothing
+
+Key visualization methods:
+  analyzer.plot_top_k()       - Compare top K models
+  analyzer.plot_heatmap()     - 2D comparison
+  analyzer.plot_candlestick() - Performance distribution
+  analyzer.plot_histogram()   - Score distribution
+
+Next: U03_basic_classification.py - Classification with Random Forest
+
+EXIT 0
+RUN user/01_getting_started/U03_basic_classification.py
+
+============================================================
+U03 - Basic Classification Pipeline
+============================================================
+   ⚠ XGBoost not installed - using Random Forest only
+
+📋 Classification Pipeline:
+   • Feature augmentation with 4 preprocessing options
+   • StandardScaler for feature normalization
+   • 3-fold ShuffleSplit cross-validation
+   • 1 classifier(s)
+
+------------------------------------------------------------
+Training Pipeline
+------------------------------------------------------------
+Training pipeline with engine='dag-ml'
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791547882.563266  664399 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1791547882.615350  664399 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791547884.764164  664399 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+DAG-ML completed: CV_BalAcc=0.8564327485380117
+/home/delete/nirs4all/nirs4all/nirs4all/visualization/charts/candlestick.py:269: UserWarning: Attempting to set identical low and high ylims makes transformation singular; automatically expanding.
+  ax.set_ylim(y_min, y_max)
+
+📊 Training complete!
+   Generated 17 predictions
+
+------------------------------------------------------------
+Top 5 Models by Balanced Accuracy
+------------------------------------------------------------
+1. RandomForest
+   balanced_accuracy: 0.5186 | Balanced Recall: 0.5186
+   Preprocessing: 
+2. RandomForest
+   balanced_accuracy: 0.5828 | Balanced Recall: 0.5828
+   Preprocessing: 
+3. RandomForest
+   balanced_accuracy: 0.5901 | Balanced Recall: 0.5901
+   Preprocessing: 
+4. RandomForest
+   balanced_accuracy: 0.5901 | Balanced Recall: 0.5901
+   Preprocessing: 
+5. RandomForest
+   balanced_accuracy: 0.6046 | Balanced Recall: 0.6046
+   Preprocessing: 
+
+------------------------------------------------------------
+Creating Visualizations
+------------------------------------------------------------
+   ✓ Created confusion matrices for top 4 models
+   ✓ Created candlestick chart (balanced accuracy)
+   ✓ Created heatmap: models vs preprocessing
+   ✓ Created histogram (balanced recall)
+
+============================================================
+Summary
+============================================================
+
+What we learned:
+1. Classification pipeline setup with sklearn classifiers
+2. Feature augmentation for preprocessing exploration
+3. Classification metrics: accuracy, balanced_recall, balanced_accuracy
+4. Confusion matrix visualization
+
+Key classification metrics:
+  accuracy         - Overall correct predictions
+  balanced_recall  - Average recall per class (handles imbalanced data)
+  balanced_accuracy - Average accuracy per class
+
+Key visualization:
+  analyzer.plot_confusion_matrix(k=4)  - Confusion matrices for top K
+
+Dataset formats supported:
+  - Folder path: auto-detects X/Y files
+  - Dict with explicit paths and params
+  - Tuple: (X, y) numpy arrays
+
+Next: U04_visualization.py - Advanced visualization techniques
+
+EXIT 0
+RUN user/03_preprocessing/U01_preprocessing_basics.py
+
+============================================================
+U01 - NIRS Preprocessing Techniques
+============================================================
+
+NIRS preprocessing addresses common spectral issues:
+
+  📊 SCATTER CORRECTION
+     SNV (StandardNormalVariate)  - Per-sample mean-centering and scaling
+     MSC (MultiplicativeScatterCorrection) - Regression-based correction
+
+  📈 BASELINE CORRECTION
+     Detrend - Remove polynomial baseline drift
+
+  📉 DERIVATIVES
+     FirstDerivative  - Enhance peaks, remove constant baseline
+     SecondDerivative - Enhance peaks more, remove linear baseline
+     SavitzkyGolay    - Smoothed derivatives using polynomial fitting
+
+  🔊 SMOOTHING
+     Gaussian     - Gaussian convolution smoothing
+     SavitzkyGolay - Polynomial smoothing (also does derivatives)
+
+  🌊 WAVELET
+     Haar - Haar wavelet transform for denoising
+
+
+------------------------------------------------------------
+Section 2: Scatter Correction
+------------------------------------------------------------
+   SNV - RMSE: 13.2864
+   MSC - RMSE: 13.5058
+
+------------------------------------------------------------
+Section 3: Derivatives
+------------------------------------------------------------
+   FirstDerivative - RMSE: 13.3664
+   SecondDerivative - RMSE: 15.7936
+   SavitzkyGolay (d1) - RMSE: 12.4678
+
+------------------------------------------------------------
+Section 4: Smoothing
+------------------------------------------------------------
+   Gaussian (sigma=2) - RMSE: 12.5495
+   SavitzkyGolay (smooth) - RMSE: 13.2898
+
+------------------------------------------------------------
+Section 5: Combining Preprocessing Steps
+------------------------------------------------------------
+   SNV + FirstDerivative - RMSE: 11.9726
+   Detrend + MSC + SG(d1) - RMSE: 12.5536
+
+------------------------------------------------------------
+Section 6: Comparing All Methods
+------------------------------------------------------------
+
+Ranked by RMSE (best to worst):
+   1. SNV+D1: 11.9726
+   2. SavGol: 12.4678
+   3. Gaussian: 12.5495
+   4. Chain: 12.5536
+   5. SNV: 13.2864
+   6. SG_Smooth: 13.2898
+   7. FirstDeriv: 13.3664
+   8. MSC: 13.5058
+   9. SecondDeriv: 15.7936
+
+============================================================
+Summary
+============================================================
+
+NIRS Preprocessing Operators:
+
+  SCATTER CORRECTION (path length, scattering effects):
+    StandardNormalVariate()      - SNV, per-sample normalization
+    MultiplicativeScatterCorrection()  - MSC, regression-based
+
+  BASELINE CORRECTION:
+    Detrend()  - Remove polynomial drift
+
+  DERIVATIVES (enhance peaks, remove baselines):
+    FirstDerivative()   - d/dx, removes constant baseline
+    SecondDerivative()  - d²/dx², removes linear baseline
+    SavitzkyGolay(deriv=1)  - Smoothed derivative
+
+  SMOOTHING (reduce noise):
+    Gaussian(sigma=2)   - Gaussian convolution
+    SavitzkyGolay(deriv=0, window_length=11)  - Polynomial smoothing
+
+  WAVELET:
+    Haar()  - Haar wavelet transform
+
+Common Combinations:
+  1. SNV + FirstDerivative (scatter + baseline)
+  2. MSC + SavitzkyGolay (scatter + smooth derivative)
+  3. Detrend + SNV + Gaussian (full preprocessing)
+
+Tip: Use feature_augmentation to explore combinations automatically!
+
+Next: U02_feature_augmentation.py - Automated preprocessing exploration
+
+EXIT 0
+RUN user/04_models/U01_multi_model.py
+/home/delete/nirs4all/nirs4all/examples/user/04_models/U01_multi_model.py:107: LegacyEngineUsageWarning: {"code":"nirs4all.explicit_legacy_engine","engine":"legacy","operation":"run","schema_version":1}
+  result = nirs4all.run(
+
+============================================================
+U01 - Multi-Model Comparison
+============================================================
+
+Different models have different strengths for NIRS data:
+
+  📊 LINEAR MODELS (good baseline)
+     PLSRegression - Handles collinearity, interpretable
+     Ridge, Lasso  - Regularized regression
+     ElasticNet    - Combines L1 + L2 regularization
+
+  🌲 TREE-BASED (handles non-linearity)
+     RandomForest       - Ensemble of decision trees
+     GradientBoosting   - Sequential boosting
+     ExtraTreesRegressor - Extremely randomized trees
+
+  🔷 OTHER
+     SVR           - Support Vector Regression
+     KNeighbors    - Instance-based learning
+
+nirs4all makes it easy to compare all of these in one run!
+
+
+------------------------------------------------------------
+Section 2: Basic Multi-Model Pipeline
+------------------------------------------------------------
+
+Use a model sweep in the pipeline. Each variant will be trained and evaluated.
+
+========================================================================================================================
+> Starting Nirs4all run(s) with 3 pipeline(s) on 1 dataset(s) (3 total runs).
+========================================================================================================================
+Run 1/3: pipeline 'BasicMulti_p0_cedcb2c9' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline BasicMulti_p0_cedcb2c9 on dataset regression
+[OK] PLSRegression rmse ↓ [test: 11.8897] [val: 11.1987], (fold: 0, id: 1) - [f62b0eac-a535-4e]
+[OK] PLSRegression rmse ↓ [test: 12.3722] [val: 13.4089], (fold: 1, id: 2) - [ecbd0880-f4e7-4f]
+[OK] PLSRegression rmse ↓ [test: 11.4482] [val: 13.5589], (fold: 2, id: 3) - [5b74e1d2-d6fc-46]
+[OK] PLSRegression rmse ↓ [test: 11.4319] [val: 12.7678], (avg, id: 4) - [8d1e14ff-4406-4f]
+[OK] PLSRegression rmse ↓ [test: 11.4387] [val: 12.7678], (w_avg, id: 5) - [445d2753-d6fa-43]
+[OK] Pipeline Best: PLSRegression - rmse [test: 11.8897], [val: 11.1987], (fold: 0, id: 1, step: 5) - [8e0029cd-b193-46]
+Run 2/3: pipeline 'BasicMulti_p0_aee8feb0' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline BasicMulti_p0_aee8feb0 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s3.StandardScaler[src=0,sub=0] (data hash match)
+[OK] Ridge rmse ↓ [test: 12.1324] [val: 11.0466], (fold: 0, id: 1) - [117f757a-a1f1-44]
+[OK] Ridge rmse ↓ [test: 12.4753] [val: 13.5312], (fold: 1, id: 2) - [faa62d39-4372-4f]
+[OK] Ridge rmse ↓ [test: 11.9551] [val: 13.6423], (fold: 2, id: 3) - [32b6614e-cf48-49]
+[OK] Ridge rmse ↓ [test: 11.6387] [val: 12.7962], (avg, id: 4) - [11baf8e3-9204-48]
+[OK] Ridge rmse ↓ [test: 11.6455] [val: 12.7962], (w_avg, id: 5) - [8df0f293-162f-4b]
+[OK] Pipeline Best: Ridge - rmse [test: 12.1324], [val: 11.0466], (fold: 0, id: 1, step: 5) - [af8a2d80-07f8-43]
+Run 3/3: pipeline 'BasicMulti_p0_35bcf3e1' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline BasicMulti_p0_35bcf3e1 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s3.StandardScaler[src=0,sub=0] (data hash match)
+[OK] RandomForestRegressor rmse ↓ [test: 14.6056] [val: 17.9943], (fold: 0, id: 1) - [327df280-11ea-41]
+[OK] RandomForestRegressor rmse ↓ [test: 14.3790] [val: 16.1356], (fold: 1, id: 2) - [4ab2a05f-6142-48]
+[OK] RandomForestRegressor rmse ↓ [test: 15.2477] [val: 18.5336], (fold: 2, id: 3) - [40a4491c-a395-49]
+[OK] RandomForestRegressor rmse ↓ [test: 14.2880] [val: 17.5845], (avg, id: 4) - [d4ab48c5-f184-46]
+[OK] RandomForestRegressor rmse ↓ [test: 14.2688] [val: 17.5845], (w_avg, id: 5) - [a195297d-8767-48]
+[OK] Pipeline Best: RandomForestRegressor - rmse [test: 14.3790], [val: 16.1356], (fold: 1, id: 2, step: 5) - [1ddaae29-1847-48]
+================================================================================
+REFIT MODE: Single criterion
+Criteria: 1 criterion/criteria
+================================================================================
+Per-model refit: 3 unique model(s) (sklearn.cross_decomposition._pls.PLSRegression, sklearn.linear_model._ridge.Ridge, sklearn.ensemble._forest.RandomForestRegressor)
+Refitting model 'sklearn.cross_decomposition._pls.PLSRegression' from variant 0 (cv_score=12.7678)
+Starting refit pass: training winning model on full training set
+> Starting pipeline BasicMulti_p0_cedcb2c9_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s3.StandardScaler[src=0,sub=0] (data hash match)
+[OK] PLSRegression rmse ↓ [test: 11.9726], (fold: 0, id: 1) - [4016c54c-52f1-4f]
+[OK] Pipeline Best: PLSRegression - rmse [test: 11.9726], (fold: 0, id: 1, step: 5) - [4016c54c-52f1-4f]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._ridge.Ridge' from variant 1 (cv_score=12.7962)
+Starting refit pass: training winning model on full training set
+> Starting pipeline BasicMulti_p0_aee8feb0_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s3.StandardScaler[src=0,sub=0] (data hash match)
+[OK] Ridge rmse ↓ [test: 12.6654], (fold: 0, id: 1) - [c2dc2f65-1d23-4e]
+[OK] Pipeline Best: Ridge - rmse [test: 12.6654], (fold: 0, id: 1, step: 5) - [c2dc2f65-1d23-4e]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.ensemble._forest.RandomForestRegressor' from variant 2 (cv_score=17.5845)
+Starting refit pass: training winning model on full training set
+> Starting pipeline BasicMulti_p0_35bcf3e1_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s3.StandardScaler[src=0,sub=0] (data hash match)
+[OK] RandomForestRegressor rmse ↓ [test: 14.2300], (fold: 0, id: 1) - [97c38ee8-fc0c-4d]
+[OK] Pipeline Best: RandomForestRegressor - rmse [test: 14.2300], (fold: 0, id: 1, step: 5) - [97c38ee8-fc0c-4d]
+[OK] Refit pass completed successfully
+Refit completed: 6 prediction(s) added with fold_id='final'
+Preparing to print results for dataset 'regression': 51 predictions
+Final model performance for dataset 'regression': PLSRegression - rmse [test: 11.9726], [val: 12.7678], (fold: final, id: 1, step: 5) - [4016c54c-52f1-4f] | [BasicMulti_p0_cedcb2c9_refit]
+[OK] Final model performance for dataset 'regression': PLSRegression - rmse [test: 11.9726], [val: 12.7678], (fold: final, id: 1, step: 5) - [4016c54c-52f1-4f] | [BasicMulti_p0_cedcb2c9_refit]
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.971  | 4.034  | 16.272  | 4.034  | 3.222  | 5.84   | -0.000 | 100.0       |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.635  | 11.973 | 143.344 | 11.972 | 8.668  | 1.65   | 0.066  | 91.5        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #2 'Ridge' (Ridge - rmse [test: 12.6654], [val: 12.7962], (fold: final, id: 1, step: 5) - [c2dc2f65-1d23-4e] | [BasicMulti_p0_aee8feb0_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 1.000  | 0.052  | 0.003   | 0.052  | 0.040  | 455.42 | -0.000 | 100.0       |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.591  | 12.665 | 160.412 | 12.658 | 9.042  | 1.56   | 0.437  | 91.5        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #3 'RandomForestRegressor' (RandomForestRegressor - rmse [test: 14.2300], [val: 17.5845], (fold: final, id: 1, step: 5) - [97c38ee8-fc0c-4d] | [BasicMulti_p0_35bcf3e1_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.914  | 6.925  | 47.955  | 6.909  | 5.203  | 3.41   | 0.464  | 99.2        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.484  | 14.230 | 202.493 | 14.228 | 11.719 | 1.39   | 0.263  | 83.1        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Dataset 'regression' - Final scores (3 models):
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|-----------------------|---------|----------|------------|---------|---------|----------------|
+| #      | Model                 | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing  |
+|--------|-----------------------|---------|----------|------------|---------|---------|----------------|
+| 1      | PLSRegression         | 11.9726 | 11.4319  | 11.4387    | 12.7678 | 12.7222 | SNV>1stDer>Std |
+| 2      | Ridge                 | 12.6654 | 11.6387  | 11.6455    | 12.7962 | 12.7400 | SNV>1stDer>Std |
+| 3      | RandomForestRegressor | 14.2300 | 14.2880  | 14.2688    | 17.5845 | 17.5545 | SNV>1stDer>Std |
+|--------|-----------------------|---------|----------|------------|---------|---------|----------------|
+Top 30 CV chains (ranked by RMSECV) for dataset 'regression':
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   # | Model      |    RMSECV |    MF_Val |  Ens_Test | W_Ens_Test |      f0 |      f1 |      f2 | Chain                                                        |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   1 | PLSRegress |   12.7678 |   12.7222 |   11.4319 |    11.4387 | 11.1987 | 13.4089 | 13.5589 | SNV>1stDer>Std                                               |
+|   2 |      Ridge |   12.7962 |   12.7400 |   11.6387 |    11.6455 | 11.0466 | 13.5312 | 13.6423 | SNV>1stDer>Std                                               |
+|   3 | RandomFore |   17.5845 |   17.5545 |   14.2880 |    14.2688 | 17.9943 | 16.1356 | 18.5336 | SNV>1stDer>Std                                               |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CV selection summary for dataset 'regression': PLSRegression - rmse [test: 11.4319], [val: 12.7678], (fold: avg, id: 4, step: 5) - [d769ec9f-dd06-45] | [BasicMulti_p0_cedcb2c9]
+[OK] CV selection summary for dataset 'regression': PLSRegression - rmse [test: 11.4319], [val: 12.7678], (fold: avg, id: 4, step: 5) - [d769ec9f-dd06-45] | [BasicMulti_p0_cedcb2c9]
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|          | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Cros Val | 99      | 2151     | 31.439 | 24.630 | 4.180  | 111.200 | 23.807 | 0.757  | 0.712  | 12.768 | 163.017 | 12.741 | 10.028 | 1.87   | 0.831  | 92.9        |
+| Train    | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.952  | 5.171  | 26.736  | 5.166  | 3.793  | 4.56   | 0.211  | 99.2        |
+| Test     | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.667  | 11.432 | 130.688 | 11.430 | 8.223  | 1.73   | 0.233  | 91.5        |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+========================================================================================================================
+========================================================================================================================
+GLOBAL SUMMARY: All final models (3 models across 1 dataset(s))
+========================================================================================================================
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|-----------------------|---------|----------|------------|---------|---------|----------------|
+| #      | Model                 | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing  |
+|--------|-----------------------|---------|----------|------------|---------|---------|----------------|
+| 1      | PLSRegression         | 11.9726 | 11.4319  | 11.4387    | 12.7678 | 12.7222 | SNV>1stDer>Std |
+| 2      | Ridge                 | 12.6654 | 11.6387  | 11.6455    | 12.7962 | 12.7400 | SNV>1stDer>Std |
+| 3      | RandomForestRegressor | 14.2300 | 14.2880  | 14.2688    | 17.5845 | 17.5545 | SNV>1stDer>Std |
+|--------|-----------------------|---------|----------|------------|---------|---------|----------------|
+========================================================================================================================
+/home/delete/nirs4all/nirs4all/examples/user/04_models/U01_multi_model.py:153: LegacyEngineUsageWarning: {"code":"nirs4all.explicit_legacy_engine","engine":"legacy","operation":"run","schema_version":1}
+  result_or = nirs4all.run(
+
+Number of model configurations: 51
+Best RMSE: 11.9726
+
+All results (ranked by RMSE):
+   1. Ridge: RMSE=12.1324
+   2. PLSRegression: RMSE=11.8897
+   3. PLSRegression: RMSE=11.9726
+   4. Ridge: RMSE=12.6654
+   5. PLSRegression: RMSE=11.4319
+   6. PLSRegression: RMSE=11.4387
+   7. Ridge: RMSE=11.6387
+   8. Ridge: RMSE=11.6455
+   9. PLSRegression: RMSE=12.3722
+   10. Ridge: RMSE=12.4753
+
+------------------------------------------------------------
+Section 3: Using _or_ Generator Syntax
+------------------------------------------------------------
+
+The _or_ syntax generates pipeline variants for each model.
+More compact than listing each model separately.
+
+========================================================================================================================
+> Starting Nirs4all run(s) with 4 pipeline(s) on 1 dataset(s) (4 total runs).
+========================================================================================================================
+Run 1/4: pipeline 'OrSyntax_p0_936973ba' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline OrSyntax_p0_936973ba on dataset regression
+[OK] PLSRegression rmse ↓ [test: 13.3943] [val: 19.7661], (fold: 0, id: 1) - [151d653e-cc8f-4b]
+[OK] PLSRegression rmse ↓ [test: 13.7689] [val: 16.8447], (fold: 1, id: 2) - [b1bf8108-19c3-4f]
+[OK] PLSRegression rmse ↓ [test: 12.6077] [val: 19.5162], (fold: 2, id: 3) - [d89e6f88-6a13-42]
+[OK] PLSRegression rmse ↓ [test: 13.0576] [val: 18.7557], (avg, id: 4) - [c41c96df-d552-49]
+[OK] PLSRegression rmse ↓ [test: 13.0845] [val: 18.7557], (w_avg, id: 5) - [e1085d08-d75e-45]
+[OK] Pipeline Best: PLSRegression - rmse [test: 13.7689], [val: 16.8447], (fold: 1, id: 2, step: 4) - [a4652bc7-cfde-42]
+Run 2/4: pipeline 'OrSyntax_p0_c8678290' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline OrSyntax_p0_c8678290 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+[OK] Ridge rmse ↓ [test: 11.4401] [val: 15.7633], (fold: 0, id: 1) - [3166992a-25cb-40]
+[OK] Ridge rmse ↓ [test: 11.1213] [val: 10.5519], (fold: 1, id: 2) - [c50f9b04-974a-48]
+[OK] Ridge rmse ↓ [test: 11.1674] [val: 16.9852], (fold: 2, id: 3) - [b330360c-4296-40]
+[OK] Ridge rmse ↓ [test: 11.0083] [val: 14.7006], (avg, id: 4) - [cfe5b6aa-8406-40]
+[OK] Ridge rmse ↓ [test: 11.0081] [val: 14.7006], (w_avg, id: 5) - [1d6cf3a2-ff90-41]
+[OK] Pipeline Best: Ridge - rmse [test: 11.1213], [val: 10.5519], (fold: 1, id: 2, step: 4) - [f5f864e4-1b7c-4a]
+Run 3/4: pipeline 'OrSyntax_p0_ff9b5efa' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline OrSyntax_p0_ff9b5efa on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 2.548906e+03, tolerance: 5.948e+00
+  model = cd_fast.enet_coordinate_descent(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 2.713779e+03, tolerance: 6.817e+00
+  model = cd_fast.enet_coordinate_descent(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 2.061320e+03, tolerance: 5.706e+00
+  model = cd_fast.enet_coordinate_descent(
+[OK] Lasso rmse ↓ [test: 12.1147] [val: 19.1872], (fold: 0, id: 1) - [9087eea7-364b-41]
+[OK] Lasso rmse ↓ [test: 12.9764] [val: 14.7386], (fold: 1, id: 2) - [295af595-c004-46]
+[OK] Lasso rmse ↓ [test: 12.7860] [val: 21.2519], (fold: 2, id: 3) - [e7e21267-8498-42]
+[OK] Lasso rmse ↓ [test: 12.2641] [val: 18.5923], (avg, id: 4) - [5014bb46-b16e-49]
+[OK] Lasso rmse ↓ [test: 12.3153] [val: 18.5923], (w_avg, id: 5) - [f05c4e3d-1ee5-49]
+[OK] Pipeline Best: Lasso - rmse [test: 12.9764], [val: 14.7386], (fold: 1, id: 2, step: 4) - [cb2e66f4-407e-47]
+Run 4/4: pipeline 'OrSyntax_p0_816b80b0' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline OrSyntax_p0_816b80b0 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 1.115094e+04, tolerance: 5.948e+00
+  model = cd_fast.enet_coordinate_descent(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 1.144171e+04, tolerance: 6.817e+00
+  model = cd_fast.enet_coordinate_descent(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 9.084733e+03, tolerance: 5.706e+00
+  model = cd_fast.enet_coordinate_descent(
+[OK] ElasticNet rmse ↓ [test: 12.2618] [val: 18.7923], (fold: 0, id: 1) - [e0a61feb-02d2-4b]
+[OK] ElasticNet rmse ↓ [test: 13.1014] [val: 14.0956], (fold: 1, id: 2) - [5b155919-9470-4b]
+[OK] ElasticNet rmse ↓ [test: 12.6706] [val: 20.6972], (fold: 2, id: 3) - [7dfb212e-ea82-46]
+[OK] ElasticNet rmse ↓ [test: 12.5013] [val: 18.0758], (avg, id: 4) - [bb36651d-a2b6-4e]
+[OK] ElasticNet rmse ↓ [test: 12.5516] [val: 18.0758], (w_avg, id: 5) - [fffdbf43-8e90-44]
+[OK] Pipeline Best: ElasticNet - rmse [test: 13.1014], [val: 14.0956], (fold: 1, id: 2, step: 4) - [01fb784f-8b60-49]
+================================================================================
+REFIT MODE: Single criterion
+Criteria: 1 criterion/criteria
+================================================================================
+Per-model refit: 4 unique model(s) (sklearn.cross_decomposition._pls.PLSRegression, sklearn.linear_model._ridge.Ridge, sklearn.linear_model._coordinate_descent.Lasso, sklearn.linear_model._coordinate_descent.ElasticNet)
+Refitting model 'sklearn.cross_decomposition._pls.PLSRegression' from variant 0 (cv_score=18.7557)
+Starting refit pass: training winning model on full training set
+> Starting pipeline OrSyntax_p0_936973ba_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+[OK] PLSRegression rmse ↓ [test: 13.2864], (fold: 0, id: 1) - [384ed460-0879-40]
+[OK] Pipeline Best: PLSRegression - rmse [test: 13.2864], (fold: 0, id: 1, step: 4) - [384ed460-0879-40]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._ridge.Ridge' from variant 1 (cv_score=14.7006)
+Starting refit pass: training winning model on full training set
+> Starting pipeline OrSyntax_p0_c8678290_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+[OK] Ridge rmse ↓ [test: 11.2238], (fold: 0, id: 1) - [0bc03dad-f1cb-40]
+[OK] Pipeline Best: Ridge - rmse [test: 11.2238], (fold: 0, id: 1, step: 4) - [0bc03dad-f1cb-40]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._coordinate_descent.Lasso' from variant 2 (cv_score=18.5923)
+Starting refit pass: training winning model on full training set
+> Starting pipeline OrSyntax_p0_ff9b5efa_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 3.031349e+03, tolerance: 7.225e+00
+  model = cd_fast.enet_coordinate_descent(
+[OK] Lasso rmse ↓ [test: 12.1957], (fold: 0, id: 1) - [bf03b25e-d052-4c]
+[OK] Pipeline Best: Lasso - rmse [test: 12.1957], (fold: 0, id: 1, step: 4) - [bf03b25e-d052-4c]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._coordinate_descent.ElasticNet' from variant 3 (cv_score=18.0758)
+Starting refit pass: training winning model on full training set
+> Starting pipeline OrSyntax_p0_816b80b0_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/linear_model/_coordinate_descent.py:842: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 1.343628e+04, tolerance: 7.225e+00
+  model = cd_fast.enet_coordinate_descent(
+[OK] ElasticNet rmse ↓ [test: 12.6227], (fold: 0, id: 1) - [72829005-e46d-4b]
+[OK] Pipeline Best: ElasticNet - rmse [test: 12.6227], (fold: 0, id: 1, step: 4) - [72829005-e46d-4b]
+[OK] Refit pass completed successfully
+Refit completed: 8 prediction(s) added with fold_id='final'
+Preparing to print results for dataset 'regression': 68 predictions
+Final model performance for dataset 'regression': Ridge - rmse [test: 11.2238], [val: 14.7006], (fold: final, id: 1, step: 4) - [0bc03dad-f1cb-40] | [OrSyntax_p0_c8678290_refit]
+[OK] Final model performance for dataset 'regression': Ridge - rmse [test: 11.2238], [val: 14.7006], (fold: final, id: 1, step: 4) - [0bc03dad-f1cb-40] | [OrSyntax_p0_c8678290_refit]
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.862  | 8.756  | 76.662  | 8.756  | 6.845  | 2.69   | -0.000 | 96.9        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.679  | 11.224 | 125.975 | 11.182 | 9.043  | 1.77   | 0.964  | 93.2        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #2 'Lasso' (Lasso - rmse [test: 12.1957], [val: 18.5923], (fold: final, id: 1, step: 4) - [bf03b25e-d052-4c] | [OrSyntax_p0_ff9b5efa_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.686  | 13.213 | 174.570 | 13.213 | 10.053 | 1.78   | -0.000 | 94.6        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.621  | 12.196 | 148.735 | 12.165 | 10.000 | 1.63   | 0.871  | 89.8        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #3 'ElasticNet' (ElasticNet - rmse [test: 12.6227], [val: 18.0758], (fold: final, id: 1, step: 4) - [72829005-e46d-4b] | [OrSyntax_p0_816b80b0_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.663  | 13.695 | 187.560 | 13.695 | 10.591 | 1.72   | -0.000 | 92.3        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.594  | 12.623 | 159.333 | 12.602 | 10.438 | 1.57   | 0.715  | 88.1        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #4 'PLSRegression' (PLSRegression - rmse [test: 13.2864], [val: 18.7557], (fold: final, id: 1, step: 4) - [384ed460-0879-40] | [OrSyntax_p0_936973ba_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.623  | 14.474 | 209.504 | 14.474 | 11.510 | 1.63   | 0.000  | 93.8        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.550  | 13.286 | 176.529 | 13.256 | 11.007 | 1.49   | 0.903  | 89.8        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Dataset 'regression' - Final scores (4 models):
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|---------------|---------|----------|------------|---------|---------|---------------|
+| #      | Model         | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing |
+|--------|---------------|---------|----------|------------|---------|---------|---------------|
+| 1      | Ridge         | 11.2238 | 11.0083  | 11.0081    | 14.7006 | 14.4335 | SNV>Std       |
+| 2      | Lasso         | 12.1957 | 12.2641  | 12.3153    | 18.5923 | 18.3925 | SNV>Std       |
+| 3      | ElasticNet    | 12.6227 | 12.5013  | 12.5516    | 18.0758 | 17.8617 | SNV>Std       |
+| 4      | PLSRegression | 13.2864 | 13.0576  | 13.0845    | 18.7557 | 18.7090 | SNV>Std       |
+|--------|---------------|---------|----------|------------|---------|---------|---------------|
+Top 30 CV chains (ranked by RMSECV) for dataset 'regression':
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   # | Model      |    RMSECV |    MF_Val |  Ens_Test | W_Ens_Test |      f0 |      f1 |      f2 | Chain                                                        |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   1 |      Ridge |   14.7006 |   14.4335 |   11.0083 |    11.0081 | 15.7633 | 10.5519 | 16.9852 | SNV>Std                                                      |
+|   2 | ElasticNet |   18.0758 |   17.8617 |   12.5013 |    12.5516 | 18.7923 | 14.0956 | 20.6972 | SNV>Std                                                      |
+|   3 |      Lasso |   18.5923 |   18.3925 |   12.2641 |    12.3153 | 19.1872 | 14.7386 | 21.2519 | SNV>Std                                                      |
+|   4 | PLSRegress |   18.7557 |   18.7090 |   13.0576 |    13.0845 | 19.7661 | 16.8447 | 19.5162 | SNV>Std                                                      |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CV selection summary for dataset 'regression': Ridge - rmse [test: 11.0083], [val: 14.7006], (fold: avg, id: 4, step: 4) - [3a47df4a-f362-44] | [OrSyntax_p0_c8678290]
+[OK] CV selection summary for dataset 'regression': Ridge - rmse [test: 11.0083], [val: 14.7006], (fold: avg, id: 4, step: 4) - [3a47df4a-f362-44] | [OrSyntax_p0_c8678290]
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|          | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Cros Val | 39      | 2151     | 36.866 | 26.850 | 6.160  | 111.200 | 27.678 | 0.751  | 0.718  | 14.701 | 216.107 | 14.666 | 11.517 | 1.89   | -1.002 | 94.9        |
+| Train    | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.849  | 9.164  | 83.971  | 9.163  | 7.106  | 2.57   | -0.100 | 96.9        |
+| Test     | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.691  | 11.008 | 121.182 | 10.953 | 8.723  | 1.81   | 1.106  | 93.2        |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+========================================================================================================================
+========================================================================================================================
+GLOBAL SUMMARY: All final models (4 models across 1 dataset(s))
+========================================================================================================================
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|---------------|---------|----------|------------|---------|---------|---------------|
+| #      | Model         | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing |
+|--------|---------------|---------|----------|------------|---------|---------|---------------|
+| 1      | Ridge         | 11.2238 | 11.0083  | 11.0081    | 14.7006 | 14.4335 | SNV>Std       |
+| 2      | Lasso         | 12.1957 | 12.2641  | 12.3153    | 18.5923 | 18.3925 | SNV>Std       |
+| 3      | ElasticNet    | 12.6227 | 12.5013  | 12.5516    | 18.0758 | 17.8617 | SNV>Std       |
+| 4      | PLSRegression | 13.2864 | 13.0576  | 13.0845    | 18.7557 | 18.7090 | SNV>Std       |
+|--------|---------------|---------|----------|------------|---------|---------|---------------|
+========================================================================================================================
+/home/delete/nirs4all/nirs4all/examples/user/04_models/U01_multi_model.py:210: LegacyEngineUsageWarning: {"code":"nirs4all.explicit_legacy_engine","engine":"legacy","operation":"run","schema_version":1}
+  result_comp = nirs4all.run(
+
+Variants generated: 68
+Best RMSE: 11.2238
+   Ridge: RMSE=11.1213
+   Ridge: RMSE=11.2238
+   Lasso: RMSE=12.1957
+   ElasticNet: RMSE=12.6227
+   PLSRegression: RMSE=13.2864
+
+------------------------------------------------------------
+Section 4: Comprehensive Model Comparison
+------------------------------------------------------------
+
+Compare a wide range of models to find the best for your data.
+
+========================================================================================================================
+> Starting Nirs4all run(s) with 14 pipeline(s) on 1 dataset(s) (14 total runs).
+========================================================================================================================
+Run 1/14: pipeline 'Comprehensive_p0_3b2035cc' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_3b2035cc on dataset regression
+[OK] PLSRegression rmse ↓ [test: 10.6407] [val: 14.1661], (fold: 0, id: 1) - [1626bf58-8178-4b]
+[OK] PLSRegression rmse ↓ [test: 11.6012] [val: 11.8313], (fold: 1, id: 2) - [3b85cce2-6679-42]
+[OK] PLSRegression rmse ↓ [test: 10.6659] [val: 19.1185], (fold: 2, id: 3) - [ec1be02c-7067-4b]
+[OK] PLSRegression rmse ↓ [test: 10.7939] [val: 15.3425], (avg, id: 4) - [4d9ca6df-72d5-42]
+[OK] PLSRegression rmse ↓ [test: 10.8576] [val: 15.3425], (w_avg, id: 5) - [b7ef6827-6192-4f]
+[OK] Pipeline Best: PLSRegression - rmse [test: 11.6012], [val: 11.8313], (fold: 1, id: 2, step: 4) - [4242b958-2557-40]
+Run 2/14: pipeline 'Comprehensive_p0_19e4c0e2' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_19e4c0e2 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] PLSRegression rmse ↓ [test: 11.5463] [val: 13.2227], (fold: 0, id: 1) - [98db2eb1-9bb3-44]
+[OK] PLSRegression rmse ↓ [test: 12.0816] [val: 12.6907], (fold: 1, id: 2) - [b25e673d-cdfd-40]
+[OK] PLSRegression rmse ↓ [test: 11.7411] [val: 18.2284], (fold: 2, id: 3) - [7e3f11bc-4db3-47]
+[OK] PLSRegression rmse ↓ [test: 11.4735] [val: 14.9239], (avg, id: 4) - [71b086a9-49a3-47]
+[OK] PLSRegression rmse ↓ [test: 11.4896] [val: 14.9239], (w_avg, id: 5) - [f6fdefce-657d-4f]
+[OK] Pipeline Best: PLSRegression - rmse [test: 12.0816], [val: 12.6907], (fold: 1, id: 2, step: 4) - [6d21c571-d0a4-4a]
+Run 3/14: pipeline 'Comprehensive_p0_6d1254d1' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_6d1254d1 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] PLSRegression rmse ↓ [test: 12.0341] [val: 14.2916], (fold: 0, id: 1) - [262122ae-e04d-45]
+[OK] PLSRegression rmse ↓ [test: 12.3786] [val: 12.4192], (fold: 1, id: 2) - [1945f3a0-53bf-4a]
+[OK] PLSRegression rmse ↓ [test: 12.0036] [val: 18.0076], (fold: 2, id: 3) - [243b2f89-90b4-4f]
+[OK] PLSRegression rmse ↓ [test: 11.7691] [val: 15.0860], (avg, id: 4) - [468c7080-8dad-40]
+[OK] PLSRegression rmse ↓ [test: 11.8037] [val: 15.0860], (w_avg, id: 5) - [f8a01bde-e22e-41]
+[OK] Pipeline Best: PLSRegression - rmse [test: 12.3786], [val: 12.4192], (fold: 1, id: 2, step: 4) - [add534fd-9124-4f]
+Run 4/14: pipeline 'Comprehensive_p0_93ca3239' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_93ca3239 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] Ridge rmse ↓ [test: 19.4356] [val: 28.0426], (fold: 0, id: 1) - [fb5a6ad8-b9a3-44]
+[OK] Ridge rmse ↓ [test: 19.6704] [val: 16.9592], (fold: 1, id: 2) - [1ba575c4-0c14-46]
+[OK] Ridge rmse ↓ [test: 19.9480] [val: 32.6391], (fold: 2, id: 3) - [d72437bc-6ded-4e]
+[OK] Ridge rmse ↓ [test: 19.6349] [val: 26.7040], (avg, id: 4) - [c6030f69-2065-4e]
+[OK] Ridge rmse ↓ [test: 19.6249] [val: 26.7040], (w_avg, id: 5) - [40b7de90-370a-4d]
+[OK] Pipeline Best: Ridge - rmse [test: 19.6704], [val: 16.9592], (fold: 1, id: 2, step: 4) - [87d5f508-3d8c-49]
+Run 5/14: pipeline 'Comprehensive_p0_7c5ad4a1' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_7c5ad4a1 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] Ridge rmse ↓ [test: 19.6669] [val: 30.4355], (fold: 0, id: 1) - [35d85629-e4cc-4a]
+[OK] Ridge rmse ↓ [test: 19.6297] [val: 17.0148], (fold: 1, id: 2) - [e756d5d7-0fa3-4e]
+[OK] Ridge rmse ↓ [test: 19.9253] [val: 34.0126], (fold: 2, id: 3) - [1014eb7f-e3b7-46]
+[OK] Ridge rmse ↓ [test: 19.7173] [val: 28.1229], (avg, id: 4) - [ae660ef4-2837-40]
+[OK] Ridge rmse ↓ [test: 19.6898] [val: 28.1229], (w_avg, id: 5) - [49bfb7e8-061c-4b]
+[OK] Pipeline Best: Ridge - rmse [test: 19.6297], [val: 17.0148], (fold: 1, id: 2, step: 4) - [e77ee5ba-0e4e-45]
+Run 6/14: pipeline 'Comprehensive_p0_a9185f81' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_a9185f81 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] Lasso rmse ↓ [test: 21.0405] [val: 23.5993], (fold: 0, id: 1) - [591ef714-0d9b-4e]
+[OK] Lasso rmse ↓ [test: 21.6035] [val: 22.7361], (fold: 1, id: 2) - [2c17d89d-8a9c-4a]
+[OK] Lasso rmse ↓ [test: 21.7980] [val: 31.0496], (fold: 2, id: 3) - [db3ba74e-96c8-45]
+[OK] Lasso rmse ↓ [test: 21.2649] [val: 26.0636], (avg, id: 4) - [0a54a528-f846-43]
+[OK] Lasso rmse ↓ [test: 21.2410] [val: 26.0636], (w_avg, id: 5) - [8ed3a2ab-b2ff-4e]
+[OK] Pipeline Best: Lasso - rmse [test: 21.6035], [val: 22.7361], (fold: 1, id: 2, step: 4) - [c62f73e9-6c09-45]
+Run 7/14: pipeline 'Comprehensive_p0_a848d8f2' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_a848d8f2 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] ElasticNet rmse ↓ [test: 19.8995] [val: 31.3752], (fold: 0, id: 1) - [dec27459-fe19-43]
+[OK] ElasticNet rmse ↓ [test: 19.8283] [val: 17.7154], (fold: 1, id: 2) - [a6bf450e-ea5d-4c]
+[OK] ElasticNet rmse ↓ [test: 20.0964] [val: 34.7379], (fold: 2, id: 3) - [235a553c-3a5d-41]
+[OK] ElasticNet rmse ↓ [test: 19.9192] [val: 28.8961], (avg, id: 4) - [22d365a1-a185-42]
+[OK] ElasticNet rmse ↓ [test: 19.8923] [val: 28.8961], (w_avg, id: 5) - [2f24fa62-08f3-44]
+[OK] Pipeline Best: ElasticNet - rmse [test: 19.8283], [val: 17.7154], (fold: 1, id: 2, step: 4) - [7964646a-40c4-49]
+Run 8/14: pipeline 'Comprehensive_p0_cefac6ec' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_cefac6ec on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] RandomForestRegressor rmse ↓ [test: 13.5878] [val: 20.6769], (fold: 0, id: 1) - [3074a8e0-a0e2-48]
+[OK] RandomForestRegressor rmse ↓ [test: 15.0808] [val: 15.4415], (fold: 1, id: 2) - [5f474210-ce9c-40]
+[OK] RandomForestRegressor rmse ↓ [test: 14.6006] [val: 21.3628], (fold: 2, id: 3) - [c632c565-cd7a-4c]
+[OK] RandomForestRegressor rmse ↓ [test: 14.1011] [val: 19.3420], (avg, id: 4) - [f859cee5-fe92-46]
+[OK] RandomForestRegressor rmse ↓ [test: 14.1725] [val: 19.3420], (w_avg, id: 5) - [1fecaa9a-2eec-44]
+[OK] Pipeline Best: RandomForestRegressor - rmse [test: 15.0808], [val: 15.4415], (fold: 1, id: 2, step: 4) - [36bb2964-182f-43]
+Run 9/14: pipeline 'Comprehensive_p0_8d107d40' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_8d107d40 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] RandomForestRegressor rmse ↓ [test: 13.8449] [val: 20.7593], (fold: 0, id: 1) - [14a1f780-29f7-4c]
+[OK] RandomForestRegressor rmse ↓ [test: 14.7667] [val: 14.4885], (fold: 1, id: 2) - [4b493212-daab-44]
+[OK] RandomForestRegressor rmse ↓ [test: 14.9317] [val: 22.5527], (fold: 2, id: 3) - [1e14b3dd-e841-4d]
+[OK] RandomForestRegressor rmse ↓ [test: 14.2515] [val: 19.5746], (avg, id: 4) - [c2711e31-467c-47]
+[OK] RandomForestRegressor rmse ↓ [test: 14.2826] [val: 19.5746], (w_avg, id: 5) - [83e70322-f7ae-44]
+[OK] Pipeline Best: RandomForestRegressor - rmse [test: 14.7667], [val: 14.4885], (fold: 1, id: 2, step: 4) - [17914f85-93cb-42]
+Run 10/14: pipeline 'Comprehensive_p0_4ab396dd' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_4ab396dd on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] GradientBoostingRegressor rmse ↓ [test: 12.4792] [val: 21.8069], (fold: 0, id: 1) - [237c23fb-1580-43]
+[OK] GradientBoostingRegressor rmse ↓ [test: 14.7613] [val: 16.4923], (fold: 1, id: 2) - [f596cf7a-a86e-43]
+[OK] GradientBoostingRegressor rmse ↓ [test: 13.6558] [val: 21.1128], (fold: 2, id: 3) - [2d6d4954-1da8-4a]
+[OK] GradientBoostingRegressor rmse ↓ [test: 12.6019] [val: 19.9440], (avg, id: 4) - [9d766b96-ac04-46]
+[OK] GradientBoostingRegressor rmse ↓ [test: 12.7258] [val: 19.9440], (w_avg, id: 5) - [2574b5d5-2685-43]
+[OK] Pipeline Best: GradientBoostingRegressor - rmse [test: 14.7613], [val: 16.4923], (fold: 1, id: 2, step: 4) - [bd06c321-0bcf-44]
+Run 11/14: pipeline 'Comprehensive_p0_88fa8162' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_88fa8162 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] ExtraTreesRegressor rmse ↓ [test: 12.9123] [val: 19.9599], (fold: 0, id: 1) - [d29619aa-b801-45]
+[OK] ExtraTreesRegressor rmse ↓ [test: 12.9800] [val: 12.9234], (fold: 1, id: 2) - [10acf38f-2ea0-46]
+[OK] ExtraTreesRegressor rmse ↓ [test: 13.4742] [val: 22.2045], (fold: 2, id: 3) - [5aa9720b-4256-40]
+[OK] ExtraTreesRegressor rmse ↓ [test: 12.7772] [val: 18.7834], (avg, id: 4) - [123e5324-a823-42]
+[OK] ExtraTreesRegressor rmse ↓ [test: 12.7451] [val: 18.7834], (w_avg, id: 5) - [41449c8b-69a8-46]
+[OK] Pipeline Best: ExtraTreesRegressor - rmse [test: 12.9800], [val: 12.9234], (fold: 1, id: 2, step: 4) - [07f73f88-9513-41]
+Run 12/14: pipeline 'Comprehensive_p0_c96d8d2e' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_c96d8d2e on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] SVR rmse ↓ [test: 21.2601] [val: 32.7944], (fold: 0, id: 1) - [612425aa-e8d0-40]
+[OK] SVR rmse ↓ [test: 21.3011] [val: 17.6840], (fold: 1, id: 2) - [8acddce2-34a7-4b]
+[OK] SVR rmse ↓ [test: 22.0200] [val: 38.6098], (fold: 2, id: 3) - [b95e4ec3-2193-40]
+[OK] SVR rmse ↓ [test: 21.5145] [val: 30.9780], (avg, id: 4) - [5ca42ad4-534e-4f]
+[OK] SVR rmse ↓ [test: 21.4450] [val: 30.9780], (w_avg, id: 5) - [fc40dab4-7222-47]
+[OK] Pipeline Best: SVR - rmse [test: 21.3011], [val: 17.6840], (fold: 1, id: 2, step: 4) - [6fecb653-b197-42]
+Run 13/14: pipeline 'Comprehensive_p0_08c57a1c' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_08c57a1c on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] KNeighborsRegressor rmse ↓ [test: 20.3809] [val: 36.2062], (fold: 0, id: 1) - [3d9fec1c-84d2-45]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.5410] [val: 17.9029], (fold: 1, id: 2) - [3d0277be-c410-49]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.2124] [val: 35.1732], (fold: 2, id: 3) - [47576e7c-0bca-4d]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.0498] [val: 30.9222], (avg, id: 4) - [18417227-b79a-48]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.1008] [val: 30.9222], (w_avg, id: 5) - [72d9dfc0-edb9-44]
+[OK] Pipeline Best: KNeighborsRegressor - rmse [test: 20.5410], [val: 17.9029], (fold: 1, id: 2, step: 4) - [5656b092-5a91-4a]
+Run 14/14: pipeline 'Comprehensive_p0_f9fc6b41' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Comprehensive_p0_f9fc6b41 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] KNeighborsRegressor rmse ↓ [test: 20.6480] [val: 31.9260], (fold: 0, id: 1) - [8a017202-8f4d-4a]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.5558] [val: 17.8336], (fold: 1, id: 2) - [12331251-cc27-46]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.9651] [val: 34.7040], (fold: 2, id: 3) - [78828cb9-9198-44]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.5841] [val: 29.1071], (avg, id: 4) - [85ec59e7-b527-46]
+[OK] KNeighborsRegressor rmse ↓ [test: 20.5536] [val: 29.1071], (w_avg, id: 5) - [61f60cee-ea98-40]
+[OK] Pipeline Best: KNeighborsRegressor - rmse [test: 20.5558], [val: 17.8336], (fold: 1, id: 2, step: 4) - [1c928aef-4eba-46]
+================================================================================
+REFIT MODE: Single criterion
+Criteria: 1 criterion/criteria
+================================================================================
+Per-model refit: 9 unique model(s) (sklearn.cross_decomposition._pls.PLSRegression, sklearn.linear_model._ridge.Ridge, sklearn.linear_model._coordinate_descent.Lasso, sklearn.linear_model._coordinate_descent.ElasticNet, sklearn.ensemble._forest.RandomForestRegressor, sklearn.ensemble._gb.GradientBoostingRegressor, sklearn.ensemble._forest.ExtraTreesRegressor, sklearn.svm._classes.SVR, sklearn.neighbors._regression.KNeighborsRegressor)
+Refitting model 'sklearn.cross_decomposition._pls.PLSRegression' from variant 1 (cv_score=14.9239)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_19e4c0e2_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] PLSRegression rmse ↓ [test: 11.9726], (fold: 0, id: 1) - [7e02fcb4-095b-4f]
+[OK] Pipeline Best: PLSRegression - rmse [test: 11.9726], (fold: 0, id: 1, step: 4) - [7e02fcb4-095b-4f]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._ridge.Ridge' from variant 3 (cv_score=26.7040)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_93ca3239_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] Ridge rmse ↓ [test: 19.6206], (fold: 0, id: 1) - [e4b9625a-3aaa-44]
+[OK] Pipeline Best: Ridge - rmse [test: 19.6206], (fold: 0, id: 1, step: 4) - [e4b9625a-3aaa-44]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._coordinate_descent.Lasso' from variant 5 (cv_score=26.0636)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_a9185f81_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] Lasso rmse ↓ [test: 21.5589], (fold: 0, id: 1) - [9b56a294-f4d4-46]
+[OK] Pipeline Best: Lasso - rmse [test: 21.5589], (fold: 0, id: 1, step: 4) - [9b56a294-f4d4-46]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._coordinate_descent.ElasticNet' from variant 6 (cv_score=28.8961)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_a848d8f2_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] ElasticNet rmse ↓ [test: 19.8471], (fold: 0, id: 1) - [1f694592-44f1-4d]
+[OK] Pipeline Best: ElasticNet - rmse [test: 19.8471], (fold: 0, id: 1, step: 4) - [1f694592-44f1-4d]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.ensemble._forest.RandomForestRegressor' from variant 7 (cv_score=19.3420)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_cefac6ec_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] RandomForestRegressor rmse ↓ [test: 14.8216], (fold: 0, id: 1) - [e74200cf-a614-4f]
+[OK] Pipeline Best: RandomForestRegressor - rmse [test: 14.8216], (fold: 0, id: 1, step: 4) - [e74200cf-a614-4f]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.ensemble._gb.GradientBoostingRegressor' from variant 9 (cv_score=19.9440)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_4ab396dd_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] GradientBoostingRegressor rmse ↓ [test: 14.0560], (fold: 0, id: 1) - [668fcf33-cffc-4c]
+[OK] Pipeline Best: GradientBoostingRegressor - rmse [test: 14.0560], (fold: 0, id: 1, step: 4) - [668fcf33-cffc-4c]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.ensemble._forest.ExtraTreesRegressor' from variant 10 (cv_score=18.7834)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_88fa8162_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] ExtraTreesRegressor rmse ↓ [test: 13.5425], (fold: 0, id: 1) - [854d3db9-2f1e-4b]
+[OK] Pipeline Best: ExtraTreesRegressor - rmse [test: 13.5425], (fold: 0, id: 1, step: 4) - [854d3db9-2f1e-4b]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.svm._classes.SVR' from variant 11 (cv_score=30.9780)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_c96d8d2e_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] SVR rmse ↓ [test: 21.3267], (fold: 0, id: 1) - [57230203-9db4-4c]
+[OK] Pipeline Best: SVR - rmse [test: 21.3267], (fold: 0, id: 1, step: 4) - [57230203-9db4-4c]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.neighbors._regression.KNeighborsRegressor' from variant 13 (cv_score=29.1071)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Comprehensive_p0_f9fc6b41_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s2.FirstDerivative[src=0,sub=0] (stateless params match)
+[OK] KNeighborsRegressor rmse ↓ [test: 20.7419], (fold: 0, id: 1) - [b16c221e-46a4-4d]
+[OK] Pipeline Best: KNeighborsRegressor - rmse [test: 20.7419], (fold: 0, id: 1, step: 4) - [b16c221e-46a4-4d]
+[OK] Refit pass completed successfully
+Refit completed: 18 prediction(s) added with fold_id='final'
+Preparing to print results for dataset 'regression': 228 predictions
+Final model performance for dataset 'regression': PLSRegression - rmse [test: 11.9726], [val: 14.9239], (fold: final, id: 1, step: 4) - [7e02fcb4-095b-4f] | [Comprehensive_p0_19e4c0e2_refit]
+[OK] Final model performance for dataset 'regression': PLSRegression - rmse [test: 11.9726], [val: 14.9239], (fold: final, id: 1, step: 4) - [7e02fcb4-095b-4f] | [Comprehensive_p0_19e4c0e2_refit]
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.971  | 4.034  | 16.272  | 4.034  | 3.222  | 5.84   | -0.000 | 100.0       |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.635  | 11.973 | 143.344 | 11.972 | 8.668  | 1.65   | 0.066  | 91.5        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #2 'ExtraTreesRegressor' (ExtraTreesRegressor - rmse [test: 13.5425], [val: 18.7834], (fold: final, id: 1, step: 4) - [854d3db9-2f1e-4b] | [Comprehensive_p0_88fa8162_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 1.000  |        |         |        |        |        |        | 100.0       |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.532  | 13.543 | 183.400 | 13.459 | 10.951 | 1.47   | 1.499  | 83.1        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #3 'GradientBoostingRegressor' (GradientBoostingRegressor - rmse [test: 14.0560], [val: 19.9440], (fold: final, id: 1, step: 4) - [668fcf33-cffc-4c] | [Comprehensive_p0_4ab396dd_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.996  | 1.494  | 2.231   | 1.494  | 1.232  | 15.78  | 0.000  | 100.0       |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.496  | 14.056 | 197.572 | 14.048 | 11.480 | 1.41   | 0.471  | 84.7        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #4 'RandomForestRegressor' (RandomForestRegressor - rmse [test: 14.8216], [val: 19.3420], (fold: final, id: 1, step: 4) - [e74200cf-a614-4f] | [Comprehensive_p0_cefac6ec_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.910  | 7.080  | 50.124  | 7.060  | 5.375  | 3.34   | 0.524  | 100.0       |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.440  | 14.822 | 219.681 | 14.779 | 12.128 | 1.34   | 1.123  | 84.7        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #5 'Ridge' (Ridge - rmse [test: 19.6206], [val: 26.7040], (fold: final, id: 1, step: 4) - [e4b9625a-3aaa-44] | [Comprehensive_p0_93ca3239_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.194  | 21.170 | 448.153 | 21.170 | 15.504 | 1.11   | -0.000 | 83.1        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.019  | 19.621 | 384.968 | 19.581 | 15.623 | 1.01   | -1.246 | 66.1        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #6 'ElasticNet' (ElasticNet - rmse [test: 19.8471], [val: 28.8961], (fold: final, id: 1, step: 4) - [1f694592-44f1-4d] | [Comprehensive_p0_a848d8f2_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.002  | 23.551 | 554.652 | 23.551 | 17.172 | 1.00   | -0.000 | 80.0        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | -0.004 | 19.847 | 393.907 | 19.796 | 15.966 | 1.00   | -1.422 | 71.2        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #7 'KNeighborsRegressor' (KNeighborsRegressor - rmse [test: 20.7419], [val: 29.1071], (fold: final, id: 1, step: 4) - [b16c221e-46a4-4d] | [Comprehensive_p0_f9fc6b41_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.121  | 22.101 | 488.464 | 22.086 | 16.502 | 1.07   | 0.829  | 82.3        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | -0.097 | 20.742 | 430.226 | 20.686 | 16.658 | 0.96   | -1.527 | 57.6        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #8 'SVR' (SVR - rmse [test: 21.3267], [val: 30.9780], (fold: final, id: 1, step: 4) - [57230203-9db4-4c] | [Comprehensive_p0_c96d8d2e_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | -0.073 | 24.418 | 596.228 | 23.459 | 15.929 | 1.00   | -6.775 | 82.3        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | -0.160 | 21.327 | 454.829 | 19.709 | 16.107 | 1.00   | -8.149 | 66.1        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #9 'Lasso' (Lasso - rmse [test: 21.5589], [val: 26.0636], (fold: final, id: 1, step: 4) - [9b56a294-f4d4-46] | [Comprehensive_p0_a9185f81_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.370  | 18.715 | 350.265 | 18.715 | 13.448 | 1.26   | 0.000  | 87.7        |
+| Test   | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | -0.185 | 21.559 | 464.785 | 21.462 | 17.180 | 0.92   | -2.043 | 64.4        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Dataset 'regression' - Final scores (9 models):
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|---------------------------|---------|----------|------------|---------|---------|---------------|
+| #      | Model                     | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing |
+|--------|---------------------------|---------|----------|------------|---------|---------|---------------|
+| 1      | PLSRegression             | 11.9726 | 11.4735  | 11.4896    | 14.9239 | 14.7139 | SNV>1stDer    |
+| 2      | ExtraTreesRegressor       | 13.5425 | 12.7772  | 12.7451    | 18.7834 | 18.3626 | SNV>1stDer    |
+| 3      | GradientBoostingRegressor | 14.0560 | 12.6019  | 12.7258    | 19.9440 | 19.8040 | SNV>1stDer    |
+| 4      | RandomForestRegressor     | 14.8216 | 14.1011  | 14.1725    | 19.3420 | 19.1604 | SNV>1stDer    |
+| 5      | Ridge                     | 19.6206 | 19.6349  | 19.6249    | 26.7040 | 25.8803 | SNV>1stDer    |
+| 6      | ElasticNet                | 19.8471 | 19.9192  | 19.8923    | 28.8961 | 27.9428 | SNV>1stDer    |
+| 7      | KNeighborsRegressor       | 20.7419 | 20.5841  | 20.5536    | 29.1071 | 28.1545 | SNV>1stDer    |
+| 8      | SVR                       | 21.3267 | 21.5145  | 21.4450    | 30.9780 | 29.6960 | SNV>1stDer    |
+| 9      | Lasso                     | 21.5589 | 21.2649  | 21.2410    | 26.0636 | 25.7950 | SNV>1stDer    |
+|--------|---------------------------|---------|----------|------------|---------|---------|---------------|
+Top 30 CV chains (ranked by RMSECV) for dataset 'regression':
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   # | Model      |    RMSECV |    MF_Val |  Ens_Test | W_Ens_Test |      f0 |      f1 |      f2 | Chain                                                        |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   1 | PLSRegress |   14.9239 |   14.7139 |   11.4735 |    11.4896 | 13.2227 | 12.6907 | 18.2284 | SNV>1stDer                                                   |
+|   2 | PLSRegress |   15.0860 |   14.9061 |   11.7691 |    11.8037 | 14.2916 | 12.4192 | 18.0076 | SNV>1stDer                                                   |
+|   3 | PLSRegress |   15.3425 |   15.0386 |   10.7939 |    10.8576 | 14.1661 | 11.8313 | 19.1185 | SNV>1stDer                                                   |
+|   4 | ExtraTrees |   18.7834 |   18.3626 |   12.7772 |    12.7451 | 19.9599 | 12.9234 | 22.2045 | SNV>1stDer                                                   |
+|   5 | RandomFore |   19.3420 |   19.1604 |   14.1011 |    14.1725 | 20.6769 | 15.4415 | 21.3628 | SNV>1stDer                                                   |
+|   6 | RandomFore |   19.5746 |   19.2669 |   14.2515 |    14.2826 | 20.7593 | 14.4885 | 22.5527 | SNV>1stDer                                                   |
+|   7 | GradientBo |   19.9440 |   19.8040 |   12.6019 |    12.7258 | 21.8069 | 16.4923 | 21.1128 | SNV>1stDer                                                   |
+|   8 |      Lasso |   26.0636 |   25.7950 |   21.2649 |    21.2410 | 23.5993 | 22.7361 | 31.0496 | SNV>1stDer                                                   |
+|   9 |      Ridge |   26.7040 |   25.8803 |   19.6349 |    19.6249 | 28.0426 | 16.9592 | 32.6391 | SNV>1stDer                                                   |
+|  10 |      Ridge |   28.1229 |   27.1543 |   19.7173 |    19.6898 | 30.4355 | 17.0148 | 34.0126 | SNV>1stDer                                                   |
+|  11 | ElasticNet |   28.8961 |   27.9428 |   19.9192 |    19.8923 | 31.3752 | 17.7154 | 34.7379 | SNV>1stDer                                                   |
+|  12 | KNeighbors |   29.1071 |   28.1545 |   20.5841 |    20.5536 | 31.9260 | 17.8336 | 34.7040 | SNV>1stDer                                                   |
+|  13 | KNeighbors |   30.9222 |   29.7608 |   20.0498 |    20.1008 | 36.2062 | 17.9029 | 35.1732 | SNV>1stDer                                                   |
+|  14 |        SVR |   30.9780 |   29.6960 |   21.5145 |    21.4450 | 32.7944 | 17.6840 | 38.6098 | SNV>1stDer                                                   |
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CV selection summary for dataset 'regression': PLSRegression - rmse [test: 11.4735], [val: 14.9239], (fold: avg, id: 4, step: 4) - [3878e377-8886-43] | [Comprehensive_p0_19e4c0e2]
+[OK] CV selection summary for dataset 'regression': PLSRegression - rmse [test: 11.4735], [val: 14.9239], (fold: avg, id: 4, step: 4) - [3878e377-8886-43] | [Comprehensive_p0_19e4c0e2]
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|          | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Cros Val | 39      | 2151     | 36.866 | 26.850 | 6.160  | 111.200 | 27.678 | 0.751  | 0.709  | 14.924 | 222.722 | 14.821 | 11.598 | 1.87   | -1.751 | 94.9        |
+| Train    | 130     | 2151     | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.964  | 4.483  | 20.098  | 4.480  | 3.127  | 5.26   | -0.175 | 100.0       |
+| Test     | 59      | 2151     | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.664  | 11.473 | 131.641 | 11.473 | 8.379  | 1.73   | 0.045  | 93.2        |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+========================================================================================================================
+========================================================================================================================
+GLOBAL SUMMARY: All final models (9 models across 1 dataset(s))
+========================================================================================================================
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|---------------------------|---------|----------|------------|---------|---------|---------------|
+| #      | Model                     | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing |
+|--------|---------------------------|---------|----------|------------|---------|---------|---------------|
+| 1      | PLSRegression             | 11.9726 | 11.4735  | 11.4896    | 14.9239 | 14.7139 | SNV>1stDer    |
+| 2      | ExtraTreesRegressor       | 13.5425 | 12.7772  | 12.7451    | 18.7834 | 18.3626 | SNV>1stDer    |
+| 3      | GradientBoostingRegressor | 14.0560 | 12.6019  | 12.7258    | 19.9440 | 19.8040 | SNV>1stDer    |
+| 4      | RandomForestRegressor     | 14.8216 | 14.1011  | 14.1725    | 19.3420 | 19.1604 | SNV>1stDer    |
+| 5      | Ridge                     | 19.6206 | 19.6349  | 19.6249    | 26.7040 | 25.8803 | SNV>1stDer    |
+| 6      | ElasticNet                | 19.8471 | 19.9192  | 19.8923    | 28.8961 | 27.9428 | SNV>1stDer    |
+| 7      | KNeighborsRegressor       | 20.7419 | 20.5841  | 20.5536    | 29.1071 | 28.1545 | SNV>1stDer    |
+| 8      | SVR                       | 21.3267 | 21.5145  | 21.4450    | 30.9780 | 29.6960 | SNV>1stDer    |
+| 9      | Lasso                     | 21.5589 | 21.2649  | 21.2410    | 26.0636 | 25.7950 | SNV>1stDer    |
+|--------|---------------------------|---------|----------|------------|---------|---------|---------------|
+========================================================================================================================
+/home/delete/nirs4all/nirs4all/examples/user/04_models/U01_multi_model.py:245: LegacyEngineUsageWarning: {"code":"nirs4all.explicit_legacy_engine","engine":"legacy","operation":"run","schema_version":1}
+  result_combined = nirs4all.run(
+
+Total configurations tested: 228
+Best RMSE: 11.9726
+
+Top 10 configurations:
+   1. PLSRegression: RMSE=11.6012
+   2. PLSRegression: RMSE=11.9726
+   3. PLSRegression: RMSE=12.3786
+   4. PLSRegression: RMSE=12.0816
+   5. ExtraTreesRegressor: RMSE=12.9800
+   6. PLSRegression: RMSE=11.5463
+   7. ExtraTreesRegressor: RMSE=13.5425
+   8. GradientBoostingRegressor: RMSE=14.0560
+   9. PLSRegression: RMSE=10.6407
+   10. PLSRegression: RMSE=12.0341
+
+------------------------------------------------------------
+Section 5: Combined Model + Preprocessing Search
+------------------------------------------------------------
+
+Combine feature_augmentation with multiple models to find
+the best preprocessing + model combination.
+
+========================================================================================================================
+> Starting Nirs4all run(s) with 3 pipeline(s) on 1 dataset(s) (3 total runs).
+========================================================================================================================
+Run 1/3: pipeline 'Combined_p0_59e4f4d3' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Combined_p0_59e4f4d3 on dataset regression
+[OK] PLSRegression rmse ↓ [test: 12.1108] [val: 15.3215], (fold: 0, id: 1) - [bb9bbd25-ade3-4b]
+[OK] PLSRegression rmse ↓ [test: 13.6742] [val: 15.4081], (fold: 1, id: 2) - [714b0a3e-552f-40]
+[OK] PLSRegression rmse ↓ [test: 12.4238] [val: 15.3649], (avg, id: 3) - [d79309af-7668-47]
+[OK] PLSRegression rmse ↓ [test: 12.4215] [val: 15.3649], (w_avg, id: 4) - [b9d6d8d2-fd3d-42]
+[OK] Pipeline Best: PLSRegression - rmse [test: 12.1108], [val: 15.3215], (fold: 0, id: 1, step: 3) - [75496482-0b2f-4e]
+Run 2/3: pipeline 'Combined_p0_9be04dc5' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Combined_p0_9be04dc5 on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted MultiplicativeScatterCorrection from chain s1.MultiplicativeScatterCorrection[src=0,sub=1] (data hash match)
+Cache hit: reusing fitted Detrend from chain s1.Detrend[src=0,sub=2] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s1.FirstDerivative[src=0,sub=3] (stateless params match)
+[OK] Ridge rmse ↓ [test: 13.4973] [val: 20.9671], (fold: 0, id: 1) - [cb5c1483-2341-4f]
+[OK] Ridge rmse ↓ [test: 14.5761] [val: 17.6888], (fold: 1, id: 2) - [5fc52908-7110-44]
+[OK] Ridge rmse ↓ [test: 13.9371] [val: 19.3973], (avg, id: 3) - [20c1ccf5-5fb2-45]
+[OK] Ridge rmse ↓ [test: 13.9839] [val: 19.3973], (w_avg, id: 4) - [ddc02db6-c0fd-4c]
+[OK] Pipeline Best: Ridge - rmse [test: 14.5761], [val: 17.6888], (fold: 1, id: 2, step: 3) - [6f430a6a-f89d-43]
+Run 3/3: pipeline 'Combined_p0_3b55071f' on dataset 'regression'
+[Dataset] regression (regression)
+Features (samples=189, sources=1):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 130 samples
+- partition - "test", processings - ['raw'], excluded - False: 59 samples
+> Starting pipeline Combined_p0_3b55071f on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted MultiplicativeScatterCorrection from chain s1.MultiplicativeScatterCorrection[src=0,sub=1] (data hash match)
+Cache hit: reusing fitted Detrend from chain s1.Detrend[src=0,sub=2] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s1.FirstDerivative[src=0,sub=3] (stateless params match)
+[OK] RandomForestRegressor rmse ↓ [test: 17.9351] [val: 26.2995], (fold: 0, id: 1) - [aa931fdb-6d30-41]
+[OK] RandomForestRegressor rmse ↓ [test: 18.5321] [val: 16.2040], (fold: 1, id: 2) - [394d39a6-9559-45]
+[OK] RandomForestRegressor rmse ↓ [test: 17.8777] [val: 21.8430], (avg, id: 3) - [06316391-df92-4b]
+[OK] RandomForestRegressor rmse ↓ [test: 17.9702] [val: 21.8430], (w_avg, id: 4) - [cca3bbd9-b14e-49]
+[OK] Pipeline Best: RandomForestRegressor - rmse [test: 18.5321], [val: 16.2040], (fold: 1, id: 2, step: 3) - [3d2a8daa-4573-4c]
+================================================================================
+REFIT MODE: Single criterion
+Criteria: 1 criterion/criteria
+================================================================================
+Per-model refit: 3 unique model(s) (sklearn.cross_decomposition._pls.PLSRegression, sklearn.linear_model._ridge.Ridge, sklearn.ensemble._forest.RandomForestRegressor)
+Refitting model 'sklearn.cross_decomposition._pls.PLSRegression' from variant 0 (cv_score=15.3649)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Combined_p0_59e4f4d3_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted MultiplicativeScatterCorrection from chain s1.MultiplicativeScatterCorrection[src=0,sub=1] (data hash match)
+Cache hit: reusing fitted Detrend from chain s1.Detrend[src=0,sub=2] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s1.FirstDerivative[src=0,sub=3] (stateless params match)
+[OK] PLSRegression rmse ↓ [test: 12.6626], (fold: 0, id: 1) - [28061266-3b25-4b]
+[OK] Pipeline Best: PLSRegression - rmse [test: 12.6626], (fold: 0, id: 1, step: 3) - [28061266-3b25-4b]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.linear_model._ridge.Ridge' from variant 1 (cv_score=19.3973)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Combined_p0_9be04dc5_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted MultiplicativeScatterCorrection from chain s1.MultiplicativeScatterCorrection[src=0,sub=1] (data hash match)
+Cache hit: reusing fitted Detrend from chain s1.Detrend[src=0,sub=2] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s1.FirstDerivative[src=0,sub=3] (stateless params match)
+[OK] Ridge rmse ↓ [test: 13.8873], (fold: 0, id: 1) - [78c2325a-16ab-49]
+[OK] Pipeline Best: Ridge - rmse [test: 13.8873], (fold: 0, id: 1, step: 3) - [78c2325a-16ab-49]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.ensemble._forest.RandomForestRegressor' from variant 2 (cv_score=21.8430)
+Starting refit pass: training winning model on full training set
+> Starting pipeline Combined_p0_3b55071f_refit on dataset regression
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted MultiplicativeScatterCorrection from chain s1.MultiplicativeScatterCorrection[src=0,sub=1] (data hash match)
+Cache hit: reusing fitted Detrend from chain s1.Detrend[src=0,sub=2] (stateless params match)
+Cache hit: reusing fitted FirstDerivative from chain s1.FirstDerivative[src=0,sub=3] (stateless params match)
+[OK] RandomForestRegressor rmse ↓ [test: 18.7690], (fold: 0, id: 1) - [2f70fe70-f1b0-4c]
+[OK] Pipeline Best: RandomForestRegressor - rmse [test: 18.7690], (fold: 0, id: 1, step: 3) - [2f70fe70-f1b0-4c]
+[OK] Refit pass completed successfully
+Refit completed: 6 prediction(s) added with fold_id='final'
+Preparing to print results for dataset 'regression': 42 predictions
+Final model performance for dataset 'regression': PLSRegression - rmse [test: 12.6626], [val: 15.3649], (fold: final, id: 1, step: 3) - [28061266-3b25-4b] | [Combined_p0_59e4f4d3_refit]
+[OK] Final model performance for dataset 'regression': PLSRegression - rmse [test: 12.6626], [val: 15.3649], (fold: final, id: 1, step: 3) - [28061266-3b25-4b] | [Combined_p0_59e4f4d3_refit]
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 10755    | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.926  | 6.419  | 41.208  | 6.419  | 5.126  | 3.67   | -0.000 | 100.0       |
+| Test   | 59      | 10755    | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.591  | 12.663 | 160.343 | 12.662 | 9.317  | 1.56   | -0.091 | 91.5        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #2 'Ridge' (Ridge - rmse [test: 13.8873], [val: 19.3973], (fold: final, id: 1, step: 3) - [78c2325a-16ab-49] | [Combined_p0_9be04dc5_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 10755    | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.543  | 15.943 | 254.189 | 15.943 | 12.151 | 1.48   | 0.000  | 91.5        |
+| Test   | 59      | 10755    | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.508  | 13.887 | 192.858 | 13.871 | 11.477 | 1.43   | 0.671  | 89.8        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Refit scores for #3 'RandomForestRegressor' (RandomForestRegressor - rmse [test: 18.7690], [val: 21.8430], (fold: final, id: 1, step: 3) - [2f70fe70-f1b0-4c] | [Combined_p0_3b55071f_refit]):
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|        | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Train  | 130     | 10755    | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.902  | 7.379  | 54.456  | 7.371  | 5.536  | 3.20   | 0.346  | 97.7        |
+| Test   | 59      | 10755    | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.102  | 18.769 | 352.274 | 18.766 | 14.394 | 1.06   | -0.340 | 72.9        |
+|--------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+Dataset 'regression' - Final scores (3 models):
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|-----------------------|---------|----------|------------|---------|---------|-------------------------|
+| #      | Model                 | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing           |
+|--------|-----------------------|---------|----------|------------|---------|---------|-------------------------|
+| 1      | PLSRegression         | 12.6626 | 12.4238  | 12.4215    | 15.3649 | 15.3648 | raw|SNV|MSC|Detr|1stDer |
+| 2      | Ridge                 | 13.8873 | 13.9371  | 13.9839    | 19.3973 | 19.3279 | raw|SNV|MSC|Detr|1stDer |
+| 3      | RandomForestRegressor | 18.7690 | 17.8777  | 17.9702    | 21.8430 | 21.2518 | raw|SNV|MSC|Detr|1stDer |
+|--------|-----------------------|---------|----------|------------|---------|---------|-------------------------|
+Top 30 CV chains (ranked by RMSECV) for dataset 'regression':
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+|   # | Model      |    RMSECV |    MF_Val |  Ens_Test | W_Ens_Test |      f0 |      f1 | Chain                                                        |
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+|   1 | PLSRegress |   15.3649 |   15.3648 |   12.4238 |    12.4215 | 15.3215 | 15.4081 | raw|SNV|MSC|Detr|1stDer                                      |
+|   2 |      Ridge |   19.3973 |   19.3279 |   13.9371 |    13.9839 | 20.9671 | 17.6888 | raw|SNV|MSC|Detr|1stDer                                      |
+|   3 | RandomFore |   21.8430 |   21.2518 |   17.8777 |    17.9702 | 26.2995 | 16.2040 | raw|SNV|MSC|Detr|1stDer                                      |
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+CV selection summary for dataset 'regression': PLSRegression - rmse [test: 12.4238], [val: 15.3649], (fold: avg, id: 3, step: 3) - [afc53cc4-8d8a-4a] | [Combined_p0_59e4f4d3]
+[OK] CV selection summary for dataset 'regression': PLSRegression - rmse [test: 12.4238], [val: 15.3649], (fold: avg, id: 3, step: 3) - [afc53cc4-8d8a-4a] | [Combined_p0_59e4f4d3]
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|          | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R2     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Cros Val | 26      | 10755    | 31.225 | 21.645 | 6.160  | 111.200 | 25.411 | 0.814  | 0.634  | 15.365 | 236.079 | 15.132 | 12.074 | 1.68   | 2.663  | 88.5        |
+| Train    | 130     | 10755    | 30.333 | 23.140 | 2.050  | 128.310 | 23.575 | 0.777  | 0.919  | 6.710  | 45.026  | 6.705  | 5.085  | 3.52   | 0.266  | 99.2        |
+| Test     | 59      | 10755    | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.606  | 12.424 | 154.351 | 12.423 | 9.113  | 1.59   | 0.114  | 89.8        |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+========================================================================================================================
+========================================================================================================================
+GLOBAL SUMMARY: All final models (3 models across 1 dataset(s))
+========================================================================================================================
+Sorted by: RMSEP (ascending (lower is better))
+
+|--------|-----------------------|---------|----------|------------|---------|---------|-------------------------|
+| #      | Model                 | RMSEP   | Ens_Test | W_Ens_Test | RMSECV  | MF_Val  | Preprocessing           |
+|--------|-----------------------|---------|----------|------------|---------|---------|-------------------------|
+| 1      | PLSRegression         | 12.6626 | 12.4238  | 12.4215    | 15.3649 | 15.3648 | raw|SNV|MSC|Detr|1stDer |
+| 2      | Ridge                 | 13.8873 | 13.9371  | 13.9839    | 19.3973 | 19.3279 | raw|SNV|MSC|Detr|1stDer |
+| 3      | RandomForestRegressor | 18.7690 | 17.8777  | 17.9702    | 21.8430 | 21.2518 | raw|SNV|MSC|Detr|1stDer |
+|--------|-----------------------|---------|----------|------------|---------|---------|-------------------------|
+========================================================================================================================
+/home/delete/nirs4all/nirs4all/examples/user/04_models/U01_multi_model.py:309: LegacyEngineUsageWarning: {"code":"nirs4all.explicit_legacy_engine","engine":"legacy","operation":"run","schema_version":1}
+  result_classif = nirs4all.run(
+
+Total configurations: 42
+Best RMSE: 12.6626
+
+Top 10 configurations (preprocessing + model):
+   1. raw|SNV|MSC|Detr|1stDer + PLSRegression: RMSE=12.6626
+   2. raw|SNV|MSC|Detr|1stDer + Ridge: RMSE=13.8873
+   3. raw|SNV|MSC|Detr|1stDer + PLSRegression: RMSE=12.1108
+   4. raw|SNV|MSC|Detr|1stDer + PLSRegression: RMSE=12.4238
+   5. raw|SNV|MSC|Detr|1stDer + PLSRegression: RMSE=12.4215
+   6. raw|SNV|MSC|Detr|1stDer + PLSRegression: RMSE=13.6742
+   7. raw|SNV|MSC|Detr|1stDer + RandomForestRegressor: RMSE=18.5321
+   8. raw|SNV|MSC|Detr|1stDer + Ridge: RMSE=14.5761
+   9. raw|SNV|MSC|Detr|1stDer + RandomForestRegressor: RMSE=18.7690
+   10. raw|SNV|MSC|Detr|1stDer + Ridge: RMSE=13.9371
+
+------------------------------------------------------------
+Section 6: Classification Multi-Model
+------------------------------------------------------------
+========================================================================================================================
+> Starting Nirs4all run(s) with 5 pipeline(s) on 1 dataset(s) (5 total runs).
+========================================================================================================================
+Run 1/5: pipeline 'ClassifMulti_p0_5ce26cb6' on dataset 'classification'
+[Dataset] classification (multiclass_classification)
+Features (samples=208, sources=1):
+- Source 0: (208, 1, 234), processings=['raw'], min=-0.157, max=0.437, mean=0.196, var=0.014
+Targets: (samples=208, targets=1, processings=['numeric'])
+- numeric: min=0.0, max=9.0, mean=2.688
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 178 samples
+- partition - "test", processings - ['raw'], excluded - False: 30 samples
+Metadata(rows=208, columns=['Circuit', 'Nb_Rep', 'Type_Rep', 'Resolution', 'Unite_X', 'Abs_ou_Ref', 'Labo_ou_Terrain', 'Date', 'Heure', 'Temperature', 'Hygrometrie', 'Year', 'Sample_ID', 'Team', 'Spectro', 'Rep'])
+> Starting pipeline ClassifMulti_p0_5ce26cb6 on dataset classification
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/metrics/_classification.py:2939: UserWarning: y_pred contains classes not in y_true
+  warnings.warn("y_pred contains classes not in y_true")
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/metrics/_classification.py:2939: UserWarning: y_pred contains classes not in y_true
+  warnings.warn("y_pred contains classes not in y_true")
+[OK] LogisticRegression balanced_accuracy ↑ [test: 0.0317] [val: 0.2380], (fold: 0, id: 1) - [0112f5f9-8b3d-45]
+[OK] LogisticRegression balanced_accuracy ↑ [test: 0.0698] [val: 0.2258], (fold: 1, id: 2) - [7b06b3b0-b264-40]
+[OK] LogisticRegression balanced_accuracy ↑ [test: 0.0593] [val: 0.3417], (fold: 2, id: 3) - [a2cf234c-5e8d-42]
+[OK] LogisticRegression balanced_accuracy ↑ [test: 0.0540] [val: 0.2385], (avg, id: 4) - [b75f6dd0-fd35-46]
+[OK] LogisticRegression balanced_accuracy ↑ [test: 0.0381] [val: 0.2385], (w_avg, id: 5) - [ac7df928-12f8-45]
+[OK] Pipeline Best: LogisticRegression - balanced_accuracy [test: 0.0593], [val: 0.3417], (fold: 2, id: 3, step: 4) - [75603677-ae52-43]
+Run 2/5: pipeline 'ClassifMulti_p0_0da69a61' on dataset 'classification'
+[Dataset] classification (multiclass_classification)
+Features (samples=208, sources=1):
+- Source 0: (208, 1, 234), processings=['raw'], min=-0.157, max=0.437, mean=0.196, var=0.014
+Targets: (samples=208, targets=1, processings=['numeric'])
+- numeric: min=0.0, max=9.0, mean=2.688
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 178 samples
+- partition - "test", processings - ['raw'], excluded - False: 30 samples
+Metadata(rows=208, columns=['Circuit', 'Nb_Rep', 'Type_Rep', 'Resolution', 'Unite_X', 'Abs_ou_Ref', 'Labo_ou_Terrain', 'Date', 'Heure', 'Temperature', 'Hygrometrie', 'Year', 'Sample_ID', 'Team', 'Spectro', 'Rep'])
+> Starting pipeline ClassifMulti_p0_0da69a61 on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+[OK] RandomForestClassifier balanced_accuracy ↑ [test: 0.1159] [val: 0.1346], (fold: 0, id: 1) - [fb49a1b0-33ea-40]
+[OK] RandomForestClassifier balanced_accuracy ↑ [test: 0.1000] [val: 0.2205], (fold: 1, id: 2) - [a7f3d109-2a73-43]
+[OK] RandomForestClassifier balanced_accuracy ↑ [test: 0.2000] [val: 0.2425], (fold: 2, id: 3) - [16d6a21a-7eac-49]
+[OK] RandomForestClassifier balanced_accuracy ↑ [test: 0.1333] [val: 0.1748], (avg, id: 4) - [ddc9ad7e-01c0-49]
+[OK] RandomForestClassifier balanced_accuracy ↑ [test: 0.1333] [val: 0.1748], (w_avg, id: 5) - [581cad43-999a-43]
+[OK] Pipeline Best: RandomForestClassifier - balanced_accuracy [test: 0.2000], [val: 0.2425], (fold: 2, id: 3, step: 4) - [079164b9-7aef-4a]
+Run 3/5: pipeline 'ClassifMulti_p0_83165d0c' on dataset 'classification'
+[Dataset] classification (multiclass_classification)
+Features (samples=208, sources=1):
+- Source 0: (208, 1, 234), processings=['raw'], min=-0.157, max=0.437, mean=0.196, var=0.014
+Targets: (samples=208, targets=1, processings=['numeric'])
+- numeric: min=0.0, max=9.0, mean=2.688
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 178 samples
+- partition - "test", processings - ['raw'], excluded - False: 30 samples
+Metadata(rows=208, columns=['Circuit', 'Nb_Rep', 'Type_Rep', 'Resolution', 'Unite_X', 'Abs_ou_Ref', 'Labo_ou_Terrain', 'Date', 'Heure', 'Temperature', 'Hygrometrie', 'Year', 'Sample_ID', 'Team', 'Spectro', 'Rep'])
+> Starting pipeline ClassifMulti_p0_83165d0c on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/metrics/_classification.py:2939: UserWarning: y_pred contains classes not in y_true
+  warnings.warn("y_pred contains classes not in y_true")
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/metrics/_classification.py:2939: UserWarning: y_pred contains classes not in y_true
+  warnings.warn("y_pred contains classes not in y_true")
+[OK] GradientBoostingClassifier balanced_accuracy ↑ [test: 0.2677] [val: 0.1577], (fold: 0, id: 1) - [eadb0540-78b5-4e]
+[OK] GradientBoostingClassifier balanced_accuracy ↑ [test: 0.1222] [val: 0.2313], (fold: 1, id: 2) - [2f821adb-e263-47]
+[OK] GradientBoostingClassifier balanced_accuracy ↑ [test: 0.2021] [val: 0.1852], (fold: 2, id: 3) - [aeab6888-4c0e-48]
+[OK] GradientBoostingClassifier balanced_accuracy ↑ [test: 0.2370] [val: 0.1676], (avg, id: 4) - [0e39a716-691c-49]
+[OK] GradientBoostingClassifier balanced_accuracy ↑ [test: 0.2370] [val: 0.1676], (w_avg, id: 5) - [b4d04b4f-f751-42]
+[OK] Pipeline Best: GradientBoostingClassifier - balanced_accuracy [test: 0.1222], [val: 0.2313], (fold: 1, id: 2, step: 4) - [67f37355-0b60-45]
+Run 4/5: pipeline 'ClassifMulti_p0_00a05fa4' on dataset 'classification'
+[Dataset] classification (multiclass_classification)
+Features (samples=208, sources=1):
+- Source 0: (208, 1, 234), processings=['raw'], min=-0.157, max=0.437, mean=0.196, var=0.014
+Targets: (samples=208, targets=1, processings=['numeric'])
+- numeric: min=0.0, max=9.0, mean=2.688
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 178 samples
+- partition - "test", processings - ['raw'], excluded - False: 30 samples
+Metadata(rows=208, columns=['Circuit', 'Nb_Rep', 'Type_Rep', 'Resolution', 'Unite_X', 'Abs_ou_Ref', 'Labo_ou_Terrain', 'Date', 'Heure', 'Temperature', 'Hygrometrie', 'Year', 'Sample_ID', 'Team', 'Spectro', 'Rep'])
+> Starting pipeline ClassifMulti_p0_00a05fa4 on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/svm/_base.py:236: FutureWarning: The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`
+  warnings.warn(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/svm/_base.py:236: FutureWarning: The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`
+  warnings.warn(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/svm/_base.py:236: FutureWarning: The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`
+  warnings.warn(
+[OK] SVC balanced_accuracy ↑ [test: 0.1111] [val: 0.1429], (fold: 0, id: 1) - [b2c4628e-7831-4f]
+[OK] SVC balanced_accuracy ↑ [test: 0.1111] [val: 0.1549], (fold: 1, id: 2) - [aea41de2-5086-45]
+[OK] SVC balanced_accuracy ↑ [test: 0.1111] [val: 0.1667], (fold: 2, id: 3) - [b156c97c-3b8e-4e]
+[OK] SVC balanced_accuracy ↑ [test: 0.1111] [val: 0.1397], (avg, id: 4) - [df2a6b03-9ee7-41]
+[OK] SVC balanced_accuracy ↑ [test: 0.1111] [val: 0.1397], (w_avg, id: 5) - [2a0fb578-a92b-49]
+[OK] Pipeline Best: SVC - balanced_accuracy [test: 0.1111], [val: 0.1667], (fold: 2, id: 3, step: 4) - [0f960133-bcf2-44]
+Run 5/5: pipeline 'ClassifMulti_p0_9c53c6a9' on dataset 'classification'
+[Dataset] classification (multiclass_classification)
+Features (samples=208, sources=1):
+- Source 0: (208, 1, 234), processings=['raw'], min=-0.157, max=0.437, mean=0.196, var=0.014
+Targets: (samples=208, targets=1, processings=['numeric'])
+- numeric: min=0.0, max=9.0, mean=2.688
+Indexes:
+- partition - "train", processings - ['raw'], excluded - False: 178 samples
+- partition - "test", processings - ['raw'], excluded - False: 30 samples
+Metadata(rows=208, columns=['Circuit', 'Nb_Rep', 'Type_Rep', 'Resolution', 'Unite_X', 'Abs_ou_Ref', 'Labo_ou_Terrain', 'Date', 'Heure', 'Temperature', 'Hygrometrie', 'Year', 'Sample_ID', 'Team', 'Spectro', 'Rep'])
+> Starting pipeline ClassifMulti_p0_9c53c6a9 on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+[OK] KNeighborsClassifier balanced_accuracy ↑ [test: 0.0370] [val: 0.1747], (fold: 0, id: 1) - [56ba5d0f-3797-43]
+[OK] KNeighborsClassifier balanced_accuracy ↑ [test: 0.1302] [val: 0.1825], (fold: 1, id: 2) - [9dc9e878-3e87-44]
+[OK] KNeighborsClassifier balanced_accuracy ↑ [test: 0.1815] [val: 0.3137], (fold: 2, id: 3) - [1982681f-095a-41]
+[OK] KNeighborsClassifier balanced_accuracy ↑ [test: 0.1603] [val: 0.1990], (avg, id: 4) - [03915019-3a07-42]
+[OK] KNeighborsClassifier balanced_accuracy ↑ [test: 0.1444] [val: 0.1990], (w_avg, id: 5) - [27b742dc-f860-4a]
+[OK] Pipeline Best: KNeighborsClassifier - balanced_accuracy [test: 0.1815], [val: 0.3137], (fold: 2, id: 3, step: 4) - [08f2cff6-683c-40]
+================================================================================
+REFIT MODE: Single criterion
+Criteria: 1 criterion/criteria
+================================================================================
+Per-model refit: 5 unique model(s) (sklearn.linear_model._logistic.LogisticRegression, sklearn.ensemble._forest.RandomForestClassifier, sklearn.ensemble._gb.GradientBoostingClassifier, sklearn.svm._classes.SVC, sklearn.neighbors._classification.KNeighborsClassifier)
+Refitting model 'sklearn.linear_model._logistic.LogisticRegression' from variant 0 (cv_score=0.2385)
+Starting refit pass: training winning model on full training set
+> Starting pipeline ClassifMulti_p0_5ce26cb6_refit on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+[OK] LogisticRegression balanced_accuracy ↑ [test: 0.0698], (fold: 0, id: 1) - [53b08c53-3a83-4b]
+[OK] Pipeline Best: LogisticRegression - balanced_accuracy [test: 0.0698], (fold: 0, id: 1, step: 4) - [53b08c53-3a83-4b]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.ensemble._forest.RandomForestClassifier' from variant 1 (cv_score=0.1748)
+Starting refit pass: training winning model on full training set
+> Starting pipeline ClassifMulti_p0_0da69a61_refit on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+[OK] RandomForestClassifier balanced_accuracy ↑ [test: 0.1937], (fold: 0, id: 1) - [2a1360e1-7eeb-49]
+[OK] Pipeline Best: RandomForestClassifier - balanced_accuracy [test: 0.1937], (fold: 0, id: 1, step: 4) - [2a1360e1-7eeb-49]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.ensemble._gb.GradientBoostingClassifier' from variant 2 (cv_score=0.1676)
+Starting refit pass: training winning model on full training set
+> Starting pipeline ClassifMulti_p0_83165d0c_refit on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+[OK] GradientBoostingClassifier balanced_accuracy ↑ [test: 0.1937], (fold: 0, id: 1) - [911e1e6e-bdc9-43]
+[OK] Pipeline Best: GradientBoostingClassifier - balanced_accuracy [test: 0.1937], (fold: 0, id: 1, step: 4) - [911e1e6e-bdc9-43]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.svm._classes.SVC' from variant 3 (cv_score=0.1397)
+Starting refit pass: training winning model on full training set
+> Starting pipeline ClassifMulti_p0_00a05fa4_refit on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/svm/_base.py:236: FutureWarning: The `probability` parameter was deprecated in 1.9 and will be removed in version 1.11. Use `CalibratedClassifierCV(SVC(), ensemble=False)` instead of `SVC(probability=True)`
+  warnings.warn(
+[OK] SVC balanced_accuracy ↑ [test: 0.1111], (fold: 0, id: 1) - [f4614ee5-75ad-48]
+[OK] Pipeline Best: SVC - balanced_accuracy [test: 0.1111], (fold: 0, id: 1, step: 4) - [f4614ee5-75ad-48]
+[OK] Refit pass completed successfully
+Refitting model 'sklearn.neighbors._classification.KNeighborsClassifier' from variant 4 (cv_score=0.1990)
+Starting refit pass: training winning model on full training set
+> Starting pipeline ClassifMulti_p0_9c53c6a9_refit on dataset classification
+Cache hit: reusing fitted StandardNormalVariate from chain s1.StandardNormalVariate[src=0,sub=0] (stateless params match)
+Cache hit: reusing fitted StandardScaler from chain s2.StandardScaler[src=0,sub=0] (data hash match)
+/home/delete/nirs4all/nirs4all/.venv/lib/python3.11/site-packages/sklearn/model_selection/_split.py:812: UserWarning: The least populated class in y has only 1 members, which is less than n_splits=3.
+  warnings.warn(
+[OK] KNeighborsClassifier balanced_accuracy ↑ [test: 0.0825], (fold: 0, id: 1) - [fcbae84b-e2f0-4e]
+[OK] Pipeline Best: KNeighborsClassifier - balanced_accuracy [test: 0.0825], (fold: 0, id: 1, step: 4) - [fcbae84b-e2f0-4e]
+[OK] Refit pass completed successfully
+Refit completed: 10 prediction(s) added with fold_id='final'
+Preparing to print results for dataset 'classification': 85 predictions
+Final model performance for dataset 'classification': RandomForestClassifier - balanced_accuracy [test: 0.1937], [val: 0.1748], (fold: final, id: 1, step: 4) - [2a1360e1-7eeb-49] | [ClassifMulti_p0_0da69a61_refit]
+[OK] Final model performance for dataset 'classification': RandomForestClassifier - balanced_accuracy [test: 0.1937], [val: 0.1748], (fold: final, id: 1, step: 4) - [2a1360e1-7eeb-49] | [ClassifMulti_p0_0da69a61_refit]
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+|        | Nsample | Nfeatures | Accuracy | Bal. Acc | Precision | Bal. Prec | Recall | Bal. Rec | F1-score | Specificity |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+| Train  | 178     | 234       | 1.000    | 1.000    | 1.000     | 1.000     | 1.000  | 1.000    | 1.000    | 1.000       |
+| Test   | 30      | 234       | 0.200    | 0.194    | 0.087     | 0.079     | 0.200  | 0.194    | 0.117    | 0.892       |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+Refit scores for #2 'GradientBoostingClassifier' (GradientBoostingClassifier - balanced_accuracy [test: 0.1937], [val: 0.1676], (fold: final, id: 1, step: 4) - [911e1e6e-bdc9-43] | [ClassifMulti_p0_83165d0c_refit]):
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+|        | Nsample | Nfeatures | Accuracy | Bal. Acc | Precision | Bal. Prec | Recall | Bal. Rec | F1-score | Specificity |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+| Train  | 178     | 234       | 1.000    | 1.000    | 1.000     | 1.000     | 1.000  | 1.000    | 1.000    | 1.000       |
+| Test   | 30      | 234       | 0.200    | 0.194    | 0.106     | 0.095     | 0.200  | 0.194    | 0.125    | 0.893       |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+Refit scores for #3 'SVC' (SVC - balanced_accuracy [test: 0.1111], [val: 0.1397], (fold: final, id: 1, step: 4) - [f4614ee5-75ad-48] | [ClassifMulti_p0_00a05fa4_refit]):
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+|        | Nsample | Nfeatures | Accuracy | Bal. Acc | Precision | Bal. Prec | Recall | Bal. Rec | F1-score | Specificity |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+| Train  | 178     | 234       | 0.433    | 0.240    | 0.309     | 0.286     | 0.433  | 0.240    | 0.306    | 0.873       |
+| Test   | 30      | 234       | 0.167    | 0.111    | 0.028     | 0.019     | 0.167  | 0.111    | 0.048    | 0.889       |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+Refit scores for #4 'KNeighborsClassifier' (KNeighborsClassifier - balanced_accuracy [test: 0.0825], [val: 0.1990], (fold: final, id: 1, step: 4) - [fcbae84b-e2f0-4e] | [ClassifMulti_p0_9c53c6a9_refit]):
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+|        | Nsample | Nfeatures | Accuracy | Bal. Acc | Precision | Bal. Prec | Recall | Bal. Rec | F1-score | Specificity |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+| Train  | 178     | 234       | 0.511    | 0.375    | 0.531     | 0.488     | 0.511  | 0.375    | 0.505    | 0.908       |
+| Test   | 30      | 234       | 0.133    | 0.083    | 0.070     | 0.039     | 0.133  | 0.083    | 0.084    | 0.884       |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+Refit scores for #5 'LogisticRegression' (LogisticRegression - balanced_accuracy [test: 0.0698], [val: 0.2385], (fold: final, id: 1, step: 4) - [53b08c53-3a83-4b] | [ClassifMulti_p0_5ce26cb6_refit]):
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+|        | Nsample | Nfeatures | Accuracy | Bal. Acc | Precision | Bal. Prec | Recall | Bal. Rec | F1-score | Specificity |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+| Train  | 178     | 234       | 0.809    | 0.831    | 0.817     | 0.884     | 0.809  | 0.831    | 0.808    | 0.961       |
+| Test   | 30      | 234       | 0.133    | 0.070    | 0.099     | 0.058     | 0.133  | 0.070    | 0.103    | 0.881       |
+|--------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+Dataset 'classification' - Final scores (5 models):
+Sorted by: Test_BalAcc (descending (higher is better))
+
+|--------|----------------------------|-------------|-----------------|-------------------|-----------|---------------|---------------|
+| #      | Model                      | Test_BalAcc | Ens_Test_BalAcc | W_Ens_Test_BalAcc | CV_BalAcc | MF_Val_BalAcc | Preprocessing |
+|--------|----------------------------|-------------|-----------------|-------------------|-----------|---------------|---------------|
+| 1      | RandomForestClassifier     | 0.1937      | 0.1333          | 0.1333            | N/A       | 0.1992        | SNV>Std       |
+| 2      | GradientBoostingClassifier | 0.1937      | 0.2370          | 0.2370            | N/A       | 0.1914        | SNV>Std       |
+| 3      | SVC                        | 0.1111      | 0.1111          | 0.1111            | N/A       | 0.1548        | SNV>Std       |
+| 4      | KNeighborsClassifier       | 0.0825      | 0.1603          | 0.1444            | N/A       | 0.2236        | SNV>Std       |
+| 5      | LogisticRegression         | 0.0698      | 0.0540          | 0.0381            | N/A       | 0.2685        | SNV>Std       |
+|--------|----------------------------|-------------|-----------------|-------------------|-----------|---------------|---------------|
+Top 30 CV chains (ranked by CV_BalAcc) for dataset 'classification':
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   # | Model      | CV_BalAcc | MF_Val_BalAcc | Ens_Test_BalAcc | W_Ens_Test_BalAcc |      f0 |      f1 |      f2 | Chain                                                        |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|   1 | LogisticRe |    0.2385 |    0.2685 |    0.0540 |     0.0381 |  0.2380 |  0.2258 |  0.3417 | SNV>Std                                                      |
+|   2 | KNeighbors |    0.1990 |    0.2236 |    0.1603 |     0.1444 |  0.1747 |  0.1825 |  0.3137 | SNV>Std                                                      |
+|   3 | RandomFore |    0.1748 |    0.1992 |    0.1333 |     0.1333 |  0.1346 |  0.2205 |  0.2425 | SNV>Std                                                      |
+|   4 | GradientBo |    0.1676 |    0.1914 |    0.2370 |     0.2370 |  0.1577 |  0.2313 |  0.1852 | SNV>Std                                                      |
+|   5 |        SVC |    0.1397 |    0.1548 |    0.1111 |     0.1111 |  0.1429 |  0.1549 |  0.1667 | SNV>Std                                                      |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CV selection summary for dataset 'classification': LogisticRegression - balanced_accuracy [test: 0.0540], [val: 0.2385], (fold: avg, id: 4, step: 4) - [6b838040-d71f-45] | [ClassifMulti_p0_5ce26cb6]
+[OK] CV selection summary for dataset 'classification': LogisticRegression - balanced_accuracy [test: 0.0540], [val: 0.2385], (fold: avg, id: 4, step: 4) - [6b838040-d71f-45] | [ClassifMulti_p0_5ce26cb6]
+|----------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+|          | Nsample | Nfeatures | Accuracy | Bal. Acc | Precision | Bal. Prec | Recall | Bal. Rec | F1-score | Specificity |
+|----------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+| Cros Val | 178     | 234       | 0.360    | 0.238    | 0.348     | 0.261     | 0.360  | 0.238    | 0.349    | 0.875       |
+| Train    | 178     | 234       | 0.742    | 0.737    | 0.766     | 0.854     | 0.742  | 0.737    | 0.739    | 0.946       |
+| Test     | 30      | 234       | 0.100    | 0.054    | 0.085     | 0.051     | 0.100  | 0.054    | 0.082    | 0.876       |
+|----------|---------|-----------|----------|----------|-----------|-----------|--------|----------|----------|-------------|
+========================================================================================================================
+========================================================================================================================
+GLOBAL SUMMARY: All final models (5 models across 1 dataset(s))
+========================================================================================================================
+Sorted by: Test_BalAcc (descending (higher is better))
+
+|--------|----------------------------|-------------|-----------------|-------------------|-----------|---------------|---------------|
+| #      | Model                      | Test_BalAcc | Ens_Test_BalAcc | W_Ens_Test_BalAcc | CV_BalAcc | MF_Val_BalAcc | Preprocessing |
+|--------|----------------------------|-------------|-----------------|-------------------|-----------|---------------|---------------|
+| 1      | RandomForestClassifier     | 0.1937      | 0.1333          | 0.1333            | N/A       | 0.1992        | SNV>Std       |
+| 2      | GradientBoostingClassifier | 0.1937      | 0.2370          | 0.2370            | N/A       | 0.1914        | SNV>Std       |
+| 3      | SVC                        | 0.1111      | 0.1111          | 0.1111            | N/A       | 0.1548        | SNV>Std       |
+| 4      | KNeighborsClassifier       | 0.0825      | 0.1603          | 0.1444            | N/A       | 0.2236        | SNV>Std       |
+| 5      | LogisticRegression         | 0.0698      | 0.0540          | 0.0381            | N/A       | 0.2685        | SNV>Std       |
+|--------|----------------------------|-------------|-----------------|-------------------|-----------|---------------|---------------|
+========================================================================================================================
+
+Classification results:
+   1. LogisticRegression: Accuracy=6.7%, Balanced Accuracy=5.9%
+   2. KNeighborsClassifier: Accuracy=20.0%, Balanced Accuracy=18.1%
+   3. RandomForestClassifier: Accuracy=20.0%, Balanced Accuracy=20.0%
+   4. LogisticRegression: Accuracy=10.0%, Balanced Accuracy=5.4%
+   5. LogisticRegression: Accuracy=6.7%, Balanced Accuracy=3.8%
+
+============================================================
+Summary
+============================================================
+
+Multi-Model Comparison Approaches:
+
+  1. Use _or_ generator:
+     {"_or_": [{"model": PLS(10)}, {"model": Ridge(1.0)}, {"model": RF()}]}
+
+  2. Combine with preprocessing search:
+     {"feature_augmentation": [SNV, MSC], "action": "extend"},
+     {"_or_": [{"model": PLSRegression()}, {"model": RandomForest()}]}
+
+Common Model Families for NIRS:
+
+  LINEAR:
+    PLSRegression     - Best for collinear spectral data
+    Ridge, Lasso      - Regularized linear models
+    ElasticNet        - Combined L1+L2 regularization
+
+  TREE-BASED:
+    RandomForest      - Robust ensemble
+    GradientBoosting  - Often best non-linear
+    ExtraTrees        - Fast, less overfitting
+
+  OTHER:
+    SVR, KNeighbors   - Can capture local patterns
+
+Result Analysis:
+    result.top(n)       # Get top n configurations
+    result.best_score    # Best RMSE achieved
+    result.num_predictions  # Total configurations tested
+
+Next: U02_hyperparameter_tuning.py - Automated hyperparameter search
+
+EXIT 0
+RUN reference/R04_visualization.py
+/home/delete/nirs4all/nirs4all/examples/reference/R04_visualization.py:49: LegacyEngineUsageWarning: {"code":"nirs4all.explicit_legacy_engine","engine":"legacy","operation":"run","schema_version":1}
+  result = nirs4all.run(
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:333: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.pearsonr(y_true, y_pred)
+/home/delete/nirs4all/nirs4all/nirs4all/core/metrics.py:336: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  correlation, _ = stats.spearmanr(y_true, y_pred)
+============================================================
+R04 - Prediction Analysis & Visualization Reference
+============================================================
+
+result.num_predictions = 66
+best model = PLS-10  (RMSE=0.0041)
+
+plot_top_k(k=3, rank_metric='rmse')              - top 3 models, pred vs actual
+plot_top_k(k=3, rank_metric='r2', rank_partition='test')
+plot_heatmap(x_var='model_name', y_var='preprocessings')
+plot_candlestick(variable='model_name')          - score spread per model
+plot_histogram(rank_metric='rmse')               - score distribution
+
+Done. (pass --plots to render figures, --show to display them)
+EXIT 0
