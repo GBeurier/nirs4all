@@ -1,4 +1,4 @@
-"""SDK mixed metadata preserves categories with the public Methods 1.3.2 binding."""
+"""SDK mixed metadata preserves categories with the verified public Methods bindings."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from copy import deepcopy
+from importlib.metadata import version
 from pathlib import Path
 
 import numpy as np
@@ -17,15 +18,19 @@ import pytest
 from sklearn.base import clone
 from sklearn.model_selection import GroupKFold
 
-TAG_HELPER_SHA256 = "bee669e75773c568171ef5ced6c8575a4fead0265b4426856ceba3cb4251ef38"
+PUBLIC_HELPER_SHA256 = {
+    "1.3.2": "bee669e75773c568171ef5ced6c8575a4fead0265b4426856ceba3cb4251ef38",
+    "1.3.4": "8aad87791d4968ad23dc01813d5a657753ee1e1df0f69439e2dd0611d4282cb9",
+}
 
 
 def _require_public_binding():
     import n4m
     import n4m.roles._multimodal as binding
 
-    assert hashlib.sha256(Path(binding.__file__).read_bytes()).hexdigest() == TAG_HELPER_SHA256
-    assert n4m.version() == "1.3.2+abi.2.17.0"
+    installed = version("nirs4all-methods")
+    assert hashlib.sha256(Path(binding.__file__).read_bytes()).hexdigest() == PUBLIC_HELPER_SHA256[installed]
+    assert n4m.version() == f"{installed}+abi.2.17.0"
     assert n4m.abi_version() == (2, 17, 0)
 
 
@@ -125,7 +130,7 @@ def test_direct_native_fit_predict_and_transform_preserve_unknown_text(classific
         model.close()
 
 
-def test_captured_unicode_schema_still_refuses_object_storage_without_truncation():
+def test_captured_unicode_schema_preserves_object_storage_without_truncation():
     from nirs4all.pipeline.dagml.methods_multimodal import source_schemas_from_cohort
 
     _require_public_binding()
@@ -140,8 +145,13 @@ def test_captured_unicode_schema_still_refuses_object_storage_without_truncation
     try:
         model.fit([training.sources[name].values[rows] for name in model.transformers], training.y[rows], source_schemas=schemas)
         state = model.native_pipeline_.export_state()
-        with pytest.raises(ValueError, match="mixed metadata dtype differs"):
-            model.predict([prediction.sources[name].values.astype(object) if name == "metadata" else prediction.sources[name].values for name in model.transformers])
+        blocks = [prediction.sources[name].values for name in model.transformers]
+        object_blocks = [prediction.sources[name].values.astype(object) if name == "metadata" else prediction.sources[name].values for name in model.transformers]
+        if version("nirs4all-methods") == "1.3.2":
+            with pytest.raises(ValueError, match="mixed metadata dtype differs"):
+                model.predict(object_blocks)
+        else:
+            np.testing.assert_allclose(model.predict(object_blocks), model.predict(blocks), atol=2e-7, rtol=2e-7)
         assert schemas == saved
         assert model.native_pipeline_.export_state() == state
     finally:
