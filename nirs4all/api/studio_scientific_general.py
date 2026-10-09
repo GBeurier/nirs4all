@@ -34,11 +34,12 @@ _PACKAGE_PREFIXES = frozenset({"nirs4all", "sklearn", "numpy", "scipy", "xgboost
 # Product presets authorize these declarations, not the whole optional package.
 # Document editing must not import TabPFN or require its runtime dependencies.
 _OPTIONAL_PRODUCT_OPERATORS = frozenset({"tabpfn.TabPFNRegressor", "tabpfn.TabPFNClassifier"})
+_OPTIONAL_PRODUCT_PACKAGES = frozenset({"lightgbm", "xgboost", "catboost"})
 _MODULE_PATH = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$")
 _OPTIONS = frozenset({
     "name", "random_state", "verbose", "save_charts", "save_artifacts", "workspace_path",
     "project", "refit", "cache", "report_naming", "keep_datasets", "n_jobs", "max_generation_count",
-    "continue_on_error", "results_path",
+    "continue_on_error", "results_path", "studio_provenance",
 })
 
 
@@ -87,7 +88,8 @@ def _finite_or_none(value: Any) -> float | None:
 
 def _preflight_optional_product_operators(value: Any) -> None:
     """Require optional preset operators only at execution, before construction."""
-    if isinstance(value, str) and value in _OPTIONAL_PRODUCT_OPERATORS:
+    if isinstance(value, str) and (value in _OPTIONAL_PRODUCT_OPERATORS or
+                                  value.partition(".")[0] in _OPTIONAL_PRODUCT_PACKAGES):
         module_name, _, operator_name = value.rpartition(".")
         try:
             module = import_module(module_name)
@@ -95,7 +97,7 @@ def _preflight_optional_product_operators(value: Any) -> None:
         except (ImportError, AttributeError) as exc:
             raise StudioScientificJobError(
                 "dependency_missing",
-                f"Cannot execute {value}: install a compatible tabpfn package and its "
+                f"Cannot execute {value}: install a compatible {value.partition('.')[0]} package and its "
                 f"runtime dependencies in the authorized scientific environment ({exc}). "
                 "The preset can still be imported and edited without this optional dependency.",
             ) from exc
@@ -229,11 +231,16 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
     multimodal = isinstance(request["dataset"], dict) and request["dataset"].get("schema") == STUDIO_MULTIMODAL_DATASET_SCHEMA
     if multimodal and (options.get("refit") is False or options.get("save_artifacts") is False):
         raise StudioScientificJobError("invalid_option", "multimodal Studio runs require refit and saved artifacts for replay")
+    run_options = {"verbose": 0, "save_artifacts": True, **options}
+    provenance = run_options.pop("studio_provenance", None)
+    if provenance is not None:
+        from .studio_lineage import validate_studio_provenance
+
+        provenance = validate_studio_provenance(provenance, job_id)
     dataset = _inline_dataset_arrays(request["dataset"])
     _ambient_runtime_preflight()
     _preflight_optional_product_operators(request["pipeline"])
     pipeline = deserialize_component(request["pipeline"])
-    run_options = {"verbose": 0, "save_artifacts": True, **options}
     if multimodal:
         run_options["refit"] = True
     result = cast(RunResult, _run_strict_product(
@@ -253,6 +260,11 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
                 native_results.append(str(child._dagml_results_dir))
         if not run_ids and not multimodal:
             raise StudioScientificJobError("missing_persistence", "general scientific result omitted durable run IDs")
+        dataset_run_ids: dict[str, str] = {}
+        if provenance is not None:
+            from .studio_lineage import record_studio_run_provenance
+
+            dataset_run_ids = record_studio_run_provenance(workspace, run_ids, provenance)
         archive_path = None
         if multimodal:
             export_dir = Path(workspace) / "exports"
@@ -279,6 +291,7 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
             "engine": result.execution_engine,
             "result": {
                 "run_ids": run_ids,
+                **({"dataset_run_ids": dataset_run_ids} if provenance is not None else {}),
                 "workspace_path": workspace,
                 "native_results_dirs": native_results,
                 **({"archive_path": archive_path} if archive_path is not None else {}),

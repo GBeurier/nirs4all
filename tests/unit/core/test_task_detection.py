@@ -7,6 +7,24 @@ from nirs4all.core.task_detection import detect_task_type
 from nirs4all.core.task_type import TaskType
 
 
+@pytest.mark.parametrize("labels, expected", [
+    (["Tauro", "Renzo", "Tauro"], "binary_classification"),
+    (["Tauro", "Renzo", "Torino"], "multiclass_classification"),
+    (["0", "1", "0"], "binary_classification"),
+])
+def test_string_class_targets_are_detected_without_numeric_coercion(labels, expected):
+    assert str(detect_task_type(np.asarray(labels))) == expected
+
+
+def test_object_labels_ignore_missing_values():
+    labels = np.asarray(["Tauro", None, "Renzo", np.nan], dtype=object)
+    assert detect_task_type(labels) == TaskType.BINARY_CLASSIFICATION
+
+
+def test_object_numeric_targets_keep_regression_semantics():
+    assert detect_task_type(np.asarray([0.5, 1.5, None, 2.5], dtype=object)) == TaskType.REGRESSION
+
+
 class TestIntegerTargets:
     """Integer-valued arrays: behaviour driven by n_unique."""
 

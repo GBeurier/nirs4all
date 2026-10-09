@@ -9,6 +9,25 @@ from nirs4all.core.metrics import HIGHER_IS_BETTER_METRICS, infer_ascending, is_
 from nirs4all.core.task_type import TaskType
 
 
+@pytest.mark.parametrize("labels, predictions, task_type", [
+    (["Tauro", "Renzo", "Tauro"], ["Tauro", "Renzo", "Renzo"], "binary_classification"),
+    (["Tauro", "Renzo", "Torino"], ["Tauro", "Renzo", "Renzo"], "multiclass_classification"),
+])
+def test_public_class_label_metrics_preserve_string_identities(labels, predictions, task_type):
+    from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
+
+    scores = evaluator.eval_multi(np.asarray(labels), np.asarray(predictions), task_type)
+    assert scores["accuracy"] == pytest.approx(accuracy_score(labels, predictions))
+    assert scores["balanced_accuracy"] == pytest.approx(balanced_accuracy_score(labels, predictions))
+    assert scores["f1"] == pytest.approx(f1_score(labels, predictions, average="weighted"))
+
+
+def test_binary_numeric_probabilities_keep_threshold_behavior():
+    scores = evaluator.eval_multi(np.asarray([0, 1, 0, 1]), np.asarray([0.1, 0.9, 0.2, 0.8]), "binary_classification")
+    assert scores["accuracy"] == 1
+    assert scores["roc_auc"] == 1
+
+
 class TestMetricsDefaults:
     """Test suite for metrics defaults."""
 

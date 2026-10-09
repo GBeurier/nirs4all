@@ -208,6 +208,11 @@ def studio_synthetic_dataset_job_v1(request: object) -> dict[str, Any]:
         test, test_features = _csv_shape(temporary / "Xval.csv")
         train_targets, _ = _csv_shape(temporary / "Ycal.csv")
         test_targets, _ = _csv_shape(temporary / "Yval.csv")
+        with (temporary / "Ycal.csv").open("r", encoding="utf-8", newline="") as stream:
+            target_names = next(csv.reader(stream, delimiter=";"))
+        with (temporary / "Yval.csv").open("r", encoding="utf-8", newline="") as stream:
+            if next(csv.reader(stream, delimiter=";")) != target_names:
+                raise _refuse("generation_failed", "generated train/test target names do not match")
         if train + test != n_samples or train != train_targets or test != test_targets or features != test_features or features > MAX_SYNTHETIC_FEATURES:
             raise _refuse("generation_failed", "standard export dimensions do not match the generated dataset")
         actual_task = dataset.task_type.value if dataset.task_type is not None else None
@@ -226,7 +231,8 @@ def studio_synthetic_dataset_job_v1(request: object) -> dict[str, Any]:
                 "name": name,
                 "relative_path": name,
                 "files": manifest,
-                "summary": {"samples": train + test, "features": features, "train": train, "test": test, "task": actual_task, "classes": actual_classes},
+                "summary": {"samples": train + test, "features": features, "train": train, "test": test,
+                            "task": actual_task, "classes": actual_classes, "target_names": target_names},
                 "generation": {"random_state": random_state, "complexity": complexity, "train_ratio": train_ratio, "wavelength_range": list(wavelength_range)},
             },
         }

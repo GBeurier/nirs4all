@@ -47,6 +47,7 @@ def test_regression_exports_standard_artifacts_and_actual_summary(tmp_path):
         "test": 10,
         "task": "regression",
         "classes": None,
+        "target_names": [f"target_{index}" for index in range(5)],
     }
     assert {item["path"] for item in result["files"]} == {"Xcal.csv", "Ycal.csv", "Xval.csv", "Yval.csv"}
     assert all(len(item["sha256"]) == 64 and item["bytes"] > 0 for item in result["files"])

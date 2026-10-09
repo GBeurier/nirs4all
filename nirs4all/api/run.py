@@ -695,7 +695,7 @@ def _is_single_dataset(dataset: Any) -> bool:
             return False
 
         # List of dicts where each dict is a dataset config -> multi-dataset
-        if isinstance(first, dict) and ("path" in first or "X" in first or "features" in first):
+        if isinstance(first, dict):
             return False
 
         # List of arrays or tuples -> multi-dataset

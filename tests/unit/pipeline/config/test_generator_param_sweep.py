@@ -17,6 +17,28 @@ from nirs4all.pipeline.config.generator import (
 P = "sklearn.cross_decomposition.PLSRegression"
 
 
+def test_string_model_sweep_has_the_same_labels_and_expansion_as_class_dict():
+    from nirs4all.pipeline.config import PipelineConfigs
+
+    string_spec = [{"_or_": ["nirs4all.operators.transforms.StandardNormalVariate", None]},
+                   {"model": P, "_range_": [2, 6, 2], "param": "n_components"}]
+    dict_spec = [string_spec[0], {**string_spec[1], "model": {"class": P}}]
+    string_configs = PipelineConfigs(string_spec, "sweep")
+    dict_configs = PipelineConfigs(dict_spec, "sweep")
+    assert string_configs.expansion_count == 6
+    assert string_configs.steps == dict_configs.steps
+    assert string_configs.names == dict_configs.names
+
+
+def test_string_model_grid_and_zip_match_count_and_choice_expansion():
+    for keyword in ("_grid_", "_zip_"):
+        spec = {keyword: {"n_components": [2, 4]}, "model": P}
+        expected = {**spec, "model": {"class": P}}
+        assert expand_spec(spec) == expand_spec(expected)
+        assert expand_spec_with_choices(spec) == expand_spec_with_choices(expected)
+        assert count_combinations(spec) == 2
+
+
 def test_sibling_range_sweep_expands_per_value():
     spec = {"model": {"class": P}, "_range_": [2, 20, 2], "param": "n_components"}
     out = expand_spec(spec)
