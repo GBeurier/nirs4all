@@ -1,0 +1,9 @@
+nirs4all/operators/splitters/splitters.py:1072: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+nirs4all/operators/augmentation/native.py:61: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+nirs4all/data/loaders/loader.py:550: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+nirs4all/data/loaders/loader.py:590: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+nirs4all/controllers/models/base_model.py:1893: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+nirs4all/controllers/models/residual_model.py:108: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+nirs4all/controllers/models/residual_model.py:109: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+nirs4all/controllers/models/residual_model.py:110: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+Success: no issues found in 592 source files

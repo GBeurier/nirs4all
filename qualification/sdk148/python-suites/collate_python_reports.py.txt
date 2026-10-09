@@ -1,0 +1,64 @@
+from pathlib import Path
+import collections
+import hashlib
+import json
+import shutil
+import xml.etree.ElementTree as ET
+
+ROOT = Path('/home/delete/nirs4all/nirs4all')
+OUT = ROOT / 'qualification/sdk148/python-suites'
+OUT.mkdir(parents=True, exist_ok=True)
+
+
+def cases(path):
+    return list(ET.parse(path).getroot().iter('testcase'))
+
+
+def retain(path, name):
+    target = OUT / name
+    shutil.copyfile(path, target)
+    return {'path': target.relative_to(ROOT).as_posix(), 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
+
+
+def summarize(items):
+    return {'tests': len(items), 'passed': sum(all(c.find(t) is None for t in ('failure', 'error', 'skipped')) for c in items), **{k: sum(c.find(k) is not None for c in items) for k in ('failure', 'error', 'skipped')}}
+
+
+reports = {}
+for group in ('unit', 'integration'):
+    folder = Path('/tmp/nirs4all-sdk148-public-' + group)
+    initial = cases(folder / 'junit.xml')
+    reports[group] = {'initial_summary': json.loads((folder / 'summary.json').read_text()), 'initial_junit': retain(folder / 'junit.xml', group + '-initial.xml'), 'supplements': []}
+    by_module = collections.defaultdict(dict)
+    for case in initial:
+        by_module[case.get('classname')][case.get('name')] = case
+    names = ['installed-gpu'] if group == 'unit' else ['mixed-metadata-final', 'native-archive-final', 'rt-goldens-final', 'optin-native-installed', 'xl03', 'native-fit-witness', 'octave', 'autogluon', 'gpu-integration']
+    for name in names:
+        path = Path('/tmp/nirs4all-sdk148-' + name + '.xml')
+        fresh = cases(path)
+        assert fresh and all(all(c.find(t) is None for t in ('failure', 'error', 'skipped')) for c in fresh), name
+        modules = {c.get('classname') for c in fresh}
+        assert modules.issubset(by_module), (name, modules - by_module.keys())
+        full_replacement = name in ('mixed-metadata-final', 'native-archive-final', 'rt-goldens-final')
+        if full_replacement:
+            old_count = sum(len(by_module[m]) for m in modules)
+            assert old_count == len(fresh), name
+            for module in modules:
+                by_module[module] = {}
+        for case in fresh:
+            if not full_replacement:
+                assert case.get('name') in by_module[case.get('classname')], name
+            by_module[case.get('classname')][case.get('name')] = case
+        reports[group]['supplements'].append({'id': name, 'summary': summarize(fresh), 'junit': retain(path, name + '.xml'), 'scope': 'full module replacement' if full_replacement else 'same test cases rerun with provisioned prerequisites'})
+    final = [c for module in by_module.values() for c in module.values()]
+    assert len(final) == len(initial)
+    summary = summarize(final)
+    assert summary['failure'] == summary['error'] == summary['skipped'] == 0, summary
+    reports[group]['final_summary'] = summary
+    xml = ET.Element('testsuites')
+    suite = ET.SubElement(xml, 'testsuite', name=group + '-after-corrections-and-provisioning', tests=str(len(final)), failures='0', errors='0', skipped='0')
+    suite.extend(final)
+    ET.ElementTree(xml).write(OUT / (group + '-final.xml'), encoding='utf-8', xml_declaration=True)
+    print(group, summary)
+reports['notes'] = ['Initial failures and skips are retained; final aggregates select explicit successful reruns, without changing raw reports.', 'CUDA tests run with visible devices; CPU module isolation avoids conflicting framework runtimes.', 'XL03 and Octave reruns use genuine pre-existing native capture inputs for archive portability, with current SDK/native wheels for execution and fresh replay.', 'AutoGluon uses a separate environment with its own pandas and Arrow dependencies.', 'Native FIT overlap uses a test-only C++ probe linked directly to the current public Methods library, with a serialized negative control.']
+(OUT / 'summary.json').write_text(json.dumps(reports, indent=2) + '\n')
