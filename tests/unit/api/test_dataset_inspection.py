@@ -9,6 +9,20 @@ import pytest
 from nirs4all.api.dataset_inspection import dataset_statistics, inspect_format_file, preview_dataset
 
 
+@pytest.mark.parametrize("values,classes", [
+    ([0.0, np.nan, 1.0, 0.0], ["0.0", "1.0"]),
+    (["pass", None, "fail", "pass"], ["fail", "pass"]),
+    ([np.nan, np.nan], []),
+])
+def test_classification_preview_counts_missing_targets_without_inventing_a_class(values, classes):
+    from nirs4all.api.dataset_inspection import _target_distribution
+    result = _target_distribution(np.asarray(values), regression=False)
+    assert result["classes"] == classes
+    assert result["missing_count"] == (2 if not classes else 1)
+    assert result["n_samples"] == len(values)
+    assert sum(result["class_counts"].values()) + result["missing_count"] == len(values)
+
+
 def _csv_dataset(tmp_path, *, width=300, sources=1, rows=150, test_rows=12, metadata=True):
     config = {"name": "inspection", "task_type": "regression", "global_params": {"delimiter": ",", "has_header": True}}
     data = {}
