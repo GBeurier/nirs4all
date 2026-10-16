@@ -9,4 +9,4 @@ collected 2 items
 source/tests/integration/api/test_installed_studio_general.py ..         [100%]
 
 - generated xml file: /mnt/c/Temp/nirs4all-sdk149-20261016/linux-studio-junit.xml -
-============================== 2 passed in 9.21s ===============================
+============================== 2 passed in 9.69s ===============================
