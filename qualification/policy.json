@@ -34,7 +34,7 @@
         {
           "field": "sdk_version",
           "op": "eq",
-          "value": "1.4.8"
+          "value": "1.4.9"
         },
         {
           "field": "dag_version",
@@ -74,11 +74,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.8.dist-info/RECORD",
-            "bytes": 113625,
-            "sha256": "3fed8d5fb951efbc51161e2b0e6ab3d31c44fcfffdc87c3092757c21f6cb33b3"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.9.dist-info/RECORD",
+            "bytes": 113632,
+            "sha256": "471bc8d319485f388cff01a0f311c668eeb5c201d749fb457cee6967feb8ea85"
           }
         ],
         "dependency_origins": [
@@ -86,7 +86,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
             "bytes": 41309632,
             "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
           },
@@ -94,23 +94,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
             "bytes": 40305872,
             "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
-            "bytes": 13379312,
-            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13299728,
+            "sha256": "b5812444e2bc67091d264a41e7e28bc32e3fd12977a02a5538c1a4c00edcbbb2"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
             "bytes": 5449304,
             "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
           }
@@ -193,11 +193,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.8.dist-info/RECORD",
-            "bytes": 113625,
-            "sha256": "3fed8d5fb951efbc51161e2b0e6ab3d31c44fcfffdc87c3092757c21f6cb33b3"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.9.dist-info/RECORD",
+            "bytes": 113632,
+            "sha256": "471bc8d319485f388cff01a0f311c668eeb5c201d749fb457cee6967feb8ea85"
           }
         ],
         "dependency_origins": [
@@ -205,7 +205,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
             "bytes": 41309632,
             "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
           },
@@ -213,23 +213,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
             "bytes": 40305872,
             "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
-            "bytes": 13379312,
-            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13299728,
+            "sha256": "b5812444e2bc67091d264a41e7e28bc32e3fd12977a02a5538c1a4c00edcbbb2"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
             "bytes": 5449304,
             "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
           }
@@ -292,11 +292,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.8.dist-info/RECORD",
-            "bytes": 113625,
-            "sha256": "3fed8d5fb951efbc51161e2b0e6ab3d31c44fcfffdc87c3092757c21f6cb33b3"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.9.dist-info/RECORD",
+            "bytes": 113632,
+            "sha256": "471bc8d319485f388cff01a0f311c668eeb5c201d749fb457cee6967feb8ea85"
           }
         ],
         "dependency_origins": [
@@ -304,7 +304,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
             "bytes": 41309632,
             "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
           },
@@ -312,23 +312,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
             "bytes": 40305872,
             "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
-            "bytes": 13379312,
-            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13299728,
+            "sha256": "b5812444e2bc67091d264a41e7e28bc32e3fd12977a02a5538c1a4c00edcbbb2"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
             "bytes": 5449304,
             "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
           }
@@ -350,7 +350,7 @@
           "-q",
           "{root}/source/tests/integration/api/test_installed_native_quickstart.py",
           "--basetemp",
-          "/tmp/nirs4all-sdk148-installed-quickstart/pytest-basetemp",
+          "/tmp/nirs4all-sdk149-installed-quickstart/pytest-basetemp",
           "--junitxml",
           "{root}/linux-quickstart-junit.xml"
         ]
@@ -393,11 +393,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.8.dist-info/RECORD",
-            "bytes": 113625,
-            "sha256": "3fed8d5fb951efbc51161e2b0e6ab3d31c44fcfffdc87c3092757c21f6cb33b3"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.9.dist-info/RECORD",
+            "bytes": 113632,
+            "sha256": "471bc8d319485f388cff01a0f311c668eeb5c201d749fb457cee6967feb8ea85"
           }
         ],
         "dependency_origins": [
@@ -405,7 +405,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
             "bytes": 41309632,
             "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
           },
@@ -413,23 +413,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
             "bytes": 40305872,
             "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
-            "bytes": 13379312,
-            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13299728,
+            "sha256": "b5812444e2bc67091d264a41e7e28bc32e3fd12977a02a5538c1a4c00edcbbb2"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
             "bytes": 5449304,
             "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
           }
@@ -482,11 +482,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.8.dist-info/RECORD",
-            "bytes": 113625,
-            "sha256": "3fed8d5fb951efbc51161e2b0e6ab3d31c44fcfffdc87c3092757c21f6cb33b3"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.9.dist-info/RECORD",
+            "bytes": 113632,
+            "sha256": "471bc8d319485f388cff01a0f311c668eeb5c201d749fb457cee6967feb8ea85"
           }
         ],
         "dependency_origins": [
@@ -494,7 +494,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
             "bytes": 41309632,
             "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
           },
@@ -502,23 +502,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
             "bytes": 40305872,
             "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
-            "bytes": 13379312,
-            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13299728,
+            "sha256": "b5812444e2bc67091d264a41e7e28bc32e3fd12977a02a5538c1a4c00edcbbb2"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
             "bytes": 5449304,
             "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
           }
@@ -556,7 +556,7 @@
         {
           "field": "sdk_version",
           "op": "eq",
-          "value": "1.4.8"
+          "value": "1.4.9"
         },
         {
           "field": "dag_version",
@@ -596,11 +596,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.8.dist-info\\RECORD",
-            "bytes": 113633,
-            "sha256": "77738934d84eb9e6bc7d0f355caeae2a7d458ef8f2fd1f66f82bbcff51c630bb"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.9.dist-info\\RECORD",
+            "bytes": 113640,
+            "sha256": "8b0bbe68b3fe21b2479687a342a76ae0f905cd43ed937e84cafd2e4731ba0a91"
           }
         ],
         "dependency_origins": [
@@ -608,7 +608,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
             "bytes": 34428928,
             "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
           },
@@ -616,23 +616,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
             "bytes": 32053760,
             "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
-            "bytes": 9682432,
-            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
+            "bytes": 9593344,
+            "sha256": "83bedd2f560f5d4e4bba7b0e52e479fe9599c2c5afb2171edb7761051f36d439"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
             "bytes": 3863552,
             "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
           }
@@ -715,11 +715,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.8.dist-info\\RECORD",
-            "bytes": 113633,
-            "sha256": "77738934d84eb9e6bc7d0f355caeae2a7d458ef8f2fd1f66f82bbcff51c630bb"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.9.dist-info\\RECORD",
+            "bytes": 113640,
+            "sha256": "8b0bbe68b3fe21b2479687a342a76ae0f905cd43ed937e84cafd2e4731ba0a91"
           }
         ],
         "dependency_origins": [
@@ -727,7 +727,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
             "bytes": 34428928,
             "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
           },
@@ -735,23 +735,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
             "bytes": 32053760,
             "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
-            "bytes": 9682432,
-            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
+            "bytes": 9593344,
+            "sha256": "83bedd2f560f5d4e4bba7b0e52e479fe9599c2c5afb2171edb7761051f36d439"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
             "bytes": 3863552,
             "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
           }
@@ -814,11 +814,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.8.dist-info\\RECORD",
-            "bytes": 113633,
-            "sha256": "77738934d84eb9e6bc7d0f355caeae2a7d458ef8f2fd1f66f82bbcff51c630bb"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.9.dist-info\\RECORD",
+            "bytes": 113640,
+            "sha256": "8b0bbe68b3fe21b2479687a342a76ae0f905cd43ed937e84cafd2e4731ba0a91"
           }
         ],
         "dependency_origins": [
@@ -826,7 +826,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
             "bytes": 34428928,
             "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
           },
@@ -834,23 +834,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
             "bytes": 32053760,
             "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
-            "bytes": 9682432,
-            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
+            "bytes": 9593344,
+            "sha256": "83bedd2f560f5d4e4bba7b0e52e479fe9599c2c5afb2171edb7761051f36d439"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
             "bytes": 3863552,
             "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
           }
@@ -915,11 +915,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.8.dist-info\\RECORD",
-            "bytes": 113633,
-            "sha256": "77738934d84eb9e6bc7d0f355caeae2a7d458ef8f2fd1f66f82bbcff51c630bb"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.9.dist-info\\RECORD",
+            "bytes": 113640,
+            "sha256": "8b0bbe68b3fe21b2479687a342a76ae0f905cd43ed937e84cafd2e4731ba0a91"
           }
         ],
         "dependency_origins": [
@@ -927,7 +927,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
             "bytes": 34428928,
             "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
           },
@@ -935,23 +935,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
             "bytes": 32053760,
             "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
-            "bytes": 9682432,
-            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
+            "bytes": 9593344,
+            "sha256": "83bedd2f560f5d4e4bba7b0e52e479fe9599c2c5afb2171edb7761051f36d439"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
             "bytes": 3863552,
             "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
           }
@@ -1004,11 +1004,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.8.dist-info\\RECORD",
-            "bytes": 113633,
-            "sha256": "77738934d84eb9e6bc7d0f355caeae2a7d458ef8f2fd1f66f82bbcff51c630bb"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.9.dist-info\\RECORD",
+            "bytes": 113640,
+            "sha256": "8b0bbe68b3fe21b2479687a342a76ae0f905cd43ed937e84cafd2e4731ba0a91"
           }
         ],
         "dependency_origins": [
@@ -1016,7 +1016,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
             "bytes": 34428928,
             "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
           },
@@ -1024,23 +1024,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
             "bytes": 32053760,
             "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
-            "bytes": 9682432,
-            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
+            "bytes": 9593344,
+            "sha256": "83bedd2f560f5d4e4bba7b0e52e479fe9599c2c5afb2171edb7761051f36d439"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
             "bytes": 3863552,
             "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
           }
@@ -1062,7 +1062,7 @@
           "-q",
           "{root}/source/tests/integration/api/test_installed_studio_general.py",
           "--basetemp",
-          "/tmp/nirs4all-sdk148-studio-tmp/pytest-studio-basetemp",
+          "/tmp/nirs4all-sdk149-studio-tmp/pytest-studio-basetemp",
           "--junitxml",
           "{root}/linux-studio-junit.xml"
         ]
@@ -1103,11 +1103,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.8.dist-info/RECORD",
-            "bytes": 113625,
-            "sha256": "3fed8d5fb951efbc51161e2b0e6ab3d31c44fcfffdc87c3092757c21f6cb33b3"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all-1.4.9.dist-info/RECORD",
+            "bytes": 113632,
+            "sha256": "471bc8d319485f388cff01a0f311c668eeb5c201d749fb457cee6967feb8ea85"
           }
         ],
         "dependency_origins": [
@@ -1115,7 +1115,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/dag_ml/_dag_ml.abi3.so",
             "bytes": 41309632,
             "sha256": "b70ab301a91826f114995ee8681b8293e1df9e0eb05cbf07ef1d00cff9e12a60"
           },
@@ -1123,23 +1123,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_core/_native.abi3.so",
             "bytes": 40305872,
             "sha256": "5c951bd3fd53f605ad8046ab2692e1ef1cfd660d6c140f197c59c6f45e4eeeb7"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
-            "bytes": 13379312,
-            "sha256": "528a2c50ab9e2084d92e418311f141722ec72459fc3f71db90b260be3ff939a7"
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/nirs4all_io/_native.abi3.so",
+            "bytes": 13299728,
+            "sha256": "b5812444e2bc67091d264a41e7e28bc32e3fd12977a02a5538c1a4c00edcbbb2"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "/mnt/c/Temp/nirs4all-sdk148-20261009/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
+            "artifact_path": "/mnt/c/Temp/nirs4all-sdk149-20261016/linux-prefix/lib/python3.11/site-packages/n4m/lib/libn4m.so",
             "bytes": 5449304,
             "sha256": "cd1b370691c599b6fed66d3e389cd99a9ded565de3ab58ac2a6dd744d1cf0385"
           }
@@ -1202,11 +1202,11 @@
         "source_artifacts": [
           {
             "name": "sdk-installed-record",
-            "version": "1.4.8",
+            "version": "1.4.9",
             "origin": "Actual candidate SDK wheel installed without editable hooks",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.8.dist-info\\RECORD",
-            "bytes": 113633,
-            "sha256": "77738934d84eb9e6bc7d0f355caeae2a7d458ef8f2fd1f66f82bbcff51c630bb"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all-1.4.9.dist-info\\RECORD",
+            "bytes": 113640,
+            "sha256": "8b0bbe68b3fe21b2479687a342a76ae0f905cd43ed937e84cafd2e4731ba0a91"
           }
         ],
         "dependency_origins": [
@@ -1214,7 +1214,7 @@
             "name": "dag-native",
             "version": "0.3.41",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\dag_ml\\_dag_ml.pyd",
             "bytes": 34428928,
             "sha256": "8e6d2d7f337f5391ac56eab30fcf9142652b574013a74c094e08001e7ca48941"
           },
@@ -1222,23 +1222,23 @@
             "name": "core-native",
             "version": "0.4.5",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_core\\_native.pyd",
             "bytes": 32053760,
             "sha256": "fb178475a65a86747c555b7ff5daa02822ad052046153d25c5498cf44828ceb4"
           },
           {
             "name": "io-native",
-            "version": "0.2.6",
+            "version": "0.2.9",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
-            "bytes": 9682432,
-            "sha256": "c3504a6a602e9bcb614a4ce8f8768613827ed1ff122feceae432fd6b6c5f616a"
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\nirs4all_io\\_native.pyd",
+            "bytes": 9593344,
+            "sha256": "83bedd2f560f5d4e4bba7b0e52e479fe9599c2c5afb2171edb7761051f36d439"
           },
           {
             "name": "methods-native",
             "version": "1.3.4",
             "origin": "Public PyPI wheel installed in the dedicated candidate prefix",
-            "artifact_path": "C:\\Temp\\nirs4all-sdk148-20261009\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
+            "artifact_path": "C:\\Temp\\nirs4all-sdk149-20261016\\windows-prefix\\Lib\\site-packages\\n4m\\lib\\n4m.dll",
             "bytes": 3863552,
             "sha256": "daf98de3fe85b8c7ab9ce432f7e74a6a61f74f8ac3045ec0d8c5a2060ca912c9"
           }
@@ -1246,7 +1246,7 @@
       }
     }
   ],
-  "source_basis": "SDK 1.4.8 source commit 298dfc572917ef8626f478e35cd7478c3378b317; fresh direct Linux and native Windows captures with newly downloaded public runtime wheels",
+  "source_basis": "SDK 1.4.9 source commit 298dfc572917ef8626f478e35cd7478c3378b317; fresh direct Linux and native Windows captures with newly downloaded public runtime wheels",
   "qualification_limits": [
     "CPU qualifiers use CUDA hidden; the separate real PyTorch GPU regression passed with CUDA visible.",
     "Installed qualification covers the 45 provider/HPO matrix cases, U07 replay, native quickstart, metadata and dependency checks on each OS."
