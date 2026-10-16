@@ -1,0 +1,146 @@
+{
+  "captured_at": "2026-10-16T13:36:21.764492+00:00",
+  "artifacts": [
+    {
+      "host": "linux",
+      "name": "dag-ml",
+      "version": "0.3.41",
+      "filename": "dag_ml-0.3.41-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-linux/dag_ml-0.3.41-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "bytes": 12001480,
+      "sha256": "11fda379b6c9746deed561d08b768ee182222e07af1c9db508ac72b83a84e944",
+      "public_url": "https://files.pythonhosted.org/packages/ee/ea/fb3ebc907814c607bfe11acf1a7171008e8c12db4f78b216d600e596b423/dag_ml-0.3.41-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "registry_url": "https://pypi.org/pypi/dag-ml/0.3.41/json"
+    },
+    {
+      "host": "linux",
+      "name": "dag-ml-data",
+      "version": "0.2.13",
+      "filename": "dag_ml_data-0.2.13-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-linux/dag_ml_data-0.2.13-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "bytes": 1013024,
+      "sha256": "6f6336bdefd7475791cc961cc5b12f65747be3d4100d1e013e2d721448ad9497",
+      "public_url": "https://files.pythonhosted.org/packages/3d/de/4e84acc4d11eca973772655dd9982d6622c8f89730eeb45fdc7d9859623d/dag_ml_data-0.2.13-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "registry_url": "https://pypi.org/pypi/dag-ml-data/0.2.13/json"
+    },
+    {
+      "host": "linux",
+      "name": "nirs4all-core",
+      "version": "0.4.5",
+      "filename": "nirs4all_core-0.4.5-cp311-abi3-manylinux_2_28_x86_64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-linux/nirs4all_core-0.4.5-cp311-abi3-manylinux_2_28_x86_64.whl",
+      "bytes": 11854914,
+      "sha256": "20986b7f16fa8f02bf162e58d3d11b3f2f37f9e638414e181226faa81efc4cdc",
+      "public_url": "https://files.pythonhosted.org/packages/ac/80/9ce911f92c8dc4d0269102257358d6423cda4ee44dd58ebca5320686ced9/nirs4all_core-0.4.5-cp311-abi3-manylinux_2_28_x86_64.whl",
+      "registry_url": "https://pypi.org/pypi/nirs4all-core/0.4.5/json"
+    },
+    {
+      "host": "linux",
+      "name": "nirs4all-io",
+      "version": "0.2.9",
+      "filename": "nirs4all_io-0.2.9-cp311-abi3-manylinux_2_34_x86_64.whl",
+      "path": "C:\\Temp\\nirs4all-sdk149-20261016\\public-linux\\nirs4all_io-0.2.9-cp311-abi3-manylinux_2_34_x86_64.whl",
+      "bytes": 3941701,
+      "sha256": "2f91d700d3b2125e9e190633c26b28cd6c0c923b7363a79c72c5ac9279a24545",
+      "public_url": "https://files.pythonhosted.org/packages/18/61/aad79b5b8278c4ee7eff911982044113e06647a112eca29409511a733658/nirs4all_io-0.2.9-cp311-abi3-manylinux_2_34_x86_64.whl",
+      "registry_url": "https://pypi.org/pypi/nirs4all-io/0.2.9/json"
+    },
+    {
+      "host": "linux",
+      "name": "nirs4all-methods",
+      "version": "1.3.4",
+      "filename": "nirs4all_methods-1.3.4-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-linux/nirs4all_methods-1.3.4-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 5980755,
+      "sha256": "713c9d7480ca7e402046aa8a59c8e7dbc10d8b48a8805b17c5e4a36a5e4e4d8a",
+      "public_url": "https://files.pythonhosted.org/packages/fa/af/45c0c853ab550e0803612600869bfd32f61816f8dcaa49c9d6c44834cb2b/nirs4all_methods-1.3.4-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "registry_url": "https://pypi.org/pypi/nirs4all-methods/1.3.4/json"
+    },
+    {
+      "host": "linux",
+      "name": "pls4all",
+      "version": "1.3.4",
+      "filename": "pls4all-1.3.4-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-linux/pls4all-1.3.4-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 5766151,
+      "sha256": "5741f35e947be6d8d1e43e8624c690dafe8d91247ac0851cdb304904f57b2c17",
+      "public_url": "https://files.pythonhosted.org/packages/62/8e/449524397d61ec508c6704eea7883cd5b0fdecbeca640e01b5d06df76026/pls4all-1.3.4-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "registry_url": "https://pypi.org/pypi/pls4all/1.3.4/json"
+    },
+    {
+      "host": "windows",
+      "name": "dag-ml",
+      "version": "0.3.41",
+      "filename": "dag_ml-0.3.41-cp311-abi3-win_amd64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-windows/dag_ml-0.3.41-cp311-abi3-win_amd64.whl",
+      "bytes": 11090165,
+      "sha256": "08e7ae38892381452d2ef36faf9b1205c748fde031fd0fbee003ac6725488221",
+      "public_url": "https://files.pythonhosted.org/packages/ac/ce/079298d511d049815be849da48c6bb26584ae0b8c5ec37b3e8402fea2803/dag_ml-0.3.41-cp311-abi3-win_amd64.whl",
+      "registry_url": "https://pypi.org/pypi/dag-ml/0.3.41/json"
+    },
+    {
+      "host": "windows",
+      "name": "dag-ml-data",
+      "version": "0.2.13",
+      "filename": "dag_ml_data-0.2.13-cp311-abi3-win_amd64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-windows/dag_ml_data-0.2.13-cp311-abi3-win_amd64.whl",
+      "bytes": 815208,
+      "sha256": "cf4478af0df7f4976c89b44935485c2ccfe7174b270db7c50cde9f92d0974184",
+      "public_url": "https://files.pythonhosted.org/packages/14/45/6f1639014ed55b00c17e20e2f62aef912759472ad5bd1d0061d80e496a93/dag_ml_data-0.2.13-cp311-abi3-win_amd64.whl",
+      "registry_url": "https://pypi.org/pypi/dag-ml-data/0.2.13/json"
+    },
+    {
+      "host": "windows",
+      "name": "nirs4all-core",
+      "version": "0.4.5",
+      "filename": "nirs4all_core-0.4.5-cp311-abi3-win_amd64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-windows/nirs4all_core-0.4.5-cp311-abi3-win_amd64.whl",
+      "bytes": 10759265,
+      "sha256": "12a7b4c05dabbf2d17526e71d86bf9f6da189a3ca19c3d5fe70e74e5684bf095",
+      "public_url": "https://files.pythonhosted.org/packages/52/ab/78c70d90596884549c64fadc4be5b5d90ce2d72fd415f23d3ffc6cbca0fb/nirs4all_core-0.4.5-cp311-abi3-win_amd64.whl",
+      "registry_url": "https://pypi.org/pypi/nirs4all-core/0.4.5/json"
+    },
+    {
+      "host": "windows",
+      "name": "nirs4all-io",
+      "version": "0.2.9",
+      "filename": "nirs4all_io-0.2.9-cp311-abi3-win_amd64.whl",
+      "path": "C:\\Temp\\nirs4all-sdk149-20261016\\public-windows\\nirs4all_io-0.2.9-cp311-abi3-win_amd64.whl",
+      "bytes": 3176433,
+      "sha256": "ea95558e20c5f58f95fc23ccb49ce73d8bf3aca96bb4b2f2f206d44c12684793",
+      "public_url": "https://files.pythonhosted.org/packages/b6/ec/caeaff7e540eaabcb43fcd73c5a440117b22ded6d87571fd234adfa11d9b/nirs4all_io-0.2.9-cp311-abi3-win_amd64.whl",
+      "registry_url": "https://pypi.org/pypi/nirs4all-io/0.2.9/json"
+    },
+    {
+      "host": "windows",
+      "name": "nirs4all-methods",
+      "version": "1.3.4",
+      "filename": "nirs4all_methods-1.3.4-py3-none-win_amd64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-windows/nirs4all_methods-1.3.4-py3-none-win_amd64.whl",
+      "bytes": 2027433,
+      "sha256": "48e6106aea56bb92ae9539b4e218631c6e36fe10acac19a9bc97c5dc020a79ae",
+      "public_url": "https://files.pythonhosted.org/packages/14/3e/b2d12d4f4d066a925a2f0f373b1267dfbc92b069509fa6b0481c3af7f5e7/nirs4all_methods-1.3.4-py3-none-win_amd64.whl",
+      "registry_url": "https://pypi.org/pypi/nirs4all-methods/1.3.4/json"
+    },
+    {
+      "host": "windows",
+      "name": "pls4all",
+      "version": "1.3.4",
+      "filename": "pls4all-1.3.4-py3-none-win_amd64.whl",
+      "path": "/mnt/c/Temp/nirs4all-sdk148-20261009/public-windows/pls4all-1.3.4-py3-none-win_amd64.whl",
+      "bytes": 1768236,
+      "sha256": "0ac7840e6eb7722cd02bc9e3a1dd46d8159aefe09b891048ae23d47398fd1a29",
+      "public_url": "https://files.pythonhosted.org/packages/c1/8c/647b92e2d489ee237b1c5da18d9a77602f0347a53c5095410c2273268f5a/pls4all-1.3.4-py3-none-win_amd64.whl",
+      "registry_url": "https://pypi.org/pypi/pls4all/1.3.4/json"
+    },
+    {
+      "name": "nirs4all",
+      "version": "1.4.9",
+      "origin": "source-built",
+      "source_commit": "02e393cfeca9033f91c26b402583006914dcd7ed",
+      "path": "C:\\Temp\\nirs4all-sdk149-20261016\\dist\\nirs4all-1.4.9-py3-none-any.whl",
+      "bytes": 3262625,
+      "sha256": "d2da81c7fffb87c58d7e2ddeba5f66f5f34068a875e264a9732a36a7d2fb27a9"
+    }
+  ]
+}
