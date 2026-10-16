@@ -100,7 +100,7 @@ dependencies = [
     "dag-ml-data>=0.2.13,<0.3",
     # Dataset inspection and Studio Playground loading call the native IO
     # bridge directly, so the published base wheel must close that runtime.
-    "nirs4all-io>=0.2.5,<0.3",
+    "nirs4all-io>=0.2.10,<0.3",
     # The default portable execution lane must work after a base installation.
     "nirs4all-core>=0.4.5,<0.5",
     "nirs4all-methods>=1.3.2,<2",
