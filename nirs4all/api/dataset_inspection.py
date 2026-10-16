@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import pandas as pd
 
 from nirs4all.api.dataset_documents import normalize_dataset_document
 
@@ -212,8 +213,9 @@ def _target_distribution(values: np.ndarray, regression: bool) -> dict[str, Any]
             "min": np.min(finite), "max": np.max(finite), "mean": np.mean(finite), "std": np.std(finite),
             "histogram": [{"bin": edge, "count": int(count)} for edge, count in zip(edges[:-1], counts, strict=True)],
         })
-    classes, counts = np.unique(values, return_counts=True)
-    return {"type": "classification", "n_samples": len(values), "classes": [str(value) for value in classes],
+    valid = np.isfinite(values) if np.issubdtype(values.dtype, np.number) else ~pd.isna(values)
+    classes, counts = np.unique(values[valid], return_counts=True)
+    return {"type": "classification", "n_samples": len(values), "missing_count": int((~valid).sum()), "classes": [str(value) for value in classes],
             "class_counts": {str(value): int(count) for value, count in zip(classes, counts, strict=True)}}
 
 
