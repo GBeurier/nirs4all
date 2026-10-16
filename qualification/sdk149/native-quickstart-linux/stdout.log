@@ -9,4 +9,4 @@ collected 1 item
 source/tests/integration/api/test_installed_native_quickstart.py .       [100%]
 
 - generated xml file: /mnt/c/Temp/nirs4all-sdk149-20261016/linux-quickstart-junit.xml -
-============================== 1 passed in 12.54s ==============================
+============================== 1 passed in 28.05s ==============================
