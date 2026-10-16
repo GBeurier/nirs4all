@@ -1,0 +1,5 @@
+
+# Qualification reports retain their observed bytes, including Windows CRLF.
+qualification/sdk149/** -text -eol
+qualification/policy.json -text -eol
+compat/local-qualification.json -text -eol
