@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.10] — 2026-10-16
+
+### Fixed
+
+- Materialize Studio file-backed training datasets through the IO owner, so
+  canonical NA policies work during both preview and pipeline execution.
+- Require IO 0.2.10 to preserve sample alignment when removing missing rows
+  across spectra, targets, metadata and preprocessing variations.
+
 
 ## [1.4.8] — 2026-10-09
 

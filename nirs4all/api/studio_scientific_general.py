@@ -142,6 +142,34 @@ def _inline_dataset_arrays(value: Any) -> Any:
     return value
 
 
+def _materialize_file_dataset(value: Any) -> Any:
+    """Use the IO owner for Studio's normalized file configurations.
+
+    The general DAG runner's historical DatasetConfigs constructor uses the
+    legacy per-file loaders. Those cannot consume canonical nested NA options
+    and cannot coordinate row removal across X, Y and metadata. Materialize
+    once through the same IO assembly as dataset inspection, then pass the
+    loaded SpectroDataset through the existing public execution boundary.
+    """
+    if isinstance(value, list):
+        return [_materialize_file_dataset(item) for item in value]
+    if isinstance(value, dict):
+        references = [value[key] for key in ("train_x", "test_x", "predict_x") if key in value]
+        def file_reference(item: Any) -> bool:
+            return isinstance(item, str) or (isinstance(item, list) and bool(item) and all(isinstance(path, str) for path in item))
+        if references and all(file_reference(item) for item in references):
+            from nirs4all.data.config import DatasetConfigs
+
+            from .dataset_documents import normalize_dataset_document
+
+            config = normalize_dataset_document(value)
+            task_type = config.pop("task_type", "auto")
+            # SDK task names are constructor overrides; IO owns its narrower
+            # wire vocabulary and infers the loaded target representation.
+            return DatasetConfigs.from_io(config, task_type=task_type).get_dataset_at(0)
+    return value
+
+
 def _validate_multimodal_array_budget(cohort: dict[str, Any]) -> None:
     """Bound declared array storage before IO materializes untrusted dtypes."""
     remaining = MAX_MULTIMODAL_ARRAY_BYTES
@@ -240,6 +268,7 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
     dataset = _inline_dataset_arrays(request["dataset"])
     _ambient_runtime_preflight()
     _preflight_optional_product_operators(request["pipeline"])
+    dataset = _materialize_file_dataset(dataset)
     pipeline = deserialize_component(request["pipeline"])
     if multimodal:
         run_options["refit"] = True
