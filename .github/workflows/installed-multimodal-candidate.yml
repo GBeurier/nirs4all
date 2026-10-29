@@ -10,7 +10,7 @@ name: Installed multimodal package build
       dag_ref:
         description: DAG-ML commit to qualify
         required: true
-        default: v0.3.41
+        default: v0.3.42
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -30,7 +30,7 @@ jobs:
     - uses: actions/checkout@v7
       with:
         repository: GBeurier/dag-ml
-        ref: ${{ inputs.dag_ref || 'v0.3.41' }}
+        ref: ${{ inputs.dag_ref || 'v0.3.42' }}
         path: candidate-dag
     - uses: actions/setup-python@v7
       with:
@@ -50,7 +50,7 @@ jobs:
       shell: bash
       run: |
         python -m pip install "dag-ml-data==0.2.13" \
-          "nirs4all-core==0.4.5" "nirs4all-methods==1.3.4" "pls4all==1.3.4" \
+          "nirs4all-core==0.4.6" "nirs4all-methods==1.3.9" "pls4all==1.3.9" \
           dist/dag_ml*.whl dist/nirs4all_io*.whl dist/nirs4all-*.whl
     - name: Verify installed package imports and versions
       shell: bash

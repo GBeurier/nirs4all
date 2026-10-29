@@ -57,6 +57,14 @@ def predict_captured_artifact(
     # label decoding is applied after the native result has been validated.
     if isinstance(estimator, _DagmlExportedModel) and y_transform is None:
         estimator, y_transform = estimator.estimator, estimator.y_transform
+    from .target_domains import validate_captured_bin_domain
+
+    captured_domain = validate_captured_bin_domain(y_transform)
+    if captured_domain is not None:
+        from .target_domains import fold_local_domains_available
+
+        if not fold_local_domains_available():
+            raise DagMlUnavailable("captured fold-local targets require native target-domain schema version 1 for replay")
     from .named_torch_estimator import DagMLNamedTorchEstimator
 
     named_origin = None
@@ -129,6 +137,15 @@ def predict_captured_artifact(
         raise DagMlUnsupported("one captured artifact requires its concrete single-model replay topology")
     model_node = models[0]
     model_id = model_node["id"]
+    if captured_domain is not None:
+        policy, domain = captured_domain
+        # Replay compiles its own node identity while retaining the exact
+        # historical REFIT state and training cohort as native provenance.
+        dsl.setdefault("metadata", {}).update({
+            "target_domain_policy": {**policy, "node_id": model_id},
+            "target_domain_refit": json.loads(json.dumps(domain)),
+        })
+        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests).graph.to_dict()
     if named_origin is not None and (model_node != named_origin["graph_node"] or names != named_origin["target_names"]):
         raise ValueError("named Torch replay graph or targets disagree with its completed REFIT owner")
     identity = mint_identity(spectro)
@@ -226,6 +243,11 @@ def predict_captured_artifact(
             "values": values.tolist(), "target_names": names,
         }
         result = _build_result(task, [block], [], {})
+        if captured_domain is not None:
+            validated = validate_captured_bin_domain(y_transform)
+            if validated != captured_domain:
+                raise ValueError("PREDICT changed its captured REFIT target domain")
+            result["lineage"]["target_domain"] = json.loads(json.dumps(captured_domain[1]))
         if bound_views is not None:
             result["consumed_data_views"] = bound_views.consumed_data_views()
         return result
@@ -260,6 +282,8 @@ def predict_captured_artifact(
     if late_contract is not None:
         evidence["late_partial_refit_contract"] = json.loads(json.dumps(late_contract))
         evidence["late_partial_refit_fingerprint"] = artifact.get("late_partial_refit_fingerprint")
+    if captured_domain is not None:
+        evidence["target_domain"] = json.loads(json.dumps(captured_domain[1]))
     return (values.ravel() if len(names) == 1 else values), evidence
 
 

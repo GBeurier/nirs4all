@@ -1091,6 +1091,9 @@ def _dispatch_run(
     resolved_task_type = getattr(spectro, "task_type", None)
     if resolved_task_type is None:
         resolved_task_type = detect_task_type(np.asarray(spectro.y({"partition": "train"})))
+    from .target_capture import pipeline_task_type
+
+    resolved_task_type = pipeline_task_type(list(pipeline), str(resolved_task_type))
     is_classification = "classif" in str(resolved_task_type)
     # CV-selection metric MUST mirror legacy Predictions._resolve_effective_metric: its DEFAULT for a
     # classification candidate is `balanced_accuracy` (NOT plain `accuracy`), so a classification run on
@@ -1107,6 +1110,19 @@ def _dispatch_run(
                 f"engine='dag-ml' does not yet support overriding the native selection direction for metric {metric!r}; use direction={expected_objective!r} or choose a metric with the desired objective."
             )
     task_type = "classification" if is_classification else "regression"
+    if is_classification:
+        from .target_capture import validate_classification_target_domains
+
+        validate_classification_target_domains(list(pipeline), refit=refit, refit_top_k=refit_top_k)
+        from .target_domains import learned_bin_transform
+
+        if learned_bin_transform(list(pipeline)) is not None:
+            from .envelope import num_targets
+            from .steps import _split_pipeline
+
+            _, bin_splitter = _split_pipeline(list(pipeline))
+            if bin_splitter is not None and (num_targets(spectro) != 1 or getattr(spectro, "repetition", None) or finetune_overrides):
+                raise DagMlUnsupported("fold-local target domains support one complete target without repetition grouping or host finetuning")
 
     # Lower supported step-local NA replacement to a preceding native transform,
     # then unwrap equivalent `{"preprocessing": op}` wrappers before dispatch.
