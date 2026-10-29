@@ -7,7 +7,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY . .
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -c docker/native-constraints.txt . nirs4all-formats
 
 FROM python:3.11-slim
 
