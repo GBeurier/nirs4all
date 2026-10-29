@@ -263,6 +263,7 @@ jobs:
 
           '
     - uses: docker/build-push-action@v7
+      id: docker
       with:
         context: .
         push: true
@@ -270,6 +271,40 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+    - name: Verify published image native cohort
+      shell: bash
+      env:
+        IMAGE_DIGEST: ${{ steps.docker.outputs.digest }}
+        DOCKER_VERSION: ${{ needs.release-preflight.outputs.docker_version }}
+      run: |
+        set -euo pipefail
+        image="ghcr.io/${GITHUB_REPOSITORY,,}@$IMAGE_DIGEST"
+        sdk_version="${DOCKER_VERSION//-rc./rc}"
+        docker run --rm -i -e EXPECTED_SDK_VERSION="$sdk_version" "$image" -I -B - <<'PY'
+        import importlib.metadata as metadata
+        import json
+        import os
+        import n4m
+        from pls4all import Context
+
+        expected = {
+            "nirs4all": os.environ["EXPECTED_SDK_VERSION"],
+            "dag-ml": "0.3.43", "dag-ml-data": "0.2.13",
+            "nirs4all-core": "0.4.6", "nirs4all-io": "0.2.11",
+            "nirs4all-formats": "0.2.13",
+            "nirs4all-methods": "1.3.9", "pls4all": "1.3.9",
+        }
+        actual = {name: metadata.version(name) for name in expected}
+        assert actual == expected, actual
+        assert n4m.abi_version() == (2, 20, 0)
+        assert n4m.version().split("+abi.")[0] == actual["nirs4all-methods"]
+        with Context():
+            pass
+        print(json.dumps({"schema": "nirs4all.image-native-cohort.v1",
+                          "distributions": actual, "methods_abi": n4m.abi_version(),
+                          "native_context_opened": True}, sort_keys=True))
+        PY
+        docker run --rm "$image" -I -B -m pip check
   notify-conda-forge:
     needs:
     - release-preflight
