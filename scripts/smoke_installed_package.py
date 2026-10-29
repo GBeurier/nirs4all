@@ -27,7 +27,7 @@ def main() -> None:
     )
     distributions = {name: version(name) for name in ("nirs4all", "dag-ml", "dag-ml-data", "nirs4all-core", "nirs4all-methods", "nirs4all-io")}
     assert distributions["nirs4all"] == expected, distributions
-    assert Version("0.3.42") <= Version(distributions["dag-ml"]) < Version("0.4"), distributions
+    assert Version("0.3.43") <= Version(distributions["dag-ml"]) < Version("0.4"), distributions
     assert Version("0.4.6") <= Version(distributions["nirs4all-core"]) < Version("0.5"), distributions
     origins = {}
     for name in ("nirs4all", "dag_ml", "nirs4all_core", "n4m"):
