@@ -52,7 +52,7 @@ jobs:
 
       - name: Install nirs4all package
         run: |
-          python -m pip install --only-binary=:all: "dag-ml==0.3.42" "dag-ml-data==0.2.13"
+          python -m pip install --only-binary=:all: "dag-ml==0.3.43" "dag-ml-data==0.2.13"
           python -m pip install -e .
 
       - name: Build documentation
@@ -103,7 +103,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -r docs/readthedocs.requirements.txt
-          python -m pip install --only-binary=:all: "dag-ml==0.3.42" "dag-ml-data==0.2.13"
+          python -m pip install --only-binary=:all: "dag-ml==0.3.43" "dag-ml-data==0.2.13"
           python -m pip install -e .
 
       - name: Check external links
