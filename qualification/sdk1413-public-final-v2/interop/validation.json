@@ -1,0 +1,38 @@
+{
+  "version": "1.4.13",
+  "build_source_sha": "1b97a3039446dcd1752f0c460b0eddeda3860b0b",
+  "runtime_guard_source_sha": "2a4704302690df00337b2a96e144d5b1e2d65a27",
+  "wheel_sha256": "93eb4b43686e182001e4408faf0abd60e968eb660de8507348698fec728b95e3",
+  "wheel_bytes": 3255565,
+  "independent_runtime_guard_review": "Parent agent approved the exact one-line format admission diff; other guards unchanged",
+  "source_portable_tests": {
+    "passed": 74,
+    "skipped": 0,
+    "captured_runtime_source_sha": "2a4704302690df00337b2a96e144d5b1e2d65a27",
+    "runtime_fingerprints_unchanged_for_final_metadata_candidate": true,
+    "junit": "source-portable-junit.xml"
+  },
+  "final_installed_wire_tests": {
+    "linux": {
+      "passed": 12,
+      "skipped": 0,
+      "junit": "installed-wire-linux-junit.xml"
+    },
+    "windows": {
+      "passed": 12,
+      "skipped": 0,
+      "junit": "installed-wire-windows-junit.xml"
+    }
+  },
+  "real_r_python_import_predict_retrain_export": "Passed against final installed candidate with Python Methods/PLS1.3.9; original Rv3 fixture unchanged",
+  "qualification": {
+    "actual_installed_gates": 12,
+    "skipped": 0,
+    "runtime_inputs": 2016,
+    "receipt_sha256": "7da7f22be89f3269fd2abf0d3f6742dc13a97a7457e011bd77bf9f41fd070544"
+  },
+  "metadata_gate": "passed: all citation/release references1.4.13",
+  "docker_cohort": "Seven exact native provider pins match qualified cohort; CI probes published image by digest, version, nativeABI/context, pip check",
+  "local_docker_started": false,
+  "previous_candidate_proofs_preserved": "qualification/sdk1413-public-final/; previous wheel355b is superseded by final93eb after citation metadata alignment"
+}
