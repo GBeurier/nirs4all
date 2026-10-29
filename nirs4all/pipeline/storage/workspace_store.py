@@ -180,6 +180,18 @@ def _jittered_delay(base: float, attempt: int) -> float:
     return float(base * (2**attempt) * (0.5 + random.random() * 0.5))
 
 
+def _consistent_read(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Keep provenance validation and ranked reads in one SQLite snapshot."""
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        with self.transaction():
+            return func(self, *args, **kwargs)
+
+    return wrapper
+
+
 def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator that retries the wrapped method on SQLite lock errors.
 
@@ -702,8 +714,34 @@ class WorkspaceStore:
             summary: Free-form summary dictionary persisted alongside the
                 run record.
         """
-        # COMPLETE_RUN param order: [summary, run_id]
-        self._execute_with_retry(COMPLETE_RUN, [_to_json(summary), run_id])
+        from .target_domain_summary import KEY, _contexts, _document, merge_contexts
+
+        with self._lock:
+            connection = self._ensure_open()
+            row = connection.execute("SELECT summary FROM runs WHERE run_id=?", [run_id]).fetchone()
+            existing = _document(row[0]) if row is not None else {}
+            if KEY in existing:
+                summary = merge_contexts(summary, _contexts(existing))
+            self._execute_with_retry(COMPLETE_RUN, [_to_json(summary), run_id])
+
+    def _publish_target_domain_contexts(self, run_id: str, contexts: dict[str, dict[str, str]]) -> None:
+        """Persist native chain contexts in existing Store-v5 run metadata."""
+        from .target_domain_summary import _document, merge_contexts
+
+        with self._lock:
+            connection = self._ensure_open()
+            row = connection.execute("SELECT summary FROM runs WHERE run_id=?", [run_id]).fetchone()
+            if row is None:
+                raise ValueError("Target-domain contexts require an existing run")
+            for chain_id in contexts:
+                owner = connection.execute(
+                    "SELECT p.run_id FROM chains c JOIN pipelines p ON p.pipeline_id=c.pipeline_id WHERE c.chain_id=?",
+                    [chain_id],
+                ).fetchone()
+                if owner is None or owner[0] != run_id:
+                    raise ValueError("Target-domain context chain belongs to a different run")
+            summary = merge_contexts(_document(row[0]), contexts)
+            self._execute_with_retry("UPDATE runs SET summary=? WHERE run_id=?", [_to_json(summary), run_id])
 
     def fail_run(self, run_id: str, error: str) -> None:
         """Mark a run as failed.
@@ -1213,6 +1251,11 @@ class WorkspaceStore:
         """
         with self._lock:
             conn = self._ensure_open()
+            from .target_domain_summary import chain_contexts, copy_macro_summary
+
+            if chain_contexts(conn, [chain_id]).get(chain_id) is not None:
+                copy_macro_summary(conn, chain_id)
+                return
 
             # --- CV averages ---
             cv_row = conn.execute(
@@ -1577,12 +1620,18 @@ class WorkspaceStore:
 
         with self._lock:
             conn = self._ensure_open()
+            from .target_domain_summary import chain_contexts, copy_macro_summary
 
-            self._bulk_chain_setup_temp_table(conn, chain_ids)
-            self._bulk_chain_update_scalar_fields(conn)
-            self._bulk_chain_update_cv_scores(conn)
-
-            conn.execute("DROP TABLE IF EXISTS _bulk_chain_ids")
+            contexts = chain_contexts(conn, chain_ids)
+            ordinary = [chain_id for chain_id in chain_ids if contexts.get(chain_id) is None]
+            if ordinary:
+                self._bulk_chain_setup_temp_table(conn, ordinary)
+                self._bulk_chain_update_scalar_fields(conn)
+                self._bulk_chain_update_cv_scores(conn)
+                conn.execute("DROP TABLE IF EXISTS _bulk_chain_ids")
+            for chain_id, context in contexts.items():
+                if context is not None:
+                    copy_macro_summary(conn, chain_id)
 
     # =====================================================================
     # Prediction storage
@@ -2539,6 +2588,7 @@ class WorkspaceStore:
         )
         return self._fetch_pl(sql, params)
 
+    @_consistent_read
     def top_predictions(
         self,
         n: int,
@@ -2575,6 +2625,13 @@ class WorkspaceStore:
         Returns:
             A :class:`polars.DataFrame` with the top predictions.
         """
+        from .target_domain_summary import TargetDomainComparisonError
+
+        candidates = self.query_chain_summaries(dataset_name=dataset_name, task_type=task_type)
+        if "target_domain_context" in candidates.columns and candidates.get_column("target_domain_context").is_not_null().any():
+            raise TargetDomainComparisonError(
+                "Cannot rank individual fold predictions across fitted target domains; use native macro chain summaries."
+            )
         sql, params = build_top_predictions_query(
             n=n,
             metric=metric,
@@ -2594,6 +2651,7 @@ class WorkspaceStore:
     # Queries -- Aggregated Predictions
     # =====================================================================
 
+    @_consistent_read
     def query_aggregated_predictions(
         self,
         run_id: str | list[str] | None = None,
@@ -2629,6 +2687,14 @@ class WorkspaceStore:
             A :class:`polars.DataFrame` with one row per aggregated
             prediction entry.
         """
+        from .target_domain_summary import TargetDomainComparisonError
+
+        candidates = self.query_chain_summaries(run_id=run_id, pipeline_id=pipeline_id, chain_id=chain_id,
+                                                dataset_name=dataset_name, model_class=model_class, metric=metric)
+        if "target_domain_context" in candidates.columns and candidates.get_column("target_domain_context").is_not_null().any():
+            raise TargetDomainComparisonError(
+                "Cannot aggregate prediction arrays across fitted target domains; read native macro chain summaries."
+            )
         sql, params = build_chain_summary_query(
             run_id=run_id,
             pipeline_id=pipeline_id,
@@ -2668,6 +2734,7 @@ class WorkspaceStore:
         )
         return self._fetch_pl(sql, params)
 
+    @_consistent_read
     def query_top_aggregated_predictions(
         self,
         metric: str,
@@ -2704,6 +2771,17 @@ class WorkspaceStore:
             A :class:`polars.DataFrame` with the top *n* aggregated
             predictions.
         """
+        from .target_domain_summary import TargetDomainComparisonError, validate_comparison
+
+        candidates = self.query_chain_summaries(
+            run_id=filters.get("run_id"), pipeline_id=filters.get("pipeline_id"), dataset_name=filters.get("dataset_name"),
+            model_class=filters.get("model_class"), metric=metric,
+        )
+        contexts = self._stored_target_contexts(candidates)
+        validate_comparison(contexts)
+        native_scope = any(value is not None for value in contexts.values())
+        if native_scope and score_scope != "cv":
+            raise TargetDomainComparisonError("Native target domains require explicit macro CV summaries; no pooled scope is available")
         if ascending is None:
             ascending = _infer_metric_ascending(metric)
 
@@ -2717,14 +2795,33 @@ class WorkspaceStore:
             pipeline_id=filters.get("pipeline_id"),
             dataset_name=filters.get("dataset_name"),
             model_class=filters.get("model_class"),
-            score_scope=score_scope,
+            score_scope=None if native_scope else score_scope,
         )
-        return self._fetch_pl(sql, params)
+        return self._with_stored_target_contexts(self._fetch_pl(sql, params))
+
+    def _stored_target_contexts(self, frame: pl.DataFrame) -> dict[str, dict[str, Any] | None]:
+        from .target_domain_summary import chain_contexts
+
+        if frame.is_empty() or "chain_id" not in frame.columns:
+            return {}
+        with self._lock:
+            return chain_contexts(self._ensure_open(), frame.get_column("chain_id").to_list())
+
+    def _with_stored_target_contexts(self, frame: pl.DataFrame) -> pl.DataFrame:
+        contexts = self._stored_target_contexts(frame)
+        if not contexts:
+            return frame
+        ids = frame.get_column("chain_id").to_list()
+        return frame.with_columns(
+            pl.Series("cv_summary_fold_id", [(contexts.get(key) or {}).get("cv_summary_fold_id") for key in ids], dtype=pl.String),
+            pl.Series("target_domain_context", [(contexts.get(key) or {}).get("target_domain_context") for key in ids], dtype=pl.String),
+        )
 
     # =====================================================================
     # Queries -- Chain Summaries (v_chain_summary VIEW)
     # =====================================================================
 
+    @_consistent_read
     def query_chain_summaries(
         self,
         run_id: str | list[str] | None = None,
@@ -2764,7 +2861,7 @@ class WorkspaceStore:
             metric=metric,
             task_type=task_type,
         )
-        return self._fetch_pl(sql, params)
+        return self._with_stored_target_contexts(self._fetch_pl(sql, params))
 
     def count_chain_summaries(
         self,
@@ -2799,6 +2896,7 @@ class WorkspaceStore:
             return 0
         return int(df.row(0)[0])
 
+    @_consistent_read
     def query_top_chains(
         self,
         metric: str | None = None,
@@ -2827,6 +2925,13 @@ class WorkspaceStore:
         Returns:
             A :class:`polars.DataFrame` with the top *n* chain summaries.
         """
+        from .target_domain_summary import validate_comparison
+
+        candidates = self.query_chain_summaries(
+            run_id=filters.get("run_id"), pipeline_id=filters.get("pipeline_id"), dataset_name=filters.get("dataset_name"),
+            model_class=filters.get("model_class"), metric=metric,
+        )
+        validate_comparison(self._stored_target_contexts(candidates))
         if ascending is None:
             ascending = _infer_metric_ascending(metric) if metric else True
 
@@ -2841,7 +2946,7 @@ class WorkspaceStore:
             dataset_name=filters.get("dataset_name"),
             model_class=filters.get("model_class"),
         )
-        return self._fetch_pl(sql, params)
+        return self._with_stored_target_contexts(self._fetch_pl(sql, params))
 
     # =====================================================================
     # Queries -- Logs

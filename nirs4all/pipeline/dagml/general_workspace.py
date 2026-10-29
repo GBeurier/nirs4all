@@ -97,4 +97,6 @@ def predict_general_workspace_chain(loaded: dict[str, Any], data: Any) -> Any:
         loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"], target_names=loaded["target_names"],
     )
     evidence.update(loaded["metadata"])
-    return PredictResult(y_pred=values, metadata=evidence, model_name=loaded["chain"].get("model_name") or "")
+    from .prediction_targets import attach_categorical_scoring_context
+
+    return attach_categorical_scoring_context(PredictResult(y_pred=values, metadata=evidence, model_name=loaded["chain"].get("model_name") or ""), loaded["artifact"])

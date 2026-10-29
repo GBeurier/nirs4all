@@ -27,8 +27,8 @@ def main() -> None:
     )
     distributions = {name: version(name) for name in ("nirs4all", "dag-ml", "dag-ml-data", "nirs4all-core", "nirs4all-methods", "nirs4all-io")}
     assert distributions["nirs4all"] == expected, distributions
-    assert Version("0.3.41") <= Version(distributions["dag-ml"]) < Version("0.4"), distributions
-    assert Version("0.4.5") <= Version(distributions["nirs4all-core"]) < Version("0.5"), distributions
+    assert Version("0.3.43") <= Version(distributions["dag-ml"]) < Version("0.4"), distributions
+    assert Version("0.4.6") <= Version(distributions["nirs4all-core"]) < Version("0.5"), distributions
     origins = {}
     for name in ("nirs4all", "dag_ml", "nirs4all_core", "n4m"):
         module = importlib.import_module(name)
@@ -40,7 +40,7 @@ def main() -> None:
     assert callable(sdk.run)
     assert importlib.import_module("dag_ml").version() == distributions["dag-ml"]
     methods = importlib.import_module("n4m")
-    assert methods.abi_version()[:2] == (2, 17)
+    assert methods.abi_version()[:2] == (2, 20)
     assert methods.version().split("+abi.")[0] == distributions["nirs4all-methods"]
     library = Path(methods.library_path()).resolve()
     assert library.is_file() and not library.is_relative_to(source)

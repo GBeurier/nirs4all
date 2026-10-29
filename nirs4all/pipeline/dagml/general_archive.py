@@ -404,7 +404,9 @@ def predict_general_archive(
         metadata["selected_output"] = output
     if source_sample_ids is not None:
         metadata["source_sample_ids"] = source_sample_ids
-    return PredictResult(y_pred=values, metadata=metadata, model_name=loaded["model_name"])
+    from .prediction_targets import attach_categorical_scoring_context
+
+    return attach_categorical_scoring_context(PredictResult(y_pred=values, metadata=metadata, model_name=loaded["model_name"]), loaded["artifact"])
 
 
 def predict_general_result(result: Any, data: Any) -> PredictResult:
@@ -426,7 +428,9 @@ def predict_general_result(result: Any, data: Any) -> PredictResult:
     )
     metadata["portable"] = False
     metadata["training_evaluation"] = {name: item["evaluation"] for name, item in result.per_dataset.items() if "evaluation" in item}
-    return PredictResult(y_pred=values, metadata=metadata, model_name=result.best.get("model_name", ""))
+    from .prediction_targets import attach_categorical_scoring_context
+
+    return attach_categorical_scoring_context(PredictResult(y_pred=values, metadata=metadata, model_name=result.best.get("model_name", "")), artifact)
 
 
 def copy_general_archive(source: Path, target: str | Path, *, expected_fingerprint: str | None) -> Path:

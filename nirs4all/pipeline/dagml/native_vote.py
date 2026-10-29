@@ -25,6 +25,7 @@ def capture_vote_evidence(
     features: Callable[[list[str], bool, str], tuple[Any, dict[str, Any]]],
     predict: Callable[[list[str], bool, str], list[list[float]]],
     model_store: MutableMapping[Any, Any],
+    *, target_transform: Any = None,
 ) -> None:
     """Capture labelled fold/refit outputs; never fit or replace a native block."""
     dataset = getattr(resolver, "_dataset", None)
@@ -57,6 +58,8 @@ def capture_vote_evidence(
         )
         y_pred = np.asarray(values if values is not None else predict(ids, False, view_partition), dtype=float).reshape(len(ids), -1)
         y_true = np.asarray(resolver.resolve_targets(ids)["values"], dtype=float).reshape(len(ids), -1)
+        if target_transform is not None:
+            y_true = np.asarray(target_transform.transform(y_true), dtype=float).reshape(len(ids), -1)
         if y_pred.shape != y_true.shape or y_true.shape[1] != 1:
             raise ValueError("classification vote evidence requires one aligned target")
         probabilities = None

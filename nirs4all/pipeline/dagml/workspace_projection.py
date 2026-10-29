@@ -140,13 +140,33 @@ def publish_workspace_result(
                             original_row["workspace_path"] = str(workspace_path)
                             original_row["model_classname"] = by_id[original_row["id"]].get("model_classname", "")
                             original_row["preprocessings"] = by_id[original_row["id"]].get("preprocessings", "")
+                    contexts = {}
+                    for chain_key, chain_id in chain_ids.items():
+                        chain_rows = [row for row in rows if tuple(str(row.get(field, "")) for field in
+                                      ("model_name", "branch_id", "branch_name")) == chain_key]
+                        if not any(row.get("fold_id") == "macro" for row in chain_rows):
+                            continue
+                        identities = [(row.get("result_metadata") or {}).get("dagml_projection", {}).get("target_domain_context")
+                                      for row in chain_rows]
+                        if (any(not isinstance(identity, str) or not identity for identity in identities)
+                                or len(set(identities)) != 1):
+                            raise ValueError("Native workspace macro projection lost its captured target-domain context")
+                        contexts[chain_id] = {"cv_summary_fold_id": "macro", "target_domain_context": identities[0]}
+                    if contexts:
+                        store._publish_target_domain_contexts(run_id, contexts)
                     # Workspace readers consume the canonical denormalized chain
                     # summary, not the raw prediction rows. The native runner
                     # has no legacy executor to perform this publication step.
                     store.bulk_update_chain_summaries(list(chain_ids.values()))
-                    best = projection.top(1)
-                    assert not isinstance(best, dict)
-                    selected: Any = best[0] if best else rows[0]
+                    macro_rows = [row for row in rows if row.get("fold_id") == "macro"]
+                    if macro_rows:
+                        if len(macro_rows) != 1:
+                            raise ValueError("Native pipeline projection requires one macro report")
+                        selected: Any = macro_rows[0]
+                    else:
+                        best = projection.top(1)
+                        assert not isinstance(best, dict)
+                        selected = best[0] if best else rows[0]
                     store.complete_pipeline(
                         pipeline_id, selected.get("val_score"), selected.get("test_score"),
                         str(selected.get("metric", "")), 0,

@@ -292,6 +292,51 @@ the ADR-24 rollback path only with `engine="legacy"` explicitly.
 selectors; genuine native runtime or operator failures always propagate.
 Studio cannot select the compatibility route.
 
+For `engine="dag-ml"`, a concrete scikit-learn classifier or regressor determines
+its pipeline's task. The same continuous dataset can therefore feed separate
+regression and classification pipelines. A classifier after ordinal target
+discretization uses the fitted transform's class IDs for native score references,
+predictions and exported archive replay. It does not map class predictions back
+to representative continuous bin centers. The original dataset targets remain
+unchanged. Public successive model checkpoints resolve their tasks separately;
+a single native graph mixing regression and classification is refused.
+
+Cross-validation supports explicitly fixed `RangeDiscretizer(bins=[...])` cut
+points as the sole target-processing step. Each fold fits its target transform
+only on its training rows, and native classification scores share one declared
+class domain. Uniform/quantile ordinal `IntegerKBinsDiscretizer` or
+`KBinsDiscretizer`, and integer-count `RangeDiscretizer`, also support learned
+boundaries with DAG-ML target-domain schema v1 (minimum DAG-ML 0.3.42). This bounded
+profile requires KFold, one complete target, one terminal classifier, and one
+full-training refit. Native validation scores are averaged across folds for model
+selection (`fold_id="macro"`); each train/validation/test score uses that fold's
+own fitted bin map. No pooled OOF predictions, weighted ensembles or votes mix
+different maps. Score metadata and captured archives retain recipe, exact fitted
+boundaries, encoder versions, hashes and training sample IDs. PREDICT reuses the
+captured refit domain without fitting on the inference cohort.
+For scoring newly observed targets, `prediction.scoring_targets(y_observed,
+validity_mask=None)` applies the captured target map and the original SDK numeric
+conversion. Its versioned result carries `values`, `validity_mask`, the canonical
+`binary_classification`/`multiclass_classification` task for `eval_multi`, and the
+target-domain provenance. Missing, nonfinite and unseen input labels stay masked.
+The method preserves the original observations and returns `None` for prediction
+paths without this categorical projection. Its fitted context stays private to
+the live prediction result; serialized metadata alone cannot recreate the map.
+Combined results refuse a global `best` across pooled OOF and macrofold protocols,
+or across different target recipes/partitions. Inspect individual `result.runs`
+when comparing distinct target contexts.
+
+Learned bins remain supported with one full-training fit without CV. Such a run
+has no independent model-selection holdout when test also supplies validation;
+the existing no-split warning applies. Branch-local binning, repeated target
+processing, continuous transforms after binning, and learned CV with composed
+target transforms, repetition groups, collapsed bins, host finetuning or multiple
+refits, or Python-expanded candidate comparisons are outside the bounded profile
+and fail explicitly. An older native
+extension without the declared target-domain capability refuses learned CV
+before fitting. DAG-ML 0.3.42 is a local candidate until the dependency release
+train has been published; building this SDK source does not publish that train.
+
 The frozen public `nirs4all.run(...)` signature deliberately has no product
 execution-profile parameter. It remains the rollback-capable Python API through
 the R4 removal decision. Product integrations use a private strict boundary

@@ -1641,13 +1641,16 @@ def run_model_node(
     through a data-edge handle. Otherwise it reconstructs the upstream X-transform chain
     (e.g. SNV→PLS) into a sklearn ``Pipeline`` fitted on the model's fold-train rows. A
     ``y_transform_node`` (a nirs4all ``y_processing`` step — a floating graph node with no edge
-    to the model) is fit on fold-train ``y``, applied before fitting, and **inverse-transformed**
-    over the predictions, exactly reproducing nirs4all target scaling.
+    to the model) is fit on fold-train ``y`` and applied before fitting. Numeric
+    target scaling is inverted over predictions; classifiers after ordinal
+    binning retain class IDs and score against the transformed targets.
 
     ``sample_metadata`` (``{wire_id: {col: value}}``) lets a separation-branch model honor its
     ``branch_view`` selector: train/predict ids are restricted to the partition, and the held-out
     TEST prediction (the refit best_rmse path) is likewise restricted to the branch's partition.
     """
+    from .target_capture import CategoricalTargetTransform, _predicts_encoded_classes, has_categorical_target_output
+
     node_plan = task["node_plan"]
     node_id = node_plan["node_id"]
     controller_id = node_plan["controller_id"]
@@ -1673,6 +1676,10 @@ def run_model_node(
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
+    target_domain_policy = (graph_metadata or {}).get("target_domain_policy")
+    if target_domain_policy is not None and target_domain_policy.get("node_id") != node_id:
+        raise ValueError("fold-local target domain is bound to another model node")
+    target_domain = None
     named_input = (graph_node.get("metadata") or {}).get("dsl_model_input")
     named_artifact_ref = None
     if named_input is not None:
@@ -1751,6 +1758,13 @@ def run_model_node(
     if phase == "PREDICT":
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
+        if target_domain_policy is not None:
+            from .target_domains import validate_captured_bin_domain
+
+            captured_domain = validate_captured_bin_domain(y_transform)
+            if captured_domain is None or captured_domain[0] != target_domain_policy:
+                raise ValueError("PREDICT requires its original captured REFIT target domain")
+            target_domain = captured_domain[1]
         if named_input is not None and (
             not isinstance(estimator, DagMLNamedTorchEstimator)
             or getattr(estimator, "_nirs4all_named_model_input", None) != named_input
@@ -2041,6 +2055,17 @@ def run_model_node(
             y_fit = y_transform.fit_transform(y_train) if y_transform is not None else y_train
         else:
             y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
+        if _predicts_encoded_classes(model) and has_categorical_target_output(y_transform):
+            y_transform = CategoricalTargetTransform(y_transform)
+            y_transform.input_transformer_ = copy.deepcopy(resolver.target_decoder())
+        if target_domain_policy is not None:
+            from .target_domains import fitted_bin_domain
+
+            if not isinstance(y_transform, CategoricalTargetTransform):
+                raise ValueError("fold-local classification requires the declared categorical target transform")
+            target_domain = fitted_bin_domain(y_transform, fit_ids, target_domain_policy)
+            y_transform.target_domain_policy_ = copy.deepcopy(target_domain_policy)
+            y_transform.target_domain_ = copy.deepcopy(target_domain)
         if target_mask is not None and (not partial_profile or target_policy == "per_target"):
             fit_options["target_mask"] = np.asarray(target_mask, dtype=bool).reshape(y_fit.shape)
         transfer_provenance = None
@@ -2193,7 +2218,8 @@ def run_model_node(
             return [[float(value) for value in row] for row in scaled]
         with _gpu_device_scope(task, estimator):
             if proba_output or full_probabilities:
-                if y_transform is not None or not hasattr(estimator, "predict_proba"):
+                if ((y_transform is not None and not isinstance(y_transform, CategoricalTargetTransform))
+                        or not hasattr(estimator, "predict_proba")):
                     raise ValueError(f"classifier model {node_id!r} cannot provide probabilities for proba_mean")
                 if generated_views is not None:
                     generated_views.record_model_call(
@@ -2319,6 +2345,8 @@ def run_model_node(
         if proba_output:
             names = [json.dumps(float(label)) if partial_profile else str(label) for label in estimator.classes_]
         true_values = [[float(value) for value in row] for row in true_y] if multi_target else [[float(value)] for value in true_y]
+        if isinstance(y_transform, CategoricalTargetTransform):
+            true_values = np.asarray(y_transform.transform(np.asarray(true_values, dtype=float)), dtype=float).reshape(len(spec_ids), -1).tolist()
         predictions.append(
             {
                 "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
@@ -2343,7 +2371,8 @@ def run_model_node(
                 "target_names": [json.dumps(float(label)) if partial_profile else str(label) for label in estimator.classes_],
             })
         if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and not proba_output
-                and resolver._dataset.is_classification
+                and target_domain_policy is None
+                and (resolver._dataset.is_classification or isinstance(y_transform, CategoricalTargetTransform))
                 and callable(getattr(estimator, "predict_proba", None))):
             classes = np.asarray(estimator.classes_, dtype=float)
             features, options = _features(spec_ids, spec_include_augmented, view_partition)
@@ -2428,8 +2457,12 @@ def run_model_node(
 
     from .native_vote import capture_vote_evidence
 
-    capture_vote_evidence(task, resolver, estimator, predictions, train_ids, _features, _predict, model_store)
+    if target_domain_policy is None:
+        capture_vote_evidence(task, resolver, estimator, predictions, train_ids, _features, _predict, model_store,
+                              target_transform=y_transform if isinstance(y_transform, CategoricalTargetTransform) else None)
     result = _build_result(task, predictions, artifacts, artifact_handles, regression_targets, classification_probabilities)
+    if target_domain is not None:
+        result["lineage"]["target_domain"] = copy.deepcopy(target_domain)
     if generated_views is not None:
         reads = generated_views.consumed_data_views()
         if reads:
