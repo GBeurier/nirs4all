@@ -1,0 +1,62 @@
+alembic==1.20.1
+annotated-types==0.8.0
+attrs==26.1.0
+cloudpickle==3.1.2
+colorama==0.4.6
+colorlog==6.12.0
+contourpy==1.4.0
+cvmatrix==3.2.2
+cycler==0.12.1
+dag-ml @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/public-wheels/dag_ml-0.3.43-cp311-abi3-win_amd64.whl#sha256=dffe3e6d84671a373b3fb2967692f6b87189b9e187bc4cf3b8fd5cbbe883c677
+dag-ml-data @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/public-wheels/dag_ml_data-0.2.13-cp311-abi3-win_amd64.whl#sha256=cf4478af0df7f4976c89b44935485c2ccfe7174b270db7c50cde9f92d0974184
+fonttools==4.68.0
+h5py==3.16.0
+ikpls==6.1.2
+iniconfig==2.3.1
+joblib==1.6.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+kennard-stone==3.0.1
+kiwisolver==1.5.1
+Mako==1.4.3
+MarkupSafe==3.0.4
+matplotlib==3.11.2
+narwhals==2.28.0
+nirs4all @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/wheels/nirs4all-1.4.11-py3-none-any.whl#sha256=24a62ab698b26e1a39f18b6699854253df43d813e54a7e00bd00b218cef762a5
+nirs4all-core @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/public-wheels/nirs4all_core-0.4.6-cp311-abi3-win_amd64.whl#sha256=8c1ef38cb462cd4b78638e42b198f72551a25aa5cffd70cc948d8975140b0a80
+nirs4all-formats @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/public-wheels/nirs4all_formats-0.2.13-cp310-abi3-win_amd64.whl#sha256=491eff0da1a0751d33bdb4d25fb28d5b39f2eca3701e3d983cb528cb6b04ce42
+nirs4all-io @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/public-wheels/nirs4all_io-0.2.11-cp311-abi3-win_amd64.whl#sha256=780e8e254d488e0718b1a6d662cf0e6c9d5cbc13dadde8f75e44787a3b55156b
+nirs4all-methods @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/public-wheels/nirs4all_methods-1.3.9-py3-none-win_amd64.whl#sha256=aa9e2fdcd3eb7d55bcb2c4372daaa3cabb22cb26f3ef3176fc63a031087c20f4
+numpy==2.4.6
+optuna==5.0.0
+packaging==26.3
+pandas==3.1.0
+pillow==13.0.0
+pip==26.2.2
+pls4all @ file:///D:/workspace/nirs4all-release-20261029-sdk1411-public-final/public-wheels/pls4all-1.3.9-py3-none-win_amd64.whl#sha256=4e35ee92d2a6643a2bc21c60478b407278ee69a6d1124c05537abf80a403e05f
+pluggy==1.7.0
+polars==2.1.0
+polars-runtime-32==2.1.0
+pyarrow==26.0.0
+pybaselines==1.2.1
+pydantic==2.14.1
+pydantic_core==2.50.1
+Pygments==2.21.0
+pyopls==20.3.post1
+pyparsing==3.3.3
+pytest==9.2.0
+python-dateutil==3.0.0
+PyWavelets==1.10.0
+PyYAML==6.0.3
+referencing==0.37.0
+rpds-py==2026.9.1
+scikit-learn==1.9.1
+scipy==1.18.1
+six==1.17.0
+SQLAlchemy==2.1.6
+threadpoolctl==3.7.0
+tqdm==4.70.1
+trendfitter==0.0.6
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+tzdata==2026.6

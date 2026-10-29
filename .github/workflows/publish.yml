@@ -111,13 +111,14 @@ jobs:
     steps:
     - uses: actions/checkout@v6
       with:
+        fetch-depth: 0
         ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag)
           || github.ref }}
     - name: Free disk space
       uses: ./.github/actions/free-disk-space
     - uses: actions/setup-python@v7
       with:
-        python-version: '3.12'
+        python-version: '3.11'
         cache: pip
     - name: Verify version consistency
       if: github.event_name == 'release' || inputs.publish_release
@@ -133,12 +134,32 @@ jobs:
         \ nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION\"\n  exit 1\nfi\nif [[ -n \"$EXPECTED_TAG_SHA\" && \"$(git rev-parse\
         \ HEAD)\" != \"$EXPECTED_TAG_SHA\" ]]; then\n  echo '::error::Release tag changed after preflight.'\n  exit 1\nfi\n\
         echo \"Version verified: $PKG_VERSION\"\n"
-    - name: Build dists
-      run: 'python -m pip install --upgrade build
+    - name: Build the qualified distributions
+      shell: bash
+      run: |
+        python - <<'PY'
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import subprocess
+        import sys
 
-        python -m build --sdist --wheel --outdir dist
-
-        '
+        qualified = json.loads(Path("qualification/release-artifacts.json").read_text())
+        source = qualified["source_sha"]
+        subprocess.run(["git", "merge-base", "--is-ancestor", source, "HEAD"], check=True)
+        epoch = int(subprocess.check_output(["git", "show", "-s", "--format=%ct", source], text=True))
+        if epoch != qualified["source_date_epoch"]:
+            raise SystemExit("Qualified source timestamp differs from its immutable commit")
+        subprocess.run([sys.executable, "-m", "pip", "install", *qualified["build_requirements"]], check=True)
+        environment = {**os.environ, "SOURCE_DATE_EPOCH": str(epoch), "PYTHONHASHSEED": "0"}
+        subprocess.run([sys.executable, "-m", "build", "--no-isolation", "--sdist", "--wheel", "--outdir", "dist"], env=environment, check=True)
+        expected = qualified["wheel"]
+        wheel = Path("dist") / expected["filename"]
+        if wheel.stat().st_size != expected["bytes"] or hashlib.sha256(wheel.read_bytes()).hexdigest() != expected["sha256"]:
+            raise SystemExit("Built SDK wheel differs from the artifact qualified on Linux and Windows")
+        print("Qualified SDK wheel reproduced exactly:", expected["sha256"])
+        PY
     - uses: actions/upload-artifact@v7
       with:
         name: dist

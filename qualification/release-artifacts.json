@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "version": "1.4.11",
+  "source_sha": "bf913415b704362145912b944d483f4541eba369",
+  "source_date_epoch": 1793293816,
+  "build_requirements": ["build==1.6.1", "setuptools==84.2.1", "wheel==0.47.0"],
+  "wheel": {
+    "filename": "nirs4all-1.4.11-py3-none-any.whl",
+    "bytes": 3255553,
+    "sha256": "24a62ab698b26e1a39f18b6699854253df43d813e54a7e00bd00b218cef762a5"
+  }
+}
