@@ -45,7 +45,7 @@ jobs:
           python-version: "3.11"
       - name: Install qualified public native wheels
         run: |
-          python -m pip install --only-binary=:all: "dag-ml==0.3.42" "dag-ml-data==0.2.13"
+          python -m pip install --only-binary=:all: "dag-ml==0.3.43" "dag-ml-data==0.2.13"
       - name: Install (with docs, visualization, and explain extras)
         run: pip install -e ".[docs,viz,explain]"
       - name: Build HTML
@@ -61,7 +61,7 @@ jobs:
           python-version: "3.11"
       - name: Install qualified public native wheels
         run: |
-          python -m pip install --only-binary=:all: "dag-ml==0.3.42" "dag-ml-data==0.2.13"
+          python -m pip install --only-binary=:all: "dag-ml==0.3.43" "dag-ml-data==0.2.13"
       - name: Install
         run: pip install -e ".[viz]"
       - name: Run canonical on-ramp + reference examples

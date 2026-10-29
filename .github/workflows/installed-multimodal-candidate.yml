@@ -10,7 +10,7 @@ name: Installed multimodal package build
       dag_ref:
         description: DAG-ML commit to qualify
         required: true
-        default: v0.3.42
+        default: v0.3.43
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -30,7 +30,7 @@ jobs:
     - uses: actions/checkout@v7
       with:
         repository: GBeurier/dag-ml
-        ref: ${{ inputs.dag_ref || 'v0.3.42' }}
+        ref: ${{ inputs.dag_ref || 'v0.3.43' }}
         path: candidate-dag
     - uses: actions/setup-python@v7
       with:
