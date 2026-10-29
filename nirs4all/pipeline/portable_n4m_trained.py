@@ -223,7 +223,7 @@ class PortableN4MTrainedPipeline:
                     or info.n_components != 0 or info.n_features != output_width
                     or info.capabilities & 5 != 5):
                 raise ValueError("N4MM sparse PLS-DA descriptor does not match recipe")
-        elif (info.format_version != (2 if owner == "embedded_methods" else 1)
+        elif (info.format_version not in ((2, 3) if owner == "embedded_methods" else (1, 3))
               or info.algorithm != 0 or info.solver != 1 or info.deflation != 0
               or info.n_targets != 1 or info.n_components != model_node["params"]["n_components"]
               or info.n_features != output_width

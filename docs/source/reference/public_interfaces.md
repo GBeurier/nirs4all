@@ -356,7 +356,8 @@ terminal `PLSRegression` or the exact
 row-wise with `ddof=0`; Savitzky-Golay is smoothing-only (`deriv=0`,
 `delta=1.0`) with native `mode="interp"` and defaults `window_length=11`,
 `polyorder=3`; PLS keeps `scale=True` and its other public defaults. Raw PLS is
-serialized as N4MM format 1 and the embedded pipeline as format 2. Both scalar
+serialized as N4MM format 3 by Methods 1.3.7 and later, including component
+resolution state; legacy raw format 1 and embedded format 2 remain readable. Both scalar
 and multi-target regression are supported when target names are explicit.
 Anything outside this profile is refused before execution, with no legacy,
 pickle, plugin, or Python preprocessing fallback.
