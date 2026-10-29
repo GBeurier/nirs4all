@@ -13,6 +13,7 @@ the refitted model. Native reports and predictions remain authoritative.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -324,6 +325,7 @@ def _scores_to_run_result(
         return 2 if level == "sample" else 1
 
     by_key: dict[tuple[Any, str, str | None], dict[str, float]] = {}
+    domains_by_key: dict[tuple[Any, str, str | None], dict[str, Any]] = {}
     priorities: dict[tuple[Any, str, str | None], int] = {}
     # Native scalar reports may include metrics from both task families. Keep
     # the raw ScoreSet unchanged, but do not publish classification accuracy
@@ -340,8 +342,12 @@ def _scores_to_run_result(
             continue
         priorities[key] = priority
         by_key[key] = {name: float(value) for name, value in report["metrics"].items() if name.split(":", 1)[0] not in excluded_metrics}
+        domain = report.get("target_domain")
+        if domain is not None:
+            domains_by_key[key] = domain
 
     predictions = Predictions()
+    native_target_context: str | None = None
 
     # Per-sample prediction VALUES for the STRICT direct-block rows, indexed PER VARIANT so a row reads
     # its OWN variant's blocks (NO cross-variant y_pred leakage — see #55). Both the single-pipeline path
@@ -391,6 +397,11 @@ def _scores_to_run_result(
             kwargs["metadata"] = {"physical_sample_id": sample_ids}
             kwargs["y_true"] = y_true
             kwargs["y_pred"] = y_pred
+        domain_metadata = {
+            part: deepcopy(domains_by_key[(reference.get("variant_id"), reference["partition"], reference.get("fold_id"))])
+            for part, reference in (score_provenance or {}).items()
+            if (reference.get("variant_id"), reference["partition"], reference.get("fold_id")) in domains_by_key
+        }
         predictions.add_prediction(
             dataset_name=dataset_name,
             config_name=row_config_name,
@@ -408,6 +419,8 @@ def _scores_to_run_result(
                 "producer_node": producer,
                 "role": "refit" if refit_context == "standalone" else "crossval",
                 "score_provenance": score_provenance or {},
+                **({"target_domains": domain_metadata} if domain_metadata else {}),
+                **({"target_domain_context": native_target_context} if native_target_context is not None else {}),
                 "unavailable_partitions": [part for part in _CV_PARTITIONS if partition_blocks.get(part) is None],
             }},
             **kwargs,
@@ -462,7 +475,7 @@ def _scores_to_run_result(
     # the winner's avg with `None`; the portable Methods controller keeps the sole concrete
     # `variant:base` identity instead. Both are the same single-producer OOF evidence, so the lookup
     # below accepts the latter only when the former is absent.
-    cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id not in ("avg", "w_avg")))
+    cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id not in ("avg", "w_avg", "macro")))
     # Scheduler-owned Methods HPO deliberately persists only one terminal
     # sample-level OOF-average report per candidate.  It does not invent
     # fold-grain reports merely for the legacy compatibility table.  Preserve
@@ -480,6 +493,7 @@ def _scores_to_run_result(
         cv_variant_ids = [final_variant_id] + [variant_id for variant_id in cv_variant_ids if variant_id != final_variant_id]
 
     for variant_id in cv_variant_ids:
+        native_target_context = None
         is_winner = variant_id == final_variant_id
         # Per-variant config name / model name, looked up by the variant's OWN id (NOT its loop position),
         # so a sweep labels each variant by its own identity and the winner is labeled correctly even when
@@ -496,7 +510,7 @@ def _scores_to_run_result(
             if other_variant_id == variant_id
             and partition == "validation"
             and fold_id is not None
-            and fold_id not in ("avg", "w_avg")
+            and fold_id not in ("avg", "w_avg", "macro")
         ]
         # The cross-fold OOF average for THIS variant. dag-ml emits the avg with `variant_id = None` for
         # the SOLE producer (a single concrete pipeline or a merge node) and for the SWEEP WINNER; a sweep
@@ -511,6 +525,29 @@ def _scores_to_run_result(
             if avg is not None:
                 avg_variant_id = variant_id
         has_avg = avg is not None
+        macro = by_key.get((variant_id, "validation", "macro"))
+        macro_variant_id = variant_id
+        if macro is None and (is_winner or len(cv_variant_ids) == 1):
+            macro = by_key.get((None, "validation", "macro"))
+            macro_variant_id = None
+        if macro is not None:
+            if has_avg:
+                raise ValueError("native target-domain evidence cannot mix macrofold selection with pooled OOF scores")
+            avg = macro
+            avg_variant_id = macro_variant_id
+            from .training_contracts import tcv1_sha256
+
+            fold_domains = [
+                {"fold_id": fold_id, "domain": domains_by_key[(variant_id, "validation", fold_id)]}
+                for fold_id in sorted(fold_keys)
+                if (variant_id, "validation", fold_id) in domains_by_key
+            ]
+            if not fold_keys or len(fold_domains) != len(fold_keys):
+                raise ValueError("native macrofold classification lacks per-fold target-domain evidence")
+            native_target_context = tcv1_sha256({
+                "schema_version": 1, "protocol": "fold_local_macro", "dataset": dataset_name,
+                "metric": metric, "fold_domains": fold_domains,
+            })
         if avg is None and len(fold_keys) == 1:
             avg = by_key[(variant_id, "validation", fold_keys[0])]
 
@@ -552,6 +589,11 @@ def _scores_to_run_result(
                     arrays=_row_arrays(variant_id, "test", fold_id),
                     score_provenance=fold_provenance,
                 )
+
+        if macro is not None:
+            add("macro", "val", {"val": macro}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                score_provenance={"val": {"partition": "validation", "fold_id": "macro", "variant_id": macro_variant_id,
+                                          "purpose": "model_selection", "aggregation": "unweighted_mean_of_partition_metrics"}})
 
         if has_avg and avg is not None:
             def average_report(
@@ -616,8 +658,8 @@ def _scores_to_run_result(
             }
             if avg is not None:
                 final_provenance["val"] = {
-                    "partition": "validation", "fold_id": "avg" if has_avg else fold_keys[0],
-                    "variant_id": avg_variant_id if has_avg else variant_id, "purpose": "model_selection",
+                    "partition": "validation", "fold_id": "macro" if macro is not None else "avg" if has_avg else fold_keys[0],
+                    "variant_id": avg_variant_id if has_avg or macro is not None else variant_id, "purpose": "model_selection",
                 }
             # STRICT 2a-i/ii: the standalone-refit `(final, train)` row is filled from the WINNER's own
             # refit `(final, None)` PredictionBlock (refit predicting its own full train), and the
@@ -664,7 +706,9 @@ def _variant_cv_score(scores: dict[str, Any], metric: str) -> float:
     falls back to that SOLE ``(validation, fold)`` report, so a no-avg sweep still ranks on a real CV
     score instead of defaulting to variant 0. Returns NaN only when the run produced no validation score.
     """
-    avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") == "avg"), None)
+    avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") == "macro"), None)
+    if avg is None:
+        avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") == "avg"), None)
     if avg is None:
         avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") != "avg"), None)
     return float(avg["metrics"].get(metric, float("nan"))) if avg is not None else float("nan")

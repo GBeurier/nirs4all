@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.2.0, pluggy-1.7.0
+rootdir: /home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/source
+configfile: pyproject.toml
+plugins: anyio-4.15.1, xdist-3.8.0, platformdirs-4.14.0, timeout-2.4.0, asyncio-1.4.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+source/tests/integration/api/test_installed_native_quickstart.py .       [100%]
+
+- generated xml file: /home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/linux-quickstart-junit.xml -
+============================== 1 passed in 3.88s ===============================
