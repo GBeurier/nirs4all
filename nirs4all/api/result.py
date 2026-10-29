@@ -675,12 +675,13 @@ class _DagmlExportedModel:
 
     def predict_proba_numeric(self, X: Any) -> np.ndarray:
         """Replay every class-probability column of a fitted base classifier."""
-        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform, CategoricalTargetTransform
 
         self._validate_late_partial()
         predict_proba = getattr(self.estimator, "predict_proba", None)
         decoder_only = isinstance(self.y_transform, CapturedTargetTransform) and self.y_transform.transformer is None
-        if self.y_transform is not None and not decoder_only or not callable(predict_proba):
+        categorical = isinstance(self.y_transform, CategoricalTargetTransform)
+        if (self.y_transform is not None and not decoder_only and not categorical) or not callable(predict_proba):
             raise ValueError("native stacking probability source lacks a fitted classifier")
         probabilities = np.asarray(predict_proba(X), dtype=float).reshape(len(X), -1)
         self._validate_late_partial()
@@ -2170,6 +2171,7 @@ class RunResult:
         Returns:
             Best refit prediction dict, or empty dict if no refit entries.
         """
+        self._validate_cv_target_contexts()
         refit_predictions = self._refit_predictions()
         results = refit_predictions.top(n=1, score_scope="refit")
         top = cast("list[dict[str, Any]]", results)
@@ -2266,6 +2268,21 @@ class RunResult:
             return float(score)
         return None
 
+    def _validate_cv_target_contexts(self) -> None:
+        """Do not rank partition-domain CV against a different target protocol."""
+        if not self.predictions.filter_predictions(fold_id="macro", load_arrays=False):
+            return
+        rows = self.predictions.filter_predictions(load_arrays=False)
+        contexts = {
+            (row.get("result_metadata") or {}).get("dagml_projection", {}).get("target_domain_context")
+            for row in rows
+        }
+        if None in contexts or len(contexts) != 1:
+            raise ValueError(
+                "Cannot rank results across different native target-domain protocols (macrofold, pooled OOF, "
+                "or different bin recipes/partitions). Inspect individual runs or select an explicit source."
+            )
+
     @property
     def cv_best(self) -> dict[str, Any]:
         """Get the best CV prediction entry (excludes refit entries).
@@ -2277,6 +2294,12 @@ class RunResult:
         Returns:
             Best CV prediction dict, or empty dict if no CV predictions.
         """
+        self._validate_cv_target_contexts()
+        results = self.predictions.top(n=1, score_scope="folds", fold_id="macro")
+        top = cast(list[dict[str, Any]], results)
+        if top:
+            return top[0]
+
         results = self.predictions.top(n=1, score_scope="folds", fold_id="avg")
         top = cast(list[dict[str, Any]], results)
         if top:
@@ -2349,7 +2372,9 @@ class RunResult:
             config_name = final_entry.get("config_name")
             if config_name:
                 filters["config_name"] = config_name.rsplit("_refit", 1)[0]
-            cv_ranked = cast(list[dict[str, Any]], self.predictions.top(n=1, score_scope="folds", fold_id="avg", **filters))
+            cv_ranked = cast(list[dict[str, Any]], self.predictions.top(n=1, score_scope="folds", fold_id="macro", **filters))
+            if not cv_ranked:
+                cv_ranked = cast(list[dict[str, Any]], self.predictions.top(n=1, score_scope="folds", fold_id="avg", **filters))
             if not cv_ranked:
                 cv_ranked = cast(list[dict[str, Any]], self.predictions.top(n=1, score_scope="folds", **filters))
             cv_entry = cv_ranked[0] if cv_ranked else {}
@@ -4010,6 +4035,17 @@ class PredictResult:
     def values(self) -> np.ndarray:
         """Get prediction values (alias for y_pred)."""
         return self.y_pred
+
+    def scoring_targets(self, raw_targets: Any, validity_mask: Any = None) -> dict[str, Any] | None:
+        """Project observed targets with the captured classifier's fitted bin map.
+
+        Returns values, a validity mask, task type and target-space provenance.
+        No fit occurs. Returns ``None`` when this prediction path has no
+        categorical target projection; callers retain their existing protocol.
+        """
+        from nirs4all.pipeline.dagml.prediction_targets import categorical_scoring_targets
+
+        return categorical_scoring_targets(self, raw_targets, validity_mask)
 
     @property
     def relation_replay_manifest(self) -> dict[str, Any] | None:

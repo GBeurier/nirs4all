@@ -185,6 +185,12 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
+    from .target_capture import pipeline_task_type
+    from .target_domains import bin_domain_policy, fold_local_domains_available, learned_bin_transform
+
+    learned_targets = learned_bin_transform(pipeline)
+    if learned_targets is not None and pipeline_task_type(pipeline, "") == "classification" and fold_local_domains_available():
+        dsl.setdefault("metadata", {})["target_domain_policy"] = bin_domain_policy(learned_targets, model_node_id(pipeline, dsl_id=dsl_id))
     named_input = named_model_input_spec(dsl)
     if named_input is not None:
         dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, model_input=named_input)

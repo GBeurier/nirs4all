@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -15,8 +16,13 @@ from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
 
-SDK_VERSION = "1.4.6"
-UPSTREAMS = {"pls4all": "1.3.2", "nirs4all-methods": "1.3.2", "nirs4all-io": "0.2.5", "dag-ml": "0.3.37", "dag-ml-data": "0.2.13", "nirs4all-core": "0.4.2", "nirs4all-formats": "0.2.11"}
+_SDK_SOURCE = Path(__file__).resolve().parents[1] / "nirs4all/__init__.py"
+SDK_VERSION = next(
+    ast.literal_eval(node.value)
+    for node in ast.parse(_SDK_SOURCE.read_text(encoding="utf-8")).body
+    if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+)
+UPSTREAMS = {"pls4all": "1.3.9", "nirs4all-methods": "1.3.9", "nirs4all-io": "0.2.11", "dag-ml": "0.3.42", "dag-ml-data": "0.2.13", "nirs4all-core": "0.4.6", "nirs4all-formats": "0.2.13"}
 PRODUCT_MODULES = {"nirs4all", "n4m", "pls4all", "dag_ml", "dag_ml_data", "nirs4all_io", "nirs4all_core", "nirs4all_formats"}
 INSTALLED_PYTHON_VARIABLES = (
     "NIRS4ALL_BY_SOURCE_INSTALLED_PYTHON", "NIRS4ALL_CV_WEIGHT_INSTALLED_PYTHON", "NIRS4ALL_U07_INSTALLED_PYTHON",
@@ -255,7 +261,7 @@ for name,item in payloads.items():
  assert digest==item['sha256'],('Public upstream binding payload mismatch',name,p,digest,item['sha256'])
  bindings[name]={'origin':str(p),'sha256':digest}
 import n4m
-assert n4m.abi_version()==(2,17,0) and n4m.version()=='1.3.2+abi.2.17.0'
+assert n4m.abi_version()==(2,20,0) and n4m.version()=='1.3.9+abi.2.20.0'
 library=pathlib.Path(n4m.library_path()).resolve();assert purelib in library.parents,library
 pathlib.Path(sys.argv[3]).write_text(json.dumps({'versions':versions,'origins':origins,'public_bindings':bindings,
  'native_library':str(library),'native_library_sha256':hashlib.sha256(library.read_bytes()).hexdigest(),
@@ -299,10 +305,10 @@ for name,item in json.loads(sys.argv[4]).items():
  assert digest==item['sha256'],('Public upstream binding payload mismatch',name,p,digest,item['sha256'])
  bindings[name]={'origin':str(p),'sha256':digest}
 import n4m
-assert n4m.abi_version()==(2,17,0)
-assert n4m.version()=='1.3.2+abi.2.17.0',n4m.version()
+assert n4m.abi_version()==(2,20,0)
+assert n4m.version()=='1.3.9+abi.2.20.0',n4m.version()
 library=pathlib.Path(n4m.library_path()).resolve()
-pathlib.Path(sys.argv[3]).write_text(json.dumps({'versions':expected,'origins':origins,'public_bindings':bindings,'sdk_payload_members':len(payload),'abi':[2,17,0],
+pathlib.Path(sys.argv[3]).write_text(json.dumps({'versions':expected,'origins':origins,'public_bindings':bindings,'sdk_payload_members':len(payload),'abi':[2,20,0],
  'native_version':n4m.version(),'native_library':str(library),'native_library_sha256':hashlib.sha256(library.read_bytes()).hexdigest(),
  'upstream_payload_members':len(json.loads(sys.argv[5]))},indent=2)+'\\n')
 '''
