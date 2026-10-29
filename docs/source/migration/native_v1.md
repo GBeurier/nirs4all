@@ -281,7 +281,7 @@ operation-by-operation capability contract.
 | Surface | V1 candidate identity | Compatibility rule |
 |---|---|---|
 | Methods C ABI | `libn4m` ABI `2.5.0`, SONAME major `2` | Call `n4m_check_abi_compatibility` before other ABI calls; bindings remain thin. |
-| Methods model payload | N4MM format `1` and `2` | A fitted-model payload, not a complete `.n4a` pipeline archive. |
+| Methods model payload | N4MM formats `1`, `2` and `3` | Native PLS fits from Methods 1.3.7 use format `3`; legacy plain `1` and embedded `2` remain readable. A fitted-model payload is not a complete `.n4a` pipeline archive. |
 | Portable model/run archive | Core Archive V2 | Validate format, bounds, Methods identity and fingerprint before replay; no refit or legacy fallback on import. |
 | Workspace | `nirs4all-workspace-v2` | SQLite metadata plus Parquet array sidecars; legacy stores require explicit Tools conversion. |
 | Runtime envelopes | `rt_run_request.v1`, `rt_result.v1`, `rt_error.v1` | Producers and consumers use the frozen JSON schemas; no product-specific reinterpretation. |

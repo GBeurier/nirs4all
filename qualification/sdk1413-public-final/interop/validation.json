@@ -1,0 +1,37 @@
+{
+  "recorded_at_utc": "2026-10-29T23:04:31.932843+00:00",
+  "runtime_source_sha": "2a4704302690df00337b2a96e144d5b1e2d65a27",
+  "runtime_diff": "One format-version admission condition; all adjacent descriptor, recipe and ownership guards unchanged",
+  "independent_root_review": "approved via collaboration message before publication",
+  "source_tests": {
+    "portable_pipeline_tests": 74,
+    "skips": 0,
+    "junit": "qualification/sdk1413-public-final/interop/source-portable-junit.xml",
+    "qualification_and_docs_tests": 49,
+    "subtests": 31,
+    "ruff": "pass"
+  },
+  "linux_installed_wire_tests": {
+    "tests": 12,
+    "skips": 0,
+    "junit": "qualification/sdk1413-public-final/interop/installed-wire-linux-junit.xml"
+  },
+  "real_r_python_helper": "passed using SDK13 installed wheel, Python139 native cohort, R-producedv3plainbundle",
+  "r_integration_peer": "final_report reports trained-native-cross-language, trained-native-n4mp-v6, trained-native-n4mp-v7, native-cross-language pass against this source; full Rcheck in progress",
+  "provider_cohort_unchanged": true,
+  "docker_desktop_restart": false,
+  "windows_installed_wire_tests": {
+    "tests": 12,
+    "skips": 0,
+    "terminal_exit_code": 0,
+    "junit": "qualification/sdk1413-public-final/interop/installed-wire-windows-junit.xml",
+    "harness_note": "Initial command completed assertions but global pytest-current cleanup was denied; rerun passed with task-owned basetemp. No test or native oracle changed."
+  },
+  "qualified_installed_gates": 12,
+  "runtime_input_count": 2016,
+  "qualification_receipt_sha256": "5bef401c681ee10aed97b066c69191ff84f839ad902f1444d25de26f9436b855",
+  "fixture_sha256": {
+    "n4mm_legacy_v1_v2.json": "dd8c4949cbb67ee74db43962d59651279c94534037d1c4ffb9b81bcccad63064",
+    "n4mm_current_v3.json": "949bd7fef50d0ef4a45a7e5057112bcf5139f15c3dcc7f1dd11f750131e3719e"
+  }
+}
