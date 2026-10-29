@@ -18,6 +18,13 @@ This directory contains test data and fixtures used across the test suite.
 - `methods/` - Small, repository-local native-method parity witnesses. These
   deliberately travel with the test suite instead of assuming a sibling
   `nirs4all-methods` source checkout.
+- `n4mm_legacy_v1_v2.json` and `n4mm_current_v3.json` contain synthetic R
+  native PLS exports with plain and embedded SNV/Savitzky-Golay profiles.
+  Methods R 1.3.4 (ABI 2.17.0) produced the unchanged legacy v1/v2 bytes;
+  Methods R 1.3.10 (ABI 2.20.0) produced the v3 bytes from the same arrays.
+  Each fixture records its producer and native prediction oracle. They verify
+  Python import compatibility independently of the Python model writer; no
+  payload was converted between wire versions.
 
 ## Usage
 

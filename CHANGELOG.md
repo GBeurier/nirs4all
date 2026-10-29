@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.13] — 2026-10-30
+
+### Fixed
+
+- Import native N4MM v3 PLS models, including embedded preprocessing, while
+  preserving legacy v1/v2 support and recipe, dimensions and ownership checks.
+
 ## [1.4.10] — 2026-10-16
 
 ### Fixed
