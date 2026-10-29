@@ -4760,7 +4760,7 @@ def test_genuine_bug_propagates_through_public_run_not_swallowed_into_legacy() -
     assert not any("falling back to the legacy engine" in str(w.message) for w in caught), "a genuine bug must NOT trigger a silent legacy fallback"
 
 
-def test_subprocess_error_classification_adapter_marks_kind_by_exception_type() -> None:
+def test_subprocess_error_classification_adapter_marks_kind_by_exception_type(tmp_path: Path) -> None:
     """The adapter classifies a node-execution failure by EXCEPTION TYPE into a structured ``error_kind``.
 
     A deliberate ``DagMlUnsupported`` from ``run_node`` → ``error_kind = "unsupported"`` (the host will
@@ -4768,7 +4768,6 @@ def test_subprocess_error_classification_adapter_marks_kind_by_exception_type() 
     The classification is a dedicated structured field on a JSONL error frame written to the result
     capture — even when the exception's MESSAGE contains the marker words (no free-text spoofing)."""
     import json
-    import tempfile
     from pathlib import Path
 
     from nirs4all.pipeline.dagml.errors import DagMlUnsupported
@@ -4777,14 +4776,14 @@ def test_subprocess_error_classification_adapter_marks_kind_by_exception_type() 
     def _last_frame(path: str) -> dict:
         return cast("dict[Any, Any]", [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()][-1])
 
-    unsupp_cap = tempfile.mktemp()
+    unsupp_cap = str(tmp_path / "unsupported-capture.jsonl")
     handler = _classifying_handler(lambda task: (_ for _ in ()).throw(DagMlUnsupported("deliberate unsupported shape")), unsupp_cap)
     with pytest.raises(DagMlUnsupported):
         handler({})
     assert _last_frame(unsupp_cap)["error_kind"] == "unsupported"
 
     # A genuine bug whose MESSAGE contains the spoof words must still be classified "error".
-    bug_cap = tempfile.mktemp()
+    bug_cap = str(tmp_path / "error-capture.jsonl")
     handler = _classifying_handler(lambda task: (_ for _ in ()).throw(ValueError("error_kind unsupported in the message")), bug_cap)
     with pytest.raises(ValueError, match="error_kind"):
         handler({})

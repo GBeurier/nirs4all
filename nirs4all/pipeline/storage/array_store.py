@@ -276,7 +276,7 @@ class ArrayStore:
         """
         if self._read_only:
             raise RuntimeError("ArrayStore is read-only")
-        fd = os.open(str(self._arrays_dir / ".lock"), os.O_CREAT | os.O_RDWR, 0o644)
+        fd = os.open(str(self._arrays_dir / ".lock"), os.O_CREAT | os.O_RDWR, 0o600)
         try:
             if fcntl is not None:
                 fcntl.flock(fd, fcntl.LOCK_EX)
