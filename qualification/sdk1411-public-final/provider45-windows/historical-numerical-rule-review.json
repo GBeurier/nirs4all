@@ -1,0 +1,38 @@
+{
+  "schema": "nirs4all.sdk.numerical-continuity.v1",
+  "reviewed": true,
+  "gate": "provider45-windows",
+  "field": "hpo_best_value",
+  "old_reference": 1.7648325926211583,
+  "new_exact_reference": 1.764832592621158,
+  "old_hex": "0x1.c3cc119c39073p+0",
+  "new_hex": "0x1.c3cc119c39072p+0",
+  "absolute_difference": 2.220446049250313e-16,
+  "difference_ulps": 1,
+  "independent_repeat_same_exact_value": true,
+  "repeat_has_new_experiment_root": true,
+  "source_sha": "1b2d2a87a22f2791d3e54cabe2b6fb6c20942afc",
+  "reason": "Refresh the exact Windows reference for the newly measured compiler/package cohort after an independent fresh-experiment repeat. The difference is one binary64 representable step; XY and CV references,45 cases and2 resume trials are unchanged. No tolerance, minimum, skip list or numerical output is edited. Historical SDK1.4.10 captures and policy remain retained under their original evidence directories.",
+  "raw_evidence": [
+    {
+      "path": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-dag343/provider45-windows/stdout.log",
+      "bytes": 324,
+      "sha256": "91056ecdfef26a05b5fa5c1df98f6ee4722b87fe16fd63aeb198773bdd21c158"
+    },
+    {
+      "path": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-dag343/provider45-windows/terminal.json",
+      "bytes": 590661,
+      "sha256": "2423b1d9549be840dcca70dda6e20b664b7b3bf1ab729f8d04482889eec77c40"
+    },
+    {
+      "path": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-dag343/provider45-windows-repeat/stdout.log",
+      "bytes": 324,
+      "sha256": "c9285411d9d6ac2a3bea34174bcd0d39b9eaeda9f0d713c1a1d629bc27891c8a"
+    },
+    {
+      "path": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-dag343/provider45-windows-repeat/terminal.json",
+      "bytes": 590675,
+      "sha256": "8e6e30afa3712153ecce955fe04278de1c4d71d4956b82dc1c84ba49cdc92351"
+    }
+  ]
+}
