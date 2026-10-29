@@ -2,7 +2,7 @@
   "schema": "nirs4all.local-qualification.v1",
   "project": "sdk",
   "repository": "GBeurier/nirs4all",
-  "source_sha": "bf913415b704362145912b944d483f4541eba369",
+  "source_sha": "34e9dd59e8c7f58756edd61291d99d2c041b65f5",
   "execution": {
     "location": "local",
     "github_actions": false,
@@ -368,7 +368,7 @@
     "examples/user/07_explainability/U01_shap_basics.py": "4b33ff022c7d33fec33698ba086ae00865533b85297897fee573e33fc76ae12c",
     "examples/user/07_explainability/U02_shap_sklearn.py": "296a05477eaa0f71258edf05a22786dafcf88a0c8dfbd02852f82b2c10448ef9",
     "examples/user/07_explainability/U03_feature_selection.py": "1b7eea65d6e4109cb2bc651bfe63e2fbf818230061eadd7eab055c0900a0b8a5",
-    "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+    "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
     "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
     "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
     "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -938,7 +938,7 @@
     "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
     "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
     "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-    "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+    "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
     "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
     "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
     "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -1342,7 +1342,7 @@
     "tests/integration/parity/test_dagml_bridge_spike.py": "0bf49663b366906e407ee3a9b86db0718970be4d5c6cd72fc17e1670539be428",
     "tests/integration/parity/test_dagml_chart_options.py": "dcc2151421e0343814bbfd62a49f58d4ad2486079a15b629a1a2909935c263b0",
     "tests/integration/parity/test_dagml_cli_full_train.py": "feee2e79d439e9936c74ceffb2797d827bbdd8b15a37dec454bf14da35921e61",
-    "tests/integration/parity/test_dagml_cli_runner.py": "383f8b0a0c0f9fd87bab8d6a95551c09b64d4d306d32d3a09033c5b005aa12a6",
+    "tests/integration/parity/test_dagml_cli_runner.py": "88cd4f4d4be74f6d208a6b938b22fb4cc2793d70d6a3b79173cfff26ba7b7b0f",
     "tests/integration/parity/test_dagml_cv_augmented_train_view.py": "560ddab6a1efd46a159caf5f479a66d087c477e3fb5e863bda92c0b64d2c7ac3",
     "tests/integration/parity/test_dagml_cv_train_surface.py": "d841879a46ea904863e9239a904131a011e0b36a43f926ed4a312831790d35fc",
     "tests/integration/parity/test_dagml_dataplane.py": "6de6fdcb879ef433ee9d98c8f634b2b40c2aa006763e7c8d07a9eff91ad8307d",
@@ -2056,14 +2056,14 @@
       "id": "metadata-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/installed-env/bin/python",
         "-I",
         "-B",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/source/scripts/smoke_installed_package.py",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/source/scripts/smoke_installed_package.py",
         "--source-root",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/source"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/source"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -2072,7 +2072,7 @@
         "CUDA_VISIBLE_DEVICES": ""
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -2642,7 +2642,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -2741,37 +2741,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "scripts/smoke_installed_package.py": "f2305d38be751fd0bb45ca527e022bb12a53b8c17a79b01a7b55e036c4b30edc"
       },
-      "started_at": "2026-10-29T18:46:09.240234+00:00",
-      "finished_at": "2026-10-29T18:46:13.022441+00:00",
+      "started_at": "2026-10-29T19:18:11.893452+00:00",
+      "finished_at": "2026-10-29T19:18:13.775797+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/metadata-linux/stdout.log",
+        "path": "qualification/sdk1412-public-final/metadata-linux/stdout.log",
         "bytes": 1118,
-        "sha256": "70a16aff962640104d7889a587abb27901828d1fa822c6130b40ece4bdef2b6a"
+        "sha256": "dc94aab420f1e8cef8cc1945b96916c6ae884e24b10175ba13f9c7288015ee86"
       },
-      "duration_seconds": 3.8998654590104707,
+      "duration_seconds": 1.9915481570060365,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/metadata-linux/inputs.json",
+        "path": "qualification/sdk1412-public-final/metadata-linux/inputs.json",
         "bytes": 159324,
-        "sha256": "b2fb240e8be29e36709130e814d7ad817dc280d7a9f8e4b965b1ce22e69271f4"
+        "sha256": "25a45c017e55c0ddc29319a866173751731cab6bf09b9b60a42b52936a5a661b"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/metadata-linux/report.json",
+        "path": "qualification/sdk1412-public-final/metadata-linux/report.json",
         "bytes": 83696,
-        "sha256": "5499c6247baa4aa658235218c8325b9e48627549c6e3b03682d7652e2c62ea46"
+        "sha256": "01d102ade2f588868afd6ea9e500cd438d21ae6a378a9f21d37ee82a63ebe368"
       }
     },
     {
       "id": "provider45-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/installed-env/bin/python",
         "-I",
         "-B",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/source/tests/qualification/installed_multimodal_provider.py"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/source/tests/qualification/installed_multimodal_provider.py"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -2780,10 +2780,10 @@
         "CUDA_VISIBLE_DEVICES": "",
         "N4A_DAGML_INPROCESS": "1",
         "N4A_FULL_HPO_MATRIX": "1",
-        "N4A_SMOKE_ROOT": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/linux-provider45-output-final-canonical"
+        "N4A_SMOKE_ROOT": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/linux-provider45-output-final-canonical"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -3353,7 +3353,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -3452,37 +3452,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_provider.py": "3a497b5715280a99378f490d8e312e740dd9f489b77f1d57b855519bf5e0d315"
       },
-      "started_at": "2026-10-29T18:46:15.723081+00:00",
-      "finished_at": "2026-10-29T18:46:46.217070+00:00",
+      "started_at": "2026-10-29T19:18:15.349457+00:00",
+      "finished_at": "2026-10-29T19:18:42.985666+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/provider45-linux/stdout.log",
+        "path": "qualification/sdk1412-public-final/provider45-linux/stdout.log",
         "bytes": 324,
-        "sha256": "fc24214b39b2dfb7202658e8d109857b53ebb956b23388dbbe30abf0afbd5f6a"
+        "sha256": "17b9620b8e80e890cc4b8d3a4996d62d344bbb65ac69497cf45edc55bfcd2156"
       },
-      "duration_seconds": 30.597185428981902,
+      "duration_seconds": 27.766557854018174,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/provider45-linux/inputs.json",
+        "path": "qualification/sdk1412-public-final/provider45-linux/inputs.json",
         "bytes": 159480,
-        "sha256": "3d96a7b1f13aa23eb14c9cbfde789ce3771f5baba251b99f6b8dd73d07b0ddd7"
+        "sha256": "0f443ec934f255b382f0a259da469d594f55a1660bc530c610ef8df95b607636"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/provider45-linux/report.json",
+        "path": "qualification/sdk1412-public-final/provider45-linux/report.json",
         "bytes": 83845,
-        "sha256": "d10e30efd67106b71d48bdc9a09e89c3b787a4c7d9dd93d4f5dc39121558f5bc"
+        "sha256": "92081741ddc85c9505fc32dffe7c80d99cfbc5b2db78215294af701012c05690"
       }
     },
     {
       "id": "demo-replay-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/installed-env/bin/python",
         "-I",
         "-B",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/source/tests/qualification/installed_multimodal_demo.py"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/source/tests/qualification/installed_multimodal_demo.py"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -3492,7 +3492,7 @@
       },
       "input_fingerprints": {
         "examples/user/02_data_handling/U07_multimodal.py": "bc46f578f29024a5f1f597ba00230a72ed22c6c7e7e0aaea486cf39cf0f22270",
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -4062,7 +4062,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -4161,44 +4161,44 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_demo.py": "6520ffd0ceca0fa30221b5d4b627af58c7538ebb23478b916baf9dc8a9d005c5"
       },
-      "started_at": "2026-10-29T18:46:47.634949+00:00",
-      "finished_at": "2026-10-29T18:46:56.557677+00:00",
+      "started_at": "2026-10-29T19:18:44.744405+00:00",
+      "finished_at": "2026-10-29T19:18:54.709686+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/demo-replay-linux/stdout.log",
+        "path": "qualification/sdk1412-public-final/demo-replay-linux/stdout.log",
         "bytes": 607,
-        "sha256": "6c8e51cdd193ff53734b8e3767149af8a3f8f7bf1e89c0464dd159c89aeb6e88"
+        "sha256": "934c8fc9eaf137b62a13a1ea9addd8800202faada1244332108e0724480c8a07"
       },
-      "duration_seconds": 9.028738650988089,
+      "duration_seconds": 10.092041870986577,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/demo-replay-linux/inputs.json",
+        "path": "qualification/sdk1412-public-final/demo-replay-linux/inputs.json",
         "bytes": 159500,
-        "sha256": "facf5667009686f026e1088d5b10421daa6755586e2c95212b1d3a8c3859e4e6"
+        "sha256": "b979c4765873e38f8782a54cce519c324f435d5ae08f560ec195088f72c7ca84"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/demo-replay-linux/report.json",
-        "bytes": 83595,
-        "sha256": "002149d8dc0a06cdceddd880aa6033dd376901e1b371c4ce8073cd89975c5cf8"
+        "path": "qualification/sdk1412-public-final/demo-replay-linux/report.json",
+        "bytes": 83596,
+        "sha256": "3105d5605865f5f6fe01c5a0b6255b46f79b9eb8996474b61c64433722d08e15"
       }
     },
     {
       "id": "native-quickstart-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/installed-env/bin/python",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/source/tests/integration/api/test_installed_native_quickstart.py",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/source/tests/integration/api/test_installed_native_quickstart.py",
         "--basetemp",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/quickstart-tmp/pytest-basetemp",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/quickstart-tmp/pytest-basetemp",
         "--junitxml",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/linux-quickstart-junit.xml"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/linux-quickstart-junit.xml"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -4208,7 +4208,7 @@
         "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2": "1"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -4778,7 +4778,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -4877,39 +4877,39 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_native_quickstart.py": "12cbe8b287933855fb416c44b6e98274122648c6b871cd352a5ba01e720da367"
       },
-      "started_at": "2026-10-29T18:46:57.962125+00:00",
-      "finished_at": "2026-10-29T18:47:02.030881+00:00",
+      "started_at": "2026-10-29T19:18:56.856902+00:00",
+      "finished_at": "2026-10-29T19:19:01.995865+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/native-quickstart-linux/stdout.log",
+        "path": "qualification/sdk1412-public-final/native-quickstart-linux/stdout.log",
         "bytes": 796,
-        "sha256": "57ea75249439a212e92ce30839f23c8febca0c5b25f61e9f963e11806696a42a"
+        "sha256": "62257a393268ded5468b25ed8ee3ff1ce4a46da0543bdbb9d0fbe1aea6634e2e"
       },
-      "duration_seconds": 4.173892213002546,
+      "duration_seconds": 5.265153343993006,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/native-quickstart-linux/inputs.json",
+        "path": "qualification/sdk1412-public-final/native-quickstart-linux/inputs.json",
         "bytes": 159672,
-        "sha256": "9fe099e46f91d4b081e927b13b34a49c21ca7421edd09ea658f854eb7c58eb77"
+        "sha256": "65a0a8aaaa1e9b2457d54152f564fc25be749698bfa20110b467abe9b23094a0"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/native-quickstart-linux/report.json",
+        "path": "qualification/sdk1412-public-final/native-quickstart-linux/report.json",
         "bytes": 84083,
-        "sha256": "a210521c4ef786e47246855743e20ac12674c85e9677aa7365ed7cfdb80a12e1"
+        "sha256": "c5012a95da5083463bf1fe7b7260a799147f184df243b3431861348e455569c7"
       }
     },
     {
       "id": "dependency-check-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/installed-env/bin/python",
         "-I",
         "-B",
         "-m",
         "pip",
         "check"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -4918,7 +4918,7 @@
         "CUDA_VISIBLE_DEVICES": ""
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -5488,7 +5488,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -5586,39 +5586,39 @@
         "nirs4all/workspace/upgrade.py": "d61c275080e0b8937e8e58b99e85deb84476dabd130de9f18acc87d2c541e4b3",
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0"
       },
-      "started_at": "2026-10-29T18:47:03.449518+00:00",
-      "finished_at": "2026-10-29T18:47:03.627863+00:00",
+      "started_at": "2026-10-29T19:19:05.863977+00:00",
+      "finished_at": "2026-10-29T19:19:06.282493+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/dependency-check-linux/stdout.log",
+        "path": "qualification/sdk1412-public-final/dependency-check-linux/stdout.log",
         "bytes": 30,
         "sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
       },
-      "duration_seconds": 0.28463432399439625,
+      "duration_seconds": 0.5509998650231864,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/dependency-check-linux/inputs.json",
+        "path": "qualification/sdk1412-public-final/dependency-check-linux/inputs.json",
         "bytes": 158904,
-        "sha256": "52d94e98f43faf28b145bda6b93113683403e336264b1880dee69cb44dc803ad"
+        "sha256": "3152dbfb6d3dcbed0f29798f164684155ebeef4146bda771537040a4193b6dd5"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/dependency-check-linux/report.json",
-        "bytes": 83221,
-        "sha256": "fdee768e0220e7ef81e537dd052877816ec321a37bb851f1b4384087b7a32f9e"
+        "path": "qualification/sdk1412-public-final/dependency-check-linux/report.json",
+        "bytes": 83220,
+        "sha256": "b309f4da34380e3c0a74e583ef1f0f7a6454ce60f9d56212c714321be0aa15a8"
       }
     },
     {
       "id": "metadata-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/prefix/Scripts/python.exe",
         "-I",
         "-B",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/source/scripts/smoke_installed_package.py",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/source/scripts/smoke_installed_package.py",
         "--source-root",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/source"
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/source"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -5628,7 +5628,7 @@
         "PYTHONUTF8": "1"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -6198,7 +6198,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -6297,37 +6297,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "scripts/smoke_installed_package.py": "f2305d38be751fd0bb45ca527e022bb12a53b8c17a79b01a7b55e036c4b30edc"
       },
-      "started_at": "2026-10-29T18:52:55.593454+00:00",
-      "finished_at": "2026-10-29T18:53:08.289862+00:00",
+      "started_at": "2026-10-29T19:32:15.575280+00:00",
+      "finished_at": "2026-10-29T19:32:32.794112+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/metadata-windows/stdout.log",
+        "path": "qualification/sdk1412-public-final/metadata-windows/stdout.log",
         "bytes": 933,
-        "sha256": "e9c4ba0ccbed7f15de804e35200f9e0c429625fe2f1db209b122fa6c2bfcb1dc"
+        "sha256": "fb30ba5fa1cef051126ac3836710303c36e1585e7aa50638ba3422d5eacc9da8"
       },
-      "duration_seconds": 13.185976199922152,
+      "duration_seconds": 17.96761290007271,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/metadata-windows/inputs.json",
+        "path": "qualification/sdk1412-public-final/metadata-windows/inputs.json",
         "bytes": 159257,
-        "sha256": "d167c453cf06ea802f71a497d84608e5a80bc4ebdc1fba35e0a7775ddbc6552c"
+        "sha256": "06427bc854cb2ca3c5f9c0fc68862631014fb445804a9bee00cedf780ef5f240"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/metadata-windows/report.json",
-        "bytes": 83436,
-        "sha256": "026452242ac3703d508d9a19c9ea27e6710f9d3ca3cf76458b5ee6733344f8d8"
+        "path": "qualification/sdk1412-public-final/metadata-windows/report.json",
+        "bytes": 83435,
+        "sha256": "9a269c3a4475a3706367153c734a0578d7cd9fec319e3d3ecfbabb3220db80c4"
       }
     },
     {
       "id": "provider45-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/prefix/Scripts/python.exe",
         "-I",
         "-B",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/source/tests/qualification/installed_multimodal_provider.py"
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/source/tests/qualification/installed_multimodal_provider.py"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -6336,11 +6336,11 @@
         "CUDA_VISIBLE_DEVICES": "",
         "N4A_DAGML_INPROCESS": "1",
         "N4A_FULL_HPO_MATRIX": "1",
-        "N4A_SMOKE_ROOT": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/windows-provider45-output-final-canonical",
+        "N4A_SMOKE_ROOT": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/windows-provider45-output-final-canonical",
         "PYTHONUTF8": "1"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -6910,7 +6910,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -7009,37 +7009,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_provider.py": "3a497b5715280a99378f490d8e312e740dd9f489b77f1d57b855519bf5e0d315"
       },
-      "started_at": "2026-10-29T18:53:15.133341+00:00",
-      "finished_at": "2026-10-29T18:53:44.370105+00:00",
+      "started_at": "2026-10-29T19:32:40.354488+00:00",
+      "finished_at": "2026-10-29T19:33:26.447220+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/provider45-windows/stdout.log",
+        "path": "qualification/sdk1412-public-final/provider45-windows/stdout.log",
         "bytes": 324,
-        "sha256": "9e8b1e6ac0f963a1c8710b10b70c4180b219275c59953a574b9acc63a3c932bc"
+        "sha256": "f550085b053e2b8d0ec97f6b09803ada0439e79fe37e073535422bfae206347b"
       },
-      "duration_seconds": 29.749774700030684,
+      "duration_seconds": 46.994353700079955,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/provider45-windows/inputs.json",
+        "path": "qualification/sdk1412-public-final/provider45-windows/inputs.json",
         "bytes": 159415,
-        "sha256": "7caa56c11fb84a07d4bb5eaefe47282a2331fbd6fa6310361fa3656cac719e85"
+        "sha256": "4fbadaa84652f114cfafa78b70099aef64cb91e3a00ca0a9e8903d7d61e54fc5"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/provider45-windows/report.json",
+        "path": "qualification/sdk1412-public-final/provider45-windows/report.json",
         "bytes": 83851,
-        "sha256": "8dfdf9a9d50b04acbed0a0bf7a54354a0eda532c10c165df7e537f395af8928b"
+        "sha256": "7936bc39e903e0ebf44be7f8d1371f2dee83a0491ad137b18e9dd409369e95c8"
       }
     },
     {
       "id": "demo-replay-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/prefix/Scripts/python.exe",
         "-I",
         "-B",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/source/tests/qualification/installed_multimodal_demo.py"
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/source/tests/qualification/installed_multimodal_demo.py"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -7050,7 +7050,7 @@
       },
       "input_fingerprints": {
         "examples/user/02_data_handling/U07_multimodal.py": "bc46f578f29024a5f1f597ba00230a72ed22c6c7e7e0aaea486cf39cf0f22270",
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -7620,7 +7620,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -7719,44 +7719,44 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_demo.py": "6520ffd0ceca0fa30221b5d4b627af58c7538ebb23478b916baf9dc8a9d005c5"
       },
-      "started_at": "2026-10-29T18:53:47.596543+00:00",
-      "finished_at": "2026-10-29T18:54:04.370676+00:00",
+      "started_at": "2026-10-29T19:33:30.495978+00:00",
+      "finished_at": "2026-10-29T19:33:50.036744+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/demo-replay-windows/stdout.log",
+        "path": "qualification/sdk1412-public-final/demo-replay-windows/stdout.log",
         "bytes": 497,
-        "sha256": "9eb5a5f7c740d150f1716a7a66f97a1df9617255cb63564d33dca15ba764941c"
+        "sha256": "f03389e8edc797a0ff170d8d631489c03616c83910113b92d3d86a101777900b"
       },
-      "duration_seconds": 17.496545500005595,
+      "duration_seconds": 20.334055999992415,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/demo-replay-windows/inputs.json",
+        "path": "qualification/sdk1412-public-final/demo-replay-windows/inputs.json",
         "bytes": 159459,
-        "sha256": "2ceecf1a74f040c98f96c5d11825cf9b92f61f6e12cc429ecc3ec0c28c5d244e"
+        "sha256": "5de7bc497742ee2cc3d1a400731170f668a65557dc795964f9a10661d652ec0d"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/demo-replay-windows/report.json",
+        "path": "qualification/sdk1412-public-final/demo-replay-windows/report.json",
         "bytes": 83363,
-        "sha256": "0fd07b170aff699392ba8137adb2a8eeb22514b20afc7e2b14e8ea3532de3704"
+        "sha256": "a351cc000f7ae64583b8bb6aab9a993c81e3b9e3f9f5faf3ff1f8e3d20ba0941"
       }
     },
     {
       "id": "native-quickstart-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/prefix/Scripts/python.exe",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/source/tests/integration/api/test_installed_native_quickstart.py",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/source/tests/integration/api/test_installed_native_quickstart.py",
         "--basetemp",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/quickstart-tmp/pytest-basetemp",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/quickstart-tmp/pytest-basetemp",
         "--junitxml",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/windows-quickstart-junit.xml"
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/windows-quickstart-junit.xml"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -7767,7 +7767,7 @@
         "PYTHONUTF8": "1"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -8337,7 +8337,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -8436,39 +8436,39 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_native_quickstart.py": "12cbe8b287933855fb416c44b6e98274122648c6b871cd352a5ba01e720da367"
       },
-      "started_at": "2026-10-29T18:54:07.593931+00:00",
-      "finished_at": "2026-10-29T18:54:16.553562+00:00",
+      "started_at": "2026-10-29T19:33:53.490249+00:00",
+      "finished_at": "2026-10-29T19:34:04.661741+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/native-quickstart-windows/stdout.log",
+        "path": "qualification/sdk1412-public-final/native-quickstart-windows/stdout.log",
         "bytes": 545,
-        "sha256": "b6414571cf4c92b3470d130fe0335ce4243a3a277561704086e4c2ea17694df8"
+        "sha256": "5438b5319d55769d0b2b067ff27005d094201234b2312260b6c7afd0fc1eb9ac"
       },
-      "duration_seconds": 9.819598100031726,
+      "duration_seconds": 11.91951459995471,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/native-quickstart-windows/inputs.json",
+        "path": "qualification/sdk1412-public-final/native-quickstart-windows/inputs.json",
         "bytes": 159581,
-        "sha256": "29b6797be740781ffd4ca542cfa1423a4a4f157d227532e96f04d9eb66227e91"
+        "sha256": "38bc006181660e419d741bf1b7865569ff11dfa1643c27a7bcbf2703451cf15c"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/native-quickstart-windows/report.json",
+        "path": "qualification/sdk1412-public-final/native-quickstart-windows/report.json",
         "bytes": 83802,
-        "sha256": "320f00e2197953a99f9687a33d7886801fb76ac727d116845f783052a2930b48"
+        "sha256": "aa5dcc9c43884058b4cc21a622cd6deb77e473510e4a65a0f42b509a46019424"
       }
     },
     {
       "id": "dependency-check-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/prefix/Scripts/python.exe",
         "-I",
         "-B",
         "-m",
         "pip",
         "check"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -8478,7 +8478,7 @@
         "PYTHONUTF8": "1"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -9048,7 +9048,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -9146,44 +9146,44 @@
         "nirs4all/workspace/upgrade.py": "d61c275080e0b8937e8e58b99e85deb84476dabd130de9f18acc87d2c541e4b3",
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0"
       },
-      "started_at": "2026-10-29T18:53:11.384991+00:00",
-      "finished_at": "2026-10-29T18:53:11.842981+00:00",
+      "started_at": "2026-10-29T19:32:36.282010+00:00",
+      "finished_at": "2026-10-29T19:32:36.850768+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/dependency-check-windows/stdout.log",
+        "path": "qualification/sdk1412-public-final/dependency-check-windows/stdout.log",
         "bytes": 31,
         "sha256": "672aec65a45bed50e70229c70934a7eebf0462595c459b83023027645d57cccf"
       },
-      "duration_seconds": 1.0368770000059158,
+      "duration_seconds": 1.3573902000207454,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/dependency-check-windows/inputs.json",
+        "path": "qualification/sdk1412-public-final/dependency-check-windows/inputs.json",
         "bytes": 158889,
-        "sha256": "540a27c82c1095a046532cfb1a229eba9e95a7943974209f03acf6550e5958fc"
+        "sha256": "cc8a09cfeb8172cab222087212a4c52fcdaf1a3356bbff0f75436589643d5956"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/dependency-check-windows/report.json",
+        "path": "qualification/sdk1412-public-final/dependency-check-windows/report.json",
         "bytes": 83013,
-        "sha256": "90bffb58002a9825378d37fa0b01f0c0239281a1ca9d6eafad62acebc173f488"
+        "sha256": "d3b510367da293aea77a0c887d9112a30178a067be9125dc80399e680b78344d"
       }
     },
     {
       "id": "studio-installed-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/installed-env/bin/python",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/source/tests/integration/api/test_installed_studio_general.py",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/source/tests/integration/api/test_installed_studio_general.py",
         "--basetemp",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/studio-tmp/pytest-studio-basetemp",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/studio-tmp/pytest-studio-basetemp",
         "--junitxml",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/linux-studio-junit.xml"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/linux-studio-junit.xml"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -9191,10 +9191,10 @@
         "MKL_NUM_THREADS": "1",
         "CUDA_VISIBLE_DEVICES": "",
         "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2": "1",
-        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1411-public-final/installed-env/bin/python"
+        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1412-public-final/installed-env/bin/python"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -9764,7 +9764,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -9863,44 +9863,44 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_studio_general.py": "d36a2457d2c261e0125b4a87ff8b3b55057d22c84a2e6dc951da7876142e8be6"
       },
-      "started_at": "2026-10-29T18:47:05.012990+00:00",
-      "finished_at": "2026-10-29T18:47:09.295592+00:00",
+      "started_at": "2026-10-29T19:19:08.160229+00:00",
+      "finished_at": "2026-10-29T19:19:13.047317+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/studio-installed-linux/stdout.log",
+        "path": "qualification/sdk1412-public-final/studio-installed-linux/stdout.log",
         "bytes": 793,
-        "sha256": "2f1d4c659383647c83a2ecc5812cb6854770338f66e4d633ad53c6199f07ee00"
+        "sha256": "900c18d8617b9940d7a68f3f014ac46af0be84838a4eba6b9c914e37a0840d69"
       },
-      "duration_seconds": 4.388175638014218,
+      "duration_seconds": 4.9990169780212454,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/studio-installed-linux/inputs.json",
+        "path": "qualification/sdk1412-public-final/studio-installed-linux/inputs.json",
         "bytes": 159815,
-        "sha256": "8c980c3283c086d8b622abb67c0453446bed53feb0d68f972350d33a672091f5"
+        "sha256": "c9e95e91bb74e2e3261762895dc4ca15b0bc9e72b077fb292afd96840354f516"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/studio-installed-linux/report.json",
-        "bytes": 84217,
-        "sha256": "ef44278bd7995737e9e7eb4ca1c398e2920a1a3fa7fe1d4e7e4d74f46682d019"
+        "path": "qualification/sdk1412-public-final/studio-installed-linux/report.json",
+        "bytes": 84218,
+        "sha256": "ad0cc2b2b79b6c3aacee068b7bcf7b80266a9e111e289c70e0e7c2fd70c03c32"
       }
     },
     {
       "id": "studio-installed-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/prefix/Scripts/python.exe",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/source/tests/integration/api/test_installed_studio_general.py",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/source/tests/integration/api/test_installed_studio_general.py",
         "--basetemp",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/studio-tmp/pytest-studio-basetemp",
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/studio-tmp/pytest-studio-basetemp",
         "--junitxml",
-        "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/windows-studio-junit.xml"
+        "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/windows-studio-junit.xml"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -9908,11 +9908,11 @@
         "MKL_NUM_THREADS": "1",
         "CUDA_VISIBLE_DEVICES": "",
         "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2": "1",
-        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "D:/workspace/nirs4all-release-20261029-sdk1411-public-final/prefix/Scripts/python.exe",
+        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "D:/workspace/nirs4all-release-20261029-sdk1412-public-final/prefix/Scripts/python.exe",
         "PYTHONUTF8": "1"
       },
       "input_fingerprints": {
-        "nirs4all/__init__.py": "55bb08c4dc71b1d365adf7c4ce1a54b820dde4a8f15f1a6585dca09f352035e5",
+        "nirs4all/__init__.py": "8f349fc6aa1a68283b808f4263ed1d705dcb9fccb563dd74943e08d58c40c642",
         "nirs4all/analysis/__init__.py": "f61e9736d508085d921b94a1fdd66cda0bceda34cbcfbf71134b6dcc0b12ccc6",
         "nirs4all/analysis/playground_dataset.py": "8aa289d81a068cb4e7b40b08460ee7e890308569527687886f3b3eeefe1c6836",
         "nirs4all/analysis/playground_distances.py": "052662ed19f7b4274a3e1cf5fd0b7230a5d65710a2fbf3f64fdbe637f55415a0",
@@ -10482,7 +10482,7 @@
         "nirs4all/pipeline/steps/router.py": "b99a8a867c2740d1187df2111202146afd68c745a564e0ad354edc4f4116bacb",
         "nirs4all/pipeline/steps/step_runner.py": "96a6c82c75f5f3a43f5d4c78d3306a092e4820b05a16509fabae8d619f818e2f",
         "nirs4all/pipeline/storage/__init__.py": "ebc5c734065d08f6fff61eb8187bfdaf4e96ec588f8ad2b7ec0c0214de30d46c",
-        "nirs4all/pipeline/storage/array_store.py": "29e308e69d351509ba7f9d75a7990072251c4a681fce831c75af23d2ffa09497",
+        "nirs4all/pipeline/storage/array_store.py": "6654923c5a7da3aac952f998e50b48a14bd9c93356b8df9a7d57b7b5f4ed7233",
         "nirs4all/pipeline/storage/artifacts/__init__.py": "6ae3c5091a284d5b50e4a8de6c97aceb896f51bc4059c2c559ac9c65f653ea39",
         "nirs4all/pipeline/storage/artifacts/artifact_loader.py": "1f5795f367b0f3ada5026d6166ed87147fdf918f10f2a352e74e04b8377db609",
         "nirs4all/pipeline/storage/artifacts/artifact_persistence.py": "28556121637e6d494396da5f123b02d5f1e02e3fbc523ecf5f67db12ed8e85ec",
@@ -10581,27 +10581,27 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_studio_general.py": "d36a2457d2c261e0125b4a87ff8b3b55057d22c84a2e6dc951da7876142e8be6"
       },
-      "started_at": "2026-10-29T18:54:20.018992+00:00",
-      "finished_at": "2026-10-29T18:54:26.601279+00:00",
+      "started_at": "2026-10-29T19:34:08.026378+00:00",
+      "finished_at": "2026-10-29T19:34:18.625878+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1411-public-final/studio-installed-windows/stdout.log",
+        "path": "qualification/sdk1412-public-final/studio-installed-windows/stdout.log",
         "bytes": 542,
-        "sha256": "30fca9c516d6dfabeb649516b948b29ea6ca6af53beba33e8c337e58762c4d72"
+        "sha256": "c28893ee98e5c493a69920aaa9e78322d19f9f1bbb82e399c9f3c67e37db3377"
       },
-      "duration_seconds": 7.115023400052451,
+      "duration_seconds": 11.329792100004852,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1411-public-final/studio-installed-windows/inputs.json",
+        "path": "qualification/sdk1412-public-final/studio-installed-windows/inputs.json",
         "bytes": 159699,
-        "sha256": "fdc503e73a5837a401973f423d7a702188e18b26d50736899f2f377b07595058"
+        "sha256": "4dda60015381981a3490b66f75dbeee6376aab7577d498bce82dc334f5de52dd"
       },
       "report": {
-        "path": "qualification/sdk1411-public-final/studio-installed-windows/report.json",
-        "bytes": 83911,
-        "sha256": "685509544831772043c0c71ac7bb68e0a1f0ce9dfbac202198b82c34f8e34696"
+        "path": "qualification/sdk1412-public-final/studio-installed-windows/report.json",
+        "bytes": 83912,
+        "sha256": "4b29cfa3fa0192eebb51e7248da7f564d4894ee17bd05df5e9d968bf0ea3d86c"
       }
     }
   ],
-  "policy_sha256": "fb07a7aff3140d848fbc3743f5965c8101926ae02d12bb770914f10394cc5fe4"
+  "policy_sha256": "941f2b9e61bea5e738a672cd995a6049bb9e96b14268c3a8d6ec45d29562696d"
 }
