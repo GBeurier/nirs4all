@@ -2,7 +2,7 @@
   "schema": "nirs4all.local-qualification.v1",
   "project": "sdk",
   "repository": "GBeurier/nirs4all",
-  "source_sha": "2a4704302690df00337b2a96e144d5b1e2d65a27",
+  "source_sha": "1b97a3039446dcd1752f0c460b0eddeda3860b0b",
   "execution": {
     "location": "local",
     "github_actions": false,
@@ -2059,14 +2059,14 @@
       "id": "metadata-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/installed-env/bin/python",
         "-I",
         "-B",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/source/scripts/smoke_installed_package.py",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/source/scripts/smoke_installed_package.py",
         "--source-root",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/source"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/source"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -2744,37 +2744,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "scripts/smoke_installed_package.py": "f2305d38be751fd0bb45ca527e022bb12a53b8c17a79b01a7b55e036c4b30edc"
       },
-      "started_at": "2026-10-29T23:01:50.842784+00:00",
-      "finished_at": "2026-10-29T23:01:53.078670+00:00",
+      "started_at": "2026-10-29T23:13:20.173779+00:00",
+      "finished_at": "2026-10-29T23:13:22.148439+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/metadata-linux/stdout.log",
-        "bytes": 1118,
-        "sha256": "acbe66bc2e5adb5868e41e2512f981c7fa72e845493731bc1337d07d52c8fc7e"
+        "path": "qualification/sdk1413-public-final-v2/metadata-linux/stdout.log",
+        "bytes": 1133,
+        "sha256": "f0dc00fed3593ab6ca4c335642b4362b5d2e7bb612977779cf384aa959bee7c8"
       },
-      "duration_seconds": 2.3476188619970344,
+      "duration_seconds": 2.0837446590012405,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/metadata-linux/inputs.json",
-        "bytes": 159324,
-        "sha256": "e64ed9fdb78de38186b7956c582834948ef8180f2cd9ec5d5d8b1879e9d7efaa"
+        "path": "qualification/sdk1413-public-final-v2/metadata-linux/inputs.json",
+        "bytes": 159342,
+        "sha256": "549e301f36d17172a383985f6bd2abc285ce254a80d171085d0e310c163fb069"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/metadata-linux/report.json",
-        "bytes": 83696,
-        "sha256": "348a74aacedae1888657007108db905dc971cfc751818d075a06e495296e3501"
+        "path": "qualification/sdk1413-public-final-v2/metadata-linux/report.json",
+        "bytes": 83744,
+        "sha256": "49e07dfeede756b9c634fdf694378d36e102ed2f88a99c9c9e1cb00cd1337d6e"
       }
     },
     {
       "id": "provider45-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/installed-env/bin/python",
         "-I",
         "-B",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/source/tests/qualification/installed_multimodal_provider.py"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/source/tests/qualification/installed_multimodal_provider.py"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -2783,7 +2783,7 @@
         "CUDA_VISIBLE_DEVICES": "",
         "N4A_DAGML_INPROCESS": "1",
         "N4A_FULL_HPO_MATRIX": "1",
-        "N4A_SMOKE_ROOT": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/linux-provider45-output-final-canonical"
+        "N4A_SMOKE_ROOT": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/linux-provider45-output-final-canonical"
       },
       "input_fingerprints": {
         "nirs4all/__init__.py": "9e61d25d1616b002170bde04e65526656823c464cdcadf2e994da259432efb32",
@@ -3455,37 +3455,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_provider.py": "3a497b5715280a99378f490d8e312e740dd9f489b77f1d57b855519bf5e0d315"
       },
-      "started_at": "2026-10-29T23:01:54.814860+00:00",
-      "finished_at": "2026-10-29T23:02:31.456284+00:00",
+      "started_at": "2026-10-29T23:13:23.727331+00:00",
+      "finished_at": "2026-10-29T23:13:51.543657+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/provider45-linux/stdout.log",
+        "path": "qualification/sdk1413-public-final-v2/provider45-linux/stdout.log",
         "bytes": 324,
-        "sha256": "8221d07ec5029ec140ef712658ac6b454a73bf7524c65914a539c5833d3ae715"
+        "sha256": "47e9c33563b5a58820256d6a121d9c11cec00cb24d2b75a2df8c49e97012a2f5"
       },
-      "duration_seconds": 36.753331491025165,
+      "duration_seconds": 27.928510322002694,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/provider45-linux/inputs.json",
-        "bytes": 159480,
-        "sha256": "cde00d65886608441abe19b5c4f05687d3e6ae2839aee292ae57308ca5035a0b"
+        "path": "qualification/sdk1413-public-final-v2/provider45-linux/inputs.json",
+        "bytes": 159498,
+        "sha256": "c1358a4ece1f4df5fe273819a462182ee01f3fac3ffcda5014a55671628dd49b"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/provider45-linux/report.json",
-        "bytes": 83845,
-        "sha256": "d2e1dd7da22bb9f6002e0994d51a59c0dc6a62e6509f749140f57078660cf731"
+        "path": "qualification/sdk1413-public-final-v2/provider45-linux/report.json",
+        "bytes": 83893,
+        "sha256": "60a7f1ee6d93f81e1cfce80e89c9830aa52bb2c31ea2ad646fce68ce369b0617"
       }
     },
     {
       "id": "demo-replay-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/installed-env/bin/python",
         "-I",
         "-B",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/source/tests/qualification/installed_multimodal_demo.py"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/source/tests/qualification/installed_multimodal_demo.py"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -4164,44 +4164,44 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_demo.py": "6520ffd0ceca0fa30221b5d4b627af58c7538ebb23478b916baf9dc8a9d005c5"
       },
-      "started_at": "2026-10-29T23:02:33.316294+00:00",
-      "finished_at": "2026-10-29T23:02:44.825430+00:00",
+      "started_at": "2026-10-29T23:13:53.164382+00:00",
+      "finished_at": "2026-10-29T23:14:02.641902+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/demo-replay-linux/stdout.log",
-        "bytes": 607,
-        "sha256": "f2e8988b090541091903d50378a0e811f6eda183d98416366523450dd900493e"
+        "path": "qualification/sdk1413-public-final-v2/demo-replay-linux/stdout.log",
+        "bytes": 616,
+        "sha256": "e413ba49ffc66640a32a5df42d073f76623aad3c89a05426b5077e36e575a9c1"
       },
-      "duration_seconds": 11.639593729982153,
+      "duration_seconds": 9.58924863502034,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/demo-replay-linux/inputs.json",
-        "bytes": 159500,
-        "sha256": "1ded145f032ec7e18a4ae6f3cc9833f727634e5a449e9d9e543b460cfa4e69f7"
+        "path": "qualification/sdk1413-public-final-v2/demo-replay-linux/inputs.json",
+        "bytes": 159515,
+        "sha256": "df771b195f5645b32cccf019f555c08d5c316fdf8ac3e66c891b1a9c6e168ff8"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/demo-replay-linux/report.json",
-        "bytes": 83596,
-        "sha256": "b31e1e500ccd29a394a516206ac670c3b00477c0ea13813e7f83fe7c95a32d10"
+        "path": "qualification/sdk1413-public-final-v2/demo-replay-linux/report.json",
+        "bytes": 83639,
+        "sha256": "ef48baaaed1e57a21ff00cef26b6195dfb3d9434903570bf8148bc6f470e0d61"
       }
     },
     {
       "id": "native-quickstart-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/installed-env/bin/python",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/source/tests/integration/api/test_installed_native_quickstart.py",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/source/tests/integration/api/test_installed_native_quickstart.py",
         "--basetemp",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/quickstart-tmp/pytest-basetemp",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/quickstart-tmp/pytest-basetemp",
         "--junitxml",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/linux-quickstart-junit.xml"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/linux-quickstart-junit.xml"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -4880,39 +4880,39 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_native_quickstart.py": "12cbe8b287933855fb416c44b6e98274122648c6b871cd352a5ba01e720da367"
       },
-      "started_at": "2026-10-29T23:02:46.592365+00:00",
-      "finished_at": "2026-10-29T23:02:51.147266+00:00",
+      "started_at": "2026-10-29T23:14:04.192337+00:00",
+      "finished_at": "2026-10-29T23:14:08.248352+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/native-quickstart-linux/stdout.log",
-        "bytes": 796,
-        "sha256": "e3ce7fcbf1e612e294c66f90a32d28204db3077500a170664a86b91ee4aa1a0f"
+        "path": "qualification/sdk1413-public-final-v2/native-quickstart-linux/stdout.log",
+        "bytes": 802,
+        "sha256": "523a065eac147b92e495492dfdcfb0fd8aef5171f88460ad001ea10d83ac166f"
       },
-      "duration_seconds": 4.703330438002013,
+      "duration_seconds": 4.166069147002418,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/native-quickstart-linux/inputs.json",
-        "bytes": 159672,
-        "sha256": "889aa93d7fa215d301cbd4d05f16b9198b3d6faf5adaf211a096528a71cf27b9"
+        "path": "qualification/sdk1413-public-final-v2/native-quickstart-linux/inputs.json",
+        "bytes": 159693,
+        "sha256": "45f78045ac99e9065fd236884f4ab203b15d6a4a971052e283b8f12116598bf9"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/native-quickstart-linux/report.json",
-        "bytes": 84083,
-        "sha256": "9df081ab263a84475f13018ef4b914143eecf4edce3774db9a3fc16cf0dc3ed5"
+        "path": "qualification/sdk1413-public-final-v2/native-quickstart-linux/report.json",
+        "bytes": 84137,
+        "sha256": "24510103561fe1b065acc60ea45c5635ed8c23d502f490e53949b645a8e0ee5d"
       }
     },
     {
       "id": "dependency-check-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/installed-env/bin/python",
         "-I",
         "-B",
         "-m",
         "pip",
         "check"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -5589,39 +5589,39 @@
         "nirs4all/workspace/upgrade.py": "d61c275080e0b8937e8e58b99e85deb84476dabd130de9f18acc87d2c541e4b3",
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0"
       },
-      "started_at": "2026-10-29T23:02:52.856632+00:00",
-      "finished_at": "2026-10-29T23:02:53.053153+00:00",
+      "started_at": "2026-10-29T23:14:09.842626+00:00",
+      "finished_at": "2026-10-29T23:14:10.041446+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/dependency-check-linux/stdout.log",
+        "path": "qualification/sdk1413-public-final-v2/dependency-check-linux/stdout.log",
         "bytes": 30,
         "sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
       },
-      "duration_seconds": 0.303816701984033,
+      "duration_seconds": 0.31036515900632367,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/dependency-check-linux/inputs.json",
-        "bytes": 158904,
-        "sha256": "2f95dc936bef5451d2881d8e112ae99a14b489f1a6e4426e6ae0b00232fa9aaf"
+        "path": "qualification/sdk1413-public-final-v2/dependency-check-linux/inputs.json",
+        "bytes": 158916,
+        "sha256": "5dfb7513eef349e560858bd0d71367b188a6526425b515b7c0097e4ebfad21b1"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/dependency-check-linux/report.json",
-        "bytes": 83219,
-        "sha256": "384d32da39ce2644be250e99e3ee99d3b93fcb3368ee0f5610337b7a60e50574"
+        "path": "qualification/sdk1413-public-final-v2/dependency-check-linux/report.json",
+        "bytes": 83263,
+        "sha256": "c284aef64f7619abfbacc6995e5af82b75c5390802b4d05ea221075d8b900659"
       }
     },
     {
       "id": "metadata-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/prefix/Scripts/python.exe",
         "-I",
         "-B",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/source/scripts/smoke_installed_package.py",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/source/scripts/smoke_installed_package.py",
         "--source-root",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/source"
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/source"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -6300,37 +6300,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "scripts/smoke_installed_package.py": "f2305d38be751fd0bb45ca527e022bb12a53b8c17a79b01a7b55e036c4b30edc"
       },
-      "started_at": "2026-10-29T23:04:18.351430+00:00",
-      "finished_at": "2026-10-29T23:04:24.682528+00:00",
+      "started_at": "2026-10-29T23:14:16.513982+00:00",
+      "finished_at": "2026-10-29T23:14:20.996418+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/metadata-windows/stdout.log",
-        "bytes": 933,
-        "sha256": "544a98701f0488debba68b035bfa172b19eb2c453ba870f2d941d4e87a4ee9da"
+        "path": "qualification/sdk1413-public-final-v2/metadata-windows/stdout.log",
+        "bytes": 948,
+        "sha256": "6e169aaf7e1a80ccab3e0a082d9083da6de5584b6b8bd05a51bce63a6c69d70d"
       },
-      "duration_seconds": 7.299283800064586,
+      "duration_seconds": 5.234735199948773,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/metadata-windows/inputs.json",
-        "bytes": 159257,
-        "sha256": "9463d3cffc230df7019cd0a8e5da98d7ad2e2ef4f8fd93c2565361d235ac3908"
+        "path": "qualification/sdk1413-public-final-v2/metadata-windows/inputs.json",
+        "bytes": 159275,
+        "sha256": "ae3765f5f58f95f2c27be5dfb051be74c3ccd998406c325fc38731a73dd03b27"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/metadata-windows/report.json",
-        "bytes": 83435,
-        "sha256": "c0b522e32d03e9b14c1c8da854021f3589705712d0b49ad67bdf03bc76824059"
+        "path": "qualification/sdk1413-public-final-v2/metadata-windows/report.json",
+        "bytes": 83483,
+        "sha256": "8dfae5a83d152ecd3132bb4a7d6a29516588d242c67b7c247b91d923af0be27b"
       }
     },
     {
       "id": "provider45-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/prefix/Scripts/python.exe",
         "-I",
         "-B",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/source/tests/qualification/installed_multimodal_provider.py"
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/source/tests/qualification/installed_multimodal_provider.py"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -6339,7 +6339,7 @@
         "CUDA_VISIBLE_DEVICES": "",
         "N4A_DAGML_INPROCESS": "1",
         "N4A_FULL_HPO_MATRIX": "1",
-        "N4A_SMOKE_ROOT": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/windows-provider45-output-final-canonical",
+        "N4A_SMOKE_ROOT": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/windows-provider45-output-final-canonical",
         "PYTHONUTF8": "1"
       },
       "input_fingerprints": {
@@ -7012,37 +7012,37 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_provider.py": "3a497b5715280a99378f490d8e312e740dd9f489b77f1d57b855519bf5e0d315"
       },
-      "started_at": "2026-10-29T23:04:33.852396+00:00",
-      "finished_at": "2026-10-29T23:05:04.576760+00:00",
+      "started_at": "2026-10-29T23:14:28.275785+00:00",
+      "finished_at": "2026-10-29T23:14:58.477202+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/provider45-windows/stdout.log",
+        "path": "qualification/sdk1413-public-final-v2/provider45-windows/stdout.log",
         "bytes": 324,
-        "sha256": "f94f88189f1ae8f38da5b30a6bdc3f6dd002ac16340fc187d7be6782e02fc681"
+        "sha256": "bf91142a4b2bdf7d3859d61d0e802a5dc8826f489db5ba0e513035e2404e7139"
       },
-      "duration_seconds": 31.36295780004002,
+      "duration_seconds": 30.767467899946496,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/provider45-windows/inputs.json",
-        "bytes": 159415,
-        "sha256": "52697e91bc0526dc865a648330ff2c83bb0cd13a659cab97d2e21b849323996c"
+        "path": "qualification/sdk1413-public-final-v2/provider45-windows/inputs.json",
+        "bytes": 159433,
+        "sha256": "c48d9bd49aaaafee17c6f066f0bcd073e119e4e8cb3615124c4e6c40e90079dc"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/provider45-windows/report.json",
-        "bytes": 83850,
-        "sha256": "05c14ef262fe7197bb7a9a67df5be9ff1710a5978378fa9752668d035f78d3d1"
+        "path": "qualification/sdk1413-public-final-v2/provider45-windows/report.json",
+        "bytes": 83902,
+        "sha256": "f6c97bb4c08a996c5b64790743bb29439b728fe9b24ada7be7306512e281eb45"
       }
     },
     {
       "id": "demo-replay-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/prefix/Scripts/python.exe",
         "-I",
         "-B",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/source/tests/qualification/installed_multimodal_demo.py"
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/source/tests/qualification/installed_multimodal_demo.py"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -7722,44 +7722,44 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/qualification/installed_multimodal_demo.py": "6520ffd0ceca0fa30221b5d4b627af58c7538ebb23478b916baf9dc8a9d005c5"
       },
-      "started_at": "2026-10-29T23:05:08.043160+00:00",
-      "finished_at": "2026-10-29T23:05:23.129153+00:00",
+      "started_at": "2026-10-29T23:15:01.953786+00:00",
+      "finished_at": "2026-10-29T23:15:17.403475+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/demo-replay-windows/stdout.log",
-        "bytes": 497,
-        "sha256": "c985253010c289fcb9a17c65c055ca1040418cd1df1865d1de690d3f1ad4e511"
+        "path": "qualification/sdk1413-public-final-v2/demo-replay-windows/stdout.log",
+        "bytes": 506,
+        "sha256": "5c898ec06450181ac9c643b24ebed662bd48997c52f64f6be9a9a2e5cc40ff9a"
       },
-      "duration_seconds": 15.684942100080661,
+      "duration_seconds": 16.02775999996811,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/demo-replay-windows/inputs.json",
-        "bytes": 159459,
-        "sha256": "487518ec980887d76525db117f4aedc1825e0ac2feff5fdc83fae4bdd9f62474"
+        "path": "qualification/sdk1413-public-final-v2/demo-replay-windows/inputs.json",
+        "bytes": 159474,
+        "sha256": "c01b1571dedd1bc49c3f5f360288efe19c9afdb489ae96b62ec7407160735b9c"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/demo-replay-windows/report.json",
-        "bytes": 83363,
-        "sha256": "ab9a6f4544daf28a4801ea207e7e49d1b84a6c81fb449dea1d7cf7d89a5e9266"
+        "path": "qualification/sdk1413-public-final-v2/demo-replay-windows/report.json",
+        "bytes": 83407,
+        "sha256": "8fd7be72df37b027b9b3b4bcd02a866dcf2b5a05521043299dd07a1aab42939d"
       }
     },
     {
       "id": "native-quickstart-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/prefix/Scripts/python.exe",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/source/tests/integration/api/test_installed_native_quickstart.py",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/source/tests/integration/api/test_installed_native_quickstart.py",
         "--basetemp",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/quickstart-tmp/pytest-basetemp",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/quickstart-tmp/pytest-basetemp",
         "--junitxml",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/windows-quickstart-junit.xml"
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/windows-quickstart-junit.xml"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -8439,39 +8439,39 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_native_quickstart.py": "12cbe8b287933855fb416c44b6e98274122648c6b871cd352a5ba01e720da367"
       },
-      "started_at": "2026-10-29T23:05:26.410667+00:00",
-      "finished_at": "2026-10-29T23:05:33.142845+00:00",
+      "started_at": "2026-10-29T23:15:20.590898+00:00",
+      "finished_at": "2026-10-29T23:15:27.220742+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/native-quickstart-windows/stdout.log",
-        "bytes": 545,
-        "sha256": "ea4b10fac731e085a5718e659988883f9ff4d1251798135d9735cbc23e977292"
+        "path": "qualification/sdk1413-public-final-v2/native-quickstart-windows/stdout.log",
+        "bytes": 551,
+        "sha256": "ca01e420d890ef6ebc66eb6c336fad65619140c80594d45d2d878caaa277d675"
       },
-      "duration_seconds": 7.337138899951242,
+      "duration_seconds": 7.408368399948813,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/native-quickstart-windows/inputs.json",
-        "bytes": 159581,
-        "sha256": "da254e64a7a07350cabc410d7a0e6a9957ba87d87152cac88a4b13ca0f7bf3a1"
+        "path": "qualification/sdk1413-public-final-v2/native-quickstart-windows/inputs.json",
+        "bytes": 159602,
+        "sha256": "772b63597667a03f548b53dd34b0f806132cb38156c4ec8f191ecf1655ba3c0c"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/native-quickstart-windows/report.json",
-        "bytes": 83802,
-        "sha256": "a6a8be59b6c4fb6411de167644af8c5252d2cc1e01b3f5b31b3536ce5d30fedc"
+        "path": "qualification/sdk1413-public-final-v2/native-quickstart-windows/report.json",
+        "bytes": 83856,
+        "sha256": "1a49dc2bd127380680784d692aebdd1f20da5b8a4e0644200042923936d3a9c8"
       }
     },
     {
       "id": "dependency-check-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/prefix/Scripts/python.exe",
         "-I",
         "-B",
         "-m",
         "pip",
         "check"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -9149,44 +9149,44 @@
         "nirs4all/workspace/upgrade.py": "d61c275080e0b8937e8e58b99e85deb84476dabd130de9f18acc87d2c541e4b3",
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0"
       },
-      "started_at": "2026-10-29T23:04:29.226793+00:00",
-      "finished_at": "2026-10-29T23:04:29.821102+00:00",
+      "started_at": "2026-10-29T23:14:24.420365+00:00",
+      "finished_at": "2026-10-29T23:14:24.920697+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/dependency-check-windows/stdout.log",
+        "path": "qualification/sdk1413-public-final-v2/dependency-check-windows/stdout.log",
         "bytes": 31,
         "sha256": "672aec65a45bed50e70229c70934a7eebf0462595c459b83023027645d57cccf"
       },
-      "duration_seconds": 1.4610355000477284,
+      "duration_seconds": 1.1833221000852063,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/dependency-check-windows/inputs.json",
-        "bytes": 158889,
-        "sha256": "440a7c7cc2aada6624d184b245af30854c284210a21ff216c0b423874abc01b6"
+        "path": "qualification/sdk1413-public-final-v2/dependency-check-windows/inputs.json",
+        "bytes": 158901,
+        "sha256": "d6f0294d9ed7ed669fce77010fff738699de6398552e9df916db8ba946edcab1"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/dependency-check-windows/report.json",
-        "bytes": 83013,
-        "sha256": "6195317b7b65104b6f839b8efcd960e5d1f26a7eb626074db2116c76371fdd63"
+        "path": "qualification/sdk1413-public-final-v2/dependency-check-windows/report.json",
+        "bytes": 83055,
+        "sha256": "e99a6ffda5c067ab8bfdf53c6794baa074de0a74e5a9fb1e6810f974026dde78"
       }
     },
     {
       "id": "studio-installed-linux",
       "host": "linux-wsl",
       "command": [
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/installed-env/bin/python",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/installed-env/bin/python",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/source/tests/integration/api/test_installed_studio_general.py",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/source/tests/integration/api/test_installed_studio_general.py",
         "--basetemp",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/studio-tmp/pytest-studio-basetemp",
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/studio-tmp/pytest-studio-basetemp",
         "--junitxml",
-        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/linux-studio-junit.xml"
+        "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/linux-studio-junit.xml"
       ],
-      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final",
+      "cwd": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -9194,7 +9194,7 @@
         "MKL_NUM_THREADS": "1",
         "CUDA_VISIBLE_DEVICES": "",
         "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2": "1",
-        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final/installed-env/bin/python"
+        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "/home/delete/nirs4all/_audits/2026-10-29-remediation/publication/sdk1413-public-final-v2/installed-env/bin/python"
       },
       "input_fingerprints": {
         "nirs4all/__init__.py": "9e61d25d1616b002170bde04e65526656823c464cdcadf2e994da259432efb32",
@@ -9866,44 +9866,44 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_studio_general.py": "d36a2457d2c261e0125b4a87ff8b3b55057d22c84a2e6dc951da7876142e8be6"
       },
-      "started_at": "2026-10-29T23:02:54.693066+00:00",
-      "finished_at": "2026-10-29T23:02:59.554063+00:00",
+      "started_at": "2026-10-29T23:14:11.571601+00:00",
+      "finished_at": "2026-10-29T23:14:16.542834+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/studio-installed-linux/stdout.log",
-        "bytes": 793,
-        "sha256": "84cb399310ba9a82b6fe0fb966994ff2f4c67172c9c07e6fccf61c6339f62925"
+        "path": "qualification/sdk1413-public-final-v2/studio-installed-linux/stdout.log",
+        "bytes": 799,
+        "sha256": "c65e6ea6d98ca8de50030cc8ca86098dcdf3747b477ca9607ac258c952d86512"
       },
-      "duration_seconds": 4.976453565992415,
+      "duration_seconds": 5.0800173609750345,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/studio-installed-linux/inputs.json",
-        "bytes": 159815,
-        "sha256": "a8fc0d88fa202eca385d195fa3bb1acdfac3a916efb54e5692c364dbe9505063"
+        "path": "qualification/sdk1413-public-final-v2/studio-installed-linux/inputs.json",
+        "bytes": 159839,
+        "sha256": "1f84a6f7dc044078291b493f137df5336bfaf65a59d1d89d68021b081f4091b6"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/studio-installed-linux/report.json",
-        "bytes": 84217,
-        "sha256": "c6b2861907d87d9f667661caa383c300ebecfda707b08e27bd2ea5c525de5b08"
+        "path": "qualification/sdk1413-public-final-v2/studio-installed-linux/report.json",
+        "bytes": 84275,
+        "sha256": "d069c4ee62ca8360b8cc9c2be5f7a08cbe0e585025b2b601e459ad4451a88b70"
       }
     },
     {
       "id": "studio-installed-windows",
       "host": "windows-native",
       "command": [
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/prefix/Scripts/python.exe",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/prefix/Scripts/python.exe",
         "-I",
         "-B",
         "-m",
         "pytest",
         "-q",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/source/tests/integration/api/test_installed_studio_general.py",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/source/tests/integration/api/test_installed_studio_general.py",
         "--basetemp",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/studio-tmp/pytest-studio-basetemp",
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/studio-tmp/pytest-studio-basetemp",
         "--junitxml",
-        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/windows-studio-junit.xml"
+        "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/windows-studio-junit.xml"
       ],
-      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final",
+      "cwd": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2",
       "environment": {
         "N4A_ENGINE": "dag-ml",
         "OMP_NUM_THREADS": "1",
@@ -9911,7 +9911,7 @@
         "MKL_NUM_THREADS": "1",
         "CUDA_VISIBLE_DEVICES": "",
         "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2": "1",
-        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final/prefix/Scripts/python.exe",
+        "NIRS4ALL_STUDIO_INSTALLED_PYTHON": "D:/workspace/nirs4all-release-20261029-sdk1413-public-final-v2/prefix/Scripts/python.exe",
         "PYTHONUTF8": "1"
       },
       "input_fingerprints": {
@@ -10584,27 +10584,27 @@
         "pyproject.toml": "592b68187b6ed025cec1bd33d19e66d0f87e7cb39fb5e7e14c1a251b52fb25f0",
         "tests/integration/api/test_installed_studio_general.py": "d36a2457d2c261e0125b4a87ff8b3b55057d22c84a2e6dc951da7876142e8be6"
       },
-      "started_at": "2026-10-29T23:05:36.459140+00:00",
-      "finished_at": "2026-10-29T23:05:43.503344+00:00",
+      "started_at": "2026-10-29T23:15:30.706330+00:00",
+      "finished_at": "2026-10-29T23:15:37.541813+00:00",
       "exit_code": 0,
       "log": {
-        "path": "qualification/sdk1413-public-final/studio-installed-windows/stdout.log",
-        "bytes": 542,
-        "sha256": "1a7b1bbde4383f04ca159fea1f5122ce2a8e9da6b1dc058f6770db69fa39c44a"
+        "path": "qualification/sdk1413-public-final-v2/studio-installed-windows/stdout.log",
+        "bytes": 548,
+        "sha256": "260db5d4b83782b9ed61520a94238f7b369cb14c41ba45545b3bcadbf50c4339"
       },
-      "duration_seconds": 7.6070648999884725,
+      "duration_seconds": 7.408090299926698,
       "timing_basis": "direct-monotonic-duration",
       "input_evidence": {
-        "path": "qualification/sdk1413-public-final/studio-installed-windows/inputs.json",
-        "bytes": 159699,
-        "sha256": "9d280149000584798312df1156a2297a1c277c63b7a7d2af345f424c0f398363"
+        "path": "qualification/sdk1413-public-final-v2/studio-installed-windows/inputs.json",
+        "bytes": 159723,
+        "sha256": "df94e1e1851cdaca7f21416709c94e060037f88092225395305fbd7d78a5a7b3"
       },
       "report": {
-        "path": "qualification/sdk1413-public-final/studio-installed-windows/report.json",
-        "bytes": 83912,
-        "sha256": "c1a5a348fcd6de3581a1f390d1b6285324fdd0f1b31a12f33905c6157fdb026d"
+        "path": "qualification/sdk1413-public-final-v2/studio-installed-windows/report.json",
+        "bytes": 83968,
+        "sha256": "b6074fba8a739d2352f3f6b85f86d0024f5ce5166ad66eda7a2679dc3245dec2"
       }
     }
   ],
-  "policy_sha256": "69c1a1d99bf5e00f0db74b53db779687f79cda3a1c6dbcc871a450648d8fce06"
+  "policy_sha256": "9223cf54bbdd660cac83f58a1949ff27fa46b1dbcf3b25123d5898cdb8cebf3c"
 }
