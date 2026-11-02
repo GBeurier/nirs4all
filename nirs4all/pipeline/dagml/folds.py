@@ -177,6 +177,11 @@ def _fold_file_folds(splitter: FoldFileDagMlSplitStep, spectro: Any, pool: list[
     folds = FoldFileParser().parse(splitter.fold_file)
     if not folds:
         raise ValueError(f"No folds found in file: {splitter.fold_file}")
+    # Samples held out for a missing target are known dataset IDs outside the
+    # CV universe: drop them before the unknown-ID check.
+    held_out = set(getattr(spectro, "_dagml_target_missing", ()))
+    if held_out:
+        folds = [([sample for sample in train if sample not in held_out], [sample for sample in val if sample not in held_out]) for train, val in folds]
     pool_set = set(pool)
     all_fold_ids = {sample for train, val in folds for sample in (*train, *val)}
     missing_ids = all_fold_ids - pool_set

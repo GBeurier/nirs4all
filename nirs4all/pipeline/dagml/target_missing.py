@@ -87,8 +87,10 @@ def find_target_missing(spectro: Any) -> TargetMissingSamples | None:
     for partition in ("train", "test"):
         selector = {"partition": partition}
         samples = spectro._indexer.x_indices(selector, include_augmented=False, include_excluded=True)
-        values = spectro.y(selector, include_augmented=False, include_excluded=True)
-        mask = missing_target_rows(values) if len(samples) else np.zeros(0, dtype=bool)
+        values = np.asarray(spectro.y(selector, include_augmented=False, include_excluded=True))
+        # A partition loaded without targets (e.g. an unlabelled test file)
+        # stores no target rows; it is a prediction cohort, not a gap.
+        mask = missing_target_rows(values) if values.size else np.zeros(len(samples), dtype=bool)
         found[partition] = tuple(int(sample) for sample in np.asarray(samples)[mask])
     if not found["train"] and not found["test"]:
         return None
@@ -119,36 +121,53 @@ def isolate_target_missing(spectro: Any, missing: TargetMissingSamples | None) -
                 spectro._indexer.update_by_indices(list(samples), {"partition": partition})
 
 
+def _archive_predictions(archive: Path, spectro: Any) -> list[tuple[dict[str, Any] | None, Any]]:
+    """Replay every output of an exported archive: one, or each independent named output."""
+    from .general_archive import load_general_archive, predict_general_archive
+
+    loaded = load_general_archive(archive)
+    topology = loaded["manifest"].get("dagml_independent_output_topology")
+    outputs = (topology.get("ranked_outputs") or topology.get("outputs")) if isinstance(topology, dict) else None
+    items: list[dict[str, Any] | None] = list(outputs) if isinstance(outputs, list) else [None]
+    return [
+        (item, predict_general_archive(
+            archive, spectro, expected_archive_fingerprint=loaded["archive_fingerprint"], loaded_archive=loaded,
+            output=None if item is None else item["output_binding_id"],
+        ))
+        for item in items
+    ]
+
+
 def attach_target_missing_predictions(result: Any, spectro: Any, missing: TargetMissingSamples) -> None:
     """Record the exclusion and predict the excluded samples with the refit model.
 
     ``spectro`` is the dataset as it was before the run: execution may add
     rows (augmentation) that are not prediction inputs.
 
-    The run's exported refit model (single estimator or native aggregate such
-    as a stack) is replayed through a native PREDICT-only ``inference`` cohort,
-    exactly as ``nirs4all.predict`` replays an archive. Exporting persists
-    nothing in the caller's workspace and leaves the result's export state
-    unchanged. A run without an exportable refit model (``refit=False``, or a
-    topology whose export is refused) records the exclusion and the reason,
-    without predictions.
+    The run's exported refit model (single estimator, native aggregate such as
+    a stack, or each independent per-source output) is replayed through a
+    native PREDICT-only ``inference`` cohort, exactly as ``nirs4all.predict``
+    replays an archive. Exporting persists nothing in the caller's workspace
+    and leaves the result's export state unchanged. A run without an
+    exportable refit model (``refit=False``, or a topology whose export is
+    refused) records the exclusion and the reason, without predictions.
     """
     from nirs4all.core.logging import get_logger
 
-    from .general_archive import predict_general_archive
     from .identity import mint_identity
     from .rt import RtError
 
     record: dict[str, Any] = {**missing.to_metadata(), "predicted": False}
     for metadata in result.per_dataset.values():
         metadata["target_missing"] = record
+    predictions: list[tuple[dict[str, Any] | None, Any]] = []
     if not result._dagml_refit_artifacts:
         record["unpredicted_reason"] = "the run has no refit model"
     else:
         export_state = (result._dagml_results_dir, result._dagml_export_directory)
         try:
             with TemporaryDirectory(prefix="n4a-target-missing-") as directory:
-                prediction = predict_general_archive(result.export(Path(directory) / "refit.n4a"), spectro)
+                predictions = _archive_predictions(result.export(Path(directory) / "refit.n4a"), spectro)
         except (RtError, NotImplementedError) as exc:
             record["unpredicted_reason"] = f"the refit model cannot be exported: {exc}"
         finally:
@@ -166,35 +185,41 @@ def attach_target_missing_predictions(result: Any, spectro: Any, missing: Target
     identity = mint_identity(spectro)
     row_of = {sample.sample_int: row for row, sample in enumerate(identity.identities)}
     samples = list(missing.samples)
-    # Label the row with the refit entry, or the CV winner for compositions
-    # (e.g. stacking) that project no refit rows.
-    source = result.final or result.best
-    values = np.asarray(prediction.y_pred)[[row_of[sample] for sample in samples]]
-    if "classif" in str(source.get("task_type", "")):
-        # Replay decodes the user's labels; the run's rows hold class ids.
-        values = np.asarray(spectro._targets.transform_predictions(values, "raw", "numeric"), dtype=float)
-        values = values.ravel() if values.ndim == 2 and values.shape[1] == 1 else values
-    result.predictions.add_prediction(
-        dataset_name=spectro.name,
-        config_name=source.get("config_name", ""),
-        model_name=source.get("model_name", ""),
-        model_classname=source.get("model_classname", ""),
-        fold_id="final",
-        partition=PREDICTION_PARTITION,
-        sample_indices=samples,
-        metadata={"physical_sample_id": [identity.to_wire(sample) for sample in samples]},
-        y_pred=values,
-        metric=source.get("metric", ""),
-        task_type=source.get("task_type", "regression"),
-        n_samples=len(samples),
-        refit_context="standalone",
-        result_metadata={"target_missing_prediction": {
-            "schema": "nirs4all.target-missing-prediction.v1",
-            "phase": prediction.metadata["phase"],
-            "predict_cohort_role": prediction.metadata["predict_cohort"]["role"],
-            "archive_fingerprint": prediction.metadata["archive_fingerprint"],
-            "train_sample_indices": list(missing.train),
-            "test_sample_indices": list(missing.test),
-        }},
-    )
+    finals = result.predictions.filter_predictions(fold_id="final", load_arrays=False)
+    for item, prediction in predictions:
+        # Label each row with its refit entry (the output's source branch for
+        # independent outputs), or the CV winner for compositions (e.g.
+        # stacking) that project no refit rows.
+        branch = None if item is None else item.get("source_id")
+        source = next((row for row in finals if branch is not None and row.get("branch_name") == branch), None) or result.final or result.best
+        values = np.asarray(prediction.y_pred)[[row_of[sample] for sample in samples]]
+        if "classif" in str(source.get("task_type", "")):
+            # Replay decodes the user's labels; the run's rows hold class ids.
+            values = np.asarray(spectro._targets.transform_predictions(values, "raw", "numeric"), dtype=float)
+            values = values.ravel() if values.ndim == 2 and values.shape[1] == 1 else values
+        result.predictions.add_prediction(
+            dataset_name=spectro.name,
+            config_name=source.get("config_name", ""),
+            model_name=source.get("model_name", ""),
+            model_classname=source.get("model_classname", ""),
+            fold_id="final",
+            partition=PREDICTION_PARTITION,
+            sample_indices=samples,
+            metadata={"physical_sample_id": [identity.to_wire(sample) for sample in samples]},
+            y_pred=values,
+            metric=source.get("metric", ""),
+            task_type=source.get("task_type", "regression"),
+            n_samples=len(samples),
+            branch_name=branch,
+            refit_context="standalone",
+            result_metadata={"target_missing_prediction": {
+                "schema": "nirs4all.target-missing-prediction.v1",
+                "phase": prediction.metadata["phase"],
+                "predict_cohort_role": prediction.metadata["predict_cohort"]["role"],
+                "archive_fingerprint": prediction.metadata["archive_fingerprint"],
+                "output_binding_id": None if item is None else item["output_binding_id"],
+                "train_sample_indices": list(missing.train),
+                "test_sample_indices": list(missing.test),
+            }},
+        )
     result.predictions.flush()

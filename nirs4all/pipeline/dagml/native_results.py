@@ -349,12 +349,14 @@ def _projection_rows(predictions: Predictions) -> list[dict[str, Any]]:
         y_proba = entry.get("y_proba")
         sample_indices = entry.get("sample_indices") or []
         sample_ids = _physical_sample_ids(entry, len(sample_indices))
-        # Target width from the 2D array shape (1 for single-target / score-only rows); target_names are
+        # Target width from the 2D target (else prediction) array shape (1 for single-target / score-only rows); target_names are
         # not carried on the projected rows, so derive them from the width so the names are CONSISTENT with
         # the persisted shape (``["y"]`` single / ``["y0", ...]`` multi) — the SHAPE columns are the
         # round-trip source of truth, names are descriptive metadata.
         true_shape = _shape_of(y_true)
-        target_width = int(true_shape[1]) if len(true_shape) > 1 else 1
+        # Prediction-only rows (samples without targets) carry no y_true.
+        width_shape = true_shape if _as_list(y_true) else _shape_of(y_pred)
+        target_width = int(width_shape[1]) if len(width_shape) > 1 else 1
         target_names = [f"y{i}" for i in range(target_width)] if target_width > 1 else ["y"]
         row: dict[str, Any] = {
             "dataset": entry.get("dataset_name", ""),
