@@ -1482,9 +1482,9 @@ class SpectroDataset:
             # Reset metadata block using add_metadata (proper method)
             from nirs4all.data.metadata import Metadata
             new_metadata = Metadata()
-            # Remove row_id if present before adding
-            if "row_id" in new_metadata_rows.columns:
-                new_metadata_rows = new_metadata_rows.drop("row_id")
+            # Rebuild only the internal index; preserve user row_id metadata.
+            if self._metadata.row_id_column in new_metadata_rows.columns:
+                new_metadata_rows = new_metadata_rows.drop(self._metadata.row_id_column)
             new_metadata.add_metadata(new_metadata_rows)
 
             self._metadata = new_metadata
