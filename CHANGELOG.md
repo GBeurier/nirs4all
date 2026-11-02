@@ -33,8 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An estimator parameter that the constructor does not accept is now an error
   naming the rejected and the valid parameters. The serializer used to drop it
   and build the estimator with defaults (for example `AOMPLSRegressor` given
-  `n_components` trained with `max_components=3`). Two example pipeline
-  configurations that relied on this are corrected.
+  `n_components` trained with `max_components=3`); neural model factories
+  likewise dropped unknown builder parameters. Runtime hints the factory injects
+  (`input_dim`, `input_shape`, `num_classes`) stay optional. Two example
+  pipeline configurations that relied on the fallback are corrected.
 
 ## [1.4.14] — 2026-11-02
 

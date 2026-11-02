@@ -107,3 +107,27 @@ def test_repository_pipeline_configs_use_accepted_parameters():
     assert declared
     for node in declared:
         deserialize_component(node)
+
+
+def test_neural_factories_reject_unknown_parameters_but_ignore_injected_hints():
+    from nirs4all.controllers.models.factory import ModelFactory
+
+    def factory(input_shape, hidden_units=8):
+        return {"input_shape": input_shape, "hidden_units": hidden_units}
+
+    assert ModelFactory.prepare_and_call(factory, {"hidden_units": 64, "input_shape": (4,), "num_classes": 3}) == {"input_shape": (4,), "hidden_units": 64}
+    with pytest.raises(ValueError, match=r"does not accept parameter\(s\) \['hidden_unitz'\]; valid parameters: \['hidden_units', 'input_shape'\]"):
+        ModelFactory.prepare_and_call(factory, {"hidden_unitz": 64, "input_shape": (4,)})
+
+    def bundled(input_shape, params):
+        return params
+
+    assert ModelFactory.prepare_and_call(bundled, {"input_shape": (4,), "anything": 1}) == {"anything": 1}
+
+    class Deferred:
+        def __init__(self, input_shape=None, width=4):
+            self.input_shape, self.width = input_shape, width
+
+    assert ModelFactory.reconstruct_object(Deferred(), force_params={"input_shape": (5,), "width": 9}).width == 9
+    with pytest.raises(ValueError, match=r"\['widht'\]"):
+        ModelFactory.reconstruct_object(Deferred(), force_params={"input_shape": (5,), "widht": 9})

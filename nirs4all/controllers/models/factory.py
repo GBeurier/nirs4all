@@ -43,6 +43,10 @@ def _get_meta_estimator_types():
             META_ESTIMATOR_TYPES = ()
     return META_ESTIMATOR_TYPES
 
+# Runtime hints injected by the factory, not requested by the user.
+_INJECTED_BUILD_PARAMETERS = frozenset({"input_dim", "input_shape", "num_classes"})
+
+
 class ModelFactory:
     """Factory class for building machine learning models from various configurations.
 
@@ -712,6 +716,19 @@ class ModelFactory:
             return model
 
     @staticmethod
+    def _refuse_unknown_parameters(callable_obj, names):
+        """Raise when a builder does not accept a requested parameter.
+
+        ``input_dim``, ``input_shape`` and ``num_classes`` are runtime hints the
+        factory injects; builders that do not declare them may ignore them.
+        """
+        from nirs4all.pipeline.config.component_serialization import unknown_parameters_message
+
+        message = unknown_parameters_message(callable_obj, names, injected=_INJECTED_BUILD_PARAMETERS)
+        if message is not None:
+            raise ValueError(message)
+
+    @staticmethod
     def prepare_and_call(callable_obj, params_from_caller=None, force_params_from_caller=None):
         """Prepare arguments and call a callable with proper parameter handling.
 
@@ -742,6 +759,9 @@ class ModelFactory:
         has_params_bundle_arg = 'params' in sig_params_spec and \
                                 sig_params_spec['params'].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
         has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params_spec.values())
+        if not has_params_bundle_arg:
+            # Never drop a requested parameter and build the default model.
+            ModelFactory._refuse_unknown_parameters(callable_obj, all_available_args_from_caller)
 
         # Only keep arguments that are in the callable's signature, unless **kwargs is present
         for name, value in all_available_args_from_caller.items():
@@ -812,6 +832,7 @@ class ModelFactory:
         merged_params = {**params, **force_params}
 
         cls = obj.__class__
+        ModelFactory._refuse_unknown_parameters(cls, merged_params)
         signature = inspect.signature(cls)
         current_params = obj.__dict__.copy()  # This assumes the object stores its state in __dict__
 

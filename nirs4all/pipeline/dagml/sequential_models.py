@@ -114,16 +114,23 @@ def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
 
 
 def share_model_folds(pipelines: list[list[Any]], spectro: Any) -> list[list[Any]]:
-    """Resolve a shared splitter once, retaining grouping metadata and row IDs."""
+    """Resolve a shared splitter once, retaining grouping metadata and row IDs.
+
+    Samples with a missing target are held out exactly as each successive run
+    holds them out, so the shared folds split the target-observed samples.
+    """
+    from .target_missing import find_target_missing, isolate_target_missing
+
+    with isolate_target_missing(spectro, find_target_missing(spectro)):
+        return _share_model_folds(pipelines, spectro)
+
+
+def _share_model_folds(pipelines: list[list[Any]], spectro: Any) -> list[list[Any]]:
     from .folds import _build_folds, _build_group_folds, _is_repetition_dataset
-    from .target_missing import find_target_missing
 
     captured: dict[int, FrozenDagMlSplitStep] = {}
     result = []
-    # Split the target-observed samples, as each successive run will.
-    missing = find_target_missing(spectro)
-    held_out = set(missing.train) if missing is not None else set()
-    pool = [int(sample) for sample in spectro.index_column("sample", {"partition": "train"}) if int(sample) not in held_out]
+    pool = [int(sample) for sample in spectro.index_column("sample", {"partition": "train"})]
     for pipeline in pipelines:
         split_steps = [step for step in pipeline if _is_split_step(step)]
         if not split_steps:

@@ -296,3 +296,31 @@ def test_native_results_keep_prediction_only_target_width() -> None:
                                y_pred=np.array([[1.0, 2.0], [3.0, 4.0]]), n_samples=2)
     (row,) = _projection_rows(predictions)
     assert row["target_width"] == 2 and json.loads(row["target_names"]) == ["y0", "y1"]
+
+
+def test_successive_models_share_a_fold_file_with_held_out_samples(tmp_path) -> None:
+    fold_file = tmp_path / "folds.json"
+    fold_file.write_text(json.dumps([{"train": list(range(30)), "val": list(range(30, 60))},
+                                     {"train": list(range(30, 60)), "val": list(range(30))}]))
+    result = _run([{"split": str(fold_file)}, {"model": PLSRegression(3)}, {"model": Ridge()}], _dataset(_features(), _regression_targets()))
+
+    assert [list(row["sample_indices"]) for row in _prediction_rows(result)] == [MISSING, MISSING]
+
+
+def test_learned_target_bins_keep_their_protocol_with_prediction_rows(tmp_path) -> None:
+    from sklearn.linear_model import LogisticRegression
+
+    from nirs4all.operators.transforms.targets import RangeDiscretizer
+    from nirs4all.pipeline.dagml.target_domains import fold_local_domains_available
+
+    if not fold_local_domains_available():
+        pytest.skip("native fold-local target domains schema v1 unavailable")
+    result = nirs4all.run([{"y_processing": RangeDiscretizer(2)}, KFold(3), LogisticRegression()],
+                          _dataset(_features(), _regression_targets()), verbose=0, save_artifacts=True,
+                          save_charts=False, workspace_path=tmp_path / "workspace")
+
+    assert result.cv_best["fold_id"] == "macro" and np.isfinite(result.cv_best_score)
+    (prediction,) = _prediction_rows(result)
+    assert set(np.asarray(prediction["y_pred"], dtype=float)) <= {0.0, 1.0}
+    contexts = {row["result_metadata"]["dagml_projection"]["target_domain_context"] for row in result.predictions.filter_predictions()}
+    assert len(contexts) == 1

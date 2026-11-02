@@ -121,6 +121,19 @@ def isolate_target_missing(spectro: Any, missing: TargetMissingSamples | None) -
                 spectro._indexer.update_by_indices(list(samples), {"partition": partition})
 
 
+def _projection_identity(source: dict[str, Any]) -> dict[str, Any]:
+    """Join the source row's native projection identity, without its score evidence.
+
+    Workspace chains and target-domain protocol checks group rows by this
+    identity; a prediction-only row carries no scores or score provenance.
+    """
+    projection = (source.get("result_metadata") or {}).get("dagml_projection")
+    if not isinstance(projection, dict):
+        return {}
+    identity = {key: value for key, value in projection.items() if key not in {"score_provenance", "target_domains", "unavailable_partitions"}}
+    return {"dagml_projection": {**identity, "role": "refit", "score_provenance": {}, "unavailable_partitions": ["train", "val", "test"]}}
+
+
 def _archive_predictions(archive: Path, spectro: Any) -> list[tuple[dict[str, Any] | None, Any]]:
     """Replay every output of an exported archive: one, or each independent named output."""
     from .general_archive import load_general_archive, predict_general_archive
@@ -212,7 +225,7 @@ def attach_target_missing_predictions(result: Any, spectro: Any, missing: Target
             n_samples=len(samples),
             branch_name=branch,
             refit_context="standalone",
-            result_metadata={"target_missing_prediction": {
+            result_metadata={**_projection_identity(source), "target_missing_prediction": {
                 "schema": "nirs4all.target-missing-prediction.v1",
                 "phase": prediction.metadata["phase"],
                 "predict_cohort_role": prediction.metadata["predict_cohort"]["role"],

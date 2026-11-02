@@ -522,16 +522,32 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
     # should not reach here
     return blob
 
-def _invalid_parameters_message(component: Any, params: dict[str, Any], error: TypeError) -> str:
-    """Name the rejected parameters and the ones the component accepts."""
-    name = f"{getattr(component, '__module__', '')}.{getattr(component, '__qualname__', component)}"
+def unknown_parameters_message(component: Any, names: Any, *, injected: frozenset[str] = frozenset()) -> str | None:
+    """Describe constructor parameters ``component`` does not accept, or ``None``.
+
+    A component that takes ``**kwargs`` accepts every name. ``injected`` names
+    are runtime hints a builder may ignore (e.g. ``input_shape``).
+    """
     signature = inspect.signature(component)
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()):
+        return None
     keyword_kinds = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
     valid = sorted(n for n, parameter in signature.parameters.items() if n != "self" and parameter.kind in keyword_kinds)
-    accepts_any = any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
-    unknown = sorted(set(params) - set(valid))
-    if unknown and not accepts_any:
-        return f"{name} does not accept parameter(s) {unknown}; valid parameters: {valid}"
+    unknown = sorted(set(names) - set(valid) - injected)
+    if not unknown:
+        return None
+    name = f"{getattr(component, '__module__', '')}.{getattr(component, '__qualname__', component)}"
+    return f"{name} does not accept parameter(s) {unknown}; valid parameters: {valid}"
+
+
+def _invalid_parameters_message(component: Any, params: dict[str, Any], error: TypeError) -> str:
+    """Name the rejected parameters and the ones the component accepts."""
+    message = unknown_parameters_message(component, params)
+    if message is not None:
+        return message
+    keyword_kinds = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    valid = sorted(n for n, parameter in inspect.signature(component).parameters.items() if n != "self" and parameter.kind in keyword_kinds)
+    name = f"{getattr(component, '__module__', '')}.{getattr(component, '__qualname__', component)}"
     return f"{name} rejected parameters {sorted(params)}: {error}; valid parameters: {valid}"
 
 
