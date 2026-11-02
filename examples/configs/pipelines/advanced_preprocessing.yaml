@@ -15,7 +15,7 @@ pipeline:
   - class: nirs4all.operators.transforms.SNV
 
   # Step 2: First derivative using Savitzky-Golay filter
-  - class: nirs4all.operators.transforms.SavGolDeriv
+  - class: nirs4all.operators.transforms.SavitzkyGolay
     params:
       deriv: 1
       window_length: 11
