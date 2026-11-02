@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.14] — 2026-11-02
+
+### Fixed
+
+- Preserve row-identifier metadata in dataset previews and inspections, and
+  expand repetition sweeps over every declared repetition.
+- Normalize repetition fusion sweeps before execution so generated variants run
+  with valid fusion settings.
+- Keep the native NA policy out of registered format loaders, so Excel and other
+  registered readers no longer fail on a forwarded nested ``na`` option.
+- Report actual DAG operator and cross-validation progress to Studio, with
+  progress counters isolated per run.
+- Count progress across every model dispatch of a multi-model pipeline so the
+  percentage stays monotonic and known, and never let progress bookkeeping or
+  telemetry failures interrupt a run.
+
 ## [1.4.13] — 2026-10-30
 
 ### Fixed
