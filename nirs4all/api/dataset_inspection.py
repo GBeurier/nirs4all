@@ -146,6 +146,11 @@ def load_dataset_for_analysis(
         if load_limits is not None:
             raise ValueError("Native LoadLimits cannot be guaranteed by non-native format loaders")
         from nirs4all.data.config import DatasetConfigs
+        # Nested ``na`` is the native IO policy; registered loaders read the
+        # flat NA options and would forward ``na`` to their format reader.
+        config = {key: ({name: item for name, item in value.items() if name != "na"}
+                        if key.endswith("_params") and isinstance(value, dict) else value)
+                  for key, value in config.items()}
         datasets = DatasetConfigs(config).get_datasets()
         if len(datasets) != 1:
             raise ValueError("Dataset inspection requires one concrete assembled dataset")
