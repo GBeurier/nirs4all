@@ -59,3 +59,51 @@ def test_non_operator_string_parameters_remain_permissive():
         "params": {"solver": "some.custom.value"},
     }})
     assert parsed.operator.solver == "some.custom.value"
+
+
+@pytest.mark.parametrize("params, rejected", [
+    ({"alphaa": 3.0}, "['alphaa']"),
+    ({"alpha": 2.0, "n_components": 12, "center": True}, "['center', 'n_components']"),
+])
+def test_unknown_constructor_parameters_are_errors_not_defaults(params, rejected):
+    """A model must never silently train with defaults instead of the requested parameters."""
+    with pytest.raises(ValueError, match="does not accept parameter") as caught:
+        deserialize_component({"class": "sklearn.linear_model.Ridge", "params": params})
+    message = str(caught.value)
+    assert rejected in message
+    assert "valid parameters: ['alpha', 'copy_X'" in message
+
+
+def test_aom_pls_rejects_legacy_parameter_names():
+    pytest.importorskip("n4m")
+    with pytest.raises(ValueError, match=r"does not accept parameter\(s\) \['center', 'n_components', 'scale'\]") as caught:
+        deserialize_component({"class": "nirs4all.operators.models.AOMPLSRegressor", "params": {"n_components": 12, "center": True, "scale": False}})
+    assert "max_components" in str(caught.value)
+    model = deserialize_component({"class": "nirs4all.operators.models.AOMPLSRegressor", "params": {"max_components": 12}})
+    assert model.max_components == 12
+
+
+def test_repository_pipeline_configs_use_accepted_parameters():
+    """Example configs must not depend on a parameter-dropping fallback."""
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[3]
+    declared = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("class"), str) and isinstance(node.get("params"), dict) and node["params"]:
+                declared.append(node)
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    for path in sorted((root / "examples" / "configs").rglob("*.y*ml")):
+        collect(yaml.safe_load(path.read_text()))
+    assert declared
+    for node in declared:
+        deserialize_component(node)

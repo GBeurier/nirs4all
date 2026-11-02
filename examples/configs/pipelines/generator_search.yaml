@@ -18,8 +18,6 @@ pipeline:
       - class: nirs4all.operators.transforms.SNV
       - class: nirs4all.operators.transforms.MSC
       - class: nirs4all.operators.transforms.Detrend
-        params:
-          order: 1
     count: 2  # Randomly select 2 of the 3 options
 
   # Step 2: Feature scaling
