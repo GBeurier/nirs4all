@@ -278,7 +278,7 @@ console.log(aligned); // [10, 20, 30]
 |---|---|---|
 | Missing source | Sample A has no image | Choose a profile supporting missing modalities and its fusion policy |
 | Missing feature | One wavelength value is invalid | Choose an explicit imputation/validity policy accepted by the operator |
-| Missing target | A reference assay was not performed | Use a supported target-mask/per-target profile |
+| Missing target | A reference assay was not performed | Keep the sample: training excludes it from fitting and scoring and predicts it; multimodal cohorts need a supported target-mask/per-target profile |
 | Ragged source | Series A has 45 points and B has 61 | Preserve offsets/time, then choose an explicit encoder/aggregation policy |
 | Repetition | Three spectra of the same specimen | Preserve origin/group IDs and keep the specimen within one CV side |
 | Derived sample | A noise-augmented version of A | Preserve origin identity and restrict fitting/evaluation accordingly |

@@ -59,6 +59,12 @@ def select_run_engine(
     keys = set(dataset)
     if not {"X", "y", "sample_ids"} <= keys or keys - {"X", "y", "sample_ids", "target_names", "groups", "metadata"}:
         return "dag-ml"
+    from nirs4all.pipeline.dagml.target_missing import missing_target_rows
+
+    # The portable profile trains complete targets only; the general DAG-ML
+    # profile owns the missing-target policy.
+    if missing_target_rows(dataset["y"]).any():
+        return "dag-ml"
     if (
         options.get("tuning") is not None
         or options.get("calibration") is not None
