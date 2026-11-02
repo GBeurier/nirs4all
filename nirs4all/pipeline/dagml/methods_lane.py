@@ -282,11 +282,18 @@ def run_cv_refit_lane(
         outcome = run_callback()
         outcome["execution_lane"] = lane_record(HOST_CALLBACK_LANE, reason)
         return outcome
+    from .progress import execution_progress
+
+    observer = execution_progress()
+    if observer is not None:
+        observer.emit(f"{spectro.name}: Native Methods cross-validation and refit are running")
     outcome = _run_native_methods(
         steps=steps, dsl=dsl, envelope=envelope, spectro=spectro, identity=identity,
         selection_metric=selection_metric, refit=refit, refit_top_k=refit_top_k,
     )
     outcome["execution_lane"] = lane_record(NATIVE_METHODS_LANE)
+    if observer is not None:
+        observer.emit(f"{spectro.name}: Native Methods computation completed; publishing predictions")
     return outcome
 
 
