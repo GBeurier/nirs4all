@@ -22,6 +22,26 @@ class Metadata:
         self._numeric_cache: dict[str, tuple[np.ndarray, dict]] = {}
         self._row_counter: int = 0  # Track next row ID
 
+    @property
+    def row_id_column(self) -> str:
+        """Internal positional index, distinct from user metadata columns.
+
+        The default also supports metadata restored from older dataset pickles.
+        """
+        return getattr(self, "_row_id_column", "row_id")
+
+    def _avoid_index_collision(self, columns: list[str]) -> None:
+        """Move only the internal index when incoming metadata uses its name."""
+        if self.row_id_column not in columns:
+            return
+        occupied = set(columns) | (set(self.df.columns) if self.df is not None else set())
+        name = "__nirs4all_row_id"
+        while name in occupied:
+            name += "_"
+        if self.df is not None:
+            self.df = self.df.rename({self.row_id_column: name})
+        self._row_id_column = name
+
     def add_metadata(self,
                      data: np.ndarray | pl.DataFrame | pd.DataFrame,
                      headers: list[str] | None = None) -> None:
@@ -62,10 +82,11 @@ class Metadata:
         if len(new_df) == 0:
             return
 
-        # Add row_id column
+        # Keep row-order alignment without overwriting a user column.
+        self._avoid_index_collision(new_df.columns)
         n_rows = len(new_df)
         row_ids = list(range(self._row_counter, self._row_counter + n_rows))
-        new_df = new_df.insert_column(0, pl.Series("row_id", row_ids, dtype=pl.Int32))
+        new_df = new_df.insert_column(0, pl.Series(self.row_id_column, row_ids, dtype=pl.Int32))
 
         # Append or initialize
         if self.df is None:
@@ -87,10 +108,10 @@ class Metadata:
 
         Args:
             indices: Row indices to select (None = all)
-            columns: Columns to return (None = all except row_id)
+            columns: Columns to return (None = all user metadata columns)
 
         Returns:
-            Polars DataFrame (without row_id column)
+            Polars DataFrame without the internal positional index
         """
         if self.df is None:
             return pl.DataFrame()
@@ -99,17 +120,16 @@ class Metadata:
 
         # Filter by row indices
         if indices is not None:
-            result = pl.DataFrame({"row_id": pl.Series(indices, dtype=pl.Int32)}).join(result, on="row_id", how="left", maintain_order="left")
+            result = pl.DataFrame({self.row_id_column: pl.Series(indices, dtype=pl.Int32)}).join(result, on=self.row_id_column, how="left", maintain_order="left")
 
         # Select columns
         if columns is not None:
             missing = [c for c in columns if c not in result.columns]
             if missing:
                 raise ValueError(f"Columns not found: {missing}")
-            result = result.select(["row_id"] + columns)
+            result = result.select(list(dict.fromkeys([self.row_id_column] + columns)))
 
-        # Remove row_id from output
-        return result.select([c for c in result.columns if c != "row_id"])
+        return result.select([c for c in result.columns if c != self.row_id_column])
 
     def get_column(self,
                    column: str,
@@ -132,7 +152,7 @@ class Metadata:
 
         result = self.df
         if indices is not None:
-            result = pl.DataFrame({"row_id": pl.Series(indices, dtype=pl.Int32)}).join(result, on="row_id", how="left", maintain_order="left")
+            result = pl.DataFrame({self.row_id_column: pl.Series(indices, dtype=pl.Int32)}).join(result, on=self.row_id_column, how="left", maintain_order="left")
 
         return result[column].to_numpy()
 
@@ -166,7 +186,7 @@ class Metadata:
             # Filter to requested indices
             if indices is not None:
                 # Map indices to positions in full data
-                all_row_ids = self.df["row_id"].to_numpy()
+                all_row_ids = self.df[self.row_id_column].to_numpy()
                 positions = [np.where(all_row_ids == idx)[0][0] for idx in indices]
                 return full_numeric[positions], encoding_info
             return full_numeric.copy(), encoding_info
@@ -211,7 +231,7 @@ class Metadata:
 
         # Filter to requested indices
         if indices is not None:
-            all_row_ids = self.df["row_id"].to_numpy()
+            all_row_ids = self.df[self.row_id_column].to_numpy()
             positions = [np.where(all_row_ids == idx)[0][0] for idx in indices]
             return numeric[positions], encoding_info
 
@@ -248,7 +268,7 @@ class Metadata:
         # Use the mapping to update values
         for idx, val in update_dict.items():
             self.df = self.df.with_columns(
-                pl.when(pl.col("row_id") == idx)
+                pl.when(pl.col(self.row_id_column) == idx)
                 .then(pl.lit(val))
                 .otherwise(pl.col(column))
                 .alias(column)
@@ -270,10 +290,11 @@ class Metadata:
         if len(values) != len(self.df):
             raise ValueError(f"Values length {len(values)} != metadata rows {len(self.df)}")
 
-        if column in self.df.columns:
+        if column in self.columns:
             raise ValueError(f"Column '{column}' already exists")
 
         # Add column
+        self._avoid_index_collision([column])
         self.df = self.df.with_columns(pl.Series(column, values))
 
         # Clear cache since structure changed
@@ -286,10 +307,10 @@ class Metadata:
 
     @property
     def columns(self) -> list[str]:
-        """List of metadata column names (excluding row_id)."""
+        """List of user metadata column names, excluding the internal index."""
         if self.df is None:
             return []
-        return [c for c in self.df.columns if c != "row_id"]
+        return [c for c in self.df.columns if c != self.row_id_column]
 
     def __repr__(self) -> str:
         if self.df is None:

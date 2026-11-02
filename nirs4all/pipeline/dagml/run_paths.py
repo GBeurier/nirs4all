@@ -764,9 +764,9 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
     sweep also goes through ``expand_spec`` here for simplicity) and each concrete variant runs
     through the group-aware path, selecting the best by its CV score — mirroring nirs4all.
     """
-    from nirs4all.pipeline.config.generator import expand_spec
+    from .steps import _expand_operator_generators
 
-    variants = expand_spec(pipeline)
+    variants = _expand_operator_generators(pipeline)
     results = [
         _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state, refit=refit)
         for index, variant in enumerate(variants)
