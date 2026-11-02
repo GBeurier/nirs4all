@@ -295,8 +295,9 @@ def test_envelope_preserves_relation_metadata_and_tags(regression_dataset) -> No
 
 
 def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:
-    """A KFold partition validates against the CV-universe relations; ShuffleSplit (which
-    does not validate every sample exactly once) is refused -- a real OOF-semantics gap."""
+    """A KFold partition validates against the CV-universe relations. ShuffleSplit does not
+    validate every sample exactly once: dag-ml-data 0.2.16 accepts it only when the fold set
+    declares ``partition_mode: resampled``, as ``build_fold_set`` does."""
     dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
     from sklearn.model_selection import KFold, ShuffleSplit
 
@@ -310,9 +311,13 @@ def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:
 
     # KFold partitions the pool: each sample validated exactly once -> valid.
     dag_ml_data.validate_fold_set_against_sample_relations_json(json.dumps(fold_set(KFold(n_splits=3, shuffle=True, random_state=42))), json.dumps(cv_relations))
-    # ShuffleSplit's overlapping/incomplete validation sets break the OOF partition.
+    resampled = fold_set(ShuffleSplit(n_splits=3, random_state=42))
+    assert resampled["partition_mode"] == "resampled"
+    dag_ml_data.validate_fold_set_against_sample_relations_json(json.dumps(resampled), json.dumps(cv_relations))
+    # Declared as a partition, ShuffleSplit's overlapping/incomplete validation sets break OOF.
+    del resampled["partition_mode"]
     with pytest.raises(dag_ml_data.DagMlDataError, match="expected exactly once"):
-        dag_ml_data.validate_fold_set_against_sample_relations_json(json.dumps(fold_set(ShuffleSplit(n_splits=3, random_state=42))), json.dumps(cv_relations))
+        dag_ml_data.validate_fold_set_against_sample_relations_json(json.dumps(resampled), json.dumps(cv_relations))
 
 
 # ---------------------------------------------------------------------------
