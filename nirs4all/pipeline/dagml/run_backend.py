@@ -376,8 +376,10 @@ def run_via_dagml(
 
     project tags the stored run; session retains the scored result and workspace
     without constructing PipelineRunner. verbose configures logging, and
-    report_naming selects the existing NIRS/ML metric display labels. Remaining
-    unsupported execution options are rejected before operators execute.
+    report_naming selects the existing NIRS/ML metric display labels. Samples
+    with a missing selected target are excluded from training and scoring and
+    predicted afterwards (see :mod:`.target_missing`). Remaining unsupported
+    execution options are rejected before operators execute.
     """
     pipeline = _normalize_public_pipeline_input(pipeline)
     # Validate execution and presentation options before any operator runs.
@@ -501,6 +503,17 @@ def run_via_dagml(
         chart_pre_holdout_spectro = None
     if holdout_train_sample_ids is not None and resolved_config_name is None:
         resolved_config_name = _derive_config_name(pipeline, name)
+    from .target_missing import attach_target_missing_predictions, find_target_missing, isolate_target_missing
+
+    # Samples whose selected target is missing never train and are never
+    # scored: no DAG-ML training or scoring path accepts a missing target.
+    # They are held out of train/test while the run executes and are
+    # predicted by the refit model afterwards.
+    target_missing = find_target_missing(spectro)
+    prediction_spectro = copy.deepcopy(spectro) if target_missing is not None else None
+    if target_missing is not None and holdout_train_sample_ids is not None:
+        held_out = set(target_missing.samples)
+        holdout_train_sample_ids = [sample for sample in holdout_train_sample_ids if sample not in held_out]
     chart_original_spectro = None
     if requested_charts and (save_charts or plots_visible):
         from .chart_projection import validate_chart_projection
@@ -520,7 +533,9 @@ def run_via_dagml(
         del dataset._generated_view_store
     try:
         if transport_prepared:
-            dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
+            # A path reload would lose the held-out partitions: serialize them.
+            with isolate_target_missing(spectro, target_missing):
+                dataset_arg, host_pickle = _dataset_inputs(dataset if target_missing is None else None, spectro, base_dir / "host")
         else:
             dataset_arg, host_pickle = _reloadable_path(dataset) or str(base_dir / "host" / "host_dataset.pkl"), None
     finally:
@@ -548,23 +563,24 @@ def run_via_dagml(
     resource_token = bind_execution_resources(execution_resources)
     transport_token = _DATASET_TRANSPORT_PREPARED.set(transport_prepared)
     try:
-        result = _dispatch_run(
-            execution_pipeline,
-            spectro,
-            base_dir,
-            dataset_arg,
-            host_pickle,
-            cli,
-            venv_python,
-            name,
-            random_state,
-            save_charts=save_charts,
-            plots_visible=plots_visible,
-            resolved_config_name=resolved_config_name,
-            refit=_native_refit_enabled(refit),
-            refit_top_k=_native_refit_top_k(refit),
-            holdout_train_sample_ids=holdout_train_sample_ids,
-        )
+        with isolate_target_missing(spectro, target_missing):
+            result = _dispatch_run(
+                execution_pipeline,
+                spectro,
+                base_dir,
+                dataset_arg,
+                host_pickle,
+                cli,
+                venv_python,
+                name,
+                random_state,
+                save_charts=save_charts,
+                plots_visible=plots_visible,
+                resolved_config_name=resolved_config_name,
+                refit=_native_refit_enabled(refit),
+                refit_top_k=_native_refit_top_k(refit),
+                holdout_train_sample_ids=holdout_train_sample_ids,
+            )
         if generated_view_store is not None:
             manifest = getattr(spectro, "_dagml_generated_view_manifest", None)
             if not isinstance(manifest, dict):
@@ -604,6 +620,8 @@ def run_via_dagml(
         methods_multimodal = isinstance(result, MethodsMultimodalRunResult)
         if generated_view_store is None and not methods_multimodal:
             _attach_export_spec(result, pipeline, dataset, name, random_state)
+        if target_missing is not None:
+            attach_target_missing_predictions(result, prediction_spectro, target_missing)
         workspace_path = None
         if save_artifacts or project is not None or "workspace_path" in effective_runner_kwargs or (requested_charts and save_charts):
             from nirs4all.pipeline.runner import _get_default_workspace_path

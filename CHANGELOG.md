@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Keep samples whose selected target is missing. Loading keeps them under every
+  target NA policy except `abort` (refuse) and `remove_sample` (drop the row),
+  matching nirs4all-io 0.2.14. A DAG-ML training run excludes them from fitting
+  and scoring only: the splitter partitions the target-observed samples, every
+  fold set declares the others in DAG-ML's `target_missing_sample_ids`, and no
+  CV relation, held-out test cohort or provider target table contains them. A
+  sample is target-missing when any of the selected targets is missing, so
+  training one target of a sparse multi-target dataset excludes only the
+  samples missing that target. The refit model then predicts them through a
+  native `inference` cohort, published as a `prediction` row (no targets, no
+  scores); `result.per_dataset[name]["target_missing"]` records the exclusion.
+  `run()` selects the DAG-ML profile for portable mappings with missing targets.
+- Require dag-ml 0.3.44, dag-ml-data 0.2.16 and nirs4all-io 0.2.14.
+
 ## [1.4.14] — 2026-11-02
 
 ### Fixed

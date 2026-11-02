@@ -242,3 +242,22 @@ def test_joint_loading_uses_original_positions_not_parquet_index_labels(tmp_path
     kept = [0, 3] if policy == "remove_sample" else [0, 1, 2, 3]
     np.testing.assert_array_equal(xs.ravel(), kept)
     np.testing.assert_allclose(ys.ravel(), np.array(kept) + 0.1)
+
+
+@pytest.mark.parametrize("policy", ["auto", "ignore", "replace", "remove_feature"])
+def test_targets_load_losslessly_unless_rows_are_removed(tmp_path, policy):
+    """Missing targets are kept (training excludes them) like nirs4all-io; X keeps its own policy."""
+    x = _csv(tmp_path, "X.csv", "1000;1100\n0;1\n2;3\n4;5\n")
+    y = _csv(tmp_path, "Y.csv", "y\n0.1\nNA\n2.1\n")
+    dataset = DatasetConfigs({"train_x": x, "train_y": y, "global_params": {"na_policy": policy}}).get_dataset_at(0)
+    assert dataset.num_samples == 3
+    np.testing.assert_allclose(dataset.y({}).ravel(), [0.1, np.nan, 2.1])
+
+
+def test_target_abort_and_remove_sample_keep_their_meaning(tmp_path):
+    x = _csv(tmp_path, "X.csv", "1000;1100\n0;1\n2;3\n4;5\n")
+    y = _csv(tmp_path, "Y.csv", "y\n0.1\nNA\n2.1\n")
+    with pytest.raises(ValueError, match="NA values detected"):
+        DatasetConfigs({"train_x": x, "train_y": y, "global_params": {"na_policy": "abort"}}).get_dataset_at(0)
+    removed = DatasetConfigs({"train_x": x, "train_y": y, "global_params": {"na_policy": "remove_sample"}}).get_dataset_at(0)
+    np.testing.assert_allclose(removed.y({}).ravel(), [0.1, 2.1])

@@ -107,3 +107,11 @@ def test_portable_runtime_failure_does_not_retry_on_general_or_legacy(monkeypatc
     with pytest.raises(RuntimeError, match="native witness failure"):
         nirs4all.run(*portable_request())
     assert calls == ["native"]
+
+
+def test_missing_targets_select_the_general_profile():
+    # The portable profile trains complete targets only; DAG-ML excludes and predicts the gaps.
+    pipeline, data = portable_request()
+    targets = np.arange(12, dtype=float)
+    targets[4] = np.nan
+    assert select_run_engine(None, pipeline, {**data, "y": targets}) == "dag-ml"
