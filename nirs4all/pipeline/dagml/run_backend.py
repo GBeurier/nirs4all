@@ -1079,6 +1079,11 @@ def _dispatch_run(
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
     # num_predictions parity), labeling them with these (the winner takes index 0 + the "_refit" suffix).
     variant_config_names = _derive_variant_config_names(pipeline, name)
+    from .progress import execution_progress
+
+    observer = execution_progress()
+    if observer is not None:
+        observer.configure(len(variant_config_names) or 1, spectro.name)
     # The per-variant MODEL params aligned 1:1 with `variant_config_names` — the native param-sweep path
     # matches the winner's refit model params against these to recover the WINNING variant's config_name
     # (a non-degenerate `_grid_` selects the true CV-best, not index 0). Empty for a non-sweep pipeline.

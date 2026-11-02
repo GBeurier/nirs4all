@@ -330,8 +330,8 @@ def test_run_repetition_selects_by_metric_direction(monkeypatch: pytest.MonkeyPa
     highest-CV variant must win. The old ``metric in ("accuracy", "r2")`` set excluded balanced_accuracy
     and would have MINIMIZED it (picking the worst variant). Drives the selection directly with two stub
     variants (scores 0.10 / 0.90) so it asserts the direction without needing a repetition fixture."""
-    from nirs4all.pipeline.config import generator
     from nirs4all.pipeline.dagml import run_paths
+    from nirs4all.pipeline.dagml import steps as dagml_steps
 
     class _StubResult:
         def __init__(self, score: float) -> None:
@@ -343,8 +343,7 @@ def test_run_repetition_selects_by_metric_direction(monkeypatch: pytest.MonkeyPa
 
     stub_results = [_StubResult(0.10), _StubResult(0.90)]
     variants = ["variant_a", "variant_b"]
-    # `_run_repetition` imports `expand_spec` function-locally, so patch it at its source module.
-    monkeypatch.setattr(generator, "expand_spec", lambda _pipeline: variants)
+    monkeypatch.setattr(dagml_steps, "_expand_operator_generators", lambda _pipeline: variants)
 
     def _fake_concrete(variant, *_args, **_kwargs):  # noqa: ANN001, ANN002, ANN003
         return stub_results[variants.index(variant)]

@@ -258,6 +258,20 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
             pipeline_entries.extend((steps, pipeline_name, variant_name) for steps, variant_name in variants)
         else:
             pipeline_entries.append((single_pipeline, pipeline_name, None))
+    from .progress import execution_progress
+
+    observer = execution_progress()
+    if observer is not None:
+        # Each model checkpoint of a sequence is its own native dispatch; announce them so the percentage spans all.
+        from .sequential_models import sequential_model_pipelines
+
+        try:
+            dispatches = sum(len(sequential_model_pipelines(deserialize_component(entry)) or [[]]) for entry, _, _ in pipeline_entries)
+        except Exception:
+            # Counting is telemetry; the child run reports any genuine pipeline error itself.
+            dispatches = 0
+        if dispatches:
+            observer.plan_dispatches(dispatches * len(datasets))
     if len(pipeline_entries) == len(datasets) == 1 and not residual_choice_campaign:
         return run_child(pipelines[0], datasets[0], options)
     if not pipelines or not datasets:

@@ -179,3 +179,16 @@ def test_presentation_budget_rejects_before_projection_arrays(tmp_path, monkeypa
     monkeypatch.setattr(inspection, "_spectra", lambda *a, **k: pytest.fail("admission must precede projection"))
     with pytest.raises(ValueError, match="before array construction"):
         preview_dataset(config, max_response_bytes=100)
+
+
+def test_registered_loader_ignores_the_nested_native_na_policy(tmp_path):
+    from nirs4all.api.dataset_inspection import load_dataset_for_analysis
+    pytest.importorskip("openpyxl")
+    pd.DataFrame(np.arange(12.0).reshape(4, 3), columns=["1000", "1001", "1002"]).to_excel(tmp_path / "X.xlsx", index=False)
+    pd.DataFrame({"y": [1.0, 2.0, 3.0, 4.0]}).to_excel(tmp_path / "Y.xlsx", index=False)
+    config = {"train_x": str(tmp_path / "X.xlsx"), "train_y": str(tmp_path / "Y.xlsx"), "task_type": "regression",
+              "global_params": {"has_header": True, "na": {"policy": "abort"}},
+              "train_y_params": {"na": {"policy": "ignore"}}}
+    dataset, reader = load_dataset_for_analysis(config)
+    assert reader["backend"] == "nirs4all.loaders"
+    assert dataset.x({}).shape == (4, 3)
