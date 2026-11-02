@@ -21,9 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   training one target of a sparse multi-target dataset excludes only the
   samples missing that target. The refit model then predicts them through a
   native `inference` cohort, published as a `prediction` row (no targets, no
-  scores); `result.per_dataset[name]["target_missing"]` records the exclusion.
-  `run()` selects the DAG-ML profile for portable mappings with missing targets.
+  scores), one per output for independent per-source models;
+  `result.per_dataset[name]["target_missing"]` records the exclusion. Without a
+  refit model (`refit=False`) the samples are excluded but not predicted. The
+  portable native profile, `run(tuning=...)` and `rep_to_sources`/`rep_to_pp`
+  refuse missing targets with an explicit error.
 - Require dag-ml 0.3.44, dag-ml-data 0.2.16 and nirs4all-io 0.2.14.
+
+### Fixed
+
+- An estimator parameter that the constructor does not accept is now an error
+  naming the rejected and the valid parameters. The serializer used to drop it
+  and build the estimator with defaults (for example `AOMPLSRegressor` given
+  `n_components` trained with `max_components=3`). Two example pipeline
+  configurations that relied on this are corrected.
 
 ## [1.4.14] — 2026-11-02
 

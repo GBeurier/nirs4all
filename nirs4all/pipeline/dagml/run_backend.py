@@ -510,6 +510,13 @@ def run_via_dagml(
     # They are held out of train/test while the run executes and are
     # predicted by the refit model afterwards.
     target_missing = find_target_missing(spectro)
+    if target_missing is not None and any(isinstance(step, dict) and {"rep_to_sources", "rep_to_pp"} & set(step) for step in execution_pipeline):
+        # Repetition reshaping renumbers samples inside the run, so the held-out
+        # identities and their replay inputs would no longer match.
+        raise NotImplementedError(
+            "rep_to_sources/rep_to_pp do not yet support samples with a missing target; "
+            "load the dataset with na_policy='remove_sample' for the target"
+        )
     prediction_spectro = copy.deepcopy(spectro) if target_missing is not None else None
     if target_missing is not None and holdout_train_sample_ids is not None:
         held_out = set(target_missing.samples)

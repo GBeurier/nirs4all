@@ -6,6 +6,7 @@ dataset keeps every sample, and the refit model predicts the excluded ones in a 
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import numpy as np
@@ -222,3 +223,76 @@ def test_metadata_branches_and_augmentation_predict_from_the_original_rows() -> 
     ):
         (prediction,) = _prediction_rows(_run(pipeline, dataset, random_state=0))
         assert list(prediction["sample_indices"]) == MISSING
+
+
+def test_successive_models_share_folds_over_the_target_observed_samples(declared_fold_sets: list[dict[str, Any]]) -> None:
+    features, targets = _features(), _regression_targets()
+    pipeline = [MinMaxScaler(), KFold(3), {"model": PLSRegression(3)}, {"model": Ridge()}]
+
+    result = _run(pipeline, _dataset(features, targets))
+    reference = _run([MinMaxScaler(), KFold(3), {"model": PLSRegression(3)}], _dataset(features[OBSERVED], targets[OBSERVED]))
+
+    # The shared FoldSet is KFold over the observed samples, not a filtered split of every sample.
+    assert {len(fold["validation_sample_ids"]) for fold in declared_fold_sets[0]["folds"]} == {19, 18}
+    pls = [row for row in result.predictions.filter_predictions(partition="val", fold_id="avg") if row["model_name"] == "PLSRegression"]
+    assert pls[0]["val_score"] == pytest.approx(reference.cv_best_score)
+    assert [list(row["sample_indices"]) for row in _prediction_rows(result)] == [MISSING, MISSING]
+
+
+def test_independent_source_outputs_each_predict_missing_targets() -> None:
+    rng = np.random.default_rng(11)
+    first, second = rng.normal(size=(40, 10)), rng.normal(size=(40, 6))
+    targets = first[:, 0] + second[:, 0]
+    targets[[2, 9]] = np.nan
+    dataset = SpectroDataset("sources")
+    dataset.add_samples([first, second], indexes={"partition": "train"})
+    dataset.add_targets(targets)
+    names = ["source_0", "source_1"]
+    pipeline = [KFold(2), {"branch": {"by_source": True, "steps": {name: [{"model": Ridge()}] for name in names}}}, {"merge": "auto"}]
+
+    rows = {row["branch_name"]: row for row in _prediction_rows(_run(pipeline, dataset))}
+
+    observed = [index for index in range(40) if index not in (2, 9)]
+    for name, features in zip(names, (first, second), strict=True):
+        reference = Ridge().fit(features[observed], targets[observed]).predict(features[[2, 9]])
+        np.testing.assert_allclose(rows[name]["y_pred"], reference, rtol=1e-6, atol=1e-6)
+
+
+def test_unlabelled_test_partition_is_not_a_target_gap() -> None:
+    dataset = SpectroDataset("unlabelled-test")
+    dataset.add_samples(_features(), indexes={"partition": "train"})
+    dataset.add_targets(_regression_targets())
+    dataset.add_samples(_features()[:5], indexes={"partition": "test"})
+
+    missing = find_target_missing(dataset)
+    assert missing is not None and missing.train == tuple(MISSING) and missing.test == ()
+
+
+def test_fold_files_ignore_held_out_samples(tmp_path) -> None:
+    fold_file = tmp_path / "folds.json"
+    fold_file.write_text(json.dumps([{"train": list(range(30)), "val": list(range(30, 60))},
+                                     {"train": list(range(30, 60)), "val": list(range(30))}]))
+    result = _run([{"split": str(fold_file)}, {"model": PLSRegression(3)}], _dataset(_features(), _regression_targets()))
+
+    (prediction,) = _prediction_rows(result)
+    assert list(prediction["sample_indices"]) == MISSING
+    for row in result.predictions.filter_predictions(partition="val"):
+        assert not set(row["sample_indices"]) & set(MISSING)
+
+
+def test_repetition_reshaping_with_missing_targets_is_refused() -> None:
+    dataset = _dataset(_features(), _regression_targets())
+    dataset.add_metadata(pl.DataFrame({"rep": [str(index // 2) for index in range(60)]}))
+    with pytest.raises(Exception, match="rep_to_sources/rep_to_pp do not yet support"):
+        _run([{"rep_to_pp": "rep"}, KFold(3), {"model": PLSRegression(3)}], dataset)
+
+
+def test_native_results_keep_prediction_only_target_width() -> None:
+    from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.dagml.native_results import _projection_rows
+
+    predictions = Predictions()
+    predictions.add_prediction(dataset_name="d", fold_id="final", partition="prediction", sample_indices=[0, 1],
+                               y_pred=np.array([[1.0, 2.0], [3.0, 4.0]]), n_samples=2)
+    (row,) = _projection_rows(predictions)
+    assert row["target_width"] == 2 and json.loads(row["target_names"]) == ["y0", "y1"]
