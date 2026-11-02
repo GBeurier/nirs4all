@@ -131,3 +131,20 @@ def test_neural_factories_reject_unknown_parameters_but_ignore_injected_hints():
     assert ModelFactory.reconstruct_object(Deferred(), force_params={"input_shape": (5,), "width": 9}).width == 9
     with pytest.raises(ValueError, match=r"\['widht'\]"):
         ModelFactory.reconstruct_object(Deferred(), force_params={"input_shape": (5,), "widht": 9})
+
+
+def test_neural_factories_keep_bundles_and_controller_training_controls():
+    from nirs4all.controllers.models.factory import ModelFactory
+
+    def tensorflow_builder(input_shape, units=4):
+        return units
+
+    # TensorFlow tuning groups compile_*/fit_* trial values for the controller.
+    assert ModelFactory.prepare_and_call(tensorflow_builder, {"units": 8, "input_shape": (3,)}, {"compile": {"learning_rate": 1e-3}, "fit": {"batch_size": 4}}) == 8
+
+    class DeferredBundle:
+        def __init__(self, params, input_shape=None):
+            self.params, self.input_shape = params, input_shape
+
+    rebuilt = ModelFactory.reconstruct_object(DeferredBundle({"width": 4}), force_params={"width": 9, "input_shape": (5,)})
+    assert rebuilt.input_shape == (5,)

@@ -43,8 +43,9 @@ def _get_meta_estimator_types():
             META_ESTIMATOR_TYPES = ()
     return META_ESTIMATOR_TYPES
 
-# Runtime hints injected by the factory, not requested by the user.
-_INJECTED_BUILD_PARAMETERS = frozenset({"input_dim", "input_shape", "num_classes"})
+# Runtime hints the factory injects and training controls the controllers own
+# (TensorFlow ``compile``/``fit`` groups), not builder parameters.
+_INJECTED_BUILD_PARAMETERS = frozenset({"input_dim", "input_shape", "num_classes", "compile", "fit"})
 
 
 class ModelFactory:
@@ -720,9 +721,16 @@ class ModelFactory:
         """Raise when a builder does not accept a requested parameter.
 
         ``input_dim``, ``input_shape`` and ``num_classes`` are runtime hints the
-        factory injects; builders that do not declare them may ignore them.
+        factory injects and ``compile``/``fit`` are controller training
+        controls; builders that do not declare them may ignore them. A builder
+        with a ``params`` (or, on reconstruction, ``force_params``) bundle
+        receives every other parameter in it.
         """
         from nirs4all.pipeline.config.component_serialization import unknown_parameters_message
+
+        parameters = inspect.signature(callable_obj).parameters
+        if any(name in parameters and parameters[name].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD for name in ("params", "force_params")):
+            return
 
         message = unknown_parameters_message(callable_obj, names, injected=_INJECTED_BUILD_PARAMETERS)
         if message is not None:
@@ -759,9 +767,8 @@ class ModelFactory:
         has_params_bundle_arg = 'params' in sig_params_spec and \
                                 sig_params_spec['params'].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
         has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params_spec.values())
-        if not has_params_bundle_arg:
-            # Never drop a requested parameter and build the default model.
-            ModelFactory._refuse_unknown_parameters(callable_obj, all_available_args_from_caller)
+        # Never drop a requested parameter and build the default model.
+        ModelFactory._refuse_unknown_parameters(callable_obj, all_available_args_from_caller)
 
         # Only keep arguments that are in the callable's signature, unless **kwargs is present
         for name, value in all_available_args_from_caller.items():
