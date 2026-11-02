@@ -36,3 +36,28 @@ def test_progress_scope_resets_after_scientific_failure():
     with pytest.raises(RuntimeError, match="operator failed"), observe_progress(lambda _: None):
         raise RuntimeError("operator failed")
     assert execution_progress() is None
+
+
+def test_repeated_dispatch_resets_local_counters_and_unknown_global_total():
+    events = []
+    with observe_progress(events.append) as observer:
+        observer.configure(3, "first")
+        observer.bundle = 1
+        observer.completed.add((1, "model", "base", "fold"))
+        observer.variants[(1, "base")] = 1
+        observer.active_models[(1, "base")] = "model"
+        observer.total_folds = 3
+        observer.configure(2, "second")
+        assert not observer.completed and not observer.variants and not observer.active_models
+        assert observer.total_folds == 0
+        assert events[-1]["progress"] is None
+        assert events[-1]["completed_cv_fits"] == 0
+
+
+def test_progress_callback_failure_does_not_interrupt_scientific_execution():
+    def broken_callback(_):
+        raise OSError("Closed telemetry stream")
+    with observe_progress(broken_callback) as observer:
+        observer.configure(2, "Dataset \U0001f600" * 300)
+        observer.emit("Refitting selected model")
+    assert execution_progress() is None

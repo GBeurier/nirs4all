@@ -30,11 +30,21 @@ class ExecutionProgress:
         total = self.total_variants * self.total_folds
         progress = min(99.0, 100 * len(self.completed) / total) if total and self.reliable_total else None
         text = " ".join(str(message).split())[:1200]
-        self.callback({"message": text, "progress": progress, "completed_cv_fits": len(self.completed),
-                       "total_cv_fits": total if self.reliable_total else None, **fields})
+        try:
+            self.callback({"message": text, "progress": progress, "completed_cv_fits": len(self.completed),
+                           "total_cv_fits": total if self.reliable_total else None, **fields})
+        except Exception:
+            # Telemetry must never change the scientific outcome.
+            pass
 
     def configure(self, variants: int, dataset: str) -> None:
         with self.lock:
+            self.completed.clear()
+            self.variants.clear()
+            self.active_models.clear()
+            self.total_folds = 0
+            # A subsequent dispatch has no reliable invocation-wide denominator.
+            self.reliable_total = self.bundle == 0
             self.dataset = str(dataset)[:200]
             self.total_variants = max(1, variants)
             self.emit(f"{self.dataset}: preparing {self.total_variants} pipeline variants")
