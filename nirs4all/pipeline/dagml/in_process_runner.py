@@ -162,12 +162,22 @@ def run_cv_refit_bundle(
     edges = graph.get("edges", [])
     y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     store: dict[Any, Any] = {}
+    from .progress import execution_progress
+
+    observer = execution_progress()
+    progress_bundle, progress_folds = observer.open_bundle(dsl, graph) if observer is not None else (0, {})
     def op_callback(task: dict[str, Any]) -> dict[str, Any]:
         if view_store is not None and task["node_plan"]["kind"] in {"model", "tuner", "transform"} and not task.get("data_view_receipts"):
             raise ValueError("generated model or transform task is missing native data-view receipts")
         generated_views = view_store.bind_task(task) if view_store is not None and task.get("data_view_receipts") else None
-        return run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata, generated_views,
-                        graph_metadata=graph.get("metadata"))
+        node = nodes[task["node_plan"]["node_id"]]
+        if observer is not None:
+            observer.task(progress_bundle, progress_folds, task, node, completed=False)
+        result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata, generated_views,
+                          graph_metadata=graph.get("metadata"))
+        if observer is not None:
+            observer.task(progress_bundle, progress_folds, task, node, completed=True)
+        return result
 
     bridge_args: tuple[Any, ...] = (
         json.dumps(dsl), json.dumps(envelope),
