@@ -717,19 +717,19 @@ class ModelFactory:
             return model
 
     @staticmethod
-    def _refuse_unknown_parameters(callable_obj, names):
+    def _refuse_unknown_parameters(callable_obj, names, bundles=("params",)):
         """Raise when a builder does not accept a requested parameter.
 
         ``input_dim``, ``input_shape`` and ``num_classes`` are runtime hints the
         factory injects and ``compile``/``fit`` are controller training
         controls; builders that do not declare them may ignore them. A builder
-        with a ``params`` (or, on reconstruction, ``force_params``) bundle
-        receives every other parameter in it.
+        with one of the caller's ``bundles`` arguments receives every other
+        parameter in it.
         """
         from nirs4all.pipeline.config.component_serialization import unknown_parameters_message
 
         parameters = inspect.signature(callable_obj).parameters
-        if any(name in parameters and parameters[name].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD for name in ("params", "force_params")):
+        if any(name in parameters and parameters[name].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD for name in bundles):
             return
 
         message = unknown_parameters_message(callable_obj, names, injected=_INJECTED_BUILD_PARAMETERS)
@@ -839,7 +839,8 @@ class ModelFactory:
         merged_params = {**params, **force_params}
 
         cls = obj.__class__
-        ModelFactory._refuse_unknown_parameters(cls, merged_params)
+        # Reconstruction bundles the requested parameters into ``params`` or ``force_params``.
+        ModelFactory._refuse_unknown_parameters(cls, merged_params, bundles=("params", "force_params"))
         signature = inspect.signature(cls)
         current_params = obj.__dict__.copy()  # This assumes the object stores its state in __dict__
 

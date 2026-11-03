@@ -148,3 +148,13 @@ def test_neural_factories_keep_bundles_and_controller_training_controls():
 
     rebuilt = ModelFactory.reconstruct_object(DeferredBundle({"width": 4}), force_params={"width": 9, "input_shape": (5,)})
     assert rebuilt.input_shape == (5,)
+
+
+def test_only_reconstruction_bundles_force_params():
+    from nirs4all.controllers.models.factory import ModelFactory
+
+    def build(force_params=None, width=4):
+        return width
+
+    with pytest.raises(ValueError, match=r"\['widht'\]"):
+        ModelFactory.prepare_and_call(build, {"widht": 9})
