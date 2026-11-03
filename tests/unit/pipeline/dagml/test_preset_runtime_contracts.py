@@ -71,3 +71,29 @@ def test_nan_constructor_defaults_reach_the_native_dsl_and_train():
     json.dumps(pipeline_to_dsl([SimpleImputer(), {"model": Ridge()}]), allow_nan=False)
     result = _run([SimpleImputer(), KFold(3), {"model": Ridge()}], _dataset(np.linspace(0, 1, 60)))
     assert np.isfinite(result.cv_best_score)
+
+
+@pytest.mark.parametrize("criterion", ["cv", "hybrid"])
+@pytest.mark.parametrize("splitter", [StratifiedKFold(3), KFold(4)], ids=["stratified", "kfold"])
+def test_aom_da_classifiers_accept_label_aware_splitters(criterion, splitter):
+    from sklearn.model_selection import LeaveOneOut
+
+    from nirs4all.operators.models import AOMPLSClassifier, POPPLSClassifier
+
+    rng = np.random.default_rng(9)
+    labels = np.arange(30) % 3
+    features = rng.normal(size=(30, 20)) + labels.reshape(-1, 1)
+    for model in (AOMPLSClassifier(n_components=3, criterion=criterion, cv=splitter),
+                  POPPLSClassifier(n_components=3, criterion=criterion, cv=splitter),
+                  AOMPLSClassifier(n_components=3, criterion=criterion, cv=LeaveOneOut())):
+        assert set(model.fit(features, labels).predict(features)) <= {0, 1, 2}
+
+
+def test_model_params_siblings_and_finetune_metadata_keep_strict_json():
+    dsl = pipeline_to_dsl([
+        {"model": Ridge(), "model_params": {"alpha": float("inf")}},
+        {"model": SimpleImputer(), "fill_value": float("nan")},
+        {"model": Ridge(), "finetune_params": {"model_params": {"alpha": [float("nan"), 1.0]}}},
+    ])
+    text = json.dumps(dsl, allow_nan=False)
+    assert "NaN" not in text and "Infinity" not in text
