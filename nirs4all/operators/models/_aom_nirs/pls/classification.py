@@ -137,12 +137,17 @@ class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
         # Criterion: classification -> covariance proxy or per-component CV using
         # balanced log loss. We use the regression criterion with covariance
         # default for simplicity; "cv" runs an inner CV with classification fold scoring.
-        # ``cv`` is a fold count or a fitted splitter (e.g. the pipeline's
-        # own folds injected by nirs4all); the inner CV honours either.
-        splitter = self.cv if callable(getattr(self.cv, "split", None)) else None
+        # ``cv`` is a fold count or a splitter (e.g. the pipeline's own folds
+        # injected by nirs4all). A splitter is resolved once on the original
+        # labels, since the inner CV sees the encoded multi-output targets.
+        splitter = None
+        if callable(getattr(self.cv, "split", None)):
+            from nirs4all.controllers.models.pipeline_cv import PrecomputedFoldSplitter
+
+            splitter = PrecomputedFoldSplitter.from_folds(self.cv.split(X, y), n_samples=n, label="aom-da")
         criterion = CriterionConfig(
             kind=self.criterion,
-            cv=int(splitter.get_n_splits()) if splitter is not None else self.cv,
+            cv=len(splitter.folds) if splitter is not None else self.cv,
             random_state=self.random_state,
             task="classification",
             cv_splitter=splitter,
