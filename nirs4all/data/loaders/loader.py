@@ -240,6 +240,11 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
                 y_params_copy['categorical_mode'] = 'auto'
             if 'data_type' not in y_params_copy:
                 y_params_copy['data_type'] = 'y'
+            # Targets load losslessly, as in nirs4all-io: a missing target is
+            # kept (training excludes it) unless the user asked remove_sample;
+            # abort still refuses. Targets are never imputed or dropped as columns.
+            if y_params_copy.get('na_policy', 'auto') not in ('abort', 'remove_sample'):
+                y_params_copy['na_policy'] = 'ignore'
 
             y_df, y_report, y_na_mask, _, _ = _load_file_with_registry(y_path, **y_params_copy)
             if y_report.get("error") is not None or y_df is None:

@@ -513,27 +513,43 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                     raise ValueError(
                         f"Invalid parameters for portable component '{portable_name}': {exc}"
                     ) from exc
-                print(f"Failed to instantiate {cls_or_func} with params {params}")
-                sig = inspect.signature(cls_or_func)
-                allowed = {n for n in sig.parameters if n != "self"}
-                filtered = {k: v for k, v in params.items() if k in allowed}
-
-                # Check again if this is a model factory function
-                if hasattr(cls_or_func, 'framework'):
-                    # Return dict for controller instantiation
-                    return {
-                        "type": "function",
-                        "func": cls_or_func,
-                        "framework": cls_or_func.framework,
-                        "params": filtered
-                    }
-
-                return cls_or_func(**filtered)
+                # Never drop parameters and fall back to defaults: a model
+                # silently trained with other hyperparameters is a wrong result.
+                raise ValueError(_invalid_parameters_message(cls_or_func, params, exc)) from exc
 
         return {k: deserialize_component(v) for k, v in blob.items()}
 
     # should not reach here
     return blob
+
+def unknown_parameters_message(component: Any, names: Any, *, injected: frozenset[str] = frozenset()) -> str | None:
+    """Describe constructor parameters ``component`` does not accept, or ``None``.
+
+    A component that takes ``**kwargs`` accepts every name. ``injected`` names
+    are runtime hints a builder may ignore (e.g. ``input_shape``).
+    """
+    signature = inspect.signature(component)
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()):
+        return None
+    keyword_kinds = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    valid = sorted(n for n, parameter in signature.parameters.items() if n != "self" and parameter.kind in keyword_kinds)
+    unknown = sorted(set(names) - set(valid) - injected)
+    if not unknown:
+        return None
+    name = f"{getattr(component, '__module__', '')}.{getattr(component, '__qualname__', component)}"
+    return f"{name} does not accept parameter(s) {unknown}; valid parameters: {valid}"
+
+
+def _invalid_parameters_message(component: Any, params: dict[str, Any], error: TypeError) -> str:
+    """Name the rejected parameters and the ones the component accepts."""
+    message = unknown_parameters_message(component, params)
+    if message is not None:
+        return message
+    keyword_kinds = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    valid = sorted(n for n, parameter in inspect.signature(component).parameters.items() if n != "self" and parameter.kind in keyword_kinds)
+    name = f"{getattr(component, '__module__', '')}.{getattr(component, '__qualname__', component)}"
+    return f"{name} rejected parameters {sorted(params)}: {error}; valid parameters: {valid}"
+
 
 def _changed_kwargs(obj):
     """Return {param: value} for every __init__ param whose current

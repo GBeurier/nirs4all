@@ -780,8 +780,14 @@ def _normalize_training_arrays(
     target_width = 1 if targets.ndim == 1 else targets.shape[1]
     if target_width == 0:
         raise ValueError("engine='native' requires at least one target column")
-    if not np.isfinite(features).all() or not np.isfinite(targets).all():
+    if not np.isfinite(features).all():
         raise ValueError("engine='native' requires finite X and y")
+    if not np.isfinite(targets).all():
+        raise ValueError(
+            "engine='native' requires complete targets; the general DAG-ML profile excludes samples with a "
+            "missing target from training and scoring and predicts them: pass a SpectroDataset or dataset "
+            "configuration with engine='dag-ml'"
+        )
     sample_ids = dataset["sample_ids"]
     if not isinstance(sample_ids, Sequence) or isinstance(sample_ids, (str, bytes)):
         raise TypeError("engine='native' sample_ids must be a sequence")

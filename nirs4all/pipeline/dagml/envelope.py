@@ -643,6 +643,8 @@ def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]
     Folds carrying a fold-local exclusion (:class:`~nirs4all.pipeline.dagml.folds.FoldLocalFolds`)
     declare ``train_exclusion: "fold_local"``: DAG-ML then trains each fold on its train list as
     given and applies the envelope's ``excluded`` samples to the refit only.
+    Samples the run holds out for a missing target (``identity.target_missing``) are declared in
+    ``target_missing_sample_ids``: outside the CV universe, never trained, validated or scored.
     """
     seen: set[int] = set()
     validation_counts: dict[int, int] = {}
@@ -678,4 +680,6 @@ def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]
 
     if isinstance(folds, FoldLocalFolds):
         fold_set["train_exclusion"] = "fold_local"
+    if identity.target_missing:
+        fold_set["target_missing_sample_ids"] = [identity.to_wire(sample_int) for sample_int in identity.target_missing]
     return fold_set

@@ -159,7 +159,7 @@ class OPLSDA(ClassifierMixin, BaseEstimator):
         return self.plsda_.predict(X_filtered)
 
     def predict_proba(self, X):
-        """Return pseudo-probabilities (PLS responses).
+        """Return the PLS-DA class probabilities of the orthogonally filtered samples.
 
         Parameters
         ----------
@@ -169,7 +169,7 @@ class OPLSDA(ClassifierMixin, BaseEstimator):
         Returns
         -------
         proba : ndarray of shape (n_samples, n_classes)
-            Pseudo-probability estimates.
+            Probabilities (see :meth:`PLSDA.predict_proba`).
         """
         check_is_fitted(self, ['opls_', 'plsda_'])
         X = np.asarray(X)

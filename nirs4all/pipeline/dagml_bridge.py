@@ -1019,9 +1019,12 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                 if framework_params is not None else
                 {"model": _qualname(op), "params": _json_safe_params(op)}
             )
+            from nirs4all.pipeline.dagml.operator_parameters import encode_constructor_value
+
             configured_model_params = step.get("model_params") or {}
             if not isinstance(configured_model_params, dict):
                 raise TypeError("model_params must be a parameter mapping")
+            configured_model_params = encode_constructor_value(configured_model_params)
             if torch_params is not None or framework_params is not None:
                 dsl_step["params"]["factory_params"] = {
                     **(dsl_step["params"].get("factory_params") or {}),
@@ -1038,7 +1041,7 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                 dsl_step["params"].update(configured_model_params)
             host_metadata: dict[str, Any] = {}
             if "finetune_params" in step:
-                host_metadata["nirs4all_finetune_params"] = json.loads(json.dumps(step["finetune_params"], default=repr))
+                host_metadata["nirs4all_finetune_params"] = json.loads(json.dumps(encode_constructor_value(step["finetune_params"]), default=repr))
                 model_params = step["finetune_params"].get("model_params") if isinstance(step["finetune_params"], dict) else None
                 if isinstance(model_params, dict):
                     host_metadata["nirs4all_finetune_model_param_order"] = list(model_params)
@@ -1100,7 +1103,7 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                         f"use the Python expand path (operator-level / nested-grid / modifier sweeps)"
                     )
                 else:
-                    dsl_step["params"][key] = value
+                    dsl_step["params"][key] = encode_constructor_value(value)
             if generators:
                 dsl_step["generators"] = generators
             return dsl_step

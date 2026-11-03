@@ -1,12 +1,15 @@
 """Lossless nested sklearn constructor values within the existing JSON DSL.
 
 Plain parameters retain their historical JSON representation. Nested estimators
-reuse the library's component serializer rather than becoming repr strings.
+reuse the library's component serializer rather than becoming repr strings, and
+non-finite floats (e.g. XGBoost's ``missing=nan``), which strict JSON cannot
+carry, are marked so they round-trip exactly.
 This is a trusted library configuration format, not a safe untrusted-code loader.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import is_dataclass
 from typing import Any
 
@@ -20,7 +23,9 @@ def encode_constructor_value(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return encode_constructor_value(value.tolist())
     if isinstance(value, np.generic):
-        return value.item()
+        return encode_constructor_value(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        return {_COMPONENT: {"kind": "float", "value": repr(value)}}
     if not isinstance(value, type) and (
         callable(getattr(value, "get_params", None)) or is_dataclass(value)
     ):
@@ -46,6 +51,10 @@ def decode_constructor_value(value: Any) -> Any:
                 raise ValueError("Malformed nested constructor component")
             if payload["kind"] == "mapping":
                 return {key: decode_constructor_value(item) for key, item in payload["value"]}
+            if payload["kind"] == "float":
+                if payload["value"] not in ("nan", "inf", "-inf"):
+                    raise ValueError("Malformed non-finite constructor float")
+                return float(payload["value"])
             if payload["kind"] == "component":
                 from nirs4all.pipeline.config.component_serialization import deserialize_component
 

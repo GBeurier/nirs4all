@@ -59,3 +59,102 @@ def test_non_operator_string_parameters_remain_permissive():
         "params": {"solver": "some.custom.value"},
     }})
     assert parsed.operator.solver == "some.custom.value"
+
+
+@pytest.mark.parametrize("params, rejected", [
+    ({"alphaa": 3.0}, "['alphaa']"),
+    ({"alpha": 2.0, "n_components": 12, "center": True}, "['center', 'n_components']"),
+])
+def test_unknown_constructor_parameters_are_errors_not_defaults(params, rejected):
+    """A model must never silently train with defaults instead of the requested parameters."""
+    with pytest.raises(ValueError, match="does not accept parameter") as caught:
+        deserialize_component({"class": "sklearn.linear_model.Ridge", "params": params})
+    message = str(caught.value)
+    assert rejected in message
+    assert "valid parameters: ['alpha', 'copy_X'" in message
+
+
+def test_aom_pls_rejects_legacy_parameter_names():
+    pytest.importorskip("n4m")
+    with pytest.raises(ValueError, match=r"does not accept parameter\(s\) \['center', 'n_components', 'scale'\]") as caught:
+        deserialize_component({"class": "nirs4all.operators.models.AOMPLSRegressor", "params": {"n_components": 12, "center": True, "scale": False}})
+    assert "max_components" in str(caught.value)
+    model = deserialize_component({"class": "nirs4all.operators.models.AOMPLSRegressor", "params": {"max_components": 12}})
+    assert model.max_components == 12
+
+
+def test_repository_pipeline_configs_use_accepted_parameters():
+    """Example configs must not depend on a parameter-dropping fallback."""
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[3]
+    declared = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("class"), str) and isinstance(node.get("params"), dict) and node["params"]:
+                declared.append(node)
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    for path in sorted((root / "examples" / "configs").rglob("*.y*ml")):
+        collect(yaml.safe_load(path.read_text()))
+    assert declared
+    for node in declared:
+        deserialize_component(node)
+
+
+def test_neural_factories_reject_unknown_parameters_but_ignore_injected_hints():
+    from nirs4all.controllers.models.factory import ModelFactory
+
+    def factory(input_shape, hidden_units=8):
+        return {"input_shape": input_shape, "hidden_units": hidden_units}
+
+    assert ModelFactory.prepare_and_call(factory, {"hidden_units": 64, "input_shape": (4,), "num_classes": 3}) == {"input_shape": (4,), "hidden_units": 64}
+    with pytest.raises(ValueError, match=r"does not accept parameter\(s\) \['hidden_unitz'\]; valid parameters: \['hidden_units', 'input_shape'\]"):
+        ModelFactory.prepare_and_call(factory, {"hidden_unitz": 64, "input_shape": (4,)})
+
+    def bundled(input_shape, params):
+        return params
+
+    assert ModelFactory.prepare_and_call(bundled, {"input_shape": (4,), "anything": 1}) == {"anything": 1}
+
+    class Deferred:
+        def __init__(self, input_shape=None, width=4):
+            self.input_shape, self.width = input_shape, width
+
+    assert ModelFactory.reconstruct_object(Deferred(), force_params={"input_shape": (5,), "width": 9}).width == 9
+    with pytest.raises(ValueError, match=r"\['widht'\]"):
+        ModelFactory.reconstruct_object(Deferred(), force_params={"input_shape": (5,), "widht": 9})
+
+
+def test_neural_factories_keep_bundles_and_controller_training_controls():
+    from nirs4all.controllers.models.factory import ModelFactory
+
+    def tensorflow_builder(input_shape, units=4):
+        return units
+
+    # TensorFlow tuning groups compile_*/fit_* trial values for the controller.
+    assert ModelFactory.prepare_and_call(tensorflow_builder, {"units": 8, "input_shape": (3,)}, {"compile": {"learning_rate": 1e-3}, "fit": {"batch_size": 4}}) == 8
+
+    class DeferredBundle:
+        def __init__(self, params, input_shape=None):
+            self.params, self.input_shape = params, input_shape
+
+    rebuilt = ModelFactory.reconstruct_object(DeferredBundle({"width": 4}), force_params={"width": 9, "input_shape": (5,)})
+    assert rebuilt.input_shape == (5,)
+
+
+def test_only_reconstruction_bundles_force_params():
+    from nirs4all.controllers.models.factory import ModelFactory
+
+    def build(force_params=None, width=4):
+        return width
+
+    with pytest.raises(ValueError, match=r"\['widht'\]"):
+        ModelFactory.prepare_and_call(build, {"widht": 9})
