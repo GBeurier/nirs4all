@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.15] — 2026-11-03
+
 ### Changed
 
 - Keep samples whose selected target is missing. Loading keeps them under every
@@ -26,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refit model (`refit=False`) the samples are excluded but not predicted. The
   portable native profile, `run(tuning=...)` and `rep_to_sources`/`rep_to_pp`
   refuse missing targets with an explicit error.
-- Require dag-ml 0.3.44, dag-ml-data 0.2.16 and nirs4all-io 0.2.14.
+- Require dag-ml 0.3.44, dag-ml-data 0.2.16, nirs4all-io 0.2.14, nirs4all-core
+  0.4.7 and nirs4all-methods/pls4all 1.3.13; the qualified native cohort adds
+  nirs4all-formats 0.2.14.
 
 ### Fixed
 
