@@ -55,12 +55,23 @@ class PLSDA(ClassifierMixin, BaseEstimator):
             return self.encoder_.categories_[0][y_pred]
 
     def predict_proba(self, X):
+        """Class membership scores as probabilities consistent with ``predict``.
+
+        PLS responses are unbounded. A binary response is clipped to [0, 1];
+        multiclass responses are clipped at zero and each row is normalized to
+        sum to one, which keeps the ``predict`` class most probable. A row with
+        no positive response puts its whole mass on that class.
+        """
         check_is_fitted(self, ['pls_', 'classes_'])
         X = np.asarray(X)
         y_pred_raw = self.pls_.predict(X)
         if len(self.classes_) == 2:
-            y_pred_raw = np.column_stack([1 - y_pred_raw, y_pred_raw])
-        return y_pred_raw
+            positive = np.clip(np.asarray(y_pred_raw, dtype=float).ravel(), 0.0, 1.0)
+            return np.column_stack([1.0 - positive, positive])
+        scores = np.clip(np.asarray(y_pred_raw, dtype=float), 0.0, None)
+        totals = scores.sum(axis=1, keepdims=True)
+        winners = np.eye(scores.shape[1])[np.argmax(y_pred_raw, axis=1)]
+        return np.where(totals > 0, scores / np.where(totals > 0, totals, 1.0), winners)
 
     def get_params(self, deep=True):
         return {"n_components": self.n_components}

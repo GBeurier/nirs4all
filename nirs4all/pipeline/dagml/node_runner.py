@@ -1295,7 +1295,9 @@ def _run_fitted_transform_node(
 
 def _ordered_finetune_params(metadata: dict[str, Any]) -> dict[str, Any]:
     """Rebuild finetune_params with legacy model_params insertion order."""
-    finetune_params = dict(metadata.get("nirs4all_finetune_params") or {})
+    from .operator_parameters import decode_constructor_value
+
+    finetune_params = dict(decode_constructor_value(metadata.get("nirs4all_finetune_params") or {}))
     model_params = finetune_params.get("model_params")
     order = metadata.get("nirs4all_finetune_model_param_order")
     if isinstance(model_params, dict) and isinstance(order, list):

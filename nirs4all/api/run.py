@@ -1554,6 +1554,13 @@ def _run_single_estimator_tuning_subset(
     ) = _score_data_for_run(tuning)
 
     X, y, sample_ids, groups, metadata = _raw_array_tuning_dataset(dataset)
+    from nirs4all.pipeline.dagml.target_missing import missing_target_rows
+
+    if missing_target_rows(y).any():
+        raise ValueError(
+            "run(tuning=...) requires complete targets; run() without tuning= (including finetune_params) "
+            "excludes samples with a missing target from training and scoring and predicts them"
+        )
     winner_payload = _optional_mapping_value(tuning, "winner")
     (
         winner_x,

@@ -61,6 +61,8 @@ class IdentityMap:
     identities: tuple[SampleIdentity, ...]
     _to_int: dict[str, int] = field(repr=False)
     _to_wire: dict[int, str] = field(repr=False)
+    target_missing: tuple[int, ...] = ()
+    """Sample ints held outside every CV universe because their selected target is missing."""
 
     def to_int(self, observation_id: str) -> int:
         """Map a wire ``observation_id`` back to its in-memory ``sample`` int."""
@@ -86,7 +88,9 @@ def mint_identity(dataset: SpectroDataset) -> IdentityMap:
 
     The per-dataset ``content_hash()`` (64-hex, stable across calls, invalidated on
     feature mutation) anchors every wire id, so ids are reproducible from content and
-    never from row position.
+    never from row position. Samples a run holds out for a missing target
+    (:func:`~nirs4all.pipeline.dagml.target_missing.isolate_target_missing`)
+    keep their ids and are carried as ``target_missing`` for fold-set declaration.
     """
     fingerprint = dataset.content_hash()
     samples = dataset.index_column("sample", {})
@@ -104,4 +108,5 @@ def mint_identity(dataset: SpectroDataset) -> IdentityMap:
         identities=tuple(identities),
         _to_int={identity.observation_id: identity.sample_int for identity in identities},
         _to_wire={identity.sample_int: identity.observation_id for identity in identities},
+        target_missing=tuple(getattr(dataset, "_dagml_target_missing", ())),
     )

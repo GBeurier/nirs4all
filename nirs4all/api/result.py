@@ -2181,8 +2181,9 @@ class RunResult:
         # Refit entries normally live in per-dataset stores and may have no
         # holdout score for intentional full-training runs.  Only a singleton
         # is safe to expose as ``best``; variants still require an explicit
-        # source selection from the caller.
-        final_entries = refit_predictions.filter_predictions(fold_id="final")
+        # source selection from the caller.  Prediction-only rows (samples
+        # without targets) are refit outputs, not refit evaluations.
+        final_entries = [entry for entry in refit_predictions.filter_predictions(fold_id="final") if entry.get("partition") != "prediction"]
         return dict(final_entries[0]) if len(final_entries) == 1 else {}
 
     def _refit_predictions(self) -> Predictions:

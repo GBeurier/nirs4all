@@ -349,12 +349,20 @@ dataset = DatasetConfigs({
 ```python
 dataset = DatasetConfigs({
     "train_x": "spectra.csv",
+    "train_y": "targets.csv",
     "global_params": {
-        "na_policy": "drop"     # Drop rows with NaN
-        # Options: "drop", "fill_mean", "fill_median", "fill_zero"
+        "na_policy": "remove_sample"  # Drop rows with a missing value
+        # Options: "auto", "abort", "remove_sample", "remove_feature", "replace", "ignore"
     }
 })
 ```
+
+Missing targets are loaded losslessly: every policy except `"abort"` (refuse)
+and `"remove_sample"` (drop the row everywhere) keeps the sample with a missing
+target. Training excludes such a sample from fitting and scoring only, per
+selected target, and the refit model predicts it: the run result carries a
+`"prediction"` row for these samples and records them in
+`result.per_dataset[name]["target_missing"]`.
 
 ## Troubleshooting
 

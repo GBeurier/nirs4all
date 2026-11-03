@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.15] — 2026-11-03
+
+### Changed
+
+- Keep samples whose selected target is missing. Loading keeps them under every
+  target NA policy except `abort` (refuse) and `remove_sample` (drop the row),
+  matching nirs4all-io 0.2.14. A DAG-ML training run excludes them from fitting
+  and scoring only: the splitter partitions the target-observed samples, every
+  fold set declares the others in DAG-ML's `target_missing_sample_ids`, and no
+  CV relation, held-out test cohort or provider target table contains them. A
+  sample is target-missing when any of the selected targets is missing, so
+  training one target of a sparse multi-target dataset excludes only the
+  samples missing that target. The refit model then predicts them through a
+  native `inference` cohort, published as a `prediction` row (no targets, no
+  scores), one per output for independent per-source models;
+  `result.per_dataset[name]["target_missing"]` records the exclusion. Without a
+  refit model (`refit=False`) the samples are excluded but not predicted. The
+  portable native profile, `run(tuning=...)` and `rep_to_sources`/`rep_to_pp`
+  refuse missing targets with an explicit error.
+- Require dag-ml 0.3.44, dag-ml-data 0.2.16, nirs4all-io 0.2.14, nirs4all-core
+  0.4.7 and nirs4all-methods/pls4all 1.3.13; the qualified native cohort adds
+  nirs4all-formats 0.2.14.
+
+### Fixed
+
+- An estimator parameter that the constructor does not accept is now an error
+  naming the rejected and the valid parameters. The serializer used to drop it
+  and build the estimator with defaults (for example `AOMPLSRegressor` given
+  `n_components` trained with `max_components=3`); neural model factories
+  likewise dropped unknown builder parameters. Runtime hints the factory injects
+  (`input_dim`, `input_shape`, `num_classes`) stay optional. Two example
+  pipeline configurations that relied on the fallback are corrected.
+- `AOMPLSClassifier`/`POPPLSClassifier` accept a splitter as `cv`, so the
+  pipeline folds nirs4all injects drive their inner cross-validation instead of
+  failing at fit on an integer-only fold count.
+- `PLSDA`/`OPLSDA` `predict_proba` returns valid probabilities (finite,
+  non-negative, rows summing to one) whose most probable class is the `predict`
+  class, so DAG-ML accepts their classification outputs.
+- Non-finite constructor values (e.g. XGBoost `missing=nan`, `SimpleImputer`
+  `missing_values=nan`) round-trip through the native pipeline DSL instead of
+  producing invalid JSON.
+
 ## [1.4.14] — 2026-11-02
 
 ### Fixed
