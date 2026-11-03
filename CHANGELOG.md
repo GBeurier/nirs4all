@@ -41,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   likewise dropped unknown builder parameters. Runtime hints the factory injects
   (`input_dim`, `input_shape`, `num_classes`) stay optional. Two example
   pipeline configurations that relied on the fallback are corrected.
+- `AOMPLSClassifier`/`POPPLSClassifier` accept a splitter as `cv`, so the
+  pipeline folds nirs4all injects drive their inner cross-validation instead of
+  failing at fit on an integer-only fold count.
+- `PLSDA`/`OPLSDA` `predict_proba` returns valid probabilities (finite,
+  non-negative, rows summing to one) whose most probable class is the `predict`
+  class, so DAG-ML accepts their classification outputs.
+- Non-finite constructor values (e.g. XGBoost `missing=nan`, `SimpleImputer`
+  `missing_values=nan`) round-trip through the native pipeline DSL instead of
+  producing invalid JSON.
 
 ## [1.4.14] — 2026-11-02
 
