@@ -50,7 +50,7 @@ jobs:
       shell: bash
       run: |
         python -m pip install "dag-ml-data==0.2.16" \
-          "nirs4all-core==0.4.6" "nirs4all-methods==1.3.9" "pls4all==1.3.9" \
+          "nirs4all-core==0.4.7" "nirs4all-methods==1.3.13" "pls4all==1.3.13" \
           dist/dag_ml*.whl dist/nirs4all_io*.whl dist/nirs4all-*.whl
     - name: Verify installed package imports and versions
       shell: bash
