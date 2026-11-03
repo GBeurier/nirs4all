@@ -137,11 +137,15 @@ class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
         # Criterion: classification -> covariance proxy or per-component CV using
         # balanced log loss. We use the regression criterion with covariance
         # default for simplicity; "cv" runs an inner CV with classification fold scoring.
+        # ``cv`` is a fold count or a fitted splitter (e.g. the pipeline's
+        # own folds injected by nirs4all); the inner CV honours either.
+        splitter = self.cv if callable(getattr(self.cv, "split", None)) else None
         criterion = CriterionConfig(
             kind=self.criterion,
-            cv=self.cv,
+            cv=int(splitter.get_n_splits()) if splitter is not None else self.cv,
             random_state=self.random_state,
             task="classification",
+            cv_splitter=splitter,
         )
         # Orthogonalisation resolution
         orth = self.orthogonalization
