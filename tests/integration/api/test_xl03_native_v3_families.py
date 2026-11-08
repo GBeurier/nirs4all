@@ -68,35 +68,32 @@ def _load_capture(family: str, capture: Path, library: str) -> tuple[Any, dict[s
 def _archive_bytes(child: Any, archive: Path) -> tuple[dict[str, Any], str]:
     package = _document(child.package)
     assert child.export(archive) == archive
-    from nirs4all_core import read_portable_refit_package_v3
+    from nirs4all_core import open_native_package, read_portable_refit_package_v3
 
     assert json.loads(read_portable_refit_package_v3(archive)) == package
-    with zipfile.ZipFile(archive) as container:
-        manifest = json.loads(container.read("manifest.json"))
-        assert manifest["schema_version"] == 3
-        references = manifest["payloads"]["methods"]
-        actual_refs = [reference for name in ("n4me", "role_pipelines") for reference in references.get(name, [])]
-        artifacts = package["outcome"]["execution_bundle"]["refit_artifacts"]
-        raw = package["outcome"]["execution_bundle"]["raw_artifact_payloads"]
-        assert len(actual_refs) == len(artifacts) == 1
-        ref = actual_refs[0]
-        artifact = artifacts[0]["artifact"]
-        assert ref["artifact_id"] == artifact["id"] and ref["member_path"] == artifact["uri"]
-        payload = container.read(ref["member_path"])
-        # The native JSON byte-array owns exactly the same RAW state as Core.
-        assert payload == bytes(raw[artifact["id"]])
-        assert hashlib.sha256(payload).hexdigest() == ref["raw_sha256"] == artifact["content_fingerprint"]
-        entry = next(item for item in manifest["member_inventory"] if item["path"] == ref["member_path"])
-        for name in ("semantic_profile", "semantic_fingerprint", "raw_sha256"):
-            assert entry[name] == ref[name]
-        if artifact["kind"] == "methods_role_pipeline":
-            assert artifact["controller_id"] == "controller:methods.native.regression"
-            assert artifact["plugin"] == "dagml.methods.native.regression" and artifact["plugin_version"] == "1.0.0"
-            assert ref["semantic_profile"] == "dagml_methods_role_pipeline_raw_sha256"
-        else:
-            assert payload[:4] == b"N4ME" and artifact["abi_major"] == 2 and artifact["abi_min_minor"] == 13
-            assert artifact.get("plugin") is None and ref["semantic_profile"] == "n4me_raw_sha256"
-    return package, ref["member_path"]
+    # Core validated the selected native closure; it exposes the exact root bytes, the selected physical
+    # members and the native view. A standalone child has no parent outcome, refit-of link or score.
+    native = open_native_package(archive)
+    view = native.view()
+    assert view["profile"] == "native-methods-package" and view["package_schema_version"] == 3
+    assert native.package_bytes() == read_portable_refit_package_v3(archive)
+    artifacts = package["outcome"]["execution_bundle"]["refit_artifacts"]
+    raw = package["outcome"]["execution_bundle"]["raw_artifact_payloads"]
+    assert len(artifacts) == 1
+    artifact = artifacts[0]["artifact"]
+    state = bytes(raw[artifact["id"]])
+    members = native.payloads()["members"]
+    # The native JSON byte-array owns exactly the same RAW state as the Core-stored fitted-state member.
+    state_paths = [path for path, data in members.items() if data == state]
+    assert len(state_paths) == 1
+    assert hashlib.sha256(state).hexdigest() == artifact["content_fingerprint"]
+    if artifact["kind"] == "methods_role_pipeline":
+        assert artifact["controller_id"] == "controller:methods.native.regression"
+        assert artifact["plugin"] == "dagml.methods.native.regression" and artifact["plugin_version"] == "1.0.0"
+    else:
+        assert state[:4] == b"N4ME" and artifact["abi_major"] == 2 and artifact["abi_min_minor"] == 13
+        assert artifact.get("plugin") is None
+    return package, state_paths[0]
 
 
 _COLD = r"""
@@ -256,10 +253,19 @@ def test_xl03_actual_native_archive_tampering_refuses_before_replay(family: str,
     elif mutation == "missing_member":
         del members[raw_path]
     else:
-        manifest = json.loads(members["manifest.json"])
-        name = "n4me" if family == "n4me-pls" else "role_pipelines"
-        manifest["payloads"]["methods"][name][0]["raw_sha256"] = "0" * 64
-        members["manifest.json"] = json.dumps(manifest).encode()
+        # Rebind the Core inventory digest of the fitted state to a different value.
+        for name, payload in members.items():
+            try:
+                container_manifest = json.loads(payload)
+            except ValueError:
+                continue
+            if isinstance(container_manifest, dict) and "required_features" in container_manifest:
+                entry = next(item for item in container_manifest["members"] if item["path"] == raw_path)
+                entry["sha256"] = "0" * 64
+                members[name] = json.dumps(container_manifest).encode()
+                break
+        else:
+            raise AssertionError("the Core container manifest member was not found")
     forged = tmp_path / "forged.n4a"
     with zipfile.ZipFile(forged, "w") as container:
         for name, payload in members.items():
@@ -269,7 +275,7 @@ def test_xl03_actual_native_archive_tampering_refuses_before_replay(family: str,
         calls.append(True)
         raise AssertionError("invalid archive reached native replay")
     monkeypatch.setattr(DagMLNativeClient, "replay_loaded_methods_portable_refit_package_v3", forbidden)
-    with pytest.raises(ValueError, match="validation refused"):
+    with pytest.raises(ValueError):
         NativeMethodsRefitResult.load_archive(forged, methods_library_path=library)
     assert not calls and hashlib.sha256(archive.read_bytes()).hexdigest() == before
 

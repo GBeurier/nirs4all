@@ -90,7 +90,7 @@ class NativeMethodsArchiveRunResult(RunResult):
         self._methods_library_path = methods_library_path
         self._native_pipeline = list(pipeline)
         self._native_archive_reference: dict[str, str] | None = None
-        self._native_export_validation: tuple[Path, Any, str] | None = None
+        self._native_export_validation: tuple[Path, Any] | None = None
 
     @property
     def native_archive_reference(self) -> dict[str, str] | None:
@@ -265,49 +265,44 @@ class NativeMethodsArchiveRunResult(RunResult):
         *,
         compatibility: str | None = None,
     ) -> Path:
-        """Write the captured Package V2/N4MM without refitting or host models."""
+        """Write the captured Package V2/N4MM as a native-package Core container without refitting or host models."""
 
         if format != "n4a":
-            raise ValueError("native Methods export supports only format='n4a' (Core Archive V2)")
+            raise ValueError("native Methods export supports only format='n4a' (Core native Package V2 container)")
         if source is not None or chain_id is not None or compatibility is not None:
             raise NotImplementedError("native Methods Archive V2 export rejects legacy selectors and compatibility refits")
         path = Path(output_path)
         if path.suffix.lower() != ".n4a":
             raise ValueError("native Methods export requires a .n4a path")
         try:
-            manifest, members = self._native_dag_ml.build_archive_v2_native_portable_payloads(
-                self._native_archive_id,
-                self._native_outcome_contract,
-                self._native_package_contract,
-            )
-            from nirs4all.pipeline.dagml.core_archive_replay import (
-                _archive_fingerprint,
-                validate_core_methods_archive_v2,
-            )
+            from nirs4all.pipeline.dagml.core_archive_replay import validate_core_methods_archive_v2
+            from nirs4all.pipeline.dagml.native_archive_replay import contract_bytes, write_methods_archive_v2
 
             path.parent.mkdir(parents=True, exist_ok=True)
-            # Core validates the container; Python validates replay against the
-            # selected runtime before exposing the destination. In particular
-            # failed HPO provenance must not replace an existing good archive.
+            # Core validates the container and its selected native closure; Python
+            # validates replay against the selected runtime before exposing the
+            # destination. In particular failed HPO provenance must not replace an
+            # existing good archive. Core never replaces, so the candidate is staged
+            # at a new path and this export replaces the destination atomically.
             with tempfile.TemporaryDirectory(prefix=".n4a-publish-", dir=path.parent) as staging:
                 candidate = Path(staging) / path.name
-                reference = self._native_core.write_archive_v2_from_native_payloads(candidate, manifest, members)
-                if not isinstance(reference, Mapping):
-                    raise NativeArchiveTrainingError("Core Archive V2 writer returned an invalid reference")
-                archive_id = reference.get("archive_id")
-                archive_sha256 = reference.get("archive_sha256")
-                if not isinstance(archive_id, str) or not isinstance(archive_sha256, str):
-                    raise NativeArchiveTrainingError("Core Archive V2 writer omitted id/checksum evidence")
+                reference = write_methods_archive_v2(
+                    candidate,
+                    archive_id=self._native_archive_id,
+                    outcome=contract_bytes(self._native_outcome_contract, "TrainingOutcome"),
+                    package=self._native_package_json.encode("utf-8"),
+                )
+                archive_id = reference["archive_id"]
+                archive_sha256 = reference["archive_sha256"]
                 validation = validate_core_methods_archive_v2(candidate, methods_library_path=self._methods_library_path)
-                archive_fingerprint = _archive_fingerprint(candidate)
                 os.replace(candidate, path)
         except Exception as error:
-            raise NativeArchiveTrainingError("DAG-ML/Core refused native Archive V2 publication") from error
+            raise NativeArchiveTrainingError("DAG-ML/Core refused native Package V2 publication") from error
         self._native_archive_reference = {
             "archive_id": archive_id,
             "archive_sha256": archive_sha256,
         }
-        self._native_export_validation = (path, validation, archive_fingerprint)
+        self._native_export_validation = (path, validation)
         return path
 
     def close(self) -> None:
@@ -529,13 +524,12 @@ def _require_archive_runtime() -> tuple[Any, Any]:
         "compile_pipeline_dsl_artifact_with_controllers",
         "sign_training_request",
         "execute_methods_training",
-        "build_archive_v2_native_portable_payloads",
     )
     missing = [name for name in required_dagml if not callable(getattr(dag_ml, name, None))]
     if missing:
         raise NativeArchiveTrainingError("installed dag-ml lacks native Archive V2 producer capabilities: " + ", ".join(missing))
-    if not callable(getattr(core, "write_archive_v2_from_native_payloads", None)):
-        raise NativeArchiveTrainingError("installed nirs4all-core lacks the Archive V2 writer")
+    if not callable(getattr(core, "write_native_predictor_package", None)):
+        raise NativeArchiveTrainingError("installed nirs4all-core lacks the native Package V2 writer")
     return dag_ml, core
 
 

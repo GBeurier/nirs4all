@@ -8,6 +8,8 @@ Supports two prediction paths:
     - Resolver path: Prediction dicts / folders resolved via PredictionResolver,
       with optional minimal pipeline extraction from execution traces.
 """
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +20,7 @@ import numpy as np
 from nirs4all.core.logging import Nirs4allLogger, get_logger
 
 if TYPE_CHECKING:
+    from nirs4all.pipeline.bundle import BundleLoader
     from nirs4all.pipeline.resolver import ResolvedPrediction
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.pipeline.trace import ExecutionTrace, MinimalPipeline
@@ -67,7 +70,7 @@ class Predictor:
         use_minimal_pipeline: Whether to use minimal pipeline execution.
     """
 
-    def __init__(self, runner: "PipelineRunner", use_minimal_pipeline: bool = True):
+    def __init__(self, runner: PipelineRunner, use_minimal_pipeline: bool = True):
         """Initialize predictor.
 
         Args:
@@ -87,7 +90,7 @@ class Predictor:
 
     def predict(
         self,
-        prediction_obj: dict[str, Any] | str,
+        prediction_obj: dict[str, Any] | str | Path | BundleLoader,
         dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "prediction_dataset",
         all_predictions: bool = False,
@@ -108,7 +111,12 @@ class Predictor:
         """
         logger.starting("Starting Nirs4all prediction(s)")
 
-        # Handle bundle files (.n4a) directly via BundleLoader
+        from nirs4all.pipeline.bundle import BundleLoader
+
+        if isinstance(prediction_obj, BundleLoader):
+            return self._predict_from_bundle(prediction_obj, dataset, dataset_name, all_predictions, verbose)
+
+        # Standalone bundle paths own their loader for this prediction.
         if isinstance(prediction_obj, str) and (prediction_obj.endswith(".n4a") or prediction_obj.endswith(".n4a.py")):
             return self._predict_from_bundle(prediction_obj, dataset, dataset_name, all_predictions, verbose)
 
@@ -133,7 +141,7 @@ class Predictor:
     # Resolution
     # -----------------------------------------------------------------
 
-    def _resolve_prediction(self, prediction_obj: dict[str, Any] | str, verbose: int) -> None:
+    def _resolve_prediction(self, prediction_obj: dict[str, Any] | str | Path | BundleLoader, verbose: int) -> None:
         """Resolve a prediction object to executable components.
 
         Extracts ``config_path``, ``target_model``, ``artifact_loader`` and
@@ -151,6 +159,8 @@ class Predictor:
             store=self.runner.store,
         )
         resolved = resolver.resolve(prediction_obj, verbose=verbose)
+        if self._resolved is not None:
+            self._resolved.close()
         self._resolved = resolved
 
         # Extract target model metadata
@@ -538,7 +548,7 @@ class Predictor:
 
     def _predict_from_bundle(
         self,
-        bundle_path: str,
+        bundle_path: str | BundleLoader,
         dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str,
         all_predictions: bool,
@@ -560,74 +570,75 @@ class Predictor:
 
         logger.debug(f"Loading bundle: {bundle_path}")
 
-        loader = BundleLoader(bundle_path)
+        from contextlib import nullcontext
 
-        from nirs4all.data.raw_multisource import RawMultiSourceDataset
+        with nullcontext(bundle_path) if isinstance(bundle_path, BundleLoader) else BundleLoader(bundle_path) as loader:
+            from nirs4all.data.raw_multisource import RawMultiSourceDataset
 
-        prediction_metadata: dict[str, np.ndarray] = {}
-        native_routing = loader.get_partitioner_routing() or {}
-        native_metadata = any(info.get("native_replay") == "by_metadata_concat" for info in native_routing.values())
+            prediction_metadata: dict[str, np.ndarray] = {}
+            native_routing = loader.get_partitioner_routing() or {}
+            native_metadata = any(info.get("native_replay") == "by_metadata_concat" for info in native_routing.values())
 
-        if isinstance(dataset, RawMultiSourceDataset):
-            if not loader.relation_replay_manifest:
-                raise ValueError("RawMultiSourceDataset bundle prediction requires a relation replay manifest.")
-            X_data: Any = dataset
-        elif isinstance(dataset, dict) and "X" in dataset:
-            X_data = np.asarray(dataset["X"])
-            supplied_metadata = dataset.get("metadata")
-            if isinstance(supplied_metadata, dict):
-                prediction_metadata = {str(key): np.asarray(value) for key, value in supplied_metadata.items()}
-        elif native_metadata and isinstance(dataset, np.ndarray):
-            required = loader.get_required_metadata_columns()
-            raise ValueError(f"by_metadata bundle prediction requires metadata column(s) {required!r} alongside X")
-        else:
-            dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
-            X_data = None
+            if isinstance(dataset, RawMultiSourceDataset):
+                if not loader.relation_replay_manifest:
+                    raise ValueError("RawMultiSourceDataset bundle prediction requires a relation replay manifest.")
+                X_data: Any = dataset
+            elif isinstance(dataset, dict) and "X" in dataset:
+                X_data = np.asarray(dataset["X"])
+                supplied_metadata = dataset.get("metadata")
+                if isinstance(supplied_metadata, dict):
+                    prediction_metadata = {str(key): np.asarray(value) for key, value in supplied_metadata.items()}
+            elif native_metadata and isinstance(dataset, np.ndarray):
+                required = loader.get_required_metadata_columns()
+                raise ValueError(f"by_metadata bundle prediction requires metadata column(s) {required!r} alongside X")
+            else:
+                dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
+                X_data = None
 
-            for data_config, name in dataset_config.configs:
-                dataset_obj = dataset_config.get_dataset(data_config, name)
-                raw = dataset_obj.x({})
-                X_data = np.concatenate(raw, axis=1) if isinstance(raw, list) else raw
-                if native_metadata:
-                    for column in loader.get_required_metadata_columns():
-                        try:
-                            prediction_metadata[column] = np.asarray(dataset_obj.metadata_column(column, {}))
-                        except (KeyError, ValueError) as exc:
-                            raise ValueError(f"by_metadata bundle prediction requires metadata column {column!r}") from exc
-                break
+                for data_config, name in dataset_config.configs:
+                    dataset_obj = dataset_config.get_dataset(data_config, name)
+                    raw = dataset_obj.x({})
+                    X_data = np.concatenate(raw, axis=1) if isinstance(raw, list) else raw
+                    if native_metadata:
+                        for column in loader.get_required_metadata_columns():
+                            try:
+                                prediction_metadata[column] = np.asarray(dataset_obj.metadata_column(column, {}))
+                            except (KeyError, ValueError) as exc:
+                                raise ValueError(f"by_metadata bundle prediction requires metadata column {column!r}") from exc
+                    break
 
-            if X_data is None:
-                raise ValueError("No data found in dataset for prediction")
+                if X_data is None:
+                    raise ValueError("No data found in dataset for prediction")
 
-        y_pred = loader.predict_with_metadata(X_data, prediction_metadata) if native_metadata else loader.predict(X_data)
+            y_pred = loader.predict_with_metadata(X_data, prediction_metadata) if native_metadata else loader.predict(X_data)
 
-        model_name = "bundle_model"
-        if loader.metadata:
-            model_name = loader.metadata.original_manifest.get("name", "bundle_model")
+            model_name = "bundle_model"
+            if loader.metadata:
+                model_name = loader.metadata.original_manifest.get("name", "bundle_model")
 
-        metadata: dict[str, Any] = {}
-        if loader.relation_replay_manifest:
-            metadata["relation_replay_manifest"] = dict(loader.relation_replay_manifest)
+            metadata: dict[str, Any] = {}
+            if loader.relation_replay_manifest:
+                metadata["relation_replay_manifest"] = dict(loader.relation_replay_manifest)
 
-        run_predictions = Predictions()
-        run_predictions.add_prediction(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            y_pred=y_pred,
-            y_true=np.array([]),
-            partition="test",
-            step_idx=loader.metadata.model_step_index if loader.metadata and loader.metadata.model_step_index is not None else 0,
-            config_path=str(bundle_path),
-            fold_id="all",
-            metadata=metadata or None,
-        )
+            run_predictions = Predictions()
+            run_predictions.add_prediction(
+                dataset_name=dataset_name,
+                model_name=model_name,
+                y_pred=y_pred,
+                y_true=np.array([]),
+                partition="test",
+                step_idx=loader.metadata.model_step_index if loader.metadata and loader.metadata.model_step_index is not None else 0,
+                config_path=str(loader.bundle_path),
+                fold_id="all",
+                metadata=metadata or None,
+            )
 
-        logger.success(f"Predicted with bundle: {model_name}")
+            logger.success(f"Predicted with bundle: {model_name}")
 
-        if all_predictions:
-            return {"bundle": {"prediction": y_pred}}, run_predictions
+            if all_predictions:
+                return {"bundle": {"prediction": y_pred}}, run_predictions
 
-        return y_pred, run_predictions
+            return y_pred, run_predictions
 
     # -----------------------------------------------------------------
     # Helpers

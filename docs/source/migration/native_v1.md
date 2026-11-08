@@ -106,8 +106,9 @@ Inference does not manufacture validation scores. An explicit `engine="native"`
 still requires a portable Core archive and never silently loads a host model.
 General archives contain trusted Python/joblib objects: load them only from a
 trusted producer. Recorded SHA-256 digests detect corruption, not malicious
-producers. Older DAG exports without a recorded digest retain a visible warning
-and do not claim verified integrity. Loaded Sessions are bound to their source
+producers. A current host envelope carrying an older payload without an SDK-recorded
+artifact digest retains a visible warning and does not claim verified artifact provenance.
+Core storage integrity is checked separately. Loaded Sessions are bound to their source
 archive fingerprint and refuse replacement after loading.
 
 General `retrain(mode="full")` also accepts a recorded workspace prediction
@@ -215,15 +216,29 @@ uses its real hard predictions, never fabricated one-hot probabilities.
 In subprocess execution the same evidence travels in a host-only capture
 sidecar, separate from the coordinator's native result protocol.
 
-Directory-backed Python models such as AutoGluon use a host-only archive
-extension. Native result artifacts and general ``.n4a`` bundles keep a small
-joblib model reference and store each predictor file under ``host_artifacts/``.
-The manifest records every relative filename, byte length and SHA-256 digest.
-The reader verifies all declared files before deserializing the model and
-rejects missing, extra or changed archive sidecars. Files are copied and hashed
-in bounded chunks; the 512 MiB inline joblib limit does not apply to their
-combined size. Earlier archives with an inline predictor directory still load.
-These files remain trusted Python host artifacts, not portable Core packages.
+SDK Python-host `.n4a` bundles use Core V1 storage, schema
+`nirs4all.n4a.container.v1`, with required feature `nirs4all-python-host@1`
+and owner `nirs4all.python-host`. Root `manifest.json` is Core's inventory;
+SDK bundle metadata lives at `host/bundle_manifest.json`. The physical profile
+is uncompressed `zip-stored.v1`, with no public `compress` option. These transport
+changes describe the unpublished local source cohort, not a new release.
+
+Directory-backed Python models such as AutoGluon keep a small joblib reference
+and store predictor files under `host_artifacts/`. The SDK manifest records each
+relative filename, byte length and SHA-256 digest. Core verifies storage inventory
+and integrity; SDK semantic and sidecar checks, followed by full verified private
+extraction, precede trusted joblib loading. Missing, extra or changed sidecars are
+refused. An inline predictor-directory payload can still be carried in a current
+host envelope. Old SDK ZIP inputs are explicitly refused with current re-export
+advice; there is no old-ZIP reader shim. Python/joblib payloads remain nonportable
+and require a trusted producer: checksums neither make pickle safe nor confer
+native executability.
+
+The V1 host transport has no intrinsic `.n4a` content-size cap. Models and JSON
+still materialize within the host allocator's capacity. An optional host-authorized
+`memory_budget_bytes` on low-level Core/host storage APIs bounds Core's working
+allocations only; it is neither a new `predict`/Session option nor a total process-RAM
+guarantee. Structural, schema and integrity checks remain enforced.
 
 General `generate()` and its convenience methods select the installed
 `nirs4all.python.synthesis.v1` library adapter when no engine/plugin selector
@@ -276,13 +291,37 @@ Do not put that selector in Studio or Web configuration. See the
 {doc}`public interfaces </reference/public_interfaces>` references for the
 operation-by-operation capability contract.
 
+## Canonical Core `.n4a` containers
+
+The canonical native execution profile is explicit: `engine="native"` with
+`native_profile="nirs4all.n4a.container.v1"`. It shares Core V1 storage with the Python-host
+profile but has different payload owners, features and execution contracts. Routing follows
+Core-validated owner/feature/profile declarations, not suffix or V1 schema alone. Core's native
+producer is the only fit; `result.export()` writes the sealed bytes without retraining, and
+prediction validates the file through Core. The explicit native Package V2/V3 lanes remain
+separately qualified and are distinct from refused old SDK ZIP inputs.
+Package V2 (predictor) and Package V3 (standalone full-refit child) exports are Core V1
+containers that require the `native-methods-package@1` feature; the package schema versions 2
+and 3, the container version and the Methods ABI/wire versions are independent. The SDK opens the
+container once through Core (`open_native_package` over the same handle), routes on the native
+view's `package_schema_version` and passes that retained proof to every read and replay of the
+call; it selects no root or entrypoint and validates no closure itself. Core never replaces an
+existing file, so Package V2 exports stage a new path and replace atomically while Package V3
+exports refuse an existing destination. Pre-V1 physical Archive V2/V3 ZIP files are refused with
+re-export advice; there is no reader or converter. A Session that loaded a native Package V2 keeps
+its Core handle, so replacing the path afterwards cannot change the bytes it validated.
+There is no implicit execution fallback between these profiles. Sessions,
+`random_state`, tuning, calibration and `workspace_path` are refused for this profile. It
+needs a `nirs4all-core` that ships the canonical producer, inspector and replay functions;
+see {doc}`public interfaces </reference/public_interfaces>` for the exact contract.
+
 ## ABI and schema identities
 
 | Surface | V1 candidate identity | Compatibility rule |
 |---|---|---|
 | Methods C ABI | `libn4m` ABI `2.5.0`, SONAME major `2` | Call `n4m_check_abi_compatibility` before other ABI calls; bindings remain thin. |
 | Methods model payload | N4MM formats `1`, `2` and `3` | Native PLS fits from Methods 1.3.7 use format `3`; legacy plain `1` and embedded `2` remain readable. A fitted-model payload is not a complete `.n4a` pipeline archive. |
-| Portable model/run archive | Core Archive V2 | Validate format, bounds, Methods identity and fingerprint before replay; no refit or legacy fallback on import. |
+| Portable model/run archive | Core native Package V2 container (`native-methods-package@1`) | Validate format, bounds, Methods identity and fingerprint before replay; no refit or legacy fallback on import. |
 | Workspace | `nirs4all-workspace-v2` | SQLite metadata plus Parquet array sidecars; legacy stores require explicit Tools conversion. |
 | Runtime envelopes | `rt_run_request.v1`, `rt_result.v1`, `rt_error.v1` | Producers and consumers use the frozen JSON schemas; no product-specific reinterpretation. |
 | Studio product contract | Studio V1 HTTP/OpenAPI/WS snapshots | Rust is the sole control-plane owner; plugin-host responses cross bounded JSON stdio only. |

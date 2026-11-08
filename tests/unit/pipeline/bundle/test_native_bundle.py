@@ -15,7 +15,6 @@ built WITHOUT a legacy refit — independent of the dag-ml backend:
 from __future__ import annotations
 
 import json
-import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +24,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from nirs4all.api.result import _DagmlExportedModel
 from nirs4all.pipeline.bundle import BundleLoader, write_single_model_bundle
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
 
 
 def _fit_pipeline(seed: int = 0) -> tuple[Pipeline, np.ndarray]:
@@ -59,11 +59,12 @@ def test_native_bundle_roundtrip_is_bit_exact(tmp_path: Path) -> None:
     # Bit-exact: the same fitted object crosses the joblib round-trip and the loader calls .predict directly.
     assert np.array_equal(reloaded, expected), "bundle reload-predict IS the wrapped model's predict"
 
-    with zipfile.ZipFile(out) as zf:
-        names = set(zf.namelist())
-        manifest = json.loads(zf.read("manifest.json"))
-        pipeline_cfg = json.loads(zf.read("pipeline.json"))
-    assert "manifest.json" in names and "pipeline.json" in names
+    with open_n4a_source(out) as source:
+        container = source.require_host()
+        names = set(container.namelist())
+        manifest = json.loads(container.read(BUNDLE_MANIFEST_MEMBER))
+        pipeline_cfg = container.read_json("pipeline.json")
+    assert BUNDLE_MANIFEST_MEMBER in names and "pipeline.json" in names and "manifest.json" not in names
     assert any(n.startswith("artifacts/step_1_foldfinal_") for n in names), "single refit-model artifact"
     assert manifest["bundle_format_version"] == "1.0"
     assert manifest["model_step_index"] == 1
@@ -116,9 +117,11 @@ def test_native_bundle_train_steps_roundtrip(tmp_path: Path) -> None:
 
     out = write_single_model_bundle(model, tmp_path / "trainable.n4a", model_label="PLSRegression", train_steps=train_steps)
 
-    with zipfile.ZipFile(out) as zf:
-        assert json.loads(zf.read("train_pipeline.json")) == {"steps": train_steps}
-        assert json.loads(zf.read("pipeline.json"))["steps"] == [{"model": {"class": "PLSRegression"}}]
+    with open_n4a_source(out) as source:
+        container = source.require_host()
+        assert container.read_json("train_pipeline.json") == {"steps": train_steps}
+        assert container.read_json("pipeline.json")["steps"] == [{"model": {"class": "PLSRegression"}}]
+        assert container.namelist()[:3] == [BUNDLE_MANIFEST_MEMBER, "pipeline.json", "train_pipeline.json"]
 
     loader = BundleLoader(out)
     assert loader.train_pipeline_config == {"steps": train_steps}
@@ -134,8 +137,8 @@ def test_native_bundle_without_train_steps_stays_predict_only(tmp_path: Path) ->
     pipe, _ = _fit_pipeline(seed=5)
     out = write_single_model_bundle(_DagmlExportedModel(pipe, None), tmp_path / "predict_only.n4a", model_label="PLSRegression")
 
-    with zipfile.ZipFile(out) as zf:
-        assert "train_pipeline.json" not in zf.namelist()
+    with open_n4a_source(out) as source:
+        assert "train_pipeline.json" not in source.require_host().namelist()
 
     loader = BundleLoader(out)
     assert loader.train_pipeline_config == {}

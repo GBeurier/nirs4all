@@ -544,10 +544,11 @@ class TestNAFillConfig:
         """NAFillConfig accepts custom values."""
         from nirs4all.data.schema.config import NAFillConfig, NAFillMethod
 
-        config = NAFillConfig(method=NAFillMethod.MEAN, fill_value=99.0, per_column=False)
-        assert config.method == NAFillMethod.MEAN
+        config = NAFillConfig(method=NAFillMethod.FORWARD_FILL, fill_value=99.0, per_column=False)
+        assert config.method == NAFillMethod.FORWARD_FILL
         assert config.fill_value == 99.0
         assert config.per_column is False
+        assert not hasattr(NAFillMethod, "MEAN")
 
 class TestNAError:
     """Test suite for NAError exception."""

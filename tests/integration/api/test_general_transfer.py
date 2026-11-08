@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +13,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 
 
 @pytest.mark.parametrize("source_kind,sweep", [("prediction", False), ("bundle", False), ("prediction", True), ("bundle", True)])
@@ -56,8 +55,8 @@ def test_transfer_freezes_preprocessing_and_replays_without_fit(tmp_path, monkey
             assert lineage["model_learned_state_reused"] is False
             assert lineage["model_replaced"] is replace
             exported = result.export(tmp_path / "transferred.n4a")
-            with zipfile.ZipFile(exported) as archive:
-                assert json.loads(archive.read("manifest.json"))["retrain_lineage"] == lineage
+            with open_n4a_source(exported) as source_archive:
+                assert source_archive.require_host().bundle_manifest["retrain_lineage"] == lineage
             monkeypatch.setattr(Ridge, "fit", forbid_fit)
             actual = nirs4all.predict(exported, new_x, verbose=0).y_pred
             np.testing.assert_allclose(np.asarray(actual).ravel(), expected, rtol=1e-6, atol=1e-6)

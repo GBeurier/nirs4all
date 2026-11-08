@@ -2483,6 +2483,31 @@ Names a pipeline step for display and identification purposes.
 
 **Behavior:** The step is executed normally, but uses the provided name in logs, reports, and visualization.
 
+Serialization preserves descriptive strings under `name`, `description`, and the
+reserved `metadata`, `_metadata_`, and `_tags_` fields, including dotted labels and
+`n4m:` text, without resolving imports or constructing objects. This also applies
+to bare mappings passed to the component serialization helpers. Constructor
+arguments under `params`, `args`, `*_params`, `_grid_`, and `_zip_` retain reference
+resolution, including nested argument dictionaries with a `name` key; descriptive
+siblings of a string `class`, `function`, or `instance` declaration remain literal.
+Literal containers are copied and still normalize class objects, arrays and
+tuples. Live objects inside descriptive fields retain normal object serialization
+and executable constructor-argument handling.
+
+The hash algorithm and inclusion policy are unchanged. Labels that previously
+resolved to another canonical path can acquire different identities; labels that
+previously failed resolution can now receive identities. Historical templates,
+hashes and lineage records are not rewritten. Parameter-keyed `_or_` without an
+argument path retains pipeline context: its reference strings resolve, while a
+descriptive field in a dictionary alternative stays literal until that alternative
+is placed under `params`, which can affect identity.
+
+This correction does not add root-wrapper field support to `PipelineConfigs` and
+does not make component serialization a security boundary. Repository admission
+guards remain necessary. SDK optional-dependency preflight alignment is a separate
+pending change; authorization can still refuse a dotted display label such as
+`Plant.v2`. Studio and frontend migrations are outside this change.
+
 ---
 
 ## Combining Keywords

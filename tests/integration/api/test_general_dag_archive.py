@@ -1,13 +1,13 @@
 """Public DAG host archive and Session replay never train or enter legacy."""
 
-import json
-import zipfile
-
 import numpy as np
 import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
+
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 
 @pytest.mark.parametrize("scale_y", [False, True])
@@ -69,14 +69,12 @@ def test_general_archive_digest_checked_before_unpickling_and_session_binds_sour
     result = nirs4all.run([KFold(n_splits=2), Ridge()], (X, X[:, 0]), workspace_path=tmp_path / "workspace")
     path = result.export(tmp_path / "model.n4a")
     loaded = nirs4all.load_session(path)
-    with zipfile.ZipFile(path) as archive:
-        members = {name: archive.read(name) for name in archive.namelist()}
-    manifest = json.loads(members["manifest.json"])
-    model_member = next(iter(manifest["artifact_integrity"]))
-    members[model_member] += b"tampered"
-    with zipfile.ZipFile(path, "w") as archive:
-        for name, contents in members.items():
-            archive.writestr(name, contents)
+    with open_n4a_source(path) as source:
+        container = source.require_host()
+        model_member = next(iter(container.bundle_manifest["artifact_integrity"]))
+        tampered = container.read(model_member) + b"tampered"
+    # Reseal only the outer inventory; retain the SDK's original model digest.
+    reseal_host_member(path, path, model_member, tampered)
     monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("tampered bytes reached pickle"))
     with pytest.raises(ValueError, match="fingerprint mismatch"):
         nirs4all.predict(path, X)

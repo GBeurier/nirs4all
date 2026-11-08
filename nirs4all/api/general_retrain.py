@@ -7,14 +7,15 @@ generator search, or make these Python artifacts portable Core archives.
 
 from __future__ import annotations
 
-import zipfile
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from nirs4all.pipeline.dagml.host_container import N4aSource, open_n4a_source
 from nirs4all.pipeline.dagml.rt import RtError
 
 
-def captured_training_spec(source: Any, *, mode: str = "full", new_model: Any = None) -> tuple[list[Any], dict[str, Any]] | None:
+def captured_training_spec(source: Any, *, mode: str = "full", new_model: Any = None, opened_source: N4aSource | None = None) -> tuple[list[Any], dict[str, Any]] | None:
     """Select a recorded host winner before execution, without a retry fallback.
 
     Existing bundles with a training specification retain their published
@@ -40,17 +41,17 @@ def captured_training_spec(source: Any, *, mode: str = "full", new_model: Any = 
         }
     elif isinstance(source, (str, Path)):
         path = Path(source)
-        manifest = None if path.is_symlink() else general_archive_manifest(path)
-        if manifest is None:
-            return None
-        if "dagml_generated_model_replay" in manifest:
-            raise _unsupported("generated-view archives are prediction-only; retraining needs a new explicit provider run", mode)
-        lineage = manifest.get("retrain_lineage")
-        transfer_source = isinstance(lineage, dict) and lineage.get("training_contract") == "captured_preprocessing.transfer.v1"
-        with zipfile.ZipFile(path) as archive:
-            if mode == "full" and not transfer_source and "train_pipeline.json" in archive.namelist():
+        with open_n4a_source(path) if opened_source is None else nullcontext(opened_source) as opened:
+            manifest = None if path.is_symlink() else general_archive_manifest(path, source=opened)
+            if manifest is None:
                 return None
-        loaded = load_general_archive(path)
+            if "dagml_generated_model_replay" in manifest:
+                raise _unsupported("generated-view archives are prediction-only; retraining needs a new explicit provider run", mode)
+            lineage = manifest.get("retrain_lineage")
+            transfer_source = isinstance(lineage, dict) and lineage.get("training_contract") == "captured_preprocessing.transfer.v1"
+            if mode == "full" and not transfer_source and "train_pipeline.json" in opened.require_host().namelist():
+                return None
+            loaded = load_general_archive(path, source=opened)
         from .result import _DagmlExportedModel
 
         wrapper = loaded["artifact"]["estimator"]

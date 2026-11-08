@@ -211,11 +211,29 @@ def test_empty_target_selection_does_not_return_all_targets():
 def test_dict_fill_configuration_is_accepted_by_csv_entrypoint(tmp_path):
     """DT2-09: JSON-shaped fill settings reach the CSV NA policy."""
     path = _csv(tmp_path, "X.csv", "a;b\n1;2\nNA;4\n3;6\n")
-    result = CSVLoader().load(path, na_policy="replace", na_fill_config={"method": "mean"})
+    result = CSVLoader().load(path, na_policy="replace", na_fill_config={"method": "backward_fill"})
     assert result.success
-    assert result.data.iloc[1, 0] == 2
+    assert result.data.iloc[1, 0] == 4
+    config = {"train_x": path, "global_params": {"na_policy": "replace", "na_fill_config": {"method": "backward_fill"}}}
+    np.testing.assert_array_equal(DatasetConfigs(config).get_dataset_at(0).x({})[:, 0], [1, 4, 3])
+
+
+@pytest.mark.parametrize("content", ["a;b\n1;2\nNA;4\n3;6\n", "a;b\n1;2\n5;4\n3;6\n"], ids=["with_na", "na_free"])
+def test_statistical_fill_configuration_is_refused_by_csv_entrypoints(tmp_path, content):
+    """Mean/median fills would use whole-file statistics before partition/CV scope: refused, NA or not."""
+    path = _csv(tmp_path, "X.csv", content)
+    result = CSVLoader().load(path, na_policy="replace", na_fill_config={"method": "mean"})
+    assert not result.success
+    assert "is refused" in result.report["error"]
     config = {"train_x": path, "global_params": {"na_policy": "replace", "na_fill_config": {"method": "mean"}}}
-    np.testing.assert_array_equal(DatasetConfigs(config).get_dataset_at(0).x({})[:, 0], [1, 2, 3])
+    with pytest.raises(ValueError, match="is refused"):
+        DatasetConfigs(config).get_dataset_at(0)
+
+
+def test_statistical_fill_configuration_is_refused_for_in_memory_features():
+    config = {"train_x": np.array([[1.0, 2.0], [np.nan, 4.0], [3.0, 6.0]]), "global_params": {"na_policy": "replace", "na_fill_config": {"method": "median"}}}
+    with pytest.raises(ValueError, match="is refused"):
+        DatasetConfigs(config).get_dataset_at(0)
 
 
 def test_same_named_datasets_use_their_own_configuration_settings(tmp_path):

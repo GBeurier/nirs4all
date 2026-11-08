@@ -22,6 +22,7 @@ metrics
 predictions_api
 api/session
 public_interfaces
+runtime_identity
 multimodal_execution_matrix
 native_capability_preflight
 native_conformal_finetuning_release_audit

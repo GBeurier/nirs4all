@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import subprocess
-import zipfile
 from pathlib import Path
 
 import dag_ml
@@ -20,6 +19,8 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
 from nirs4all.pipeline.bundle.loader import BundleLoader
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 
 def _data(kind):
@@ -135,8 +136,8 @@ def test_real_by_source_training_retains_native_packages_and_ranked_replay(tmp_p
         blocks = [np.asarray(source.values)[72:] for source in dataset.sources.values()]
         matrix = np.concatenate(blocks, axis=1)
         replay = loader.predict_outputs(matrix)
-        with zipfile.ZipFile(archive) as contents:
-            capture = json.loads(contents.read("dagml_source_training_capture.json"))
+        with open_n4a_source(archive) as source_archive:
+            capture = source_archive.require_host().read_json("dagml_source_training_capture.json")
             assert len(capture["captures"]) == top_k
             assert len(capture["sidecars"]) == 2 * top_k
         native_records = {item["artifact_id"]: item for item in result._dagml_refit_artifacts}
@@ -468,21 +469,22 @@ def test_archive_carrier_corruption_is_refused_before_unpickling(tmp_path, monke
         archive = result.export(tmp_path / "original.n4a")
         bad = tmp_path / "corrupt.n4a"
         corrupted = 0
-        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(bad, "w") as changed:
-            for name in original.namelist():
-                content = original.read(name)
-                if name.startswith("dagml_source_sidecar_"):
-                    content += b"corrupt"
-                    corrupted += 1
-                changed.writestr(name, content)
+        with open_n4a_source(archive) as source_archive:
+            container = source_archive.require_host()
+            carriers = [(name, container.read(name) + b"corrupt") for name in container.namelist()
+                        if name.startswith("dagml_source_sidecar_")]
+        for name, content in carriers:
+            # Keep capture size/hash references stale while resealing each carrier.
+            reseal_host_member(archive if corrupted == 0 else bad, bad, name, content)
+            corrupted += 1
         assert corrupted == 2
         import joblib
 
         monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("unpickled carrier before hash validation"))
-        with zipfile.ZipFile(bad) as changed:
-            manifest = json.loads(changed.read("manifest.json"))
+        with open_n4a_source(bad) as source_archive:
+            changed = source_archive.require_host()
             with pytest.raises(ValueError, match="size|hash"):
-                validate_source_archive_before_model(changed, manifest)
+                validate_source_archive_before_model(changed, changed.bundle_manifest)
         with pytest.raises(ValueError, match="size|hash"):
             BundleLoader(bad)
     finally:

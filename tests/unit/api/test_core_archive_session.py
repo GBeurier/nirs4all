@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import importlib
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from zipfile import ZIP_DEFLATED, ZipFile
 
 import numpy as np
 import pytest
@@ -23,24 +23,52 @@ from nirs4all.pipeline.dagml import core_archive_replay
 from nirs4all.pipeline.dagml.rt import RtError
 
 
+class _NativeFile:
+    """Minimal Core ``N4aFile`` double for a container that declares the native package feature."""
+
+    def __init__(self, version: int) -> None:
+        self.version = version
+        self.closed = False
+
+    def manifest_bytes(self) -> bytes:
+        return json.dumps({
+            "required_features": ["native-methods-package@1"], "artifacts": [], "entrypoints": [], "links": [], "members": [],
+        }).encode()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _NativePackage:
+    """Minimal Core ``NativePackage`` double: the retained proof and its native view."""
+
+    def __init__(self, version: int) -> None:
+        self.version = version
+
+    def view(self) -> dict[str, Any]:
+        return {"package_schema_version": self.version, "profile": "native-methods-package"}
+
+
+def _open_native(path: Any, *, memory_budget_bytes: int | None = None) -> _NativeFile:
+    data = Path(path).read_bytes()
+    if not data.startswith(b"native-v"):
+        raise ValueError("n4a unsupported format: not a native test container")
+    return _NativeFile(int(data[8:9]))
+
+
+def _open_native_package(file: _NativeFile) -> _NativePackage:
+    return _NativePackage(file.version)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_engine_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Core archive selector tests own their default, independent of the DAG-ML suite profile."""
     monkeypatch.delenv("N4A_ENGINE", raising=False)
+    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(open_n4a_file=_open_native, open_native_package=_open_native_package, write_n4a_file=lambda *a, **k: None))
 
 
 def _archive(path: Path, version: int, *, core: bool = True) -> Path:
-    if core:
-        manifest = {
-            "schema_version": version,
-            "profile": f"nirs4all.archive_workspace.v{version}",
-            "persistence_kind": "n4a_archive",
-            "writer": {"product_aggregate_owner": "nirs4all-core"},
-        }
-    else:
-        manifest = {"bundle_format_version": "1.0"}
-    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest))
+    path.write_bytes(f"native-v{version}".encode() if core else b"old physical bundle")
     return path
 
 
@@ -117,6 +145,9 @@ def _install_core(
     monkeypatch: pytest.MonkeyPatch,
     core: Any,
 ) -> None:
+    core.open_n4a_file = _open_native
+    core.open_native_package = _open_native_package
+    core.write_n4a_file = lambda *a, **k: None
     real_import = core_archive_replay.importlib.import_module
     monkeypatch.setattr(
         core_archive_replay.importlib,
@@ -143,13 +174,13 @@ def test_load_session_preserves_explicit_methods_runtime(tmp_path: Path, monkeyp
     expected = SimpleNamespace(methods_library_path="/opt/lib/libn4m.so.2.5.0")
     observed: list[tuple[Path, str | Path | None]] = []
 
-    def validate(archive_path: Path, *, methods_library_path: str | Path | None = None) -> Any:
+    def validate(archive_path: Path, *, methods_library_path: str | Path | None = None, source: Any = None) -> Any:
         observed.append((archive_path, methods_library_path))
         return expected
 
     monkeypatch.setattr(core_archive_replay, "validate_core_methods_archive_v2", validate)
     with load_session(path, methods_library_path=expected.methods_library_path) as loaded:
-        assert loaded._core_archive_validation == (path, expected)
+        assert loaded._core_archive_validation == expected
         assert loaded._runner is None
     assert observed == [(path, expected.methods_library_path)]
 
@@ -163,7 +194,7 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
 
     def read(archive_path: str) -> bytes:
         observed["reads"] += 1
-        observed["read_path"] = archive_path
+        observed["read_input"] = archive_path
         return json.dumps(_package()).encode()
 
     def replay(
@@ -207,16 +238,11 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
 
     session = load_session(path)
     assert session._core_archive_validation is not None
-    assert session._core_archive_fingerprint is not None
+    assert session._n4a_source is not None and session._n4a_source.kind == "native"
     cached_package_json = json.dumps(
-        session._core_archive_validation[1].package,
+        session._core_archive_validation.package,
         sort_keys=True,
         separators=(",", ":"),
-    )
-    monkeypatch.setattr(
-        core_archive_replay,
-        "detect_core_archive_version",
-        lambda _: pytest.fail("a loaded Core session must not redispatch to legacy"),
     )
     result = session.predict(
         {"X": [[1.0, 2.0]], "sample_ids": ["sample.one"]},
@@ -239,13 +265,13 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     assert session.is_trained
     assert session._runner is None
     assert observed["reads"] == 1
-    assert observed["read_path"] == str(path)
+    assert observed["read_input"] is session._n4a_source.native_package
     assert len(observed["replays"]) == 2
     assert observed["replays"][0]["kwargs"]["methods_library_path"] == "/opt/lib/libn4m.so"
     assert observed["replays"][0]["sample_ids"] == ["sample.one"]
     assert session._core_archive_validation is not None
     assert json.dumps(
-        session._core_archive_validation[1].package,
+        session._core_archive_validation.package,
         sort_keys=True,
         separators=(",", ":"),
     ) == cached_package_json
@@ -265,7 +291,7 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     assert session.status == "closed"
     assert not session.is_trained
     assert session._core_archive_validation is None
-    assert session._core_archive_fingerprint is None
+    assert session._n4a_source is None
     with pytest.raises(SessionClosedError, match="Session is closed"):
         session.predict(
             {"X": [[7.0, 8.0]], "sample_ids": ["sample.four"]},
@@ -344,11 +370,7 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
                 destination,
                 methods_library_path="/opt/lib/libn4m.so",
             )
-            self._native_export_validation = (
-                destination,
-                validation,
-                core_archive_replay._archive_fingerprint(destination),
-            )
+            self._native_export_validation = (destination, validation)
             return destination
 
         def close(self) -> None:
@@ -415,7 +437,7 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
     assert not second_archive.exists()
     assert native._core_archive_path is None
     assert native._core_archive_validation is None
-    assert native._core_archive_fingerprint is None
+    assert native._core_archive_validation is None
 
 
 @pytest.mark.parametrize("legacy_owner", ["bundle", "runner", "result"])
@@ -547,12 +569,12 @@ def test_load_v2_old_core_fails_without_bundle_fallback(
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
-    with pytest.raises(core_archive_replay.CoreArchiveDependencyError, match="too old") as caught:
+    with pytest.raises(core_archive_replay.CoreArchiveDependencyError, match="file-backed .n4a container API") as caught:
         load_session(path)
     assert caught.value.dependency == "nirs4all-core"
 
 
-def test_v2_session_closes_reloads_and_rejects_changed_source_before_data(
+def test_v2_session_closes_reloads_and_keeps_held_source_after_path_replacement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -597,7 +619,7 @@ def test_v2_session_closes_reloads_and_rejects_changed_source_before_data(
     )
     first.close()
     assert first._core_archive_validation is None
-    assert first._core_archive_fingerprint is None
+    assert first._core_archive_validation is None
 
     resumed = load_session(path)
     resumed.predict(
@@ -605,31 +627,83 @@ def test_v2_session_closes_reloads_and_rejects_changed_source_before_data(
         methods_library_path="/opt/lib/libn4m.so",
     )
     assert observed == {"reads": 2, "replays": 2}
-    path.write_bytes(path.read_bytes() + b"changed-after-validation")
-    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="changed after Session validation"):
+
+    # An atomic path replacement cannot change the Core proof the Session retained: the held
+    # source keeps predicting without re-hashing, reopening or re-reading the container.
+    held_source = resumed._n4a_source
+    replacement = tmp_path / "replacement.n4a"
+    replacement.write_bytes(b"changed after validation: not a native container")
+    replacement.replace(path)
+    again = resumed.predict(
+        {"X": [[5.0, 6.0]], "sample_ids": ["sample.three"]},
+        methods_library_path="/opt/lib/libn4m.so",
+    )
+    np.testing.assert_array_equal(again.y_pred, [[1.0]])
+    assert resumed._n4a_source is held_source
+    assert observed == {"reads": 2, "replays": 3}
+
+    # Malformed data is still refused before any Core replay.
+    with pytest.raises(TypeError, match="sample_ids"):
         resumed.predict(object(), methods_library_path="/opt/lib/libn4m.so")
-    assert observed == {"reads": 2, "replays": 2}
+    assert observed == {"reads": 2, "replays": 3}
+
+    # A fresh load opens the replaced path independently and Core refuses it before any read.
+    with pytest.raises(ValueError, match="re-export"):
+        load_session(path)
+    assert observed == {"reads": 2, "replays": 3}
     assert resumed._runner is None
     resumed.close()
+    with pytest.raises(SessionClosedError):
+        resumed.predict({"X": [[1.0, 2.0]], "sample_ids": ["sample.one"]})
+    assert observed == {"reads": 2, "replays": 3}
 
 
-def test_v2_session_refuses_oversized_cached_package(
+def test_v2_session_delegates_large_cached_package_to_core_without_sdk_cap(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "portable.n4a", 2)
+    # Valid JSON whitespace keeps the package semantically identical while exceeding the former
+    # 8 MiB Session budget; memory admission belongs to Core, the SDK adds no size layer.
+    large_package = json.dumps(_package()).encode() + b" " * (9 * 1024 * 1024)
+    observed: dict[str, Any] = {"reads": 0, "replay_inputs": []}
+
+    def read(_: Any) -> bytes:
+        observed["reads"] += 1
+        return large_package
+
+    def replay(
+        archive_input: Any,
+        sample_ids: list[str],
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        observed["replay_inputs"].append(archive_input)
+        return {"outputs": [{"predictions": [{"sample_ids": sample_ids, "values": [[2.0] for _ in sample_ids]}]}]}
+
     core = SimpleNamespace(
-        read_portable_predictor_package_v2=lambda _: b"x"
-        * (core_archive_replay._MAX_PACKAGE_BYTES + 1),
+        read_portable_predictor_package_v2=read,
         inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [_descriptor()],
-        predict_methods_archive_v2_matrix=lambda *_args, **_kwargs: {},
+        predict_methods_archive_v2_matrix=replay,
     )
     _install_core(monkeypatch, core)
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
-    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="8 MiB Session cache budget"):
-        load_session(path)
+    session = load_session(path)
+    assert session._core_archive_validation is not None
+    assert session._core_archive_validation.package == _package()
+    held_source = session._n4a_source
+    assert held_source is not None
+    result = session.predict(
+        {"X": [[1.0, 2.0]], "sample_ids": ["sample.one"]},
+        methods_library_path="/opt/lib/libn4m.so",
+    )
+    np.testing.assert_array_equal(result.y_pred, [[2.0]])
+    assert observed["reads"] == 1
+    assert observed["replay_inputs"] == [held_source.native_input()]
+    session.close()
+    assert session._core_archive_validation is None
 
 
 def test_load_v3_refuses_prediction_session_before_runner(
@@ -644,27 +718,13 @@ def test_load_v3_refuses_prediction_session_before_runner(
         load_session(path)
 
 
-def test_load_non_core_archive_keeps_legacy_bundle_loader(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_load_non_core_archive_refuses_old_sdk_zip_before_bundle_loader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "legacy.n4a", 1, core=False)
-    observed: list[Path] = []
-
-    class FakeBundleLoader:
-        def __init__(self, archive_path: Path) -> None:
-            observed.append(archive_path)
-            self.pipeline_config = {"steps": ["legacy-step"], "name": "legacy"}
-
-    monkeypatch.setattr(bundle_module, "BundleLoader", FakeBundleLoader)
-
-    session = load_session(path)
-
-    assert observed == [path]
-    assert session.name == "legacy"
-    assert session.pipeline == ["legacy-step"]
-    assert session.is_trained
-    assert session._core_archive_path is None
+    monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
+    with pytest.raises(ValueError, match="re-export"):
+        load_session(path)
 
 
 def test_top_level_native_run_refuses_loaded_legacy_session_before_options_or_runtime(
@@ -673,18 +733,15 @@ def test_top_level_native_run_refuses_loaded_legacy_session_before_options_or_ru
 ) -> None:
     path = _archive(tmp_path / "legacy.n4a", 1, core=False)
 
-    class FakeBundleLoader:
-        def __init__(self, _archive_path: Path) -> None:
-            self.pipeline_config = {"steps": ["legacy-step"], "name": "legacy"}
-
     native_module = importlib.import_module("nirs4all.api.native_archive_training")
-    monkeypatch.setattr(bundle_module, "BundleLoader", FakeBundleLoader)
     monkeypatch.setattr(
         native_module,
         "_require_archive_runtime",
         lambda: pytest.fail("mixed Session authority must fail before native runtime access"),
     )
-    session = load_session(path)
+    session = Session(pipeline=["legacy-step"], name="legacy", engine="legacy")
+    session._status = "trained"
+    session._bundle_path = path
     snapshot = dict(vars(session))
 
     with pytest.raises(RtError, match="already owns a legacy bundle") as caught:

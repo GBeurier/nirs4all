@@ -16,7 +16,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import IO, Any, ClassVar, Optional
 
-import numpy as np
 import pandas as pd
 
 from nirs4all.core.exceptions import NAError
@@ -42,13 +41,20 @@ def apply_na_policy(
 
     Raises:
         NAError: When na_policy='abort' and NaN is detected.
-        ValueError: When na_policy is not a recognized value.
+        ValueError: When na_policy is not a recognized value, or when
+            na_fill_config requests a refused fill method (mean/median need
+            fit-scoped imputation and are refused whether or not NA is present).
     """
     if na_policy not in _VALID_NA_POLICIES:
         raise ValueError(
             f"Invalid na_policy '{na_policy}'. "
             f"Must be one of: {sorted(_VALID_NA_POLICIES)}"
         )
+
+    # Validate the fill config at the boundary so unsupported methods refuse even
+    # when no NA is present or the policy is not 'replace'.
+    if isinstance(na_fill_config, dict):
+        na_fill_config = NAFillConfig(**na_fill_config)
 
     # Resolve 'auto' to 'abort'
     if na_policy == "auto":
@@ -111,28 +117,12 @@ def apply_na_policy(
     if na_policy == "replace":
         if na_fill_config is None:
             na_fill_config = NAFillConfig()
-        elif isinstance(na_fill_config, dict):
-            na_fill_config = NAFillConfig(**na_fill_config)
 
         method = na_fill_config.method
         report["fill_method"] = method.value if hasattr(method, "value") else str(method)
 
         if method == NAFillMethod.VALUE:
             data = data.fillna(na_fill_config.fill_value)
-
-        elif method == NAFillMethod.MEAN:
-            if na_fill_config.per_column:
-                data = data.fillna(data.mean())
-            else:
-                global_mean = data.values[~np.isnan(data.values.astype(float))].mean()
-                data = data.fillna(global_mean)
-
-        elif method == NAFillMethod.MEDIAN:
-            if na_fill_config.per_column:
-                data = data.fillna(data.median())
-            else:
-                global_median = float(np.nanmedian(data.values.astype(float)))
-                data = data.fillna(global_median)
 
         elif method == NAFillMethod.FORWARD_FILL:
             data = data.ffill(axis=1)

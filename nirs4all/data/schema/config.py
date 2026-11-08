@@ -113,17 +113,34 @@ class NAFillMethod(StrEnum):
     """Method for filling NA values when using REPLACE policy."""
 
     VALUE = "value"              # Fill with a constant
-    MEAN = "mean"                # Fill with column mean
-    MEDIAN = "median"            # Fill with column median
     FORWARD_FILL = "forward_fill"  # Forward-fill (spectral interpolation)
     BACKWARD_FILL = "backward_fill"  # Backward-fill
 
 class NAFillConfig(BaseModel):
-    """Configuration for NA replacement when na_policy='replace'."""
+    """Configuration for NA replacement when na_policy='replace'.
+
+    Only row-local fills are supported. Statistics computed across samples
+    (mean, median) are refused: a fitted imputer must respect the train/test
+    partitions and cross-validation folds, which loading cannot do.
+    """
 
     method: NAFillMethod = NAFillMethod.VALUE
     fill_value: float = 0.0
     per_column: bool = True
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def _refuse_fit_scoped_method(cls, value: Any) -> Any:
+        """Refuse mean/median fills, which need fit-scoped imputation."""
+        if isinstance(value, str) and value.strip().lower() in {"mean", "median"}:
+            raise ValueError(
+                f"na_fill_config.method '{value}' is refused: nirs4all does not compute fill statistics "
+                "across samples while loading data, because it cannot respect the train/test partitions "
+                "and cross-validation folds that a fitted imputer requires. Keep missing values "
+                "(na_policy 'ignore') for a fit-scoped pipeline step, or use a row-local option: "
+                "na_fill_config.method 'value', 'forward_fill' or 'backward_fill', or na_policy 'remove_sample'."
+            )
+        return value
 
 class CategoricalMode(StrEnum):
     """Mode for handling categorical columns in Y data."""

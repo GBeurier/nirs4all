@@ -28,12 +28,14 @@ Example:
     >>> y_pred = execute_prediction(resolved, new_data)
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import yaml
 
@@ -44,6 +46,9 @@ from nirs4all.pipeline.config.context import (
 )
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 from nirs4all.pipeline.trace import ExecutionTrace
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.bundle import BundleLoader
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +249,14 @@ class ResolvedPrediction:
     run_dir: Path | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
 
+    bundle_loader: BundleLoader | None = None
+
+    def close(self) -> None:
+        """Release only a loader opened by this resolution, after lazy replay."""
+        if self.bundle_loader is not None:
+            self.bundle_loader.close()
+            self.bundle_loader = None
+
     def has_trace(self) -> bool:
         """Check if execution trace is available.
 
@@ -346,6 +359,11 @@ class PredictionResolver:
             ValueError: If source type cannot be determined or resolved
             FileNotFoundError: If referenced files/directories don't exist
         """
+        from nirs4all.pipeline.bundle import BundleLoader
+
+        if isinstance(source, BundleLoader):
+            return source.to_resolved_prediction()
+
         mode = self.resolution_mode if resolution_mode is None else self._validate_resolution_mode(resolution_mode)
         source_type = self._detect_source_type(source)
 
@@ -1030,7 +1048,12 @@ class PredictionResolver:
 
         # Load bundle and convert to ResolvedPrediction
         loader = BundleLoader(bundle_path)
-        result: ResolvedPrediction = loader.to_resolved_prediction()
+        try:
+            result: ResolvedPrediction = loader.to_resolved_prediction()
+        except BaseException:
+            loader.close()
+            raise
+        result.bundle_loader = loader
         return result
 
     def _resolve_from_trace_id(

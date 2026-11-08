@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias, Union
 
@@ -42,6 +43,7 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
+from nirs4all.pipeline.dagml.host_container import N4aSource, open_n4a_source
 from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import report_explicit_legacy_engine, resolve_engine
 
@@ -53,6 +55,8 @@ from .session import NativeArchiveSession, Session
 
 if TYPE_CHECKING:
     from nirs4all_io import MultimodalDataset
+
+    from nirs4all.pipeline.bundle import BundleLoader
 
 # Type aliases for clarity
 ModelSpec: TypeAlias = (
@@ -320,195 +324,250 @@ def predict(
             preprocessing_steps=[],
         )
 
-    from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, predict_general_archive
+    with open_n4a_source(Path(model)) if isinstance(model, (str, Path)) else nullcontext(None) as source:
+        from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, predict_general_archive
 
-    # Captured host-model archives share the historical .n4a suffix with Core
-    # archives, but carry an explicit ``source_type=dagml_native`` manifest.
-    # Resolve that profile before the generic native-archive path: passing it
-    # through Core would correctly fail Core's strict ZIP/profile validation,
-    # even though the archive is valid for the distinct general DAG profile.
-    general_manifest = general_archive_manifest(model) if isinstance(model, (str, Path)) else None
-    if output is not None and (
-        general_manifest is None
-        or general_manifest.get("dagml_native_export_shape") != "independent_by_source_multi"
-    ):
-        raise ValueError("output= is supported only by a named multi-output DAG host archive")
-    if general_manifest is not None and engine != "legacy":
-        if requested_engine is None and not os.environ.get("N4A_ENGINE"):
-            engine = "dag-ml"
-        if engine != "dag-ml":
-            raise RtError("predict", "unsupported_capability", "this archive requires the general DAG host profile, not portable native replay", unsupported_capability="host_artifact_requires_dagml")
-        if coverage is not None:
-            raise NotImplementedError("general host archive conformal replay requires its separately qualified calibration sidecar")
-        if runner_kwargs:
-            raise TypeError(f"general archive prediction does not accept options: {sorted(runner_kwargs)}")
-        assert isinstance(model, (str, Path))
-        result = predict_general_archive(model, data, output=output)
-        return _maybe_publish_predict_result(
-            result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=workspace_path,
-            session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
-        )
+        # An unselected engine (no ``engine=`` and no ``N4A_ENGINE``) auto-dispatches a host bundle to the
+        # general DAG profile below; only an explicit native selection is refused here.
+        explicit_engine = requested_engine is not None or bool(os.environ.get("N4A_ENGINE"))
+        if source is not None and source.kind == "host" and source.require_host().bundle_manifest is not None and engine == "native" and explicit_engine:
+            raise RtError("predict", "unsupported_capability", "host archives require the general DAG host profile", unsupported_capability="host_artifact_requires_dagml")
+        if source is not None and source.kind == "none" and isinstance(model, (str, Path)) and Path(model).is_file() and Path(model).suffix.lower() == ".n4a":
+            raise ValueError("unsupported .n4a source; re-export old SDK ZIP bundles with current nirs4all")
 
-    core_archive_version: int | None = None
-    if isinstance(model, (str, Path)):
-        from nirs4all.pipeline.dagml.core_archive_replay import (
-            CoreArchiveReplayError,
-            detect_core_archive_version,
-        )
-
-        core_archive_version = detect_core_archive_version(model)
-    if core_archive_version is not None:
-        assert isinstance(model, (str, Path))
-        methods_library_path = runner_kwargs.pop("methods_library_path", None)
-        if engine not in ("native", "dag-ml"):
-            raise CoreArchiveReplayError(
-                "recognized Core archives cannot be replayed with the legacy engine"
-            )
-        if core_archive_version == 3:
-            if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
-                raise TypeError("Core Archive V3 prediction requires data={'X': matrix, 'sample_ids': explicit_ids}")
-            native_refit = NativeMethodsRefitResult.load_archive(
-                model,
-                methods_library_path=methods_library_path,
-            )
-            return native_refit.predict(
-                data["X"],
-                sample_ids=data["sample_ids"],
-                groups=data.get("groups"),
-                metadata=data.get("metadata"),
-            )
-        if session is not None:
-            raise ValueError("Core Archive V2 prediction does not accept a legacy Session")
-        if all_predictions:
-            raise NotImplementedError(
-                "Core Archive V2 prediction exposes one identity-aligned final output"
-            )
-        if coverage is not None:
-            raise NotImplementedError(
-                "Core Archive V2 prediction does not project conformal intervals on this facade"
-            )
-        if save_to_workspace:
-            raise NotImplementedError(
-                "Core Archive V2 prediction does not yet publish to the legacy workspace store"
-            )
-        from nirs4all.pipeline.dagml.core_archive_replay import (
-            predict_core_methods_archive_v2,
-        )
-
-        values, metadata = predict_core_methods_archive_v2(
-            model,
-            data,
-            methods_library_path=methods_library_path,
-        )
-        return PredictResult(
-            y_pred=values,
-            metadata=metadata,
-            model_name="MethodsN4MM",
-            preprocessing_steps=[],
-        )
-
-    # The unprofiled Archive V2 adapter is an explicit compatibility surface.
-    # Do not let the process default reinterpret every historical ``.n4a`` as
-    # that format: calibrated-result archives and legacy bundles have distinct
-    # routing/refusal contracts.
-    explicit_native_archive_replay = engine == "native" and (
-        requested_engine is not None or "N4A_ENGINE" in os.environ
-    )
-    if (
-        explicit_native_archive_replay
-        and isinstance(model, (str, Path))
-        and Path(model).suffix.lower() == ".n4a"
-        and not _is_calibrated_replayed_prediction_request(model, data)
-        and not _is_conformal_attached_bundle_request(model)
-    ):
-        if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
-            raise TypeError("native archive prediction requires data={'X': matrix, 'sample_ids': explicit_ids}")
-        from nirs4all.pipeline.dagml.native_archive_replay import predict_methods_archive_v2_raw_result
-
-        native = predict_methods_archive_v2_raw_result(
-            model,
-            data["X"],
-            sample_ids=data["sample_ids"],
-            groups=data.get("groups"),
-            metadata=data.get("metadata"),
-            methods_library_path=methods_library_path,
-        )
-        native_metadata: dict[str, Any] = {
-            "engine": "native",
-            "sample_ids": list(native.sample_ids),
-        }
-        if native.conformal_guarantee_status is not None:
-            native_metadata["conformal_guarantee_status"] = dict(
-                native.conformal_guarantee_status
-            )
-        result = PredictResult(
-            y_pred=native.values,
-            metadata=native_metadata,
-            model_name="MethodsN4MM",
-            preprocessing_steps=[],
-            intervals=dict(native.intervals),
-        )
-        selected_coverages = _normalize_requested_coverages(coverage)
-        if selected_coverages is not None:
-            result.intervals = _select_materialized_intervals(
-                result, selected_coverages
-            )
-            result.metadata["selected_interval_coverages"] = list(
-                selected_coverages
-            )
-        return result
-
-    # A general workspace chain names a captured REFIT artifact, never an
-    # implicit legacy executor or a fabricated set of CV models. Inspect/load
-    # it only when the general profile is allowed before execution.
-    general_chain_id = chain_id or (model.get("chain_id") if isinstance(model, dict) else None)
-    if general_chain_id and (engine == "dag-ml" or (requested_engine is None and not os.environ.get("N4A_ENGINE"))):
-        from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain, predict_general_workspace_chain
-
-        chain_workspace = workspace_path or (session.workspace_path if session is not None else None)
-        if chain_workspace is None and isinstance(model, dict):
-            chain_workspace = model.get("workspace_path")
-        loaded_chain = load_general_workspace_chain(chain_workspace or "workspace", str(general_chain_id))
-        if loaded_chain is not None:
+        general_manifest = general_archive_manifest(model, source=source) if isinstance(model, (str, Path)) else None
+        if output is not None and (
+            general_manifest is None
+            or general_manifest.get("dagml_native_export_shape") != "independent_by_source_multi"
+        ):
+            raise ValueError("output= is supported only by a named multi-output DAG host archive")
+        if general_manifest is not None and engine != "legacy":
+            if requested_engine is None and not os.environ.get("N4A_ENGINE"):
+                engine = "dag-ml"
+            if engine != "dag-ml":
+                raise RtError("predict", "unsupported_capability", "this archive requires the general DAG host profile, not portable native replay", unsupported_capability="host_artifact_requires_dagml")
             if coverage is not None:
-                raise NotImplementedError("general workspace conformal replay requires a qualified calibration sidecar")
+                raise NotImplementedError("general host archive conformal replay requires its separately qualified calibration sidecar")
             if runner_kwargs:
-                raise TypeError(f"general workspace prediction does not accept options: {sorted(runner_kwargs)}")
-            result = predict_general_workspace_chain(loaded_chain, data)
+                raise TypeError(f"general archive prediction does not accept options: {sorted(runner_kwargs)}")
+            assert isinstance(model, (str, Path))
+            result = predict_general_archive(model, data, output=output, source=source)
             return _maybe_publish_predict_result(
-                result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=chain_workspace,
+                result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=workspace_path,
                 session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
-                chain_id=str(general_chain_id),
             )
 
-    if _is_calibrated_replayed_prediction_request(model, data):
-        result = _predict_from_calibrated_replayed_arrays(
-            model=model,
-            data=data,
-            coverage=coverage,
-        )
-        return _maybe_publish_predict_result(
-            result,
-            data=data,
-            name=name,
-            save_to_workspace=save_to_workspace,
-            workspace_path=workspace_path,
-            session=session,
-            workspace_metadata=workspace_metadata,
-            workspace_result_metadata=workspace_result_metadata,
-        )
+        from nirs4all.pipeline.dagml.core_archive_replay import CANONICAL_N4A_V1, CoreArchiveReplayError
 
-    if coverage is not None and _is_conformal_attached_bundle_request(model):
+        core_archive_version: int | str | None = (
+            CANONICAL_N4A_V1 if source is not None and source.kind == "canonical"
+            else source.package_version if source is not None and source.kind == "native"
+            else None
+        )
+        if core_archive_version is not None:
+            assert isinstance(model, (str, Path))
+            methods_library_path = runner_kwargs.pop("methods_library_path", None)
+            if core_archive_version == CANONICAL_N4A_V1:
+                # Canonical Core container: Core validates at this boundary and its
+                # refusals propagate; no Archive V2/V3 or bundle fallback exists.
+                if engine != "native":
+                    raise CoreArchiveReplayError("a canonical Core .n4a is replayed only with engine='native'")
+                if session is not None or all_predictions or coverage is not None or save_to_workspace or runner_kwargs:
+                    raise NotImplementedError(
+                        "canonical .n4a prediction supports only an explicit IO record: no session, "
+                        "all_predictions, coverage, workspace publication or extra options"
+                    )
+                if name != "prediction_dataset" or workspace_path is not None or workspace_metadata is not None or workspace_result_metadata is not None:
+                    raise NotImplementedError(
+                        "canonical .n4a prediction writes no workspace and has no dataset name: "
+                        "name, workspace_path and workspace metadata are refused rather than ignored"
+                    )
+                from .native_n4a import predict_canonical_n4a
+
+                return predict_canonical_n4a(model, data, methods_library_path=methods_library_path, verbose=verbose, source=source)
+            if engine not in ("native", "dag-ml"):
+                raise CoreArchiveReplayError(
+                    "recognized Core archives cannot be replayed with the legacy engine"
+                )
+            if core_archive_version == 3:
+                if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
+                    raise TypeError("Core Archive V3 prediction requires data={'X': matrix, 'sample_ids': explicit_ids}")
+                native_refit = NativeMethodsRefitResult.load_archive(
+                    model,
+                    methods_library_path=methods_library_path,
+                    source=source,
+                )
+                return native_refit.predict(
+                    data["X"],
+                    sample_ids=data["sample_ids"],
+                    groups=data.get("groups"),
+                    metadata=data.get("metadata"),
+                )
+            if session is not None:
+                raise ValueError("Core Archive V2 prediction does not accept a legacy Session")
+            if all_predictions:
+                raise NotImplementedError(
+                    "Core Archive V2 prediction exposes one identity-aligned final output"
+                )
+            if coverage is not None:
+                raise NotImplementedError(
+                    "Core Archive V2 prediction does not project conformal intervals on this facade"
+                )
+            if save_to_workspace:
+                raise NotImplementedError(
+                    "Core Archive V2 prediction does not yet publish to the legacy workspace store"
+                )
+            from nirs4all.pipeline.dagml.core_archive_replay import (
+                predict_core_methods_archive_v2,
+            )
+
+            values, metadata = predict_core_methods_archive_v2(
+                model,
+                data,
+                methods_library_path=methods_library_path,
+                source=source,
+            )
+            return PredictResult(
+                y_pred=values,
+                metadata=metadata,
+                model_name="MethodsN4MM",
+                preprocessing_steps=[],
+            )
+
+        # A general workspace chain names a captured REFIT artifact, never an
+        # implicit legacy executor or a fabricated set of CV models. Inspect/load
+        # it only when the general profile is allowed before execution.
+        general_chain_id = chain_id or (model.get("chain_id") if isinstance(model, dict) else None)
+        if general_chain_id and (engine == "dag-ml" or (requested_engine is None and not os.environ.get("N4A_ENGINE"))):
+            from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain, predict_general_workspace_chain
+
+            chain_workspace = workspace_path or (session.workspace_path if session is not None else None)
+            if chain_workspace is None and isinstance(model, dict):
+                chain_workspace = model.get("workspace_path")
+            loaded_chain = load_general_workspace_chain(chain_workspace or "workspace", str(general_chain_id))
+            if loaded_chain is not None:
+                if coverage is not None:
+                    raise NotImplementedError("general workspace conformal replay requires a qualified calibration sidecar")
+                if runner_kwargs:
+                    raise TypeError(f"general workspace prediction does not accept options: {sorted(runner_kwargs)}")
+                result = predict_general_workspace_chain(loaded_chain, data)
+                return _maybe_publish_predict_result(
+                    result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=chain_workspace,
+                    session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
+                    chain_id=str(general_chain_id),
+                )
+
+        if _is_calibrated_replayed_prediction_request(model, data):
+            result = _predict_from_calibrated_replayed_arrays(
+                model=model,
+                data=data,
+                coverage=coverage,
+                source=source,
+            )
+            return _maybe_publish_predict_result(
+                result,
+                data=data,
+                name=name,
+                save_to_workspace=save_to_workspace,
+                workspace_path=workspace_path,
+                session=session,
+                workspace_metadata=workspace_metadata,
+                workspace_result_metadata=workspace_result_metadata,
+            )
+
+        if coverage is not None and _is_conformal_attached_bundle_request(model, source=source):
+            if engine != "legacy":
+                raise RtError(
+                    "predict",
+                    "unsupported_capability",
+                    "this legacy .n4a model requires conversion to a portable Core Archive V2",
+                    mitigation="convert the archive explicitly, or pass engine='legacy' for the rollback lane",
+                    unsupported_capability="legacy_archive_conversion_required",
+                    portable_level="legacy",
+                )
+            result = _predict_from_conformal_attached_model_bundle(
+                model=model,
+                data=data,
+                name=name,
+                all_predictions=all_predictions,
+                session=session,
+                verbose=verbose,
+                workspace_path=workspace_path,
+                coverage=coverage,
+                source=source,
+                **runner_kwargs,
+            )
+            return _maybe_publish_predict_result(
+                result,
+                data=data,
+                name=name,
+                save_to_workspace=save_to_workspace,
+                workspace_path=workspace_path,
+                session=session,
+                workspace_metadata=workspace_metadata,
+                workspace_result_metadata=workspace_result_metadata,
+            )
+
+        if coverage is not None:
+            raise NotImplementedError(
+                "predict(..., coverage=...) currently requires a calibrated replayed-array result/store/bundle "
+                "as 'model' with data={'y_pred': ..., 'sample_ids': ...}, or a model .n4a bundle with an attached "
+                "conformal sidecar and data={'X': ..., 'sample_ids': ...}."
+            )
+
         if engine != "legacy":
+            legacy_archive = isinstance(model, (str, Path)) and Path(model).suffix.lower() == ".n4a"
             raise RtError(
                 "predict",
                 "unsupported_capability",
-                "this legacy .n4a model requires conversion to a portable Core Archive V2",
-                mitigation="convert the archive explicitly, or pass engine='legacy' for the rollback lane",
-                unsupported_capability="legacy_archive_conversion_required",
-                portable_level="legacy",
+                (
+                    "this legacy .n4a model requires conversion to a portable Core Archive V2"
+                    if legacy_archive
+                    else "native prediction does not support this non-portable model or workspace chain"
+                ),
+                mitigation=(
+                    "convert the archive explicitly, or pass engine='legacy' for the rollback lane"
+                    if legacy_archive
+                    else "use a portable Core Archive V2, or pass engine='legacy' explicitly"
+                ),
+                unsupported_capability=(
+                    "legacy_archive_conversion_required"
+                    if legacy_archive
+                    else "native_model_replay_unavailable"
+                ),
+                portable_level="legacy" if legacy_archive else None,
             )
-        result = _predict_from_conformal_attached_model_bundle(
+
+        import nirs4all_io
+
+        if isinstance(data, getattr(nirs4all_io, "MultimodalDataset", ())):
+            raise TypeError("raw multimodal prediction requires a captured DAG-ML artifact")
+
+        # ---- Store-based path (chain_id) ----
+        if chain_id is not None:
+            result = _predict_from_chain(
+                chain_id=chain_id,
+                data=data,
+                workspace_path=workspace_path,
+                session=session,
+                verbose=verbose,
+                **runner_kwargs,
+            )
+            return _maybe_publish_predict_result(
+                result,
+                data=data,
+                name=name,
+                save_to_workspace=save_to_workspace,
+                workspace_path=workspace_path,
+                session=session,
+                workspace_metadata=workspace_metadata,
+                workspace_result_metadata=workspace_result_metadata,
+                chain_id=chain_id,
+            )
+
+        # ---- Model-based path ----
+        assert model is not None
+        result = _predict_from_model(
             model=model,
             data=data,
             name=name,
@@ -516,7 +575,7 @@ def predict(
             session=session,
             verbose=verbose,
             workspace_path=workspace_path,
-            coverage=coverage,
+            source=source,
             **runner_kwargs,
         )
         return _maybe_publish_predict_result(
@@ -529,86 +588,6 @@ def predict(
             workspace_metadata=workspace_metadata,
             workspace_result_metadata=workspace_result_metadata,
         )
-
-    if coverage is not None:
-        raise NotImplementedError(
-            "predict(..., coverage=...) currently requires a calibrated replayed-array result/store/bundle "
-            "as 'model' with data={'y_pred': ..., 'sample_ids': ...}, or a model .n4a bundle with an attached "
-            "conformal sidecar and data={'X': ..., 'sample_ids': ...}."
-        )
-
-    if engine != "legacy":
-        legacy_archive = isinstance(model, (str, Path)) and Path(model).suffix.lower() == ".n4a"
-        raise RtError(
-            "predict",
-            "unsupported_capability",
-            (
-                "this legacy .n4a model requires conversion to a portable Core Archive V2"
-                if legacy_archive
-                else "native prediction does not support this non-portable model or workspace chain"
-            ),
-            mitigation=(
-                "convert the archive explicitly, or pass engine='legacy' for the rollback lane"
-                if legacy_archive
-                else "use a portable Core Archive V2, or pass engine='legacy' explicitly"
-            ),
-            unsupported_capability=(
-                "legacy_archive_conversion_required"
-                if legacy_archive
-                else "native_model_replay_unavailable"
-            ),
-            portable_level="legacy" if legacy_archive else None,
-        )
-
-    import nirs4all_io
-
-    if isinstance(data, getattr(nirs4all_io, "MultimodalDataset", ())):
-        raise TypeError("raw multimodal prediction requires a captured DAG-ML artifact")
-
-    # ---- Store-based path (chain_id) ----
-    if chain_id is not None:
-        result = _predict_from_chain(
-            chain_id=chain_id,
-            data=data,
-            workspace_path=workspace_path,
-            session=session,
-            verbose=verbose,
-            **runner_kwargs,
-        )
-        return _maybe_publish_predict_result(
-            result,
-            data=data,
-            name=name,
-            save_to_workspace=save_to_workspace,
-            workspace_path=workspace_path,
-            session=session,
-            workspace_metadata=workspace_metadata,
-            workspace_result_metadata=workspace_result_metadata,
-            chain_id=chain_id,
-        )
-
-    # ---- Model-based path ----
-    assert model is not None
-    result = _predict_from_model(
-        model=model,
-        data=data,
-        name=name,
-        all_predictions=all_predictions,
-        session=session,
-        verbose=verbose,
-        workspace_path=workspace_path,
-        **runner_kwargs,
-    )
-    return _maybe_publish_predict_result(
-        result,
-        data=data,
-        name=name,
-        save_to_workspace=save_to_workspace,
-        workspace_path=workspace_path,
-        session=session,
-        workspace_metadata=workspace_metadata,
-        workspace_result_metadata=workspace_result_metadata,
-    )
 
 
 # -----------------------------------------------------------------
@@ -706,31 +685,14 @@ def _is_calibrated_replayed_prediction_request(model: ModelSpec | None, data: Da
     return isinstance(data, Mapping) and "y_pred" in data
 
 
-def _is_conformal_attached_bundle_request(model: ModelSpec | None) -> bool:
-    """Whether *model* is a path to a ``.n4a`` bundle with a conformal sidecar."""
-
+def _is_conformal_attached_bundle_request(model: ModelSpec | None, *, source: N4aSource | None = None) -> bool:
+    """Check the verified inventory for an attached conformal sidecar."""
     if not isinstance(model, (str, Path)):
         return False
-    path = Path(model)
-    if path.suffix.lower() != ".n4a" or not path.is_file():
-        return False
-    import zipfile
+    from nirs4all.pipeline.dagml.conformal_store import BUNDLE_ROOT
 
-    from nirs4all.pipeline.dagml.conformal_store import BUNDLE_ROOT, load_conformal_result_archive
-
-    try:
-        with zipfile.ZipFile(path, "r") as archive:
-            has_conformal_sidecar = any(name.startswith(BUNDLE_ROOT) for name in archive.namelist())
-    except zipfile.BadZipFile:
-        return False
-    if not has_conformal_sidecar:
-        return False
-
-    # If a conformal sidecar is present, fail closed on corrupt, incomplete,
-    # duplicated, or unexpected members instead of silently falling back to the
-    # generic model path.
-    load_conformal_result_archive(path)
-    return True
+    with open_n4a_source(Path(model)) if source is None else nullcontext(source) as opened:
+        return opened.kind == "host" and any(name.startswith(BUNDLE_ROOT) for name in opened.require_host().namelist())
 
 
 def _predict_from_calibrated_replayed_arrays(
@@ -738,6 +700,7 @@ def _predict_from_calibrated_replayed_arrays(
     model: ModelSpec | None,
     data: DataSpec,
     coverage: float | list[float] | tuple[float, ...] | None,
+    source: N4aSource | None = None,
 ) -> PredictResult:
     """Apply a stored conformal calibrator to already computed point predictions."""
 
@@ -752,10 +715,16 @@ def _predict_from_calibrated_replayed_arrays(
     if not isinstance(model, (CalibratedRunResult, str, Path)):
         raise TypeError("calibrated replayed-array prediction requires 'model' to be a CalibratedRunResult, a conformal result store path, or a conformal .n4a bundle path")
 
+    calibrated_model: CalibratedRunResult | str | Path = model
+    if source is not None and source.kind == "host":
+        from nirs4all.pipeline.dagml.conformal_store import load_conformal_result_archive
+
+        calibrated_model = load_conformal_result_archive(model, source=source)
+
     sample_ids = data.get("prediction_sample_ids", data.get("sample_ids"))
     result_metadata = data.get("metadata") if isinstance(data.get("metadata"), Mapping) else None
     result = predict_calibrated(
-        model,
+        calibrated_model,
         y_pred=data["y_pred"],
         prediction_sample_ids=sample_ids,
         result_metadata=result_metadata,
@@ -782,6 +751,7 @@ def _predict_from_conformal_attached_model_bundle(
     verbose: int,
     workspace_path: str | Path | None,
     coverage: float | list[float] | tuple[float, ...],
+    source: N4aSource | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Run a model bundle prediction and apply its attached conformal sidecar."""
@@ -794,7 +764,7 @@ def _predict_from_conformal_attached_model_bundle(
     from nirs4all.api.calibrate import predict_calibrated
     from nirs4all.pipeline.dagml.conformal_store import load_conformal_result_archive
 
-    calibrated = load_conformal_result_archive(model)
+    calibrated = load_conformal_result_archive(model, source=source)
     raw_result = _predict_from_model(
         model=model,
         data=data,
@@ -803,6 +773,7 @@ def _predict_from_conformal_attached_model_bundle(
         session=session,
         verbose=verbose,
         workspace_path=workspace_path,
+        source=source,
         **runner_kwargs,
     )
     result = predict_calibrated(
@@ -929,71 +900,84 @@ def _predict_from_model(
     session: Session | None,
     verbose: int,
     workspace_path: str | Path | None = None,
+    source: N4aSource | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Predict via the model/resolver path."""
-    # Use session runner if provided, otherwise create new
-    owns_runner = session is None
-    if session is not None:
-        runner = session.runner
-    else:
-        all_kwargs: dict[str, Any] = {
-            "mode": "predict",
-            "verbose": verbose,
-            **runner_kwargs,
-        }
-        if workspace_path is not None:
-            all_kwargs["workspace_path"] = workspace_path
-        runner = PipelineRunner(**all_kwargs)
-
-    try:
-        # Convert Path to str for compatibility with type hints
-        model_arg = str(model) if isinstance(model, Path) else model
-        from nirs4all_io import MultimodalDataset
-
-        if isinstance(data, MultimodalDataset):
-            raise TypeError("raw multimodal prediction requires a captured DAG-ML artifact")
-        data_arg = str(data) if isinstance(data, Path) else data
-
-        # Call the runner's predict method
-        y_pred, predictions = runner.predict(
-            prediction_obj=model_arg,
-            dataset=data_arg,
-            dataset_name=name,
-            all_predictions=all_predictions,
-            verbose=verbose,
-        )
-
-        # Extract model info for the result
-        model_name = ""
-        preprocessing_steps: list[str] = []
-
-        if isinstance(model, dict):
-            model_name = model.get("model_name", "")
-            raw_pp = model.get("preprocessings", [])
-            preprocessing_steps = [raw_pp] if isinstance(raw_pp, str) else list(raw_pp)
-
-        # Handle array output
-        if isinstance(y_pred, dict):
-            first_key = next(iter(y_pred.keys()), None)
-            y_array = y_pred[first_key] if first_key and isinstance(y_pred[first_key], np.ndarray) else np.array([])
-            metadata: dict[str, Any] = {"all_folds": y_pred}
+    with ExitStack() as stack:
+        if source is None and isinstance(model, (str, Path)):
+            source = stack.enter_context(open_n4a_source(Path(model)))
+        if source is not None and source.kind in ("canonical", "native"):
+            raise ValueError("Core archives require their public native replay route")
+        if source is not None and source.kind == "none" and isinstance(model, (str, Path)) and Path(model).suffix.lower() == ".n4a":
+            raise ValueError("unsupported .n4a source; re-export old SDK ZIP bundles with current nirs4all")
+        # Use session runner if provided, otherwise create new
+        owns_runner = session is None
+        if session is not None:
+            runner = session.runner
         else:
-            y_array = y_pred if isinstance(y_pred, np.ndarray) else np.asarray(y_pred)
-            metadata = {}
+            all_kwargs: dict[str, Any] = {
+                "mode": "predict",
+                "verbose": verbose,
+                **runner_kwargs,
+            }
+            if workspace_path is not None:
+                all_kwargs["workspace_path"] = workspace_path
+            runner = PipelineRunner(**all_kwargs)
 
-        metadata.update(_relation_metadata_from_predictions(predictions))
-        metadata.update(_relation_metadata_from_runner(runner))
+        try:
+            # Convert Path to str for compatibility with type hints
+            model_arg: dict[str, Any] | str | BundleLoader = str(model) if isinstance(model, Path) else model
+            if source is not None and source.kind == "host":
+                from nirs4all.pipeline.bundle import BundleLoader
 
-        return PredictResult(
-            y_pred=y_array,
-            metadata=metadata,
-            model_name=model_name,
-            preprocessing_steps=preprocessing_steps,
-        )
-    finally:
-        if owns_runner:
-            runner.close()
+                assert isinstance(model, (str, Path))
+                model_arg = stack.enter_context(BundleLoader(model, source=source))
+            from nirs4all_io import MultimodalDataset
+
+            if isinstance(data, MultimodalDataset):
+                raise TypeError("raw multimodal prediction requires a captured DAG-ML artifact")
+            data_arg = str(data) if isinstance(data, Path) else data
+
+            # Call the runner's predict method
+            y_pred, predictions = runner.predict(
+                prediction_obj=model_arg,
+                dataset=data_arg,
+                dataset_name=name,
+                all_predictions=all_predictions,
+                verbose=verbose,
+            )
+
+            # Extract model info for the result
+            model_name = ""
+            preprocessing_steps: list[str] = []
+
+            if isinstance(model, dict):
+                model_name = model.get("model_name", "")
+                raw_pp = model.get("preprocessings", [])
+                preprocessing_steps = [raw_pp] if isinstance(raw_pp, str) else list(raw_pp)
+
+            # Handle array output
+            if isinstance(y_pred, dict):
+                first_key = next(iter(y_pred.keys()), None)
+                y_array = y_pred[first_key] if first_key and isinstance(y_pred[first_key], np.ndarray) else np.array([])
+                metadata: dict[str, Any] = {"all_folds": y_pred}
+            else:
+                y_array = y_pred if isinstance(y_pred, np.ndarray) else np.asarray(y_pred)
+                metadata = {}
+
+            metadata.update(_relation_metadata_from_predictions(predictions))
+            metadata.update(_relation_metadata_from_runner(runner))
+
+            return PredictResult(
+                y_pred=y_array,
+                metadata=metadata,
+                model_name=model_name,
+                preprocessing_steps=preprocessing_steps,
+            )
+        finally:
+            if owns_runner:
+                runner.close()
 
 
 def _relation_metadata_from_predictions(predictions: Any) -> dict[str, Any]:

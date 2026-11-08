@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +17,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import nirs4all
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
 from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.rt import RtError
 
 
@@ -63,8 +63,8 @@ def test_selected_predictor_retrains_fresh_without_search_or_legacy(tmp_path, mo
             assert lineage["parameter_search_repeated"] is False
             assert lineage["source_integrity_verified"] is True
             assert lineage["source_kind"] == ("workspace_chain" if source_kind == "prediction" else "n4a_bundle")
-            with zipfile.ZipFile(exported) as archive:
-                assert json.loads(archive.read("manifest.json"))["retrain_lineage"] == lineage
+            with open_n4a_source(exported) as source_archive:
+                assert source_archive.require_host().bundle_manifest["retrain_lineage"] == lineage
         assert before == (database.read_bytes(), database.stat().st_mtime_ns, bundle.read_bytes())
         np.testing.assert_array_equal(nirs4all.predict(bundle, new_x, verbose=0).y_pred, old_prediction)
 

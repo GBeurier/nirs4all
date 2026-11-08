@@ -27,19 +27,33 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, cast
 
+from nirs4all.pipeline.dagml.host_container import N4aSource, open_n4a_source
+
 if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
+    from nirs4all.pipeline.bundle import BundleLoader
     from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveValidation
 
 
 class NativeArchiveSession:
-    """Reusable fail-closed prediction session for a published Methods Archive V2/V3."""
+    """Reusable fail-closed prediction session for a published native Package V2/V3 container.
 
-    def __init__(self, archive_path: str | Path, *, methods_library_path: str | Path | None = None) -> None:
+    The session retains the one Core handle opened for it (``source``); every Package V2
+    replay reads through that handle, so Core verifies the same container bytes it opened.
+    """
+
+    def __init__(
+        self,
+        archive_path: str | Path,
+        *,
+        methods_library_path: str | Path | None = None,
+        source: N4aSource | None = None,
+    ) -> None:
         self._archive_path = Path(archive_path)
         self._methods_library_path = None if methods_library_path is None else str(methods_library_path)
         self._refit_result: Any | None = None
+        self._source = source
         self._closed = False
 
     @property
@@ -85,6 +99,7 @@ class NativeArchiveSession:
             groups=groups,
             metadata=metadata,
             methods_library_path=self._methods_library_path,
+            source=self._source,
         )
         result_metadata: dict[str, Any] = {
             "engine": "native",
@@ -106,6 +121,9 @@ class NativeArchiveSession:
 
     def close(self) -> None:
         self._closed = True
+        if self._source is not None:
+            self._source.close()
+            self._source = None
 
     def __enter__(self) -> "NativeArchiveSession":
         if self._closed:
@@ -120,24 +138,37 @@ def load_native_archive_session(
     path: str | Path,
     *,
     methods_library_path: str | Path | None = None,
+    source: N4aSource | None = None,
 ) -> NativeArchiveSession:
-    """Open a validated portable Archive V2/V3 session without a legacy fallback."""
+    """Open a validated native Package V2/V3 session without a legacy fallback.
+
+    Core opens the container once; its declared native root selects Package V2 or V3 and
+    Core's owner reader validates the selected closure. An already opened ``source`` is
+    adopted by the returned session on success (the caller still closes it on failure).
+    """
     archive_path = Path(path)
-    from nirs4all.pipeline.dagml.native_archive_replay import validate_methods_archive_v2
-
-    session = NativeArchiveSession(archive_path, methods_library_path=methods_library_path)
+    owned = source is None
+    active = open_n4a_source(archive_path) if source is None else source
     try:
-        validate_methods_archive_v2(archive_path)
-    except Exception as v2_error:
-        from .native_refit_result import NativeMethodsRefitResult
+        if active.kind != "native":
+            raise ValueError("engine='native' load_session requires a native Package V2/V3 container; re-export with current nirs4all")
+        session = NativeArchiveSession(archive_path, methods_library_path=methods_library_path, source=active)
+        if active.package_version == 3:
+            from .native_refit_result import NativeMethodsRefitResult
 
-        try:
             session._refit_result = NativeMethodsRefitResult.load_archive(
                 archive_path,
                 methods_library_path=None if methods_library_path is None else str(methods_library_path),
+                source=active,
             )
-        except Exception:
-            raise v2_error from None
+        else:
+            from nirs4all.pipeline.dagml.native_archive_replay import validate_methods_archive_v2
+
+            validate_methods_archive_v2(archive_path, source=active)
+    except BaseException:
+        if owned:
+            active.close()
+        raise
     return session
 
 
@@ -232,12 +263,13 @@ class Session:
         self._last_result: RunResult | None = None
         self._run_history: list[dict[str, Any]] = []
         self._bundle_path: Path | None = None  # Set when loading from bundle
+        self._n4a_source: N4aSource | None = None
+        self._bundle_loader: BundleLoader | None = None
         self._general_archive_path: Path | None = None
         self._general_archive_fingerprint: str | None = None
         self._general_archive: dict[str, Any] | None = None
         self._core_archive_path: Path | None = None
-        self._core_archive_validation: tuple[Path, CoreArchiveValidation] | None = None
-        self._core_archive_fingerprint: str | None = None
+        self._core_archive_validation: CoreArchiveValidation | None = None
         self._native_archive_directory: TemporaryDirectory[str] | None = None
         self._closed = False
 
@@ -419,15 +451,17 @@ class Session:
             export_validation = getattr(result, "_native_export_validation", None)
             if (
                 not isinstance(export_validation, tuple)
-                or len(export_validation) != 3
+                or len(export_validation) != 2
                 or export_validation[0] != archive_path
-                or not isinstance(export_validation[2], str)
             ):
                 raise RuntimeError(
                     "native Session export omitted predictor inspection evidence"
                 )
-            validation = (archive_path, export_validation[1])
-            fingerprint = export_validation[2]
+            validation = export_validation[1]
+            archive_source = open_n4a_source(archive_path)
+            if archive_source.kind != "native" or archive_source.package_version != 2:
+                archive_source.close()
+                raise RuntimeError("native Session export is not a native Package V2 container")
             best_score = result.best_score
             num_predictions = result.num_predictions
             result.close()
@@ -441,12 +475,16 @@ class Session:
 
         previous_result = self._last_result
         previous_directory = self._native_archive_directory
+        previous_source = self._n4a_source
         try:
             if previous_result is not None and previous_result is not result:
                 previous_result.close()
+            if previous_source is not None:
+                previous_source.close()
             if previous_directory is not None:
                 previous_directory.cleanup()
         except BaseException:
+            archive_source.close()
             archive_directory.cleanup()
             raise
 
@@ -454,7 +492,7 @@ class Session:
         self._bundle_path = None
         self._core_archive_path = archive_path
         self._core_archive_validation = validation
-        self._core_archive_fingerprint = fingerprint
+        self._n4a_source = archive_source
         self._native_archive_directory = archive_directory
         self._status = "trained"
         self._run_history.append({
@@ -646,6 +684,7 @@ class Session:
                     self._general_archive_path, dataset,
                     expected_archive_fingerprint=self._general_archive_fingerprint,
                     loaded_archive=self._general_archive,
+                    source=self._n4a_source,
                 )
             assert self._last_result is not None
             return predict_general_result(self._last_result, dataset)
@@ -671,7 +710,7 @@ class Session:
                 dataset,
                 methods_library_path=methods_library_path,
                 validated_archive=self._core_archive_validation,
-                expected_archive_fingerprint=self._core_archive_fingerprint,
+                source=self._n4a_source,
             )
             return PredictResult(
                 y_pred=values,
@@ -719,10 +758,11 @@ class Session:
             dataset_config = dataset
 
         # Determine prediction source: bundle path or trained model
-        prediction_obj: str | dict[str, Any]
+        prediction_obj: str | dict[str, Any] | BundleLoader
         if self._bundle_path is not None:
             # Use bundle file for loaded sessions
-            prediction_obj = str(self._bundle_path)
+            assert self._bundle_loader is not None
+            prediction_obj = self._bundle_loader
             model_name = self._name
         elif self._last_result is not None:
             # Use best model from training
@@ -813,10 +853,11 @@ class Session:
 
         # Determine source: bundle path or trained model. Core Archive V2 was
         # refused above, before preflight or dataset access.
-        source: str | dict[str, Any]
+        source: str | dict[str, Any] | BundleLoader
         if self._bundle_path is not None:
             # Use bundle file for loaded sessions
-            source = str(self._bundle_path)
+            assert self._bundle_loader is not None
+            source = self._bundle_loader
         elif self._last_result is not None:
             best = self._last_result.best
             if not best:
@@ -862,7 +903,10 @@ class Session:
         if self._general_archive_path is not None:
             from nirs4all.pipeline.dagml.general_archive import copy_general_archive
 
-            return copy_general_archive(self._general_archive_path, path, expected_fingerprint=self._general_archive_fingerprint)
+            return copy_general_archive(self._general_archive_path, path, expected_fingerprint=self._general_archive_fingerprint, source=self._n4a_source)
+        if self._bundle_path is not None and self._n4a_source is not None:
+            self._n4a_source.require_host().copy_to(Path(path))
+            return Path(path)
         if not self.is_trained or self._last_result is None:
             raise ValueError(
                 "Session must be trained before saving. "
@@ -890,11 +934,16 @@ class Session:
         if self._native_archive_directory is not None:
             with suppress(Exception):
                 self._native_archive_directory.cleanup()
+        if self._bundle_loader is not None:
+            self._bundle_loader.close()
+        if self._n4a_source is not None:
+            self._n4a_source.close()
+        self._bundle_loader = None
+        self._n4a_source = None
         self._runner = None
         self._native_archive_directory = None
         self._core_archive_path = None
         self._core_archive_validation = None
-        self._core_archive_fingerprint = None
         self._general_archive_path = None
         self._general_archive_fingerprint = None
         self._general_archive = None
@@ -923,26 +972,15 @@ class Session:
 
 def _validated_core_archive(
     path: Path,
+    source: N4aSource,
     methods_library_path: str | Path | None = None,
-) -> tuple[tuple[Path, "CoreArchiveValidation"], str]:
-    """Create the one-entry Session cache while binding it to exact bytes."""
-    from nirs4all.pipeline.dagml.core_archive_replay import (
-        CoreArchiveReplayError,
-        _archive_fingerprint,
-        validate_core_methods_archive_v2,
-    )
+) -> "CoreArchiveValidation":
+    """Create the one-entry Session cache bound to the Session's retained Core handle."""
+    from nirs4all.pipeline.dagml.core_archive_replay import validate_core_methods_archive_v2
 
-    source_fingerprint = _archive_fingerprint(path)
-    validation = (
-        validate_core_methods_archive_v2(path)
-        if methods_library_path is None
-        else validate_core_methods_archive_v2(path, methods_library_path=methods_library_path)
-    )
-    if _archive_fingerprint(path) != source_fingerprint:
-        raise CoreArchiveReplayError(
-            "Core Archive V2 changed while the Session cache was created"
-        )
-    return (path, validation), source_fingerprint
+    if methods_library_path is None:
+        return validate_core_methods_archive_v2(path, source=source)
+    return validate_core_methods_archive_v2(path, methods_library_path=methods_library_path, source=source)
 
 
 def load_session(
@@ -954,19 +992,19 @@ def load_session(
     """Load a session from a saved bundle file.
 
     Args:
-        path: Path to a legacy .n4a bundle or Core Archive V2.
-        methods_library_path: Optional exact Methods runtime used by a Core
-            Archive V2 session. Use the same runtime path for training and
+        path: Path to a host ``.n4a`` bundle or a native Package V2/V3 container.
+        methods_library_path: Optional exact Methods runtime used by a native
+            Package V2 session. Use the same runtime path for training and
             loading within a process; native identity checks remain enforced.
 
     Returns:
         Session ready for prediction.
 
     Notes:
-        Core Archive V2 is hashed immediately before and after Core derives
-        its native predictor descriptors. Prediction hashes the source once
-        more before it inspects input data, binding the cached package,
-        descriptor set and libn4m identity to the exact archive bytes.
+        Core opens a native Package V2 container once; the Session retains that
+        handle, so the cached package, descriptor set and libn4m identity stay
+        bound to the verified container bytes and Core refuses a changed file
+        at the next read.
 
     Example:
         >>> session = nirs4all.load_session("exports/model.n4a")
@@ -976,73 +1014,80 @@ def load_session(
     if not path.exists():
         raise FileNotFoundError(f"Bundle not found: {path}")
 
-    explicit_selection = engine is not None or "N4A_ENGINE" in os.environ
-    if explicit_selection:
-        from nirs4all.pipeline.engine import resolve_engine
+    active_source = open_n4a_source(path)
+    source: N4aSource | None = active_source
+    try:
+        if active_source.kind == "canonical":
+            raise NotImplementedError(
+                "a canonical Core .n4a is not a Session source; use nirs4all.predict(model=..., "
+                "data={'record': ..., 'partition': ...}) or nirs4all.inspect_n4a"
+            )
+        explicit_selection = engine is not None or "N4A_ENGINE" in os.environ
+        selected = None
+        if explicit_selection:
+            from nirs4all.pipeline.engine import resolve_engine
 
-        selected = resolve_engine(engine)
-        if selected == "native":
-            if path.suffix.lower() != ".n4a":
-                raise ValueError("engine='native' load_session requires a Core Archive V2/V3 .n4a path")
-            return load_native_archive_session(path, methods_library_path=methods_library_path)
-        if selected == "dual":
-            raise NotImplementedError("load_session does not support engine='dual'")
+            selected = resolve_engine(engine)
+            if selected == "dual":
+                raise NotImplementedError("load_session does not support engine='dual'")
+            if selected == "native":
+                if active_source.kind == "host":
+                    from nirs4all.pipeline.dagml.rt import RtError
 
-    from nirs4all.pipeline.dagml.core_archive_replay import detect_core_archive_version
-
-    core_archive_version = detect_core_archive_version(path)
-    if core_archive_version == 3:
-        raise NotImplementedError(
-            "Core Archive V3 is a target-bound full-refit/retrain package, "
-            "not a serialized-model prediction session"
-        )
-    if core_archive_version == 2:
-        validation, source_fingerprint = _validated_core_archive(path, methods_library_path)
-        loaded = Session(name=path.stem) if methods_library_path is None else Session(name=path.stem, methods_library_path=methods_library_path)
-        loaded._status = "trained"
-        loaded._core_archive_path = path
-        loaded._core_archive_validation = validation
-        loaded._core_archive_fingerprint = source_fingerprint
-        return loaded
-
-    from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, load_general_archive
-
-    if general_archive_manifest(path) is not None:
+                    raise RtError("predict", "unsupported_capability", "host archives require the DAG host profile", unsupported_capability="host_artifact_requires_dagml")
+                if active_source.kind != "native":
+                    raise ValueError("engine='native' load_session requires a native Package V2/V3 container; re-export with current nirs4all")
+                native_session = load_native_archive_session(path, methods_library_path=methods_library_path, source=active_source)
+                source = None
+                return native_session
+        if active_source.kind == "native" and active_source.package_version == 3:
+            raise NotImplementedError("a native Package V3 container is a target-bound full-refit/retrain package, not a serialized-model prediction session")
+        if active_source.kind == "native":
+            validation = _validated_core_archive(path, active_source, methods_library_path)
+            loaded = Session(name=path.stem) if methods_library_path is None else Session(name=path.stem, methods_library_path=methods_library_path)
+            loaded._status = "trained"
+            loaded._core_archive_path = path
+            loaded._core_archive_validation = validation
+            loaded._n4a_source = active_source
+            source = None
+            return loaded
+        if active_source.kind != "host":
+            raise ValueError("Session requires a supported .n4a container; re-export old SDK ZIP bundles with current nirs4all")
         if methods_library_path is not None:
             raise ValueError("methods_library_path is supported only for Core Archive V2 sessions")
-        archive = load_general_archive(path)
-        loaded = Session(name=path.stem)
-        loaded._status = "trained"
-        loaded._general_archive_path = path
-        loaded._general_archive_fingerprint = archive["archive_fingerprint"]
-        loaded._general_archive = archive
+        from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, load_general_archive
+
+        if selected != "legacy" and general_archive_manifest(path, source=active_source) is not None:
+            archive = load_general_archive(path, source=active_source)
+            loaded = Session(name=path.stem)
+            loaded._status = "trained"
+            loaded._general_archive_path = path
+            loaded._general_archive_fingerprint = archive["archive_fingerprint"]
+            loaded._general_archive = archive
+            loaded._n4a_source = active_source
+            source = None
+            return loaded
+        from nirs4all.pipeline.bundle import BundleLoader
+
+        loader = BundleLoader(path, source=active_source)
+        try:
+            pipeline_config = loader.pipeline_config
+            steps = pipeline_config.get("steps", []) if isinstance(pipeline_config, dict) else []
+            name = pipeline_config.get("name", path.stem) if isinstance(pipeline_config, dict) else path.stem
+            loaded = Session(pipeline=steps, name=name, engine="legacy")
+            loaded._status = "trained"
+            loaded._bundle_path = path
+            loaded._bundle_loader = loader
+            loaded._n4a_source = active_source
+        except BaseException:
+            loader.close()
+            raise
+        source = None
         return loaded
+    finally:
+        if source is not None:
+            source.close()
 
-    from nirs4all.pipeline.bundle import BundleLoader
-
-    if methods_library_path is not None:
-        raise ValueError("methods_library_path is supported only for Core Archive V2 sessions")
-
-    # Load the bundle to get pipeline info
-    loader = BundleLoader(path)
-    pipeline_config = loader.pipeline_config
-
-    # pipeline_config is a dict with 'steps', 'name', etc.
-    steps = pipeline_config.get('steps', []) if isinstance(pipeline_config, dict) else []
-    name = pipeline_config.get('name', path.stem) if isinstance(pipeline_config, dict) else path.stem
-
-    # Create session with loaded pipeline
-    session = Session(
-        pipeline=steps,
-        name=name
-    )
-
-    # Mark as trained by creating a mock result
-    # The actual prediction will use the bundle directly
-    session._status = "trained"
-    session._bundle_path = path
-
-    return session
 
 @contextmanager
 def session(

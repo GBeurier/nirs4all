@@ -704,28 +704,19 @@ def test_raw_archive_projects_dagml_owned_scalar_conformal_presentation(
     assert observed["request"]["phase"] == "PREDICT"
 
 
-def test_native_archive_writer_composes_dagml_and_core_without_rebuilding_members(
+def test_native_archive_writer_passes_exact_json_bytes_to_core_without_rebuilding_members(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: list[object] = []
 
-    def assemble(archive_id: str, outcome: object, package: object) -> tuple[dict[str, object], dict[str, bytes]]:
-        observed.extend([archive_id, outcome, package])
-        return ({"schema_version": 2}, {"dagml/portable_predictor_package.json": b"package"})
+    def write(path: str, outcome: bytes, package: bytes, *, container_id: str) -> tuple[str, str]:
+        observed.extend([path, outcome, package, container_id])
+        return ("archive:methods", "e" * 64)
 
-    def write(path: str, manifest: dict[str, object], members: dict[str, bytes]) -> dict[str, str]:
-        observed.extend([path, manifest, members])
-        return {"archive_id": "archive:methods", "archive_sha256": "e" * 64}
-
-    monkeypatch.setitem(
-        sys.modules,
-        "dag_ml",
-        types.SimpleNamespace(build_archive_v2_native_portable_payloads=assemble),
-    )
     monkeypatch.setitem(
         sys.modules,
         "nirs4all_core",
-        types.SimpleNamespace(write_archive_v2_from_native_payloads=write),
+        types.SimpleNamespace(write_native_predictor_package=write),
     )
 
     reference = write_methods_archive_v2(
@@ -736,11 +727,4 @@ def test_native_archive_writer_composes_dagml_and_core_without_rebuilding_member
     )
 
     assert reference == {"archive_id": "archive:methods", "archive_sha256": "e" * 64}
-    assert observed == [
-        "archive:methods",
-        {"outcome": "native"},
-        {"package": "native"},
-        "portable.n4a",
-        {"schema_version": 2},
-        {"dagml/portable_predictor_package.json": b"package"},
-    ]
+    assert observed == ["portable.n4a", b'{"outcome":"native"}', b'{"package":"native"}', "archive:methods"]

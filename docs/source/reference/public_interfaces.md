@@ -22,7 +22,7 @@ The public Python API runs the supported pipeline/dataset contracts. The CLI pro
 | `nirs4all.run_host_hpo_search(...)` | Run native HPO with an explicitly supplied host optimizer and controller | DSL, signed envelope, manifests, HPO request and callbacks | Native trial evidence, selection and checkpoint dictionary |
 | `nirs4all.execute_training(...)` | Execute a signed native DAG request with an explicitly supplied controller | Named envelopes, relations, training influence and callbacks | Native DAG-ML `TrainingResult` DTO |
 | `nirs4all.write_portable_predictor_archive_v2(...)` | Transport captured portable Package V2 artifacts into Core `.n4a` | Native training outcome, package and archive identity | Archive identity and SHA-256 |
-| `nirs4all.read_portable_predictor_archive_v2(...)` | Validate storage and native portable payload semantics | Core Archive V2 path | DAG-ML `PortablePredictorPackage` |
+| `nirs4all.read_portable_predictor_archive_v2(...)` | Core validates the selected native closure; DAG-ML parses the exact Package V2 root | Core native Package V2 container path | DAG-ML `PortablePredictorPackage` |
 | `nirs4all.replay_portable_predictor_archive_v2(...)` | Replay a signed current cohort through explicitly trusted controller callbacks | Core archive, signed request/envelopes, trust manifests and read-only callbacks | Native DAG-ML replay outcome |
 | `nirs4all.calibrate(...)` | Fit split-conformal intervals from explicit calibration evidence | Replayed calibration predictions or selected calibration cohort + prediction ids | `CalibratedRunResult` or `PredictResult` |
 | `nirs4all.CONFORMAL_CALIBRATION_METHODS` / `CONFORMAL_CALIBRATION_UNITS` | Discover conformal method and exchangeability-unit vocabularies | None | Tuples aligned with runtime validation and registry schema |
@@ -414,6 +414,74 @@ result = nirs4all.run(
 )
 ```
 
+## Python-host `.n4a` storage
+
+The SDK Python-host profile uses Core V1 schema `nirs4all.n4a.container.v1`,
+required feature `nirs4all-python-host@1` and owner `nirs4all.python-host`.
+Root `manifest.json` is the Core inventory; `host/bundle_manifest.json` contains
+the SDK bundle metadata. Storage uses uncompressed `zip-stored.v1` and has no
+public `compress` option. This describes the unpublished local source cohort,
+not a published release or a cross-language execution guarantee.
+
+Core validates storage inventory and integrity. SDK semantic and sidecar checks
+and full verified extraction into a private file precede trusted joblib loading.
+These Python/joblib artifacts remain nonportable and require a trusted producer;
+checksums do not make pickle safe or establish native executability. Old SDK ZIP
+inputs refuse explicitly with current re-export advice and no reader shim.
+The explicit native Package V2/V3 lanes remain separately qualified and are distinct from old SDK ZIPs.
+Package V2 (predictor) and Package V3 (standalone full-refit child) exports are Core V1
+containers that require the `native-methods-package@1` feature; the package schema versions 2
+and 3, the container version and the Methods ABI/wire versions are independent. The SDK opens the
+container once through Core (`open_native_package` over the same handle), routes on the native
+view's `package_schema_version` and passes that retained proof to every read and replay of the
+call; it selects no root or entrypoint and validates no closure itself. Core never replaces an
+existing file, so Package V2 exports stage a new path and replace atomically while Package V3
+exports refuse an existing destination. Pre-V1 physical Archive V2/V3 ZIP files are refused with
+re-export advice; there is no reader or converter. A Session that loaded a native Package V2 keeps
+its Core handle, so replacing the path afterwards cannot change the bytes it validated.
+
+`open_n4a_source` supplies a shared `N4aSource`. Readers such as
+`BundleLoader(path, source=source)` borrow a supplied source; its caller keeps it
+open for lazy reads and closes it afterward. A standalone `BundleLoader` owns
+and closes its own opening; use its context manager. Core-validated
+owner/feature/profile declarations determine routing. The V1 schema alone and
+the filename suffix do not distinguish Python-host from canonical native execution.
+
+The V1 host transport has no intrinsic `.n4a` content-size cap. Models and JSON
+still materialize within the host allocator's capacity. Optional host-authorized
+`memory_budget_bytes` on low-level Core/host storage APIs bounds Core's working
+allocations only. This is neither a high-level `predict`/Session option nor a total
+process-RAM guarantee. Structural, schema and integrity checks remain.
+
+## Canonical Core `.n4a` profile
+
+`nirs4all.run(..., engine="native", native_profile="nirs4all.n4a.container.v1")`
+produces a canonical Core container through Core's single native fit
+(`nirs4all_core.produce_n4a_native`). It is explicit and opt-in; it never falls back to
+the explicit native Package V2/V3 lanes or Python-host execution, despite the shared V1 storage
+schema. The profile is contingent on a
+`nirs4all-core` that provides the producer, inspector and replay functions; without them
+the call raises `CanonicalN4aDependencyError`.
+
+| Item | Contract |
+| --- | --- |
+| Pipeline | A native recipe (`steps`, `candidates`) as a mapping or a JSON/YAML path. Step lists are refused; a classifier final step is refused (regression scores only). |
+| Dataset | `dataset=<IO record path or bytes>` plus `source_id=<id>`; the record bytes are passed to Core unchanged. |
+| Result | `CanonicalN4aRunResult`: scores projected from Core's training outcome, `selection` (the owner's single OOF SELECT decision: variant, metric, objective, level, score), `native_archive_reference` (`container_id`, `archive_sha256`) and `canonical_view` (manifest, receipt, training, limits). |
+| Scores | The winner comes only from the outcome's `selected_variant_id`, `selection_output_id` and `execution_bundle.selections`; a missing, ambiguous, non-OOF or inconsistent decision is refused. `best_score` (and the shortcut matching the selection metric) is Core's selected OOF score, never a retained-test value or a report-order winner. A shortcut for a metric that was not selected is unavailable: `best_mae` is `None`, and the others (`best_rmse`, `best_r2`, `best_accuracy`) are NaN. The train-only Core producer admits no held-out test rows, so this profile has no retained-test scores (`best["test_score"]` and `final_score` are `None`). |
+| Export | `result.export("m.n4a")` writes the already sealed bytes atomically. It never trains, replays or re-inspects; selectors and non-`n4a` formats are refused. |
+| Predict | `nirs4all.predict("m.n4a", {"record": <IO record>, "partition": <partition>}, engine="native")` reuses one opened Core V1 source, reads its readability receipt and `training_view`, and passes the same Core file handle to `nirs4all_core.predict_n4a_native(..., record=..., entrypoint="predict-external", ...)`. Core refusals propagate. |
+| Retrain | `nirs4all.retrain("m.n4a", <new IO record path or bytes, or {"record": ...}>, engine="native")` (the source may also be the `CanonicalN4aRunResult`) makes Core read the recipe and source id stored in the validated container and run fresh cross-validation, selection and refit on the new record (`nirs4all_core.retrain_n4a_native`). It is always a fresh full retrain: you supply no recipe or source id, and `transfer`/`finetune`, `new_model`, `epochs` and sessions are refused. The only accepted option is `methods_library_path`. It returns a new `CanonicalN4aRunResult` (same score projection and `export()` as `run`); the source file and result are unchanged. Routing uses Core-validated owner/feature/profile declarations, and a canonical native archive without `engine="native"` is refused instead of reaching the bundle, V3 or legacy lanes. An installed `nirs4all-core` without `retrain_n4a_native` refuses retrain only (`CanonicalN4aDependencyError`); produce, inspect and predict are unaffected. The shared real-Core gate passed for the tested native profile (`tests/integration/canonical_n4a_retrain_gate.py`). |
+| Inspect | `nirs4all.inspect_n4a(path)` returns Core's validated view. |
+| Routing | Core V1 schema is shared by canonical native and Python-host storage. Core-validated owner/feature/profile declarations select the route; old SDK ZIP inputs refuse with current re-export advice. |
+
+Explicitly refused rather than ignored: `random_state` (Core's producer exposes no seed),
+`tuning`, `calibration`, `terminal_predict`, sessions (`load_session` of a canonical file
+raises `NotImplementedError`), `workspace_path` and other runner options, `refit=False`,
+`cache`/`project`/`results_path` and charts. The cross-validation, selection and refit
+configuration is whatever the recipe and Core's producer define. The profile covers native
+linear single-source regression only and makes no claim for host (Python) models.
+
 ## Native lifecycle capability matrix
 
 `engine="native"` is a fail-closed portable Methods lane, distinct from the
@@ -782,3 +850,29 @@ Studio and other products should consume `summary.json` or
 `RobustnessReport.summary_artifact()` for cards and tables, then link to the
 full report for audit. They must not recompute statistical meaning from partial
 metrics.
+
+## Read-only SDK-host JSON inspection
+
+`inspect_n4a(path, *, source: N4aSource | None = None, include_host_json=False)` keeps
+its existing default Core view. Host JSON mode preserves full exact SDK JSON bytes,
+complete decoded values and member/artifact/content-type/inventory identity, without
+loading joblib/pickle or extracting fitted objects. SDK roles distinguish the raw
+bundle manifest, cosmetic prediction config, original training declaration, chain,
+trace, fold weights, relation replay manifest and source training capture. Additional
+declared host JSON has role `host_json`; fitted/blob artifacts have descriptors only.
+Absent original training declarations or score context are not reconstructed.
+
+The result contains `profile`, `operation`, `view` (Core report),
+`bundle_manifest_bytes` (or `None`), `documents`, `opaque_artifacts` and `validation`.
+Documents contain `role`, `member`, `artifact_id`, `content_type`,
+`inventory_sha256`, `byte_length`, `bytes` and `json`. Existing `BundleLoader`
+pre-model checks run when a bundle exists; bundle-less inspection reports they did
+not run. This does not evaluate scientific scoring or executability.
+
+For a retained Core file use the single borrowing seam
+`open_n4a_source(path, *, memory_budget_bytes=None, core_file=None)` in the SDK host
+container module, then pass the SDK source to `inspect_n4a`. The borrowed file is
+never reopened or closed by SDK; the source releases only its local references.
+The outer Core context owns its lifetime. Path is caller context; actual receipt
+identity binds the retained bytes. Owned source calls still open/close normally.
+No fallback to historical physical ZIP, serializer execution or native refit occurs.

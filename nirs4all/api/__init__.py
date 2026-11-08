@@ -73,6 +73,7 @@ from .explain import explain
 
 # Synthetic data generation
 from .generate import generate_namespace as generate
+from .native_n4a import inspect_n4a
 from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
 from .native_session import NativeMethodsSession
@@ -198,6 +199,7 @@ __all__ = [
     "execute_training",
     "run_host_hpo_search",
     "fit_native_pipeline",
+    "inspect_n4a",
     "inspect_portable_predictor_archive_v2",
     "read_portable_predictor_archive_v2",
     "replay_portable_predictor_archive_v2",

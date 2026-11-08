@@ -1,8 +1,9 @@
 """
-U02 - Export Bundle: Portable Model Deployment
+U02 - Export Bundle: Model Deployment
 ===============================================
 
-Export trained models to portable bundles for deployment, sharing, and archival.
+Export trained models to bundles for deployment, sharing, and archival.
+Python-host .n4a payloads require a trusted producer and remain nonportable.
 
 This tutorial covers:
 
@@ -25,8 +26,6 @@ Difficulty: ★★☆☆☆
 
 # Standard library imports
 import argparse
-import json
-import zipfile
 from pathlib import Path
 
 # Third-party imports
@@ -40,6 +39,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.pipeline.bundle import BundleLoader
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U02 Export Bundle Example')
@@ -51,13 +51,13 @@ args = parser.parse_args()
 # Section 1: Why Export Bundles?
 # =============================================================================
 print("\n" + "=" * 60)
-print("U02 - Export Bundle: Portable Model Deployment")
+print("U02 - Export Bundle: Model Deployment")
 print("=" * 60)
 
 print("""
 Export bundles solve key deployment challenges:
 
-  📦 .n4a BUNDLE FORMAT (ZIP archive)
+  📦 .n4a BUNDLE FORMAT (Core V1 host container)
      - Self-contained prediction package
      - Includes preprocessing + model artifacts
      - Works with ALL model types
@@ -101,13 +101,14 @@ print("Training pipeline...")
 runner = PipelineRunner(save_artifacts=True, verbose=0)
 predictions, _run_info = runner.run(pipeline_config, dataset_config)
 
-# Get best prediction for export
-top_results = predictions.top(n=1, rank_partition="test")
+# Select the export candidate from CV validation only, excluding refit/final rows.
+top_results = predictions.top(n=1, rank_partition="val", score_scope="cv")
 assert isinstance(top_results, list)
 best_prediction = top_results[0]
-print(f"\nBest model: {best_prediction['model_name']}")
+print(f"\nBest model selected by CV validation: {best_prediction['model_name']}")
+# Display held-out performance after selection for assessment only.
 test_mse = best_prediction.get('test_mse', best_prediction.get('mse'))
-print(f"Test MSE: {test_mse:.4f}" if test_mse is not None else "Test MSE: (see detailed metrics)")
+print(f"Held-out test MSE (assessment only): {test_mse:.4f}" if test_mse is not None else "Held-out test MSE: (see detailed metrics; assessment only)")
 print(f"Pipeline UID: {best_prediction['pipeline_uid'][:16]}...")
 
 # =============================================================================
@@ -118,11 +119,18 @@ print("Section 3: Export to .n4a Bundle")
 print("-" * 60)
 
 print("""
-The .n4a format is a ZIP archive containing:
-  - manifest.json: Bundle metadata
+The .n4a Python-host profile uses Core V1 storage:
+  - manifest.json: Core inventory (nirs4all.n4a.container.v1)
+  - host/bundle_manifest.json: SDK bundle metadata
   - pipeline.json: Pipeline configuration
   - trace.json: Execution trace
   - artifacts/: Serialized models and transformers
+
+Owner: nirs4all.python-host; required feature: nirs4all-python-host@1.
+Storage is uncompressed zip-stored.v1; there is no compress option.
+Core verifies storage; SDK semantic checks and verified private extraction
+precede trusted joblib loading. Checksums do not make pickle safe.
+Old SDK ZIP inputs require re-export; Python-host payloads are nonportable.
 """)
 
 # Create exports directory
@@ -134,8 +142,7 @@ bundle_path = runner.export(
     source=dict(best_prediction),
     output_path="exports/wheat_model.n4a",
     format="n4a",
-    include_metadata=True,
-    compress=True
+    include_metadata=True
 )
 
 print(f"✓ Bundle exported: {bundle_path}")
@@ -237,25 +244,23 @@ print("""
 Inspect bundle contents and metadata programmatically.
 """)
 
-# List files in bundle
-print("Bundle contents:")
-with zipfile.ZipFile(bundle_path, 'r') as zf:
-    for name in zf.namelist():
-        info = zf.getinfo(name)
-        print(f"  {name}: {info.file_size / 1024:.1f} KB")
+# One verified source serves inventory, SDK metadata and the borrowed loader.
+with open_n4a_source(bundle_path) as source:
+    container = source.require_host()
+    print("Bundle contents (declared order):")
+    for name in container.namelist():
+        print(f"  {name}: {container.size(name) / 1024:.1f} KB")
 
-# Read manifest
-print("\nBundle metadata:")
-with zipfile.ZipFile(bundle_path, 'r') as zf:
-    manifest = json.loads(zf.read('manifest.json'))
+    print("\nBundle metadata (host/bundle_manifest.json):")
+    manifest = container.bundle_manifest
     print(f"  Format version: {manifest.get('bundle_format_version', 'N/A')}")
     print(f"  nirs4all version: {manifest.get('nirs4all_version', 'N/A')}")
     print(f"  Created: {manifest.get('created_at', 'N/A')}")
 
-# Use BundleLoader
-print("\nProgrammatic inspection:")
-loader = BundleLoader(bundle_path)
-print(f"  Metadata: {loader.metadata}")
+    # This loader borrows source; the outer context owns and closes it.
+    print("\nProgrammatic inspection:")
+    with BundleLoader(bundle_path, source=source) as loader:
+        print(f"  Metadata: {loader.metadata}")
 
 # =============================================================================
 # Section 7: Batch Export Multiple Models
@@ -282,9 +287,9 @@ pipeline_config_multi = PipelineConfigs(pipeline_multi, "U22_BatchExport")
 runner_multi = PipelineRunner(save_artifacts=True, verbose=0)
 predictions_multi, _run_info_multi = runner_multi.run(pipeline_config_multi, dataset_config)
 
-# Export top 3 models
-print("\nExporting top 3 models:")
-top_models = predictions_multi.top(3, rank_partition="test")
+# Export the top 3 CV validation selections; held-out scores do not rank them.
+print("\nExporting top 3 models selected by CV validation:")
+top_models = predictions_multi.top(3, rank_partition="val", score_scope="cv")
 assert isinstance(top_models, list)
 
 model_zoo = Path("exports/model_zoo")
@@ -295,7 +300,7 @@ for i, pred in enumerate(top_models, 1):
     bundle_name = f"rank_{i}_{model_name}.n4a"
     bundle = runner_multi.export(dict(pred), model_zoo / bundle_name)
     print(f"  {i}. {pred['model_name']} -> {bundle.name}")
-    print(f"     RMSE: {pred.get('rmse', 0):.4f}")
+    print(f"     Held-out test RMSE (assessment only): {pred.get('rmse', 0):.4f}")
 
 print(f"\n✓ Exported {len(top_models)} models to {model_zoo}")
 
@@ -335,8 +340,8 @@ Export Bundle Workflow:
 
   5. INSPECT BUNDLE:
      from nirs4all.pipeline.bundle import BundleLoader
-     loader = BundleLoader(bundle_path)
-     print(loader.metadata)
+     with BundleLoader(bundle_path) as loader:
+         print(loader.metadata)
 
 Format Comparison:
   .n4a:      All model types, requires nirs4all

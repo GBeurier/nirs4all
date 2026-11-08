@@ -287,6 +287,7 @@ def _scores_to_run_result(
     emit_all_refits: bool = False,
     refit_name_suffix: str = "_refit",
     classification_vocabulary: dict[str, Any] | None = None,
+    selected_variant_id: str | None = None,
 ) -> RunResult:
     """Project each variant's actual native reports without inventing partitions.
 
@@ -300,6 +301,15 @@ def _scores_to_run_result(
     This differs from legacy's concatenation, which weights repeated samples
     multiple times. Held-out test fold and ensemble reports are projected when
     DAG-ML emits them; their scores remain native.
+
+    ``selected_variant_id`` binds the winner to the owner's SELECT decision instead of
+    inferring it from report order or from which variant owns the refit report. It is
+    omitted (``None``) by every historical caller, which keeps its behavior. When given,
+    the variant must have OOF validation evidence and must not conflict with the variant
+    that owns the refit report, otherwise the projection is refused. Untagged reports
+    follow the native convention that they belong to the sole producer or the winner:
+    a ScoreSet with no tagged report is attributed entirely to the selected variant, and
+    otherwise only the untagged refit ``final``/``test`` reports are.
     """
     from nirs4all.api.result import RunResult
 
@@ -308,6 +318,16 @@ def _scores_to_run_result(
         if (producer is None or report.get("producer_node") == producer)
         and (report_fold_ids is None or report.get("fold_id") is None or report.get("fold_id") in report_fold_ids)
     ]
+    if selected_variant_id is not None:
+        if all(report.get("variant_id") is None for report in reports):
+            reports = [{**report, "variant_id": selected_variant_id} for report in reports]
+        else:
+            reports = [
+                {**report, "variant_id": selected_variant_id}
+                if report.get("variant_id") is None and report.get("partition") in {"final", "test"} and report.get("fold_id") is None
+                else report
+                for report in reports
+            ]
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
     # ScoreSet.validate guarantees this triple (per producer) is unique, so distinct variants never
     # collide (the pre-#55 (partition, fold_id) key let later variants overwrite earlier ones).
@@ -483,6 +503,12 @@ def _scores_to_run_result(
     # the normal fold path above remains authoritative whenever it exists.
     if not cv_variant_ids:
         cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id == "avg" and variant_id is not None))
+    if selected_variant_id is not None:
+        if selected_variant_id not in cv_variant_ids:
+            raise ValueError("the owner-selected variant has no OOF validation evidence in the score set")
+        if final_variant_id is not _MISSING and final_variant_id != selected_variant_id:
+            raise ValueError("the refit report belongs to a variant other than the owner-selected variant")
+        final_variant_id = selected_variant_id
     # A CV-only native sweep still SELECTS its winner, but deliberately emits no REFIT report.
     # The selected variant's fold reports lead the ScoreSet and own the untagged OOF-average
     # report; without this owner the average would be dropped and cv_best_score could point to

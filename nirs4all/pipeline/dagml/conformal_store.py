@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
-import zipfile
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -13,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .conformal_contracts import CalibratedRunResult, ConformalCalibrationArtifact
+from .host_container import JSON_CONTENT_TYPE, HostContainer, HostMember, N4aSource, open_n4a_source, update_host_container, write_host_container
 from .training_contracts import tcv1_sha256
 
 CONFORMAL_STORE_SCHEMA_ID = "nirs4all.dagml.conformal_store.v1"
@@ -21,19 +20,6 @@ ARTIFACT_FILENAME = "artifact.json"
 RESULT_FILENAME = "calibrated_result.json"
 MANIFEST_FILENAME = "manifest.json"
 BUNDLE_ROOT = "conformal/"
-
-
-@contextmanager
-def _atomic_bundle(target: Path) -> Iterator[zipfile.ZipFile]:
-    """Publish a ZIP only once every member has been written successfully."""
-    with tempfile.NamedTemporaryFile(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent, delete=False) as stream:
-        staged = Path(stream.name)
-    try:
-        with zipfile.ZipFile(staged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            yield archive
-        os.replace(staged, target)
-    finally:
-        staged.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -161,13 +147,32 @@ def load_conformal_result_store(path: str | Path) -> CalibratedRunResult:
     return result
 
 
+def _conformal_members(store_dir: Path) -> list[HostMember]:
+    """The three conformal sidecar files in declared order, streamed from ``store_dir``."""
+    return [HostMember(f"{BUNDLE_ROOT}{filename}", store_dir / filename, "result", JSON_CONTENT_TYPE) for filename in (MANIFEST_FILENAME, ARTIFACT_FILENAME, RESULT_FILENAME)]
+
+
+@contextmanager
+def _host_container(path: Path, source: N4aSource | None) -> Iterator[HostContainer]:
+    """The host container of ``path``: a borrowed ``source`` is never reopened or closed."""
+    if source is None:
+        if not path.is_file():
+            raise FileNotFoundError(f"conformal archive not found: {path}")
+        with open_n4a_source(path) as owned:
+            yield owned.require_host()
+        return
+    if source.path.resolve() != path.resolve():
+        raise ValueError(f"the supplied source is {source.path}, not {path}")
+    yield source.require_host()
+
+
 def export_conformal_result_bundle(
     result: CalibratedRunResult,
     path: str | Path,
     *,
     overwrite: bool = False,
 ) -> Path:
-    """Export a calibrated result store as a zipped ``.n4a`` archive."""
+    """Export a calibrated result store as a conformal-only host ``.n4a`` container."""
 
     target = Path(path)
     if target.exists() and not overwrite:
@@ -176,9 +181,7 @@ def export_conformal_result_bundle(
     with tempfile.TemporaryDirectory(prefix="n4a-conformal-") as tmp:
         store_dir = Path(tmp) / "store"
         save_conformal_result_store(result, store_dir)
-        with _atomic_bundle(target) as archive:
-            for filename in (MANIFEST_FILENAME, ARTIFACT_FILENAME, RESULT_FILENAME):
-                archive.write(store_dir / filename, arcname=f"{BUNDLE_ROOT}{filename}")
+        write_host_container(target, _conformal_members(store_dir), entrypoint=False)
     return target
 
 
@@ -188,94 +191,70 @@ def attach_conformal_result_to_bundle(
     output_path: str | Path | None = None,
     *,
     overwrite: bool = False,
+    source: N4aSource | None = None,
 ) -> Path:
-    """Copy a model ``.n4a`` bundle and attach a verified conformal sidecar.
+    """Copy a host model ``.n4a`` container and attach a verified conformal sidecar.
 
-    The source bundle is left unchanged unless the caller explicitly passes the
-    same path as ``output_path``; in-place attachment is rejected to avoid
-    corrupting ZIP archives during copy. Existing conformal sidecars are refused
-    unless ``overwrite=True``.
+    The source container is never modified; retained members are copied and verified by
+    Core. In-place attachment is rejected. Existing conformal sidecars are refused unless
+    ``overwrite=True``. ``source`` is a borrowed, already opened source of
+    ``model_bundle_path``: it is neither reopened nor closed here.
     """
 
-    source = Path(model_bundle_path)
-    if not source.is_file():
-        raise FileNotFoundError(f"model bundle not found: {source}")
-    if not zipfile.is_zipfile(source):
-        raise ValueError(f"model bundle is not a ZIP .n4a archive: {source}")
+    model = Path(model_bundle_path)
+    if not model.is_file():
+        raise FileNotFoundError(f"model bundle not found: {model}")
 
-    target = Path(output_path) if output_path is not None else source.with_name(f"{source.stem}.calibrated{source.suffix}")
-    if source.resolve() == target.resolve():
+    target = Path(output_path) if output_path is not None else model.with_name(f"{model.stem}.calibrated{model.suffix}")
+    if model.resolve() == target.resolve():
         raise ValueError("in-place conformal attachment is not supported; choose a different output_path")
     if target.exists() and not overwrite:
         raise FileExistsError(f"calibrated bundle target already exists: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="n4a-conformal-attach-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="n4a-conformal-attach-") as tmp, _host_container(model, source) as base:
+        if not overwrite and any(name.startswith(BUNDLE_ROOT) for name in base.namelist()):
+            raise ValueError("model bundle already contains a conformal sidecar; pass overwrite=True to replace it")
         store_dir = Path(tmp) / "store"
         save_conformal_result_store(result, store_dir)
-        with zipfile.ZipFile(source, "r") as src, _atomic_bundle(target) as dst:
-            existing_conformal = [name for name in src.namelist() if name.startswith(BUNDLE_ROOT)]
-            if existing_conformal and not overwrite:
-                raise ValueError("model bundle already contains a conformal sidecar; pass overwrite=True to replace it")
-            for item in src.infolist():
-                if item.filename.startswith(BUNDLE_ROOT):
-                    continue
-                dst.writestr(item, src.read(item.filename))
-            for filename in (MANIFEST_FILENAME, ARTIFACT_FILENAME, RESULT_FILENAME):
-                dst.write(store_dir / filename, arcname=f"{BUNDLE_ROOT}{filename}")
+        update_host_container(base, target, add=_conformal_members(store_dir), remove_prefix=BUNDLE_ROOT)
     return target
 
 
-def load_conformal_result_bundle(path: str | Path) -> CalibratedRunResult:
-    """Load and verify a zipped conformal result ``.n4a`` archive."""
+def load_conformal_result_bundle(path: str | Path, *, source: N4aSource | None = None) -> CalibratedRunResult:
+    """Load and verify a conformal-only host ``.n4a`` container."""
 
-    source = Path(path)
+    expected = _expected_conformal_members()
+    with _host_container(Path(path), source) as container:
+        if set(container.namelist()) != expected:
+            raise ValueError(f"conformal bundle members must be exactly {sorted(expected)}")
+        return _load_conformal_members(container, expected)
+
+
+def load_conformal_result_archive(path: str | Path, *, source: N4aSource | None = None) -> CalibratedRunResult:
+    """Load a conformal sidecar from a conformal-only or full model host ``.n4a`` container."""
+
+    expected = _expected_conformal_members()
+    with _host_container(Path(path), source) as container:
+        names = container.namelist()
+        missing = sorted(expected - set(names))
+        if missing:
+            raise ValueError(f"archive does not contain a complete conformal sidecar; missing {missing}")
+        _reject_unexpected_conformal_members(names, expected)
+        return _load_conformal_members(container, expected)
+
+
+def _load_conformal_members(container: HostContainer, expected: set[str]) -> CalibratedRunResult:
+    """Extract the verified sidecar files privately and load the store from them."""
     with tempfile.TemporaryDirectory(prefix="n4a-conformal-load-") as tmp:
         extract_dir = Path(tmp) / "store"
-        extract_dir.mkdir()
-        with zipfile.ZipFile(source, "r") as archive:
-            names = archive.namelist()
-            members = set(names)
-            expected = _expected_conformal_members()
-            if members != expected:
-                raise ValueError(f"conformal bundle members must be exactly {sorted(expected)}")
-            _reject_duplicate_conformal_members(names, expected)
-            for member in sorted(expected):
-                target = extract_dir / Path(member).name
-                target.write_bytes(archive.read(member))
-        return load_conformal_result_store(extract_dir)
-
-
-def load_conformal_result_archive(path: str | Path) -> CalibratedRunResult:
-    """Load a conformal sidecar from a conformal-only or full model ``.n4a`` archive."""
-
-    source = Path(path)
-    with tempfile.TemporaryDirectory(prefix="n4a-conformal-load-") as tmp:
-        extract_dir = Path(tmp) / "store"
-        extract_dir.mkdir()
-        with zipfile.ZipFile(source, "r") as archive:
-            names = archive.namelist()
-            members = set(names)
-            expected = _expected_conformal_members()
-            missing = sorted(expected - members)
-            if missing:
-                raise ValueError(f"archive does not contain a complete conformal sidecar; missing {missing}")
-            _reject_unexpected_conformal_members(names, expected)
-            _reject_duplicate_conformal_members(names, expected)
-            for member in sorted(expected):
-                target = extract_dir / Path(member).name
-                target.write_bytes(archive.read(member))
+        for member in sorted(expected):
+            container.extract(member, extract_dir / Path(member).name)
         return load_conformal_result_store(extract_dir)
 
 
 def _expected_conformal_members() -> set[str]:
     return {f"{BUNDLE_ROOT}{filename}" for filename in (MANIFEST_FILENAME, ARTIFACT_FILENAME, RESULT_FILENAME)}
-
-
-def _reject_duplicate_conformal_members(names: list[str], expected: set[str]) -> None:
-    duplicates = sorted(member for member in expected if names.count(member) > 1)
-    if duplicates:
-        raise ValueError(f"conformal sidecar contains duplicate members: {duplicates}")
 
 
 def _reject_unexpected_conformal_members(names: list[str], expected: set[str]) -> None:

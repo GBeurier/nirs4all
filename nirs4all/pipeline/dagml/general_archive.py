@@ -7,25 +7,23 @@ against corruption, not a malicious producer: joblib can execute Python code.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
-import shutil
 import tempfile
 import warnings
-import zipfile
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from .host_container import HostContainer, N4aSource, load_host_joblib, open_n4a_source
 
 if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult
 
-_MAX_INLINE_MODEL_BYTES = 512 * 1024 * 1024
 _GENERATED_VIEW_MEMBER = "dagml_generated_view_manifest.json"
-_MAX_GENERATED_VIEW_BYTES = 64 * 1024 * 1024
 
 
-def _validate_generated_archive_before_model(archive: zipfile.ZipFile, manifest: dict[str, Any]) -> None:
+def _validate_generated_archive_before_model(archive: HostContainer, manifest: dict[str, Any]) -> None:
     """Verify generated training provenance and predict-only scope before joblib."""
     ref = manifest.get("dagml_generated_view_manifest_ref")
     contract = manifest.get("dagml_generated_model_replay")
@@ -49,8 +47,8 @@ def _validate_generated_archive_before_model(archive: zipfile.ZipFile, manifest:
             or not isinstance(host, dict) or host.get("input_schema") != contract["input_schema"]
             or "train_pipeline.json" in archive.namelist()):
         raise ValueError("general archive has an invalid generated-model prediction contract")
-    if _GENERATED_VIEW_MEMBER not in archive.namelist() or archive.getinfo(_GENERATED_VIEW_MEMBER).file_size > _MAX_GENERATED_VIEW_BYTES:
-        raise ValueError("general archive generated-view manifest is missing or oversized")
+    if _GENERATED_VIEW_MEMBER not in archive.namelist():
+        raise ValueError("general archive generated-view manifest is missing")
     from .multimodal_contracts import generated_input_schema_sha256
 
     try:
@@ -58,12 +56,11 @@ def _validate_generated_archive_before_model(archive: zipfile.ZipFile, manifest:
             raise ValueError("general archive generated input schema fingerprint mismatch")
     except (TypeError, ValueError) as exc:
         raise ValueError("general archive generated input schema fingerprint mismatch") from exc
-    payload = archive.read(_GENERATED_VIEW_MEMBER)
-    if hashlib.sha256(payload).hexdigest() != ref["sha256"]:
+    if archive.digest(_GENERATED_VIEW_MEMBER).removeprefix("sha256:") != ref["sha256"]:
         raise ValueError("general archive generated-view manifest byte fingerprint mismatch")
     from .native_results import _validate_generated_view_manifest_bytes
 
-    if _validate_generated_view_manifest_bytes(payload) != ref["fingerprint"]:
+    if _validate_generated_view_manifest_bytes(archive.read(_GENERATED_VIEW_MEMBER)) != ref["fingerprint"]:
         raise ValueError("general archive generated-view manifest TCV1 fingerprint mismatch")
 
 
@@ -82,37 +79,33 @@ class _NamedOutputAdapter:
         return self.model.predict_output(self.output, X)
 
 
-def general_archive_manifest(path: str | Path) -> dict[str, Any] | None:
-    """Inspect the provenance marker without importing/deserializing operators."""
-    source = Path(path)
-    if not source.is_file() or not zipfile.is_zipfile(source):
-        return None
-    with zipfile.ZipFile(source) as archive:
-        manifests = [member for member in archive.infolist() if member.filename == "manifest.json"]
-        if len(manifests) != 1:
+def general_archive_manifest(path: str | Path, *, source: N4aSource | None = None) -> dict[str, Any] | None:
+    """Read host provenance from one source without deserializing operators."""
+    archive_path = Path(path)
+    with open_n4a_source(archive_path) if source is None else nullcontext(source) as opened:
+        if opened.path.resolve() != archive_path.resolve():
+            raise ValueError("general archive source does not match its path")
+        if opened.kind != "host":
             return None
-        if manifests[0].file_size > 1024 * 1024:
-            raise ValueError("general archive manifest exceeds 1 MiB")
-        manifest = json.loads(archive.read(manifests[0]))
-    return manifest if isinstance(manifest, dict) and manifest.get("source_type") == "dagml_native" else None
+        manifest = opened.require_host().bundle_manifest
+        return manifest if manifest is not None and manifest.get("source_type") == "dagml_native" else None
 
 
-def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str | None = None) -> dict[str, Any]:
-    """Verify the exact archive member bytes before loading one trusted model."""
-    source = Path(path)
-    from .host_artifacts import file_fingerprint
-
-    # Copy the source into a private snapshot in bounded memory. The digest binds
-    # the Session identity to the exact ZIP later parsed and deserialized.
-    with tempfile.TemporaryDirectory(prefix="nirs4all_archive_snapshot_") as snapshot_dir:
-        snapshot = Path(snapshot_dir) / "source.n4a"
-        with source.open("rb") as source_stream, snapshot.open("wb") as snapshot_stream:
-            shutil.copyfileobj(source_stream, snapshot_stream, 1024 * 1024)
-        archive_fingerprint = file_fingerprint(snapshot)[0]
+def load_general_archive(
+    path: str | Path, *, expected_archive_fingerprint: str | None = None, source: N4aSource | None = None,
+) -> dict[str, Any]:
+    """Verify one trusted host model; borrow a supplied source, otherwise close our open."""
+    archive_path = Path(path)
+    with open_n4a_source(archive_path) if source is None else nullcontext(source) as opened:
+        if opened.path.resolve() != archive_path.resolve():
+            raise ValueError("general archive source does not match its path")
+        if opened.kind != "host":
+            raise ValueError("general archive requires a current host container; re-export it with the current nirs4all")
+        container = opened.require_host()
+        archive_fingerprint = container.sha256
         if expected_archive_fingerprint is not None and archive_fingerprint != expected_archive_fingerprint:
             raise ValueError("general Session source archive changed after loading")
-        with zipfile.ZipFile(snapshot) as archive:
-            model, manifest, member, fingerprint, expected, initial_package = _load_verified_archive(archive)
+        model, manifest, member, fingerprint, expected, initial_package = _load_verified_archive(container)
     if not callable(getattr(model, "predict", None)):
         raise ValueError("general archive model is not predict-capable")
     from .multimodal_contracts import (
@@ -160,22 +153,18 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
         "initial_full_refit_package": initial_package,
         "artifact_integrity_verified": expected is not None,
         "pipeline": [{"model": model}],
-        "model_name": source.stem, "source_path": source.resolve(),
+        "model_name": archive_path.stem, "source_path": archive_path.resolve(),
     }
 
 
-def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any], str, str, str | None, dict[str, Any] | None]:
-    import joblib
-
-    from .host_artifacts import file_fingerprint, hydrate_host_artifacts, verify_host_artifacts
+def _load_verified_archive(archive: HostContainer) -> tuple[Any, dict[str, Any], str, str, str | None, dict[str, Any] | None]:
+    from .host_artifacts import hydrate_host_artifacts, verify_host_artifacts
 
     with tempfile.TemporaryDirectory(prefix="nirs4all_archive_model_") as model_dir:
         names = archive.namelist()
         if len(names) != len(set(names)):
-            raise ValueError("general archive contains duplicate ZIP member names")
-        if archive.getinfo("manifest.json").file_size > 1024 * 1024:
-            raise ValueError("general archive manifest exceeds 1 MiB")
-        manifest = json.loads(archive.read("manifest.json"))
+            raise ValueError("general archive contains duplicate member names")
+        manifest = archive.bundle_manifest
         if not isinstance(manifest, dict) or manifest.get("source_type") != "dagml_native":
             raise ValueError("archive is not a captured DAG host-model archive")
         initial_package = None
@@ -184,12 +173,11 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
             if not isinstance(package_ref, dict) or package_ref.get("path") != "dagml_initial_full_refit_package.json":
                 raise ValueError("general archive has an invalid initial full-refit package reference")
             package_member = package_ref["path"]
-            if package_member not in names or archive.getinfo(package_member).file_size > 64 * 1024 * 1024:
-                raise ValueError("general archive initial full-refit package is missing or oversized")
-            package_bytes = archive.read(package_member)
-            if hashlib.sha256(package_bytes).hexdigest() != package_ref.get("sha256"):
+            if package_member not in names:
+                raise ValueError("general archive initial full-refit package is missing")
+            if archive.digest(package_member).removeprefix("sha256:") != package_ref.get("sha256"):
                 raise ValueError("general archive initial full-refit package fingerprint mismatch")
-            initial_package = json.loads(package_bytes)
+            initial_package = archive.read_json(package_member)
             if not isinstance(initial_package, dict):
                 raise ValueError("general archive initial full-refit package must be an object")
             from dag_ml import DagMlError, InitialFullRefitPackage
@@ -213,12 +201,7 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
         if len(members) != 1 or not members[0].endswith(".joblib"):
             raise ValueError("general archive requires exactly one captured host-model payload")
         member = members[0]
-        if archive.getinfo(member).file_size > _MAX_INLINE_MODEL_BYTES:
-            raise ValueError("general archive model payload exceeds 512 MiB")
-        model_path = Path(model_dir) / "model.joblib"
-        with archive.open(member) as source_stream, model_path.open("wb") as target_stream:
-            shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
-        fingerprint = file_fingerprint(model_path)[0]
+        fingerprint = archive.digest(member)
         expected = manifest.get("artifact_integrity", {}).get(member)
         if (named_origin is not None or late_contract is not None) and expected is None:
             raise ValueError("attested REFIT archive requires its serialized artifact digest before model load")
@@ -240,7 +223,12 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
         declared = {file_ref["uri"] for directory in sidecar_refs or [] for file_ref in directory["files"]}
         actual_sidecars = {name for name in names if name.startswith("host_artifacts/") and not name.endswith("/")}
         if actual_sidecars != declared:
-            raise ValueError("general archive sidecar manifest does not match ZIP members")
+            raise ValueError("general archive sidecar manifest does not match container members")
+        for directory in sidecar_refs or []:
+            for file_ref in directory["files"]:
+                uri = file_ref["uri"]
+                if archive.size(uri) != file_ref.get("size_bytes") or archive.digest(uri) != file_ref.get("content_fingerprint"):
+                    raise ValueError(f"host sidecar integrity mismatch: {uri}")
         # AutoGluon may lazily read its directory after load; keep the verified
         # extracted files for the lifetime of the returned estimator.
         sidecar_owner = tempfile.TemporaryDirectory(prefix="nirs4all_archive_sidecars_")
@@ -250,11 +238,9 @@ def _load_verified_archive(archive: zipfile.ZipFile) -> tuple[Any, dict[str, Any
                 from .host_artifacts import _safe_uri
 
                 target = sidecar_root / _safe_uri(uri)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(uri) as source_stream, target.open("wb") as target_stream:
-                    shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
+                archive.extract(uri, target)
             directories = verify_host_artifacts(sidecar_root, sidecar_refs)
-            model = joblib.load(model_path)
+            model = load_host_joblib(archive, member, Path(model_dir))
             if source_capture is not None:
                 from nirs4all.api.result import _DagmlRankedIndependentSourceModels
 
@@ -276,6 +262,7 @@ def predict_general_archive(
     *,
     expected_archive_fingerprint: str | None = None,
     loaded_archive: dict[str, Any] | None = None,
+    source: N4aSource | None = None,
     output: str | None = None,
 ) -> PredictResult:
     """Replay a captured aggregate model; no old executor or retraining is used."""
@@ -285,16 +272,16 @@ def predict_general_archive(
     from .general_replay import predict_captured_artifact
 
     if loaded_archive is None:
-        loaded = load_general_archive(path, expected_archive_fingerprint=expected_archive_fingerprint)
+        loaded = load_general_archive(path, expected_archive_fingerprint=expected_archive_fingerprint, source=source)
     else:
         loaded = loaded_archive
-        source = Path(path)
-        if source.resolve() != loaded["source_path"] or expected_archive_fingerprint != loaded["archive_fingerprint"]:
+        archive_path = Path(path)
+        if archive_path.resolve() != loaded["source_path"] or expected_archive_fingerprint != loaded["archive_fingerprint"]:
             raise ValueError("general Session archive cache does not match its source")
         # Keep the exact source binding on every platform, including Windows
         # where ctime can mean creation time. Stream the digest with bounded
         # memory, reusing the verified model without decompression or unpickling.
-        with source.open("rb") as stream:
+        with archive_path.open("rb") as stream:
             fingerprint = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
         if fingerprint != loaded["archive_fingerprint"]:
             raise ValueError("general Session source archive changed after loading")
@@ -433,23 +420,18 @@ def predict_general_result(result: Any, data: Any) -> PredictResult:
     return attach_categorical_scoring_context(PredictResult(y_pred=values, metadata=metadata, model_name=result.best.get("model_name", "")), artifact)
 
 
-def copy_general_archive(source: Path, target: str | Path, *, expected_fingerprint: str | None) -> Path:
-    """Save a loaded Session without fitting or changing its original model bytes."""
-    import os
-    import tempfile
-
-    payload = source.read_bytes()
-    if "sha256:" + hashlib.sha256(payload).hexdigest() != expected_fingerprint:
-        raise ValueError("general Session source archive changed after loading")
-    destination = Path(target).with_suffix(".n4a")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".n4a-save-", delete=False) as stream:
-            temporary = Path(stream.name)
-            stream.write(payload)
-        os.replace(temporary, destination)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+def copy_general_archive(
+    path: Path, target: str | Path, *, expected_fingerprint: str | None, source: N4aSource | None = None,
+) -> Path:
+    """Save the verified source bytes atomically without fitting or materializing them."""
+    archive_path = Path(path)
+    with open_n4a_source(archive_path) if source is None else nullcontext(source) as opened:
+        if opened.path.resolve() != archive_path.resolve():
+            raise ValueError("general archive source does not match its path")
+        container = opened.require_host()
+        if container.sha256 != expected_fingerprint:
+            raise ValueError("general Session source archive changed after loading")
+        destination = Path(target).with_suffix(".n4a")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        container.copy_to(destination)
     return destination

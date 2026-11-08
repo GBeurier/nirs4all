@@ -28,10 +28,8 @@ Example:
 """
 
 import base64
-import json
 import logging
 import tempfile
-import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +40,7 @@ import numpy as np
 from nirs4all.utils.transform_output import normalize_transform_output
 
 if TYPE_CHECKING:
+    from nirs4all.pipeline.resolver import ResolvedPrediction
     from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 
 import contextlib
@@ -51,6 +50,7 @@ from nirs4all.pipeline.config.context import (
     ArtifactProvider,
     MapArtifactProvider,
 )
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, N4aSource, load_host_joblib, open_n4a_source
 from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
@@ -176,7 +176,9 @@ class BundleArtifactProvider(ArtifactProvider):
         artifact_index: dict[str, str],
         fold_weights: dict[int, float] | None = None,
         step_info: dict[int, dict[str, Any]] | None = None,
-        trace: ExecutionTrace | None = None
+        trace: ExecutionTrace | None = None,
+        *,
+        source: N4aSource | None = None,
     ):
         """Initialize bundle artifact provider.
 
@@ -186,6 +188,7 @@ class BundleArtifactProvider(ArtifactProvider):
             fold_weights: Optional fold weights for CV models
             step_info: Optional step metadata (operator_type, branch_path, etc.)
             trace: Optional execution trace for detailed step info
+            source: Borrowed open source shared with the loader; otherwise opened lazily.
         """
         self.bundle_path = Path(bundle_path)
         self.artifact_index = artifact_index
@@ -193,6 +196,19 @@ class BundleArtifactProvider(ArtifactProvider):
         self.step_info = step_info or {}
         self.trace = trace
         self._cache: dict[str, Any] = {}
+        self._source = source
+        self._owns_source = False
+
+    def close(self) -> None:
+        """Close only a source opened by this standalone provider."""
+        if self._owns_source and self._source is not None:
+            self._source.close()
+
+    def __enter__(self) -> "BundleArtifactProvider":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def get_artifact(
         self,
@@ -382,20 +398,18 @@ class BundleArtifactProvider(ArtifactProvider):
         filename = self.artifact_index[key]
 
         try:
-            from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, load_general_archive
+            if self._source is None:
+                self._source = open_n4a_source(self.bundle_path)
+                self._owns_source = True
+            container = self._source.require_host()
+            manifest = container.bundle_manifest
+            if manifest is not None and manifest.get("source_type") == "dagml_native":
+                from nirs4all.pipeline.dagml.general_archive import load_general_archive
 
-            if general_archive_manifest(self.bundle_path) is not None:
-                artifact = load_general_archive(self.bundle_path)["artifact"]["estimator"]
-                self._cache[key] = artifact
-                return artifact
-
-            import io
-
-            import joblib
-
-            with zipfile.ZipFile(self.bundle_path, 'r') as zf, zf.open(f"artifacts/{filename}") as f:
-                buffer = io.BytesIO(f.read())
-                artifact = joblib.load(buffer)
+                artifact = load_general_archive(self.bundle_path, source=self._source)["artifact"]["estimator"]
+            else:
+                with tempfile.TemporaryDirectory(prefix="nirs4all_bundle_model_") as scratch:
+                    artifact = load_host_joblib(container, f"artifacts/{filename}", Path(scratch))
 
             # Cache for future use
             self._cache[key] = artifact
@@ -439,11 +453,12 @@ class BundleLoader:
         >>> y_pred = loader.predict(X_new)
     """
 
-    def __init__(self, bundle_path: str | Path):
+    def __init__(self, bundle_path: str | Path, *, source: N4aSource | None = None):
         """Initialize bundle loader.
 
         Args:
             bundle_path: Path to the .n4a bundle file
+            source: Borrowed open source; a standalone loader owns its own open.
 
         Raises:
             FileNotFoundError: If bundle file doesn't exist
@@ -454,8 +469,8 @@ class BundleLoader:
         if not self.bundle_path.exists():
             raise FileNotFoundError(f"Bundle not found: {bundle_path}")
 
-        if not zipfile.is_zipfile(self.bundle_path):
-            raise ValueError(f"Invalid bundle format: {bundle_path}")
+        self._source = open_n4a_source(self.bundle_path) if source is None else source
+        self._owns_source = source is None
 
         # Load bundle contents
         self.metadata: BundleMetadata | None = None
@@ -473,122 +488,116 @@ class BundleLoader:
         self._named_feature_axes: tuple[tuple[str, ...] | None, ...] = ()
         self.artifact_provider: BundleArtifactProvider | None = None
 
-        self._load_bundle()
+        try:
+            if self._source.path.resolve() != self.bundle_path.resolve():
+                raise ValueError("bundle source does not match its path")
+            if self._source.kind != "host":
+                raise ValueError("Bundle requires a current host container; old SDK ZIP bundles must be re-exported with the current nirs4all")
+            self._load_bundle()
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        """Close this loader's open; a source supplied by a caller remains borrowed."""
+        if self._owns_source:
+            self._source.close()
+
+    def __enter__(self) -> "BundleLoader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def _load_bundle(self) -> None:
         """Load bundle metadata and build artifact index."""
         self._chain_data: dict[str, Any] = {}
 
-        with zipfile.ZipFile(self.bundle_path, 'r') as zf:
-            # Load manifest.json
-            if 'manifest.json' in zf.namelist():
-                with zf.open('manifest.json') as f:
-                    manifest_data = json.load(f)
-                    if "dagml_source_training_capture_ref" in manifest_data or "dagml_source_training_capture.json" in zf.namelist():
-                        from nirs4all.pipeline.dagml.attested_by_source import validate_source_archive_before_model
+        container = self._source.require_host()
+        manifest_data = container.bundle_manifest
+        if manifest_data is None:
+            raise ValueError(f"Bundle missing {BUNDLE_MANIFEST_MEMBER}")
+        if "dagml_source_training_capture_ref" in manifest_data or "dagml_source_training_capture.json" in container.namelist():
+            from nirs4all.pipeline.dagml.attested_by_source import validate_source_archive_before_model
 
-                        self._source_native_capture = validate_source_archive_before_model(zf, manifest_data)
-                        self._source_native_capture_sha = manifest_data["dagml_source_training_capture_ref"]["sha256"]
-                    self.metadata = BundleMetadata.from_dict(manifest_data)
-                    _validate_bundle_format_version(self.metadata.bundle_format_version)
-                    if manifest_data.get("dagml_native_export_shape") == "independent_by_source_multi":
-                        topology = manifest_data.get("dagml_independent_output_topology")
-                        if (not isinstance(topology, dict)
-                                or topology.get("schema_id") != "dag-ml.host_independent_outputs.v1"
-                                or topology.get("kind") != "independent_by_source"
-                                or topology.get("input_relation") != "aligned_rows"):
-                            raise ValueError("independent-source archive has an invalid output topology")
-                        outputs = topology.get("outputs")
-                        if not isinstance(outputs, list) or len(outputs) < 2 or any(
-                            not isinstance(entry, dict)
-                            or not isinstance(entry.get("source_id"), str) or not entry["source_id"]
-                            or entry.get("output_binding_id") != f"output:source_{index}"
-                            or entry.get("source_index") != index
-                            or type(entry.get("feature_width")) is not int or entry["feature_width"] <= 0
-                            for index, entry in enumerate(outputs)
-                        ):
-                            raise ValueError("independent-source archive has an invalid named-output manifest")
-                        source_ids = tuple(entry["source_id"] for entry in outputs)
-                        if len(set(source_ids)) != len(source_ids):
-                            raise ValueError("independent-source archive has duplicate source IDs")
-                        feature_axes = []
-                        for entry in outputs:
-                            axis = entry.get("feature_axis_cm1")
-                            if axis is not None:
-                                if (not isinstance(axis, list) or len(axis) != entry["feature_width"]
-                                        or not all(isinstance(value, str) for value in axis)):
-                                    raise ValueError("independent-source archive has an invalid spectral axis")
-                                try:
-                                    if not np.all(np.isfinite(np.asarray(axis, dtype=float))):
-                                        raise ValueError("independent-source archive has a non-finite spectral axis")
-                                except (TypeError, ValueError) as exc:
-                                    raise ValueError("independent-source archive has an invalid spectral axis") from exc
-                            feature_axes.append(tuple(axis) if axis is not None else None)
-                        self._named_source_ids = source_ids
-                        if "ranked_outputs" in topology and self._source_native_capture is None:
-                            raise ValueError("ranked independent outputs require original native training captures")
-                        ranked = topology.get("ranked_outputs", outputs)
-                        if not isinstance(ranked, list) or not ranked or any(not isinstance(entry, dict) or not isinstance(entry.get("output_binding_id"), str) for entry in ranked):
-                            raise ValueError("independent-source ranked output manifest is invalid")
-                        ranked_names = tuple(entry["output_binding_id"] for entry in ranked)
-                        if len(set(ranked_names)) != len(ranked_names):
-                            raise ValueError("independent-source ranked output IDs must be unique")
-                        self._named_output_names = ranked_names
-                        self._named_output_widths = tuple(entry["feature_width"] for entry in outputs)
-                        self._named_feature_axes = tuple(feature_axes)
-            else:
-                raise ValueError("Bundle missing manifest.json")
+            self._source_native_capture = validate_source_archive_before_model(container, manifest_data)
+            self._source_native_capture_sha = manifest_data["dagml_source_training_capture_ref"]["sha256"]
+        self.metadata = BundleMetadata.from_dict(manifest_data)
+        _validate_bundle_format_version(self.metadata.bundle_format_version)
+        if manifest_data.get("dagml_native_export_shape") == "independent_by_source_multi":
+            topology = manifest_data.get("dagml_independent_output_topology")
+            if (not isinstance(topology, dict)
+                    or topology.get("schema_id") != "dag-ml.host_independent_outputs.v1"
+                    or topology.get("kind") != "independent_by_source"
+                    or topology.get("input_relation") != "aligned_rows"):
+                raise ValueError("independent-source archive has an invalid output topology")
+            outputs = topology.get("outputs")
+            if not isinstance(outputs, list) or len(outputs) < 2 or any(
+                not isinstance(entry, dict)
+                or not isinstance(entry.get("source_id"), str) or not entry["source_id"]
+                or entry.get("output_binding_id") != f"output:source_{index}"
+                or entry.get("source_index") != index
+                or type(entry.get("feature_width")) is not int or entry["feature_width"] <= 0
+                for index, entry in enumerate(outputs)
+            ):
+                raise ValueError("independent-source archive has an invalid named-output manifest")
+            source_ids = tuple(entry["source_id"] for entry in outputs)
+            if len(set(source_ids)) != len(source_ids):
+                raise ValueError("independent-source archive has duplicate source IDs")
+            feature_axes = []
+            for entry in outputs:
+                axis = entry.get("feature_axis_cm1")
+                if axis is not None:
+                    if (not isinstance(axis, list) or len(axis) != entry["feature_width"]
+                            or not all(isinstance(value, str) for value in axis)):
+                        raise ValueError("independent-source archive has an invalid spectral axis")
+                    try:
+                        if not np.all(np.isfinite(np.asarray(axis, dtype=float))):
+                            raise ValueError("independent-source archive has a non-finite spectral axis")
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("independent-source archive has an invalid spectral axis") from exc
+                feature_axes.append(tuple(axis) if axis is not None else None)
+            self._named_source_ids = source_ids
+            if "ranked_outputs" in topology and self._source_native_capture is None:
+                raise ValueError("ranked independent outputs require original native training captures")
+            ranked = topology.get("ranked_outputs", outputs)
+            if not isinstance(ranked, list) or not ranked or any(not isinstance(entry, dict) or not isinstance(entry.get("output_binding_id"), str) for entry in ranked):
+                raise ValueError("independent-source ranked output manifest is invalid")
+            ranked_names = tuple(entry["output_binding_id"] for entry in ranked)
+            if len(set(ranked_names)) != len(ranked_names):
+                raise ValueError("independent-source ranked output IDs must be unique")
+            self._named_output_names = ranked_names
+            self._named_output_widths = tuple(entry["feature_width"] for entry in outputs)
+            self._named_feature_axes = tuple(feature_axes)
 
-            # Load pipeline.json
-            if 'pipeline.json' in zf.namelist():
-                with zf.open('pipeline.json') as f:
-                    self.pipeline_config = json.load(f)
+        names = container.namelist()
+        if "pipeline.json" in names:
+            self.pipeline_config = container.read_json("pipeline.json")
+        # The captured training declaration is distinct from the prediction label.
+        if "train_pipeline.json" in names:
+            self.train_pipeline_config = container.read_json("train_pipeline.json")
+        if "chain.json" in names:
+            self._chain_data = container.read_json("chain.json")
+        if "trace.json" in names:
+            self.trace = ExecutionTrace.from_dict(container.read_json("trace.json"))
+        if "fold_weights.json" in names:
+            self.fold_weights = {int(key): value for key, value in container.read_json("fold_weights.json").items()}
 
-            # Load train_pipeline.json (if present): the ADDITIVE replayable TRAINING spec a native
-            # dag-ml single-model export carries (its pipeline.json model step is a cosmetic label the
-            # predict loader keys on, not a re-trainable component reference).
-            if 'train_pipeline.json' in zf.namelist():
-                with zf.open('train_pipeline.json') as f:
-                    self.train_pipeline_config = json.load(f)
+        if self.metadata and self.metadata.relation_replay_manifest:
+            relation_ref = self.metadata.relation_replay_manifest
+            relation_path = relation_ref.get("path", "relation_replay_manifest.json")
+            if relation_path not in names:
+                raise ValueError(f"Bundle relation replay manifest reference points to missing file: {relation_path}")
+            relation_payload = container.read_json(relation_path)
+            if not isinstance(relation_payload, dict):
+                raise ValueError("Bundle relation replay manifest must be a JSON object")
+            self.relation_replay_manifest = relation_payload
 
-            # Load chain.json (store-based export format)
-            if 'chain.json' in zf.namelist():
-                with zf.open('chain.json') as f:
-                    self._chain_data = json.load(f)
-
-            # Load trace.json (if present)
-            if 'trace.json' in zf.namelist():
-                with zf.open('trace.json') as f:
-                    trace_data = json.load(f)
-                    self.trace = ExecutionTrace.from_dict(trace_data)
-
-            # Load fold_weights.json (if present)
-            if 'fold_weights.json' in zf.namelist():
-                with zf.open('fold_weights.json') as f:
-                    weights_data = json.load(f)
-                    # Convert string keys back to int
-                    self.fold_weights = {int(k): v for k, v in weights_data.items()}
-
-            if self.metadata and self.metadata.relation_replay_manifest:
-                relation_ref = self.metadata.relation_replay_manifest
-                relation_path = relation_ref.get("path", "relation_replay_manifest.json")
-                if relation_path not in zf.namelist():
-                    raise ValueError(
-                        f"Bundle relation replay manifest reference points to missing file: {relation_path}"
-                    )
-                with zf.open(relation_path) as f:
-                    relation_payload = json.load(f)
-                if not isinstance(relation_payload, dict):
-                    raise ValueError("Bundle relation replay manifest must be a JSON object")
-                self.relation_replay_manifest = relation_payload
-
-            # Build artifact index
-            for name in zf.namelist():
-                if name.startswith('artifacts/') and name != 'artifacts/':
-                    filename = name.split('/')[-1]
-                    # Parse key from filename (e.g., "step_1_SNV.joblib" -> "step_1")
-                    key = self._filename_to_key(filename)
-                    self._artifact_index[key] = filename
+        # Core's declared order retains substep semantics; physical ZIP order does not.
+        for name in names:
+            if name.startswith("artifacts/") and not name.endswith("/"):
+                filename = name.split("/")[-1]
+                self._artifact_index[self._filename_to_key(filename)] = filename
 
         # Extract step_info from pipeline_config when no trace available
         # This is critical for identifying y_processing vs regular preprocessing
@@ -600,7 +609,8 @@ class BundleLoader:
             artifact_index=self._artifact_index,
             fold_weights=self.fold_weights,
             step_info=step_info,
-            trace=self.trace
+            trace=self.trace,
+            source=self._source,
         )
 
     def _filename_to_key(self, filename: str) -> str:
@@ -1278,7 +1288,7 @@ class BundleLoader:
 
         return steps
 
-    def to_resolved_prediction(self) -> Any:
+    def to_resolved_prediction(self) -> "ResolvedPrediction":
         """Convert bundle to ResolvedPrediction for use with Predictor.
 
         Returns:

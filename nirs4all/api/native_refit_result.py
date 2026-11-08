@@ -63,8 +63,8 @@ class NativeMethodsRefitResult:
     def save_package(self, path: str | Path) -> Path:
         """Persist the signed V3 package without invoking a legacy exporter.
 
-        This is intentionally a Package V3 JSON file, not an Archive V3
-        container.  Core remains the owner of archive containers and their
+        This is intentionally a Package V3 JSON file, not a native Package V3
+        container (:meth:`export`).  Core remains the owner of containers and their
         publication policy.  Existing paths are refused and a failed write is
         removed, so callers never receive a partially written replacement.
         """
@@ -195,36 +195,34 @@ class NativeMethodsRefitResult:
         core_module: str = "nirs4all_core",
         **kwargs: Any,
     ) -> Path:
-        """Write a strict Core Archive V3 without any legacy bundle fallback.
+        """Write a strict native Package V3 Core container without any legacy bundle fallback.
 
-        DAG-ML assembles the exact V3 semantic closure from this child package.
-        Core alone writes and validates the ZIP container.  The optional
-        ``archive_id`` is passed to the DAG-ML assembler; a deterministic,
+        Core builds the standalone refit closure from this child package through
+        DAG-ML and writes the new container (no parent outcome, ``RefitOf`` link or
+        score is invented). The destination must not exist: Core never replaces a
+        file. The optional ``archive_id`` is the Core container id; a deterministic,
         portable identifier is used when it is omitted.
         """
 
         if kwargs:
-            raise TypeError(f"native Archive V3 export does not accept options: {sorted(kwargs)}")
+            raise TypeError(f"native Package V3 export does not accept options: {sorted(kwargs)}")
         package_json = self.package_json()
         if archive_id is None:
             archive_id = f"native-refit:{sha256(package_json.encode('utf-8')).hexdigest()[:32]}"
         if not isinstance(archive_id, str):
             raise TypeError("archive_id must be a string when supplied")
-        dag_ml = importlib.import_module(self._client.module_name)
-        assemble = getattr(dag_ml, "build_archive_v3_native_refit_payloads", None)
-        if not callable(assemble):
-            raise RuntimeError("installed DAG-ML lacks the Archive V3 native refit assembler")
         try:
             core = importlib.import_module(core_module)
         except ImportError as error:
             raise RuntimeError(
-                "native Archive V3 export requires the matching nirs4all-core native bridge"
+                "native Package V3 export requires the matching nirs4all-core native bridge"
             ) from error
-        write_archive = getattr(core, "write_archive_v3_from_native_payloads", None)
-        if not callable(write_archive):
-            raise RuntimeError("installed nirs4all-core lacks the Archive V3 writer")
-        manifest, members = assemble(archive_id, self._package)
-        write_archive(output_path, manifest, members)
+        write_package = getattr(core, "write_native_refit_package", None)
+        if not callable(write_package):
+            raise RuntimeError("installed nirs4all-core lacks the native Package V3 writer")
+        from nirs4all.pipeline.dagml.native_archive_replay import _writer_reference
+
+        _writer_reference(write_package(str(output_path), package_json.encode("utf-8"), container_id=archive_id), archive_id)
         return Path(output_path)
 
     @classmethod
@@ -236,21 +234,28 @@ class NativeMethodsRefitResult:
         dagml_module: str = "dag_ml",
         decoder: Callable[[Any, Any], np.ndarray] | None = None,
         core_module: str = "nirs4all_core",
+        source: Any = None,
     ) -> NativeMethodsRefitResult:
-        """Load a Core-validated Archive V3, then strictly parse Package V3."""
+        """Load a Core-validated native Package V3 container, then strictly parse Package V3.
+
+        ``source`` is the caller's retained :class:`N4aSource`; Core then reads through
+        its one verified handle instead of reopening ``path``.
+        """
+
+        from nirs4all.pipeline.dagml.core_archive_replay import core_input
 
         try:
             core = importlib.import_module(core_module)
         except ImportError as error:
             raise RuntimeError(
-                "native Archive V3 load requires the matching nirs4all-core native bridge"
+                "native Package V3 load requires the matching nirs4all-core native bridge"
             ) from error
         read_archive = getattr(core, "read_portable_refit_package_v3", None)
         if not callable(read_archive):
-            raise RuntimeError("installed nirs4all-core lacks the Archive V3 reader")
-        package_bytes = read_archive(path)
+            raise RuntimeError("installed nirs4all-core lacks the native Package V3 reader")
+        package_bytes = read_archive(core_input(path, source))
         if not isinstance(package_bytes, bytes):
-            raise RuntimeError("Core Archive V3 reader returned non-bytes package data")
+            raise RuntimeError("Core native Package V3 reader returned non-bytes package data")
         return cls.from_package_json(
             package_bytes.decode("utf-8"),
             methods_library_path=methods_library_path,

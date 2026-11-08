@@ -1,8 +1,11 @@
-"""Fail-closed public replay adapter for Core Archive V2/V3.
+"""Fail-closed public replay adapter for native Package V2/V3 Core containers.
 
-This module only performs bounded routing and host-input adaptation.  Core
-owns archive validation, DAG-ML owns replay contracts and scheduling, and the
-Methods runtime owns numerical execution.  No legacy runner or Python model
+This module only performs host-input adaptation.  Core owns container and
+selected-closure validation (the declared owner, content type, profile and
+operation), DAG-ML owns replay contracts and scheduling, and the Methods runtime
+owns numerical execution.  The caller passes the one retained Core handle of its
+public call (:class:`~nirs4all.pipeline.dagml.host_container.N4aSource`) or, for a
+direct path call, Core opens the path itself.  No legacy runner or Python model
 callback is part of this path.
 """
 
@@ -11,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
-import zipfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -22,13 +24,8 @@ import numpy as np
 
 from .identity import validate_data_id
 
-_MAX_MANIFEST_BYTES = 1_048_576
-_MAX_PACKAGE_BYTES = 8_388_608
 _MAX_METHODS_LIBRARY_BYTES = 67_108_864
-_CORE_PROFILES = {
-    2: "nirs4all.archive_workspace.v2",
-    3: "nirs4all.archive_workspace.v3",
-}
+CANONICAL_N4A_V1 = "nirs4all.n4a.container.v1"
 
 
 class CoreArchiveReplayError(RuntimeError):
@@ -55,61 +52,16 @@ class CoreArchiveValidation:
     methods_library_sha256: str
 
 
-def detect_core_archive_version(path: str | Path) -> int | None:
-    """Return 2/3 only for an exact Core archive routing manifest.
+def core_input(archive_path: str | Path, source: Any = None) -> Any:
+    """The Core reader input of one public call: the retained ``NativePackage``, else the path.
 
-    The manifest read is a bounded routing hint, not archive validation.  A
-    recognized archive is subsequently reopened and fully validated by Core.
-    Legacy/non-Core bundles return ``None`` and keep their historical path.
-    A manifest that claims the Core family but is inconsistent fails closed.
+    ``source`` is the :class:`N4aSource` already opened by the caller; its retained Core
+    ``NativePackage`` carries the selected proof, so every read reuses one verified closure.
     """
 
-    candidate = Path(path)
-    if not candidate.is_file() or candidate.suffix.lower() != ".n4a":
-        return None
-    try:
-        with zipfile.ZipFile(candidate) as archive:
-            try:
-                info = archive.getinfo("manifest.json")
-            except KeyError:
-                return None
-            if info.file_size > _MAX_MANIFEST_BYTES:
-                raise CoreArchiveReplayError("Core archive manifest exceeds the routing budget")
-            with archive.open(info) as manifest_file:
-                payload = manifest_file.read(_MAX_MANIFEST_BYTES + 1)
-            if len(payload) > _MAX_MANIFEST_BYTES:
-                raise CoreArchiveReplayError("Core archive manifest exceeds the routing budget")
-    except CoreArchiveReplayError:
-        raise
-    except (OSError, zipfile.BadZipFile, RuntimeError):
-        return None
-    try:
-        manifest = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(manifest, dict):
-        return None
-
-    profile = manifest.get("profile")
-    writer = manifest.get("writer")
-    owner = writer.get("product_aggregate_owner") if isinstance(writer, dict) else None
-    claims_core = owner == "nirs4all-core" or profile in _CORE_PROFILES.values()
-    if not claims_core:
-        return None
-
-    version = manifest.get("schema_version")
-    if (
-        not isinstance(version, int)
-        or isinstance(version, bool)
-        or version not in _CORE_PROFILES
-        or manifest.get("persistence_kind") != "n4a_archive"
-        or profile != _CORE_PROFILES[version]
-        or owner != "nirs4all-core"
-    ):
-        raise CoreArchiveReplayError(
-            "archive claims the nirs4all-core family but has an incompatible routing manifest"
-        )
-    return version
+    if source is not None:
+        return source.native_input()
+    return str(Path(archive_path))
 
 
 def predict_core_methods_archive_v2(
@@ -117,41 +69,30 @@ def predict_core_methods_archive_v2(
     data: Any,
     *,
     methods_library_path: str | Path | None,
-    validated_archive: tuple[Path, CoreArchiveValidation] | None = None,
-    expected_archive_fingerprint: str | None = None,
+    validated_archive: CoreArchiveValidation | None = None,
+    source: Any = None,
     outcome_id: str = "outcome:nirs4all.core_archive_predict",
     run_id: str = "run:nirs4all.core_archive_predict",
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """Replay one exact, explicitly identified raw cohort through Core V2.
 
     ``validated_archive`` is the immutable package-contract cache owned by a
-    loaded :class:`Session`. Core still reopens and validates the archive for
-    every replay, and the Methods runtime keeps all native handles scoped to
-    that call. When ``expected_archive_fingerprint`` is supplied, the adapter
-    performs one bounded-memory full-file hash before reading ``data``; this
-    binds the single Session cache entry to its source and is not a general
-    replay-result cache.
+    loaded :class:`Session`; it is bound to that Session's retained Core handle
+    (``source``), whose reads Core verifies against the opened container, so a
+    changed file is refused by Core rather than re-hashed here. Core reads the
+    selected closure for every replay, and the Methods runtime keeps all native
+    handles scoped to that call. It is not a general replay-result cache.
     """
 
     candidate = Path(archive_path)
-    if (
-        expected_archive_fingerprint is not None
-        and _archive_fingerprint(candidate) != expected_archive_fingerprint
-    ):
-        raise CoreArchiveReplayError(
-            "Core Archive V2 changed after Session validation; load a new session"
-        )
     if validated_archive is None:
         validation = validate_core_methods_archive_v2(
             candidate,
             methods_library_path=methods_library_path,
+            source=source,
         )
     else:
-        validated_path, validation = validated_archive
-        if candidate != validated_path:
-            raise CoreArchiveReplayError(
-                "Core Archive V2 validation cache does not match the replay path"
-            )
+        validation = validated_archive
         if methods_library_path is not None:
             requested_path, requested_sha256 = _resolve_methods_library_identity(
                 methods_library_path
@@ -169,13 +110,13 @@ def predict_core_methods_archive_v2(
 
     if is_methods_multimodal_package(validation.package):
         return predict_methods_multimodal_archive(candidate, data, methods_library_path=validation.methods_library_path,
-                                                  outcome_id=outcome_id, run_id=run_id)
+                                                  outcome_id=outcome_id, run_id=run_id, source=source)
 
     if is_native_pls_phase_package(validation.package):
         try:
             return predict_native_pls_phase_archive(
                 candidate, data, methods_library_path=validation.methods_library_path,
-                outcome_id=outcome_id, run_id=run_id,
+                outcome_id=outcome_id, run_id=run_id, source=source,
             )
         except Exception as error:
             raise CoreArchiveReplayError("Core/DAG-ML/Methods native PLS phase archive replay failed") from error
@@ -191,7 +132,7 @@ def predict_core_methods_archive_v2(
         )
     try:
         outcome = predict(
-            str(candidate),
+            core_input(candidate, source),
             list(sample_ids),
             X.tolist(),
             list(target_names),
@@ -224,8 +165,9 @@ def validate_core_methods_archive_v2(
     archive_path: str | Path,
     *,
     methods_library_path: str | Path | None = None,
+    source: Any = None,
 ) -> CoreArchiveValidation:
-    """Validate one V2 archive and derive its predictors from native bytes."""
+    """Validate one Package V2 container and derive its predictors from native bytes."""
 
     core = _load_core_bridge()
     read_package = getattr(core, "read_portable_predictor_package_v2", None)
@@ -243,7 +185,7 @@ def validate_core_methods_archive_v2(
         )
     library_path, library_sha256 = _resolve_methods_library_identity(methods_library_path)
     try:
-        package_bytes = read_package(str(Path(archive_path)))
+        package_bytes = read_package(core_input(archive_path, source))
     except Exception as error:
         raise CoreArchiveReplayError("nirs4all-core refused Archive V2 validation") from error
     package = _decode_package(package_bytes)
@@ -252,7 +194,7 @@ def validate_core_methods_archive_v2(
     if is_methods_multimodal_package(package):
         from nirs4all.api.portable_archive import read_portable_predictor_archive_v2
 
-        loaded = read_portable_predictor_archive_v2(archive_path)
+        loaded = read_portable_predictor_archive_v2(archive_path, source=source)
         native_profile = PROFILE
         if any(record.get("artifact", {}).get("kind") == "methods_multimodal_classifier_pipeline"
                for record in loaded.to_dict()["execution_bundle"]["refit_artifacts"]):
@@ -265,7 +207,7 @@ def validate_core_methods_archive_v2(
 
     if is_native_pls_phase_package(package):
         try:
-            loaded, models = read_native_pls_phase_archive(archive_path, methods_library_path=library_path)
+            loaded, models = read_native_pls_phase_archive(archive_path, methods_library_path=library_path, source=source)
         except Exception as error:
             raise CoreArchiveReplayError("Core/DAG-ML/Methods refused native PLS phase archive inspection") from error
         return CoreArchiveValidation(
@@ -274,7 +216,7 @@ def validate_core_methods_archive_v2(
         )
     try:
         raw_predictors = inspect_predictors(
-            str(Path(archive_path)),
+            core_input(archive_path, source),
             methods_library_path=library_path,
             methods_library_sha256=library_sha256,
         )
@@ -306,10 +248,6 @@ def _load_core_bridge() -> Any:
 def _decode_package(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, bytes):
         raise CoreArchiveReplayError("Core Archive V2 reader returned non-byte package data")
-    if len(payload) > _MAX_PACKAGE_BYTES:
-        raise CoreArchiveReplayError(
-            "Core Archive V2 Package V2 exceeds the 8 MiB Session cache budget"
-        )
     try:
         document = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -317,21 +255,6 @@ def _decode_package(payload: Any) -> dict[str, Any]:
     if not isinstance(document, dict) or document.get("schema_version") != 2:
         raise CoreArchiveReplayError("Core Archive V2 does not contain a Package V2 object")
     return document
-
-
-def _archive_fingerprint(path: Path) -> str:
-    """Hash an archive in bounded-memory chunks for Session cache binding."""
-
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as archive:
-            for chunk in iter(lambda: archive.read(1_048_576), b""):
-                digest.update(chunk)
-    except OSError as error:
-        raise CoreArchiveReplayError(
-            "Core Archive V2 source cannot be fingerprinted"
-        ) from error
-    return digest.hexdigest()
 
 
 def _normalize_dataset(
@@ -572,10 +495,11 @@ def _canonical_json(value: Any) -> str:
 
 
 __all__ = [
+    "CANONICAL_N4A_V1",
     "CoreArchiveDependencyError",
     "CoreArchiveReplayError",
     "CoreArchiveValidation",
-    "detect_core_archive_version",
+    "core_input",
     "predict_core_methods_archive_v2",
     "validate_core_methods_archive_v2",
 ]

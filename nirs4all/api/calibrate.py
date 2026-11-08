@@ -7,7 +7,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
@@ -32,6 +32,9 @@ from nirs4all.pipeline.dagml.conformal_store import (
     load_conformal_result_store,
     save_conformal_result_store,
 )
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.dagml.host_container import N4aSource
 
 ConformalUnit = Literal["physical_sample"]
 CONFORMAL_CALIBRATION_METHODS: tuple[ConformalMethod, ...] = ("split_absolute_residual",)
@@ -371,12 +374,17 @@ def calibrate(
     return cast(PredictResult, result.to_predict_result())
 
 
-def load_calibrated_result(path: str | Path) -> CalibratedRunResult:
-    """Load a verified conformal calibration result store or bundle."""
+def load_calibrated_result(path: str | Path, *, source: N4aSource | None = None) -> CalibratedRunResult:
+    """Load a verified conformal store or archive, borrowing a supplied source.
+
+    The archive loader validates the borrowed source without opening or closing
+    it. A standalone archive load owns exactly one source; directory stores
+    require no container open.
+    """
 
     candidate = Path(path)
-    if candidate.is_file():
-        return load_conformal_result_archive(candidate)
+    if source is not None or candidate.is_file():
+        return load_conformal_result_archive(candidate, source=source)
     return load_conformal_result_store(candidate)
 
 
