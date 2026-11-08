@@ -84,10 +84,10 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
 
     dependencies = set(pyproject["project"]["dependencies"])
     assert {
-        "dag-ml>=0.3.44,<0.4",
+        "dag-ml>=0.4.0,<0.5",
         "dag-ml-data>=0.2.16,<0.3",
-        "nirs4all-io>=0.2.14,<0.3",
-        "nirs4all-core>=0.4.7,<0.5",
+        "nirs4all-io>=0.3.0,<0.4",
+        "nirs4all-core>=0.5.0,<0.6",
         "nirs4all-methods>=1.3.13,<2",
         "pls4all>=1.3.13,<2",
     } <= dependencies

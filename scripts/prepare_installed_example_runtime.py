@@ -22,7 +22,7 @@ SDK_VERSION = next(
     for node in ast.parse(_SDK_SOURCE.read_text(encoding="utf-8")).body
     if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
 )
-UPSTREAMS = {"pls4all": "1.3.13", "nirs4all-methods": "1.3.13", "nirs4all-io": "0.2.14", "dag-ml": "0.3.44", "dag-ml-data": "0.2.16", "nirs4all-core": "0.4.7", "nirs4all-formats": "0.2.14"}
+UPSTREAMS = {"pls4all": "1.3.13", "nirs4all-methods": "1.3.13", "nirs4all-io": "0.3.0", "dag-ml": "0.4.0", "dag-ml-data": "0.2.16", "nirs4all-core": "0.5.0", "nirs4all-formats": "0.2.15"}
 PRODUCT_MODULES = {"nirs4all", "n4m", "pls4all", "dag_ml", "dag_ml_data", "nirs4all_io", "nirs4all_core", "nirs4all_formats"}
 INSTALLED_PYTHON_VARIABLES = (
     "NIRS4ALL_BY_SOURCE_INSTALLED_PYTHON", "NIRS4ALL_CV_WEIGHT_INSTALLED_PYTHON", "NIRS4ALL_U07_INSTALLED_PYTHON",

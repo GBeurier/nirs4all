@@ -190,13 +190,13 @@ def test_parity_environment_dependencies_are_declared() -> None:
     assert "referencing" in project_dep_names
     assert "jsonschema" in project_dep_names
     assert str(project_deps["jsonschema"].specifier) == ">=4.18.0"
-    # Target-missing fold-set declarations require the qualified DAG-ML 0.3.44 or newer.
+    # Target-missing fold-set declarations require the DAG-ML 0.4.0 family.
     dagml_specifier = project_deps["dag-ml"].specifier
-    assert "0.3.44" in dagml_specifier
-    assert "0.3.43" not in dagml_specifier
-    assert "0.4.0" not in dagml_specifier
+    assert "0.4.0" in dagml_specifier
+    assert "0.3.44" not in dagml_specifier
+    assert "0.5.0" not in dagml_specifier
     assert str(project_deps["dag-ml-data"].specifier) == "<0.3,>=0.2.16"
-    assert str(native_deps["nirs4all-core"].specifier) == "<0.5,>=0.4.7"
+    assert str(native_deps["nirs4all-core"].specifier) == "<0.6,>=0.5.0"
     assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.3.13"
     assert "shap" in explain_deps
     assert "shap" in dev_deps
