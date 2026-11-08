@@ -112,17 +112,22 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
 
         X = check_array(X, dtype=FLOAT_DTYPES, copy=self.copy)
 
-        if self.with_mean:
-            mean = np.mean(X, axis=self.axis, keepdims=True)
-            X = X - mean
+        if self.axis not in [0, 1]:
+            raise ValueError(f"axis must be 0 or 1, got {self.axis}")
+        # Keep undefined scaling explicit even with an older owner runtime.
+        if self.with_std and self.ddof >= X.shape[self.axis]:
+            raise ValueError("ddof must be smaller than the normalization width when with_std=True")
 
-        if self.with_std:
-            std = np.std(X, axis=self.axis, ddof=self.ddof, keepdims=True)
-            # Avoid division by zero
-            std[std == 0] = 1.0
-            X = X / std
+        from n4m.transform.scatter import SNV as MethodsSNV
 
-        return X
+        result = MethodsSNV(
+            with_mean=bool(self.with_mean), with_std=bool(self.with_std), ddof=self.ddof,
+        ).transform(X.T if self.axis == 0 else X)
+        if not self.with_mean and not self.with_std:
+            # The existing no-op returns the validated buffer, including its
+            # alias when copy=False. Active normalization never mutates X.
+            return X
+        return np.asarray(result.T if self.axis == 0 else result, dtype=X.dtype)
 
     def fit_transform(self, X, y=None):
         """Fit to data, then transform it.

@@ -136,7 +136,7 @@ def savgol(
 ) -> np.ndarray:
     """
     Perform Savitzky–Golay filtering on the data (also calculates derivatives).
-    This function is a wrapper for scipy.signal.savgol_filter.
+    Methods owns the filter; the last-axis and dtype conventions match SciPy.
 
     Args:
         spectra (numpy.ndarray): NIRS data matrix.
@@ -148,7 +148,17 @@ def savgol(
     Returns:
         numpy.ndarray: NIRS data smoothed with Savitzky-Golay filtering.
     """
-    return np.asarray(signal.savgol_filter(spectra, window_length, polyorder, deriv, delta=delta))
+    from n4m.transform.smoothing import SavitzkyGolay as MethodsSavitzkyGolay
+
+    spectra = np.asarray(spectra)
+    if window_length > spectra.shape[-1]:
+        raise ValueError("If mode is 'interp', window_length must be less than or equal to the size of x.")
+    result = MethodsSavitzkyGolay(
+        window_length=window_length, polyorder=polyorder, deriv=deriv,
+        delta=delta, mode="interp", cval=0.0,
+    ).transform(spectra.reshape(-1, spectra.shape[-1]))
+    dtype = np.float32 if spectra.dtype == np.float32 else np.float64
+    return np.asarray(result, dtype=dtype).reshape(spectra.shape)
 
 class SavitzkyGolay(TransformerMixin, BaseEstimator):
     """

@@ -40,7 +40,7 @@ def main() -> None:
     assert callable(sdk.run)
     assert importlib.import_module("dag_ml").version() == distributions["dag-ml"]
     methods = importlib.import_module("n4m")
-    assert methods.abi_version()[:2] == (2, 20)
+    assert methods.abi_version()[:2] == (2, 22)
     assert methods.version().split("+abi.")[0] == distributions["nirs4all-methods"]
     library = Path(methods.library_path()).resolve()
     assert library.is_file() and not library.is_relative_to(source)
