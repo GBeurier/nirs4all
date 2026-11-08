@@ -579,7 +579,7 @@ def is_methods_multimodal_package(package: Mapping[str, Any]) -> bool:
 
 
 def predict_methods_multimodal_archive(path: str | Path, data: Any, *, methods_library_path: str,
-                                      outcome_id: str, run_id: str) -> tuple[np.ndarray, dict[str, Any]]:
+                                      outcome_id: str, run_id: str, source: Any = None) -> tuple[np.ndarray, dict[str, Any]]:
     """Replay current raw sources through the validated package without FIT/HPO."""
     from nirs4all.api.portable_archive import read_portable_predictor_archive_v2
     from nirs4all.data.multimodal import MultimodalSpectroDataset
@@ -591,7 +591,7 @@ def predict_methods_multimodal_archive(path: str | Path, data: Any, *, methods_l
     from .raw_replay_lowerer import _requirements, _source_outcome_fingerprint
     from .raw_training_lowerer import _core_relation_fingerprint
 
-    package = read_portable_predictor_archive_v2(path)
+    package = read_portable_predictor_archive_v2(path, source=source)
     document = package.to_dict()
     if not is_methods_multimodal_package(document):
         raise ValueError("archive is not a complete Methods multimodal package")

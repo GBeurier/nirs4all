@@ -5,6 +5,7 @@ Tests the BundleGenerator and BundleLoader classes for exporting
 and loading prediction bundles.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -23,8 +24,28 @@ from nirs4all.pipeline.bundle import (
     BundleMetadata,
 )
 from nirs4all.pipeline.bundle.loader import BundleArtifactProvider
+from nirs4all.pipeline.dagml.host_container import (
+    BUNDLE_CONTENT_TYPE,
+    BUNDLE_MANIFEST_MEMBER,
+    JOBLIB_CONTENT_TYPE,
+    JSON_CONTENT_TYPE,
+    HostMember,
+    open_n4a_source,
+    write_host_container,
+)
 from nirs4all.pipeline.resolver import FoldStrategy, ResolvedPrediction, SourceType
 from nirs4all.pipeline.trace import ExecutionStep, ExecutionTrace, StepArtifacts
+
+
+def _bundle_member(path: str, payload: str | bytes) -> HostMember:
+    """Declare fixture payloads explicitly through the canonical host builder."""
+    if path == BUNDLE_MANIFEST_MEMBER:
+        kind, content_type = "provenance", BUNDLE_CONTENT_TYPE
+    elif path.startswith("artifacts/"):
+        kind, content_type = "model", JOBLIB_CONTENT_TYPE
+    else:
+        kind, content_type = "recipe", JSON_CONTENT_TYPE
+    return HostMember(path, payload.encode() if isinstance(payload, str) else payload, kind, content_type)
 
 
 class SimpleModel:
@@ -250,13 +271,16 @@ class TestBundleGenerator:
             mock_resolved_prediction,
             tmp_path / "relation_bundle.n4a",
             include_metadata=True,
-            compress=True,
         )
 
-        with zipfile.ZipFile(bundle_path) as zf:
-            assert "relation_replay_manifest.json" in zf.namelist()
-            manifest = json.loads(zf.read("manifest.json"))
-            relation_payload = json.loads(zf.read("relation_replay_manifest.json"))
+        with open_n4a_source(bundle_path) as source:
+            container = source.require_host()
+            names = container.namelist()
+            assert "relation_replay_manifest.json" in names
+            assert names[:3] == [BUNDLE_MANIFEST_MEMBER, "relation_replay_manifest.json", "pipeline.json"]
+            assert "manifest.json" not in names
+            manifest = container.read_json(BUNDLE_MANIFEST_MEMBER)
+            relation_payload = container.read_json("relation_replay_manifest.json")
 
         assert manifest["relation_replay_manifest"]["fingerprint"] == "rel_fp"
         assert relation_payload["staging_manifest"]["fingerprint"] == "table_fp"
@@ -295,60 +319,61 @@ class TestBundleLoader:
 
             bundle_path = tmp_path / "test_bundle.n4a"
 
-            with zipfile.ZipFile(bundle_path, 'w') as zf:
-                # Write manifest
-                manifest = {
-                    "bundle_format_version": bundle_version,
-                    "nirs4all_version": "0.9.0",
-                    "created_at": "2024-12-14T10:00:00",
+            _members = []
+            # Write manifest
+            manifest = {
+                "bundle_format_version": bundle_version,
+                "nirs4all_version": "0.9.0",
+                "created_at": "2024-12-14T10:00:00",
+                "pipeline_uid": pipeline_uid,
+                "source_type": "prediction",
+                "model_step_index": model_step,
+                "fold_strategy": "weighted_average",
+                "preprocessing_chain": "SNV>MinMax",
+            }
+            if include_relation_manifest:
+                manifest["relation_replay_manifest"] = {
+                    "path": "relation_replay_manifest.json",
+                    "version": "1.0",
+                    "fingerprint": "rel_fp",
+                }
+            _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
+            if include_relation_manifest:
+                relation_payload = {
+                    "version": "1.0",
+                    "fingerprint": "rel_fp",
+                    "staging_manifest": {"fingerprint": "table_fp"},
+                    "representation_plan": None,
+                    "reduction_plans": [],
+                }
+                _members.append(_bundle_member('relation_replay_manifest.json', json.dumps(relation_payload)))
+
+            # Write pipeline config
+            pipeline_config = {
+                "steps": [{"transform": "SNV"}, {"model": "PLSRegression"}],
+                "model_step_index": model_step,
+            }
+            _members.append(_bundle_member('pipeline.json', json.dumps(pipeline_config)))
+
+            # Write fold weights
+            fold_weights = {"0": 0.52, "1": 0.48}
+            _members.append(_bundle_member('fold_weights.json', json.dumps(fold_weights)))
+
+            if include_trace:
+                trace_data = {
+                    "trace_id": "test_trace",
                     "pipeline_uid": pipeline_uid,
-                    "source_type": "prediction",
                     "model_step_index": model_step,
-                    "fold_strategy": "weighted_average",
-                    "preprocessing_chain": "SNV>MinMax",
+                    "steps": [],
                 }
-                if include_relation_manifest:
-                    manifest["relation_replay_manifest"] = {
-                        "path": "relation_replay_manifest.json",
-                        "version": "1.0",
-                        "fingerprint": "rel_fp",
-                    }
-                zf.writestr('manifest.json', json.dumps(manifest))
-                if include_relation_manifest:
-                    relation_payload = {
-                        "version": "1.0",
-                        "fingerprint": "rel_fp",
-                        "staging_manifest": {"fingerprint": "table_fp"},
-                        "representation_plan": None,
-                        "reduction_plans": [],
-                    }
-                    zf.writestr('relation_replay_manifest.json', json.dumps(relation_payload))
+                _members.append(_bundle_member('trace.json', json.dumps(trace_data)))
 
-                # Write pipeline config
-                pipeline_config = {
-                    "steps": [{"transform": "SNV"}, {"model": "PLSRegression"}],
-                    "model_step_index": model_step,
-                }
-                zf.writestr('pipeline.json', json.dumps(pipeline_config))
-
-                # Write fold weights
-                fold_weights = {"0": 0.52, "1": 0.48}
-                zf.writestr('fold_weights.json', json.dumps(fold_weights))
-
-                if include_trace:
-                    trace_data = {
-                        "trace_id": "test_trace",
-                        "pipeline_uid": pipeline_uid,
-                        "model_step_index": model_step,
-                        "steps": [],
-                    }
-                    zf.writestr('trace.json', json.dumps(trace_data))
-
-                # Write a mock artifact
-                buffer = io.BytesIO()
-                model = SimpleModel()
-                joblib.dump(model, buffer)
-                zf.writestr('artifacts/step_4_fold0_PLSRegression.joblib', buffer.getvalue())
+            # Write a mock artifact
+            buffer = io.BytesIO()
+            model = SimpleModel()
+            joblib.dump(model, buffer)
+            _members.append(_bundle_member('artifacts/step_4_fold0_PLSRegression.joblib', buffer.getvalue()))
+            write_host_container(bundle_path, _members)
 
             return bundle_path
 
@@ -425,25 +450,26 @@ class TestBundleLoader:
         relation_manifest = build_relation_replay_manifest(materialization=materialization).to_dict()
 
         bundle_path = tmp_path / "relation_predict.n4a"
-        with zipfile.ZipFile(bundle_path, "w") as zf:
-            zf.writestr(
-                "manifest.json",
-                json.dumps({
-                    "bundle_format_version": "1.0",
-                    "pipeline_uid": "relation_pipeline",
-                    "model_step_index": 4,
-                    "relation_replay_manifest": {
-                        "path": "relation_replay_manifest.json",
-                        "version": relation_manifest["version"],
-                        "fingerprint": relation_manifest["fingerprint"],
-                    },
-                }),
-            )
-            zf.writestr("pipeline.json", json.dumps({"steps": [{"model": "PLSRegression"}], "model_step_index": 4}))
-            zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest))
-            buffer = io.BytesIO()
-            joblib.dump(SimpleModel(), buffer)
-            zf.writestr("artifacts/step_4_fold0_PLSRegression.joblib", buffer.getvalue())
+        _members = []
+        _members.append(_bundle_member(
+            BUNDLE_MANIFEST_MEMBER,
+            json.dumps({
+                "bundle_format_version": "1.0",
+                "pipeline_uid": "relation_pipeline",
+                "model_step_index": 4,
+                "relation_replay_manifest": {
+                    "path": "relation_replay_manifest.json",
+                    "version": relation_manifest["version"],
+                    "fingerprint": relation_manifest["fingerprint"],
+                },
+            }),
+        ))
+        _members.append(_bundle_member("pipeline.json", json.dumps({"steps": [{"model": "PLSRegression"}], "model_step_index": 4})))
+        _members.append(_bundle_member("relation_replay_manifest.json", json.dumps(relation_manifest)))
+        buffer = io.BytesIO()
+        joblib.dump(SimpleModel(), buffer)
+        _members.append(_bundle_member("artifacts/step_4_fold0_PLSRegression.joblib", buffer.getvalue()))
+        write_host_container(bundle_path, _members)
 
         loader = BundleLoader(bundle_path)
 
@@ -504,25 +530,26 @@ class TestBundleLoader:
         relation_manifest = build_relation_replay_manifest(materialization=materialization).to_dict()
 
         bundle_path = tmp_path / "relation_masked_predict.n4a"
-        with zipfile.ZipFile(bundle_path, "w") as zf:
-            zf.writestr(
-                "manifest.json",
-                json.dumps({
-                    "bundle_format_version": "1.0",
-                    "pipeline_uid": "relation_masked_pipeline",
-                    "model_step_index": 4,
-                    "relation_replay_manifest": {
-                        "path": "relation_replay_manifest.json",
-                        "version": relation_manifest["version"],
-                        "fingerprint": relation_manifest["fingerprint"],
-                    },
-                }),
-            )
-            zf.writestr("pipeline.json", json.dumps({"steps": [{"model": "PLSRegression"}], "model_step_index": 4}))
-            zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest))
-            buffer = io.BytesIO()
-            joblib.dump(SimpleModel(), buffer)
-            zf.writestr("artifacts/step_4_fold0_PLSRegression.joblib", buffer.getvalue())
+        _members = []
+        _members.append(_bundle_member(
+            BUNDLE_MANIFEST_MEMBER,
+            json.dumps({
+                "bundle_format_version": "1.0",
+                "pipeline_uid": "relation_masked_pipeline",
+                "model_step_index": 4,
+                "relation_replay_manifest": {
+                    "path": "relation_replay_manifest.json",
+                    "version": relation_manifest["version"],
+                    "fingerprint": relation_manifest["fingerprint"],
+                },
+            }),
+        ))
+        _members.append(_bundle_member("pipeline.json", json.dumps({"steps": [{"model": "PLSRegression"}], "model_step_index": 4})))
+        _members.append(_bundle_member("relation_replay_manifest.json", json.dumps(relation_manifest)))
+        buffer = io.BytesIO()
+        joblib.dump(SimpleModel(), buffer)
+        _members.append(_bundle_member("artifacts/step_4_fold0_PLSRegression.joblib", buffer.getvalue()))
+        write_host_container(bundle_path, _members)
 
         loader = BundleLoader(bundle_path)
 
@@ -537,19 +564,20 @@ class TestBundleLoader:
     def test_relation_replay_manifest_reference_must_exist(self, tmp_path):
         """Test relation replay manifest references fail loudly when broken."""
         bundle_path = tmp_path / "broken_relation_ref.n4a"
-        with zipfile.ZipFile(bundle_path, "w") as zf:
-            zf.writestr(
-                "manifest.json",
-                json.dumps({
-                    "bundle_format_version": "1.0",
-                    "pipeline_uid": "test_pipeline",
-                    "relation_replay_manifest": {
-                        "path": "relation_replay_manifest.json",
-                        "version": "1.0",
-                        "fingerprint": "rel_fp",
-                    },
-                }),
-            )
+        _members = []
+        _members.append(_bundle_member(
+            BUNDLE_MANIFEST_MEMBER,
+            json.dumps({
+                "bundle_format_version": "1.0",
+                "pipeline_uid": "test_pipeline",
+                "relation_replay_manifest": {
+                    "path": "relation_replay_manifest.json",
+                    "version": "1.0",
+                    "fingerprint": "rel_fp",
+                },
+            }),
+        ))
+        write_host_container(bundle_path, _members)
 
         with pytest.raises(ValueError, match="relation replay manifest reference"):
             BundleLoader(bundle_path)
@@ -560,11 +588,11 @@ class TestBundleLoader:
             BundleLoader(tmp_path / "nonexistent.n4a")
 
     def test_invalid_bundle_format(self, tmp_path):
-        """Test error when file is not a valid ZIP."""
+        """Core refuses unreadable containers without a legacy reader fallback."""
         invalid_path = tmp_path / "invalid.n4a"
         invalid_path.write_text("not a zip file")
 
-        with pytest.raises(ValueError, match="Invalid bundle format"):
+        with pytest.raises(ValueError, match="re-export"):
             BundleLoader(invalid_path)
 
     def test_to_resolved_prediction(self, create_test_bundle):
@@ -597,6 +625,87 @@ class TestBundleLoader:
 
         assert "BundleLoader" in repr_str
         assert "0001_test_abc123" in repr_str
+
+class TestBundleReaderSources:
+    """The loader and lazy provider retain one verified source and declared order."""
+
+    @pytest.mark.parametrize("source_type", ["prediction", "dagml_native"])
+    def test_standalone_loader_opens_once_and_closes(self, tmp_path, monkeypatch, source_type):
+        import joblib
+        import nirs4all_core
+
+        path = tmp_path / "owned.n4a"
+        buffer = io.BytesIO()
+        joblib.dump(SimpleModel(), buffer)
+        write_host_container(path, [
+            _bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps({
+                "model_step_index": 1, "source_type": source_type,
+                "artifact_integrity": {"artifacts/step_1_fold0_SimpleModel.joblib": "sha256:" + hashlib.sha256(buffer.getvalue()).hexdigest()},
+            })),
+            _bundle_member("artifacts/step_1_fold0_SimpleModel.joblib", buffer.getvalue()),
+        ])
+        original = nirs4all_core.open_n4a_file
+        opened = []
+
+        def tracked_open(*args, **kwargs):
+            handle = original(*args, **kwargs)
+            opened.append(handle)
+            return handle
+
+        monkeypatch.setattr(nirs4all_core, "open_n4a_file", tracked_open)
+        with BundleLoader(path) as loader:
+            assert len(loader.artifact_provider.get_fold_artifacts(1)) == 1
+            assert len(opened) == 1
+            assert opened[0].closed is False
+        assert opened[0].closed is True
+
+    def test_borrowed_source_stays_open_for_lazy_artifacts(self, tmp_path, monkeypatch):
+        import joblib
+
+        from nirs4all.pipeline.bundle import loader as loader_module
+
+        path = tmp_path / "borrowed.n4a"
+        buffer = io.BytesIO()
+        joblib.dump(SimpleModel(), buffer)
+        write_host_container(path, [
+            _bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps({"model_step_index": 1})),
+            _bundle_member("artifacts/step_1_fold0_SimpleModel.joblib", buffer.getvalue()),
+        ])
+        with open_n4a_source(path) as source:
+            container = source.require_host()
+            monkeypatch.setattr(loader_module, "open_n4a_source", lambda *args, **kwargs: pytest.fail("borrowed source reopened"))
+            with BundleLoader(path, source=source) as loader:
+                first = loader.artifact_provider.get_fold_artifacts(1)
+                assert first[0][1].predict([0, 1]).tolist() == [1.0, 1.0]
+            assert container.core_file.closed is False
+            assert loader.artifact_provider.get_fold_artifacts(1)[0][1] is first[0][1]
+        assert container.core_file.closed is True
+
+    def test_substep_artifacts_keep_declared_numeric_order(self, tmp_path):
+        import joblib
+
+        path = tmp_path / "substeps.n4a"
+        members = [_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps({"model_step_index": 2}))]
+        for index in range(12):
+            buffer = io.BytesIO()
+            joblib.dump(index, buffer)
+            members.append(_bundle_member(f"artifacts/step_1_sub{index}.joblib", buffer.getvalue()))
+        write_host_container(path, members)
+        with BundleLoader(path) as loader:
+            assert [value for _, value in loader.artifact_provider.get_artifacts_for_step(1)] == list(range(12))
+
+    @pytest.mark.parametrize("compression", [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED])
+    def test_old_sdk_zip_is_refused_before_unpickle(self, tmp_path, monkeypatch, compression):
+        import joblib
+
+        path = tmp_path / "old.n4a"
+        with zipfile.ZipFile(path, "w", compression=compression) as archive:
+            archive.writestr("manifest.json", json.dumps({"bundle_format_version": "1.0"}))
+            archive.writestr("artifacts/model.joblib", b"untrusted old payload")
+        monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("old SDK ZIP unpickled"))
+        with pytest.raises(ValueError, match="re-export"):
+            BundleLoader(path)
+
 
 class TestIntegration:
     """Integration tests for bundle export/load cycle."""
@@ -635,29 +744,30 @@ class TestExtractStepInfoFromConfig:
         def _create(pipeline_steps, include_trace=False):
             bundle_path = tmp_path / "test_config.n4a"
 
-            with zipfile.ZipFile(bundle_path, 'w') as zf:
-                # Minimal manifest
-                manifest = {
-                    "bundle_format_version": "1.0",
+            _members = []
+            # Minimal manifest
+            manifest = {
+                "bundle_format_version": "1.0",
+                "pipeline_uid": "test_pipeline",
+                "model_step_index": len(pipeline_steps),
+            }
+            _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
+
+            # Pipeline config with specific steps
+            pipeline_config = {
+                "steps": pipeline_steps,
+                "model_step_index": len(pipeline_steps),
+            }
+            _members.append(_bundle_member('pipeline.json', json.dumps(pipeline_config)))
+
+            if include_trace:
+                trace_data = {
+                    "trace_id": "test_trace",
                     "pipeline_uid": "test_pipeline",
-                    "model_step_index": len(pipeline_steps),
+                    "steps": [],
                 }
-                zf.writestr('manifest.json', json.dumps(manifest))
-
-                # Pipeline config with specific steps
-                pipeline_config = {
-                    "steps": pipeline_steps,
-                    "model_step_index": len(pipeline_steps),
-                }
-                zf.writestr('pipeline.json', json.dumps(pipeline_config))
-
-                if include_trace:
-                    trace_data = {
-                        "trace_id": "test_trace",
-                        "pipeline_uid": "test_pipeline",
-                        "steps": [],
-                    }
-                    zf.writestr('trace.json', json.dumps(trace_data))
+                _members.append(_bundle_member('trace.json', json.dumps(trace_data)))
+            write_host_container(bundle_path, _members)
 
             return bundle_path
 
@@ -755,34 +865,35 @@ class TestExtractStepInfoFromConfig:
         """Test that trace operator_type takes precedence over config parsing."""
         bundle_path = tmp_path / "trace_precedence.n4a"
 
-        with zipfile.ZipFile(bundle_path, 'w') as zf:
-            manifest = {
-                "bundle_format_version": "1.0",
-                "pipeline_uid": "test_pipeline",
-                "model_step_index": 2,
-            }
-            zf.writestr('manifest.json', json.dumps(manifest))
+        _members = []
+        manifest = {
+            "bundle_format_version": "1.0",
+            "pipeline_uid": "test_pipeline",
+            "model_step_index": 2,
+        }
+        _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
 
-            # Pipeline config says y_processing
-            pipeline_config = {
-                "steps": [
-                    {"step": "MinMaxScaler"},
-                    {"y_processing": "StandardScaler"},  # Config says y_processing
-                ],
-                "model_step_index": 2,
-            }
-            zf.writestr('pipeline.json', json.dumps(pipeline_config))
+        # Pipeline config says y_processing
+        pipeline_config = {
+            "steps": [
+                {"step": "MinMaxScaler"},
+                {"y_processing": "StandardScaler"},  # Config says y_processing
+            ],
+            "model_step_index": 2,
+        }
+        _members.append(_bundle_member('pipeline.json', json.dumps(pipeline_config)))
 
-            # But trace says transform (trace should win)
-            trace_data = {
-                "trace_id": "test_trace",
-                "pipeline_uid": "test_pipeline",
-                "steps": [
-                    {"step_index": 1, "operator_type": "transform", "operator_class": "MinMaxScaler"},
-                    {"step_index": 2, "operator_type": "custom_type_from_trace", "operator_class": "StandardScaler"},
-                ],
-            }
-            zf.writestr('trace.json', json.dumps(trace_data))
+        # But trace says transform (trace should win)
+        trace_data = {
+            "trace_id": "test_trace",
+            "pipeline_uid": "test_pipeline",
+            "steps": [
+                {"step_index": 1, "operator_type": "transform", "operator_class": "MinMaxScaler"},
+                {"step_index": 2, "operator_type": "custom_type_from_trace", "operator_class": "StandardScaler"},
+            ],
+        }
+        _members.append(_bundle_member('trace.json', json.dumps(trace_data)))
+        write_host_container(bundle_path, _members)
 
         loader = BundleLoader(bundle_path)
 
@@ -842,50 +953,51 @@ class TestBundlePredictWithSpecialOperators:
             pipeline_steps.append({"model": {"class": "SimpleModel"}})
             artifacts_to_write.append((f"step_{model_step_idx}_fold0_SimpleModel.joblib", model))
 
-            with zipfile.ZipFile(bundle_path, 'w') as zf:
-                manifest = {
-                    "bundle_format_version": "1.0",
+            _members = []
+            manifest = {
+                "bundle_format_version": "1.0",
+                "pipeline_uid": "prediction_test",
+                "model_step_index": model_step_idx,
+            }
+            _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
+
+            pipeline_config = {
+                "steps": pipeline_steps,
+                "model_step_index": model_step_idx,
+            }
+            _members.append(_bundle_member('pipeline.json', json.dumps(pipeline_config)))
+
+            fold_weights = {"0": 1.0}
+            _members.append(_bundle_member('fold_weights.json', json.dumps(fold_weights)))
+
+            if include_trace:
+                trace_steps = []
+                for i, step in enumerate(pipeline_steps):
+                    step_info = {"step_index": i + 1, "operator_class": "Unknown"}
+                    if "y_processing" in step:
+                        step_info["operator_type"] = "y_processing"
+                    elif "feature_augmentation" in step:
+                        step_info["operator_type"] = "feature_augmentation"
+                    elif "model" in step:
+                        step_info["operator_type"] = "model"
+                    else:
+                        step_info["operator_type"] = "transform"
+                    trace_steps.append(step_info)
+
+                trace_data = {
+                    "trace_id": "test_trace",
                     "pipeline_uid": "prediction_test",
                     "model_step_index": model_step_idx,
+                    "steps": trace_steps,
                 }
-                zf.writestr('manifest.json', json.dumps(manifest))
+                _members.append(_bundle_member('trace.json', json.dumps(trace_data)))
 
-                pipeline_config = {
-                    "steps": pipeline_steps,
-                    "model_step_index": model_step_idx,
-                }
-                zf.writestr('pipeline.json', json.dumps(pipeline_config))
-
-                fold_weights = {"0": 1.0}
-                zf.writestr('fold_weights.json', json.dumps(fold_weights))
-
-                if include_trace:
-                    trace_steps = []
-                    for i, step in enumerate(pipeline_steps):
-                        step_info = {"step_index": i + 1, "operator_class": "Unknown"}
-                        if "y_processing" in step:
-                            step_info["operator_type"] = "y_processing"
-                        elif "feature_augmentation" in step:
-                            step_info["operator_type"] = "feature_augmentation"
-                        elif "model" in step:
-                            step_info["operator_type"] = "model"
-                        else:
-                            step_info["operator_type"] = "transform"
-                        trace_steps.append(step_info)
-
-                    trace_data = {
-                        "trace_id": "test_trace",
-                        "pipeline_uid": "prediction_test",
-                        "model_step_index": model_step_idx,
-                        "steps": trace_steps,
-                    }
-                    zf.writestr('trace.json', json.dumps(trace_data))
-
-                # Write artifacts
-                for artifact_name, artifact_obj in artifacts_to_write:
-                    buffer = io.BytesIO()
-                    joblib.dump(artifact_obj, buffer)
-                    zf.writestr(f'artifacts/{artifact_name}', buffer.getvalue())
+            # Write artifacts
+            for artifact_name, artifact_obj in artifacts_to_write:
+                buffer = io.BytesIO()
+                joblib.dump(artifact_obj, buffer)
+                _members.append(_bundle_member(f'artifacts/{artifact_name}', buffer.getvalue()))
+            write_host_container(bundle_path, _members)
 
             return bundle_path
 
@@ -1019,40 +1131,41 @@ class TestBundleEdgeCases:
             """
             bundle_path = tmp_path / f"edge_case_{np.random.randint(10000)}.n4a"
 
-            with zipfile.ZipFile(bundle_path, 'w') as zf:
-                # Manifest
-                manifest = {
-                    "bundle_format_version": "1.0",
-                    "pipeline_uid": f"edge_case_{np.random.randint(10000)}",
+            _members = []
+            # Manifest
+            manifest = {
+                "bundle_format_version": "1.0",
+                "pipeline_uid": f"edge_case_{np.random.randint(10000)}",
+                "model_step_index": model_step_index,
+            }
+            _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
+
+            # Pipeline config
+            pipeline_config = {
+                "steps": pipeline_steps,
+                "model_step_index": model_step_index,
+            }
+            _members.append(_bundle_member('pipeline.json', json.dumps(pipeline_config)))
+
+            # Fold weights
+            _members.append(_bundle_member('fold_weights.json', json.dumps({"0": 1.0})))
+
+            # Trace (optional)
+            if include_trace:
+                trace_data = {
+                    "trace_id": "edge_case_trace",
+                    "pipeline_uid": "edge_case",
                     "model_step_index": model_step_index,
+                    "steps": trace_steps or [],
                 }
-                zf.writestr('manifest.json', json.dumps(manifest))
+                _members.append(_bundle_member('trace.json', json.dumps(trace_data)))
 
-                # Pipeline config
-                pipeline_config = {
-                    "steps": pipeline_steps,
-                    "model_step_index": model_step_index,
-                }
-                zf.writestr('pipeline.json', json.dumps(pipeline_config))
-
-                # Fold weights
-                zf.writestr('fold_weights.json', json.dumps({"0": 1.0}))
-
-                # Trace (optional)
-                if include_trace:
-                    trace_data = {
-                        "trace_id": "edge_case_trace",
-                        "pipeline_uid": "edge_case",
-                        "model_step_index": model_step_index,
-                        "steps": trace_steps or [],
-                    }
-                    zf.writestr('trace.json', json.dumps(trace_data))
-
-                # Artifacts
-                for filename, artifact_obj in artifacts:
-                    buffer = io.BytesIO()
-                    joblib.dump(artifact_obj, buffer)
-                    zf.writestr(f'artifacts/{filename}', buffer.getvalue())
+            # Artifacts
+            for filename, artifact_obj in artifacts:
+                buffer = io.BytesIO()
+                joblib.dump(artifact_obj, buffer)
+                _members.append(_bundle_member(f'artifacts/{filename}', buffer.getvalue()))
+            write_host_container(bundle_path, _members)
 
             return bundle_path
 
@@ -1307,26 +1420,27 @@ class TestBundleEdgeCases:
         x_scaler.fit(X_fit)
         model = SimpleModel()
 
-        with zipfile.ZipFile(bundle_path, 'w') as zf:
-            manifest = {
-                "bundle_format_version": "1.0",
-                "pipeline_uid": "no_config",
-                "model_step_index": 2,
-            }
-            zf.writestr('manifest.json', json.dumps(manifest))
+        _members = []
+        manifest = {
+            "bundle_format_version": "1.0",
+            "pipeline_uid": "no_config",
+            "model_step_index": 2,
+        }
+        _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
 
-            # Empty pipeline config
-            zf.writestr('pipeline.json', json.dumps({}))
-            zf.writestr('fold_weights.json', json.dumps({"0": 1.0}))
+        # Empty pipeline config
+        _members.append(_bundle_member('pipeline.json', json.dumps({})))
+        _members.append(_bundle_member('fold_weights.json', json.dumps({"0": 1.0})))
 
-            # Artifacts
-            buffer = io.BytesIO()
-            joblib.dump(x_scaler, buffer)
-            zf.writestr('artifacts/step_1_MinMaxScaler.joblib', buffer.getvalue())
+        # Artifacts
+        buffer = io.BytesIO()
+        joblib.dump(x_scaler, buffer)
+        _members.append(_bundle_member('artifacts/step_1_MinMaxScaler.joblib', buffer.getvalue()))
 
-            buffer = io.BytesIO()
-            joblib.dump(model, buffer)
-            zf.writestr('artifacts/step_2_fold0_SimpleModel.joblib', buffer.getvalue())
+        buffer = io.BytesIO()
+        joblib.dump(model, buffer)
+        _members.append(_bundle_member('artifacts/step_2_fold0_SimpleModel.joblib', buffer.getvalue()))
+        write_host_container(bundle_path, _members)
 
         loader = BundleLoader(bundle_path)
 
@@ -1434,26 +1548,27 @@ class TestBundleEdgeCases:
         """Test operator type detection handles various step dict formats."""
         bundle_path = tmp_path / "various_formats.n4a"
 
-        with zipfile.ZipFile(bundle_path, 'w') as zf:
-            manifest = {
-                "bundle_format_version": "1.0",
-                "pipeline_uid": "format_test",
-                "model_step_index": 6,
-            }
-            zf.writestr('manifest.json', json.dumps(manifest))
-            # Various step formats
-            pipeline_config = {
-                "steps": [
-                    {"step": "MinMaxScaler"},                    # Simple string
-                    {"y_processing": {"class": "StandardScaler", "params": {}}},  # Dict value
-                    {"feature_augmentation": ["SNV", "SG"]},     # List value
-                    {"class": "KFold"},                          # Splitter by class
-                    {"model": "PLSRegression"},                  # Model as string
-                    {"model": {"class": "PLSRegression", "params": {"n_components": 5}}},  # Model as dict
-                ],
-                "model_step_index": 6,
-            }
-            zf.writestr('pipeline.json', json.dumps(pipeline_config))
+        _members = []
+        manifest = {
+            "bundle_format_version": "1.0",
+            "pipeline_uid": "format_test",
+            "model_step_index": 6,
+        }
+        _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
+        # Various step formats
+        pipeline_config = {
+            "steps": [
+                {"step": "MinMaxScaler"},                    # Simple string
+                {"y_processing": {"class": "StandardScaler", "params": {}}},  # Dict value
+                {"feature_augmentation": ["SNV", "SG"]},     # List value
+                {"class": "KFold"},                          # Splitter by class
+                {"model": "PLSRegression"},                  # Model as string
+                {"model": {"class": "PLSRegression", "params": {"n_components": 5}}},  # Model as dict
+            ],
+            "model_step_index": 6,
+        }
+        _members.append(_bundle_member('pipeline.json', json.dumps(pipeline_config)))
+        write_host_container(bundle_path, _members)
 
         loader = BundleLoader(bundle_path)
 
@@ -1533,46 +1648,47 @@ class TestBundleEdgeCases:
         x_scaler.fit(X_fit)
         model = SimpleModel()
 
-        with zipfile.ZipFile(bundle_path, 'w') as zf:
-            manifest = {
-                "bundle_format_version": "1.0",
-                "pipeline_uid": "trace_vs_config",
-                "model_step_index": 2,
-            }
-            zf.writestr('manifest.json', json.dumps(manifest))
+        _members = []
+        manifest = {
+            "bundle_format_version": "1.0",
+            "pipeline_uid": "trace_vs_config",
+            "model_step_index": 2,
+        }
+        _members.append(_bundle_member(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest)))
 
-            # Config says step 1 is y_processing
-            pipeline_config = {
-                "steps": [
-                    {"y_processing": "MinMaxScaler"},  # Config says y_processing
-                    {"model": {"class": "SimpleModel"}},
-                ],
-                "model_step_index": 2,
-            }
-            zf.writestr('pipeline.json', json.dumps(pipeline_config))
+        # Config says step 1 is y_processing
+        pipeline_config = {
+            "steps": [
+                {"y_processing": "MinMaxScaler"},  # Config says y_processing
+                {"model": {"class": "SimpleModel"}},
+            ],
+            "model_step_index": 2,
+        }
+        _members.append(_bundle_member('pipeline.json', json.dumps(pipeline_config)))
 
-            # But trace says step 1 is transform (trace should win)
-            trace_data = {
-                "trace_id": "override_trace",
-                "pipeline_uid": "trace_vs_config",
-                "model_step_index": 2,
-                "steps": [
-                    {"step_index": 1, "operator_type": "transform", "operator_class": "MinMaxScaler"},
-                    {"step_index": 2, "operator_type": "model", "operator_class": "SimpleModel"},
-                ],
-            }
-            zf.writestr('trace.json', json.dumps(trace_data))
+        # But trace says step 1 is transform (trace should win)
+        trace_data = {
+            "trace_id": "override_trace",
+            "pipeline_uid": "trace_vs_config",
+            "model_step_index": 2,
+            "steps": [
+                {"step_index": 1, "operator_type": "transform", "operator_class": "MinMaxScaler"},
+                {"step_index": 2, "operator_type": "model", "operator_class": "SimpleModel"},
+            ],
+        }
+        _members.append(_bundle_member('trace.json', json.dumps(trace_data)))
 
-            zf.writestr('fold_weights.json', json.dumps({"0": 1.0}))
+        _members.append(_bundle_member('fold_weights.json', json.dumps({"0": 1.0})))
 
-            # Artifacts
-            buffer = io.BytesIO()
-            joblib.dump(x_scaler, buffer)
-            zf.writestr('artifacts/step_1_MinMaxScaler.joblib', buffer.getvalue())
+        # Artifacts
+        buffer = io.BytesIO()
+        joblib.dump(x_scaler, buffer)
+        _members.append(_bundle_member('artifacts/step_1_MinMaxScaler.joblib', buffer.getvalue()))
 
-            buffer = io.BytesIO()
-            joblib.dump(model, buffer)
-            zf.writestr('artifacts/step_2_fold0_SimpleModel.joblib', buffer.getvalue())
+        buffer = io.BytesIO()
+        joblib.dump(model, buffer)
+        _members.append(_bundle_member('artifacts/step_2_fold0_SimpleModel.joblib', buffer.getvalue()))
+        write_host_container(bundle_path, _members)
 
         loader = BundleLoader(bundle_path)
 

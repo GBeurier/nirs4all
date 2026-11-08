@@ -15,6 +15,7 @@ import numpy as np
 from nirs4all.core.metrics import is_higher_better
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
+from .host_container import HostContainer
 from .identity import IdentityMap
 from .in_process_runner import _capture_refit_artifacts, _load_subprocess_refit_artifacts
 from .node_runner import run_node
@@ -112,7 +113,7 @@ def validate_source_package_bindings(packages: list[dict[str, Any]], artifacts: 
     return records
 
 
-def validate_source_archive_before_model(archive: Any, manifest: dict[str, Any]) -> dict[str, Any] | None:
+def validate_source_archive_before_model(archive: HostContainer, manifest: dict[str, Any]) -> dict[str, Any] | None:
     """Validate packages and every declared carrier hash before unpickling a model."""
     ref = manifest.get("dagml_source_training_capture_ref")
     member = "dagml_source_training_capture.json"
@@ -120,13 +121,11 @@ def validate_source_archive_before_model(archive: Any, manifest: dict[str, Any])
         if member in archive.namelist():
             raise ValueError("archive has an undeclared source training capture")
         return None
-    if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"} or ref["path"] != member
-            or archive.getinfo(member).file_size > 64 * 1024 * 1024):
-        raise ValueError("archive source training capture is invalid or oversized")
-    raw = archive.read(member)
-    if hashlib.sha256(raw).hexdigest() != ref["sha256"]:
+    if not isinstance(ref, dict) or set(ref) != {"path", "sha256"} or ref["path"] != member:
+        raise ValueError("archive source training capture is invalid")
+    if archive.digest(member).removeprefix("sha256:") != ref["sha256"]:
         raise ValueError("archive source training capture hash differs")
-    capture = json.loads(raw)
+    capture = archive.read_json(member)
     if not isinstance(capture, dict) or set(capture) != {"schema_version", "captures", "sidecars", "outputs"} or capture["schema_version"] != 1:
         raise ValueError("archive source training capture schema is invalid")
     if not isinstance(capture["captures"], list) or not capture["captures"]:
@@ -154,14 +153,9 @@ def validate_source_archive_before_model(archive: Any, manifest: dict[str, Any])
         if path != expected_path or path in paths or item.get("native_record") != records[item["artifact_id"]]:
             raise ValueError("archive source sidecar mapping differs from native records")
         paths.add(path)
-        info = archive.getinfo(path)
-        if info.file_size != item.get("size_bytes") or info.file_size > 512 * 1024 * 1024:
+        if archive.size(path) != item.get("size_bytes"):
             raise ValueError("archive source sidecar has invalid size")
-        digest = hashlib.sha256()
-        with archive.open(path) as stream:
-            for block in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(block)
-        if digest.hexdigest() != item.get("serialization_sha256"):
+        if archive.digest(path).removeprefix("sha256:") != item.get("serialization_sha256"):
             raise ValueError("archive source sidecar hash differs")
     if {name for name in archive.namelist() if name.startswith("dagml_source_sidecar_")} != paths:
         raise ValueError("archive contains undeclared source sidecars")

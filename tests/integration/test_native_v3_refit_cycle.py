@@ -32,10 +32,10 @@ def native_v3_library(monkeypatch: pytest.MonkeyPatch) -> str:
         assert library is not None and Path(library).is_file()
         for name in (
             "execute_methods_portable_full_refit",
-            "build_archive_v3_native_refit_payloads",
             "replay_loaded_methods_portable_refit_package_v3",
         ):
             assert callable(getattr(dag_ml, name, None)), name
+        assert callable(getattr(nirs4all_core, "write_native_refit_package", None))
     except (ImportError, RuntimeError, ValueError, AssertionError) as error:
         if required:
             pytest.fail(f"mandatory native Methods V3 provisioning failed: {error}")

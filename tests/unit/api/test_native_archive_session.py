@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import importlib
+import json
+import sys
+from types import SimpleNamespace
+from zipfile import ZipFile
+
 import numpy as np
 import pytest
 
@@ -65,7 +71,16 @@ def test_load_session_native_environment_uses_the_portable_session_without_bundl
     tmp_path,
 ) -> None:
     archive = tmp_path / "portable.n4a"
-    archive.write_bytes(b"opaque-archive")
+    with ZipFile(archive, "w") as container:
+        container.writestr("manifest.json", json.dumps({
+            "schema_version": 2, "profile": "nirs4all.archive_workspace.v2",
+            "persistence_kind": "n4a_archive", "writer": {"product_aggregate_owner": "nirs4all-core"},
+        }))
+
+    def unsupported(*args, **kwargs):
+        raise ValueError("n4a unsupported format: interim archive")
+
+    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(open_n4a_file=unsupported, write_n4a_file=lambda *a, **k: None))
 
     class UnexpectedBundleLoader:
         def __init__(self, *_args, **_kwargs) -> None:  # noqa: ANN002, ANN003
@@ -122,58 +137,92 @@ def test_predict_uses_native_archive_session_without_model_or_legacy_runner(
     assert observed["sample_ids"] == ["p1", "p2"]
 
 
+def _interim_core_archive(tmp_path, monkeypatch: pytest.MonkeyPatch, *, manifest: dict[str, object]):
+    """A real ``.n4a`` file whose own manifest declares its profile, behind a Core that refuses it as not V1.
+
+    The V2/V3 routing hint is only consulted after Core's "not V1" refusal, so this is the
+    content-declared routing fixture; a path that does not exist routes nowhere.
+    """
+    archive = tmp_path / "archive.n4a"
+    with ZipFile(archive, "w") as container:
+        container.writestr("manifest.json", json.dumps(manifest))
+
+    def unsupported(*_args, **_kwargs):
+        raise ValueError("n4a unsupported format: interim archive")
+
+    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(open_n4a_file=unsupported, write_n4a_file=lambda *a, **k: None))
+    return archive
+
+
+_CORE_V2_MANIFEST = {
+    "schema_version": 2, "profile": "nirs4all.archive_workspace.v2",
+    "persistence_kind": "n4a_archive", "writer": {"product_aggregate_owner": "nirs4all-core"},
+}
+
+
+def _forbid_legacy_replay(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ``nirs4all.api.predict`` as an attribute is the exported function, so resolve the module explicitly.
+    predict_module = importlib.import_module("nirs4all.api.predict")
+    monkeypatch.setattr(
+        predict_module,
+        "_predict_from_model",
+        lambda **_kwargs: pytest.fail("an archive was reinterpreted by the legacy bundle lane"),
+    )
+
+
 @pytest.mark.parametrize("environment_value", ["native", " NATIVE "])
 def test_native_environment_selects_archive_prediction(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
     environment_value: str,
 ) -> None:
-    """The process selector reaches native replay without an explicit kwarg."""
+    """The process selector reaches native replay of a content-declared Core archive without an explicit kwarg."""
+
+    archive = _interim_core_archive(tmp_path, monkeypatch, manifest=_CORE_V2_MANIFEST)
+    observed: dict[str, object] = {}
+
+    def replay(path, data, *, methods_library_path=None):  # noqa: ANN001
+        observed.update(path=path, sample_ids=list(data["sample_ids"]), methods_library_path=methods_library_path)
+        return np.asarray([[3.0]]), {"sample_ids": list(data["sample_ids"])}
 
     monkeypatch.setenv("N4A_ENGINE", environment_value)
-    monkeypatch.setattr(
-        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
-        lambda _path, _X, *, sample_ids, **_kwargs: NativeArchivePrediction(
-            values=np.asarray([[3.0]]),
-            sample_ids=tuple(sample_ids),
-            intervals={},
-            conformal_guarantee_status=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "nirs4all.pipeline.dagml.core_archive_replay.detect_core_archive_version",
-        lambda _path: None,
-    )
+    monkeypatch.setattr("nirs4all.pipeline.dagml.core_archive_replay.predict_core_methods_archive_v2", replay)
+    _forbid_legacy_replay(monkeypatch)
 
     result = predict(
-        model="portable.n4a",
+        model=str(archive),
         data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]},
     )
 
     assert result.y_pred.tolist() == [[3.0]]
-    assert result.metadata["engine"] == "native"
+    assert result.model_name == "MethodsN4MM"
+    assert str(observed["path"]) == str(archive)
+    assert observed["sample_ids"] == ["p1"] and observed["methods_library_path"] is None
 
 
 def test_native_environment_never_reinterprets_an_invalid_archive_as_legacy(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> None:
-    """Strict native validation failures propagate without legacy fallback."""
-    monkeypatch.setenv("N4A_ENGINE", "native")
-    monkeypatch.setattr(
-        "nirs4all.pipeline.dagml.core_archive_replay.detect_core_archive_version",
-        lambda _path: None,
-    )
-    monkeypatch.setattr(
-        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            NativeArchiveReplayError("not a portable Archive V2")
-        ),
-    )
+    """Strict native validation failures propagate and an undeclared old archive is refused, never run as legacy."""
+    from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveReplayError
 
-    with pytest.raises(NativeArchiveReplayError, match="not a portable Archive V2"):
-        predict(
-            model="legacy.n4a",
-            data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]},
-        )
+    monkeypatch.setenv("N4A_ENGINE", "native")
+    _forbid_legacy_replay(monkeypatch)
+
+    declared = _interim_core_archive(tmp_path, monkeypatch, manifest=_CORE_V2_MANIFEST)
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.core_archive_replay.predict_core_methods_archive_v2",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(CoreArchiveReplayError("not a portable Archive V2")),
+    )
+    with pytest.raises(CoreArchiveReplayError, match="not a portable Archive V2"):
+        predict(model=str(declared), data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]})
+
+    old_directory = tmp_path / "old"
+    old_directory.mkdir()
+    old = _interim_core_archive(old_directory, monkeypatch, manifest={"bundle_format_version": "1.0"})
+    with pytest.raises(ValueError, match="re-export old SDK ZIP bundles with current nirs4all"):
+        predict(model=str(old), data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]})
 
 
 def test_load_native_archive_session_refuses_a_bad_package_before_prediction(

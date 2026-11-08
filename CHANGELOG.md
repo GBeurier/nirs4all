@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `nirs4all.retrain(...)` retrains a canonical Core `.n4a` container (path or
+  `CanonicalN4aRunResult`) on a new IO record with `engine="native"`. Core's
+  `retrain_n4a_native` reads the stored recipe and source and runs fresh
+  cross-validation, selection and refit; the result is a new
+  `CanonicalN4aRunResult` carrying the owner's selected OOF score and the new sealed
+  bytes. Only `methods_library_path` is accepted as an option; sessions, transfer,
+  fine-tune, `new_model` and `epochs` are refused. The shared real-Core gate passed for the tested native profile.
+
+### Changed
+
+- Store SDK Python-host bundles in the Core V1 `.n4a` container, preserving
+  complete recipes, model artifacts, sidecars and conformal results. Readers
+  share the verified open source through prediction and loaded Sessions. There
+  is no intrinsic content-size cap; Core accepts an optional host memory budget.
+
+### Removed
+
+- Remove the old SDK ZIP-bundle reader and the bundle export `compress` option.
+  Old SDK ZIP bundles must be re-exported using the current container format;
+  runtime loading does not invoke a compatibility shim or conversion.
+- Remove `NAFillMethod.MEAN` and `NAFillMethod.MEDIAN`. `na_fill_config` methods
+  `"mean"`/`"median"` are now refused with a `ValueError` (also by `NAFillConfig(...)`
+  and for NA-free data or an inactive `na_policy`): loading computed them over the
+  whole file before train/test partitions and CV folds existed, leaking statistics
+  across scopes. Use `"value"`, `"forward_fill"`, `"backward_fill"`, `na_policy="remove_sample"`,
+  or keep NaN (`"ignore"`) for a fit-scoped pipeline step.
+
+### Fixed
+
+- Restore automatic DAG-host prediction dispatch, supported non-container
+  Python retrain sources, and training-spec retrain from a loaded Session while
+  preserving explicit native refusals and reusing the held Core source.
+- Rank the deployment example's exports using validation CV rather than held-out
+  test scores.
+
+- Preserve descriptive pipeline strings during component serialization and
+  deserialization instead of importing dotted labels or constructing their
+  referenced classes. Nested constructor arguments retain executable reference
+  handling, including argument dictionaries named `name`. Literal containers
+  remain copied and normalized; live objects still serialize their constructor
+  arguments normally. Public component helpers treat bare mappings as pipeline
+  input. The hash algorithm and inclusion policy are unchanged, but corrected
+  labels that previously canonicalized to another reference, and parameter-keyed
+  choice dictionaries containing those labels, can change identity; previously
+  failing labels can acquire identities. No historical hashes, templates or
+  lineage records are rewritten. This does not add root-wrapper support, relax
+  Repository guards, or complete SDK optional-dependency preflight alignment or
+  Studio/frontend migration. Dotted-label authorization false refusals remain
+  unresolved.
+
 ## [1.4.15] — 2026-11-03
 
 ### Changed

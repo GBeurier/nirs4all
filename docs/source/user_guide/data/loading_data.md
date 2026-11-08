@@ -357,6 +357,12 @@ dataset = DatasetConfigs({
 })
 ```
 
+`"replace"` fills with `na_fill_config` method `"value"` (default, constant `fill_value`),
+`"forward_fill"` or `"backward_fill"` (both within a sample). Methods `"mean"` and `"median"`
+are refused, with or without missing values: loading would compute their statistics over the
+whole file before the train/test partitions and cross-validation folds exist. Keep missing
+values (`"ignore"`) and impute inside a fit-scoped pipeline step instead.
+
 Missing targets are loaded losslessly: every policy except `"abort"` (refuse)
 and `"remove_sample"` (drop the row everywhere) keeps the sample with a missing
 target. Training excludes such a sample from fitting and scoring only, per

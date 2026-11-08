@@ -27,47 +27,53 @@ def test_public_exports_do_not_require_native_archive_dependencies() -> None:
         assert getattr(nirs4all, name) is getattr(portable_archive, name)
 
 
-def test_reader_requires_native_semantic_validation_before_returning_package(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reader_gets_exact_root_bytes_from_core_then_dag_parses_the_typed_package(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
     package_bytes = b'{"schema_version":2}'
-    members = {"dagml/portable_predictor_package.json": package_bytes}
-    manifest = {"schema_version": 2}
 
     class Package:
         def __init__(self, text: str) -> None:
             events.append("package")
             assert text == package_bytes.decode()
 
-    def read(path: str) -> dict[str, Any]:
+    def read(path: str) -> bytes:
         events.append("core")
         assert path == "portable.n4a"
-        return {"manifest": manifest, "members": members}
+        return package_bytes
 
-    def validate(actual_manifest: Any, package: Any, actual_members: Any) -> None:
-        events.append("dag")
-        assert actual_manifest is manifest and actual_members is members
-        assert isinstance(package, Package)
-        raise ValueError("incomplete RAW closure")
-
-    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(read_archive_v2_payloads=read))
-    monkeypatch.setitem(sys.modules, "dag_ml", SimpleNamespace(PortablePredictorPackage=Package, validate_archive_v2_portable_payloads=validate))
-    with pytest.raises(ValueError, match="incomplete RAW closure"):
-        nirs4all.read_portable_predictor_archive_v2("portable.n4a")
-    assert events == ["core", "package", "dag"]
+    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(read_portable_predictor_package_v2=read))
+    monkeypatch.setitem(sys.modules, "dag_ml", SimpleNamespace(PortablePredictorPackage=Package))
+    assert isinstance(nirs4all.read_portable_predictor_archive_v2("portable.n4a"), Package)
+    assert events == ["core", "package"]
 
 
-@pytest.mark.parametrize("payloads", [None, {}, {"manifest": {}, "members": []}, {"manifest": {}, "members": {}}])
-def test_reader_rejects_invalid_native_transport(monkeypatch: pytest.MonkeyPatch, payloads: Any) -> None:
-    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(read_archive_v2_payloads=lambda _: payloads))
-    monkeypatch.setitem(sys.modules, "dag_ml", SimpleNamespace(validate_archive_v2_portable_payloads=lambda *_: None))
-    with pytest.raises(ValueError, match="Core Archive V2 reader"):
-        nirs4all.read_portable_predictor_archive_v2("portable.n4a")
+def test_reader_reuses_the_callers_retained_core_proof_instead_of_reopening(monkeypatch: pytest.MonkeyPatch) -> None:
+    proof = object()
+    seen: list[object] = []
+
+    class Package:
+        def __init__(self, text: str) -> None:
+            pass
+
+    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(read_portable_predictor_package_v2=lambda value: seen.append(value) or b"{}"))
+    monkeypatch.setitem(sys.modules, "dag_ml", SimpleNamespace(PortablePredictorPackage=Package))
+    source = SimpleNamespace(native_input=lambda: proof)
+    nirs4all.read_portable_predictor_archive_v2("portable.n4a", source=source)
+    assert seen == [proof]
 
 
-def test_missing_semantic_validator_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(read_archive_v2_payloads=lambda _: pytest.fail("must not read")))
+@pytest.mark.parametrize("payload", [None, {}, "text"])
+def test_reader_rejects_invalid_native_transport(monkeypatch: pytest.MonkeyPatch, payload: Any) -> None:
+    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace(read_portable_predictor_package_v2=lambda _: payload))
     monkeypatch.setitem(sys.modules, "dag_ml", SimpleNamespace())
-    with pytest.raises(ImportError, match="matching Core and DAG-ML"):
+    with pytest.raises(ValueError, match="exact package bytes"):
+        nirs4all.read_portable_predictor_archive_v2("portable.n4a")
+
+
+def test_missing_native_reader_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "nirs4all_core", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "dag_ml", SimpleNamespace())
+    with pytest.raises(ImportError, match="Core native package reader"):
         nirs4all.read_portable_predictor_archive_v2("portable.n4a")
 
 
@@ -85,8 +91,8 @@ def _live_runtime() -> tuple[Any, Any, Any]:
         dag_ml = importlib.import_module("dag_ml")
         core = importlib.import_module("nirs4all_core")
         role_pipeline = importlib.import_module("n4m.roles").RolePipeline
-        if not callable(getattr(core, "read_archive_v2_payloads", None)) or not callable(getattr(dag_ml, "validate_archive_v2_portable_payloads", None)):
-            raise ImportError("matching native portable archive facades are unavailable")
+        if not callable(getattr(core, "read_portable_predictor_package_v2", None)) or not callable(getattr(core, "write_native_predictor_package", None)):
+            raise ImportError("matching native portable package facades are unavailable")
     except ImportError as error:
         if required:
             pytest.fail(str(error))
@@ -288,17 +294,15 @@ def test_corrupt_archive_is_refused_before_callbacks(archive_path: Path, capture
     _dag_ml, _core, role_pipeline = _live_runtime()
     with ZipFile(archive_path) as source:
         members = {name: source.read(name) for name in source.namelist()}
-    manifest = json.loads(members["manifest.json"])
-    refs = manifest["payloads"]["methods"]["role_pipelines"]
+    # The fitted RAW states are the selected facet state members of the Core container.
+    states = sorted(name for name in members if "/states/" in name)
+    assert len(states) == 5
     if mutation == "raw_hash":
-        member = refs[0]["member_path"]
-        members[member] = members[member] + b"corruption"
+        members[states[0]] = members[states[0]] + b"corruption"
     elif mutation == "coverage":
-        refs.pop()
-        members["manifest.json"] = json.dumps(manifest).encode()
+        del members[states[-1]]
     else:
-        refs[0]["member_path"] = "../outside.json"
-        members["manifest.json"] = json.dumps(manifest).encode()
+        members["../outside.json"] = members.pop(states[0])
     with ZipFile(archive_path, "w", compression=ZIP_DEFLATED) as destination:
         for name, payload in members.items():
             destination.writestr(name, payload)

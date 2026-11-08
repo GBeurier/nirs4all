@@ -9,6 +9,32 @@ from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 from .portable_method_specs import PORTABLE_METHOD_SPECS
 
+
+class _Scope(Enum):
+    """Interpret strings by pipeline position, without changing object syntax."""
+
+    PIPELINE = "pipeline"
+    ARGUMENT = "argument"
+    LITERAL = "literal"
+
+
+_DESCRIPTIVE_KEYS = frozenset({"name", "description", "metadata", "_metadata_", "_tags_"})
+_ARGUMENT_KEYS = frozenset({"params", "args", "_grid_", "_zip_"})
+_COMPONENT_KEYS = ("class", "function", "instance")
+
+
+def _child_scope(owner: dict, key: Any, scope: _Scope) -> _Scope:
+    """Keep descriptive strings literal, but preserve nested callable arguments."""
+    if scope is _Scope.LITERAL:
+        return _Scope.LITERAL
+    is_envelope = scope is _Scope.PIPELINE or any(isinstance(owner.get(k), str) for k in _COMPONENT_KEYS)
+    if key in _DESCRIPTIVE_KEYS and is_envelope:
+        return _Scope.LITERAL
+    if scope is _Scope.ARGUMENT or key in _ARGUMENT_KEYS or (isinstance(key, str) and key.endswith("_params")):
+        return _Scope.ARGUMENT
+    return _Scope.PIPELINE
+
+
 # Shared n4m recipe identifiers. The Methods Python package intentionally keeps
 # classes in role subpackages rather than exporting them at the top level.
 # Resolve only these explicit portable names; arbitrary dotted paths retain
@@ -130,20 +156,20 @@ def _serialize_meta_estimator(obj) -> dict:
     # Serialize each base estimator as (name, serialized_estimator) pairs
     if hasattr(obj, 'estimators') and obj.estimators is not None:
         result["params"]["estimators"] = [
-            [name, serialize_component(est)]
+            [name, _serialize(est, _Scope.ARGUMENT)]
             for name, est in obj.estimators
         ]
 
     # Serialize final_estimator (for stacking models)
     if hasattr(obj, 'final_estimator') and obj.final_estimator is not None:
-        result["params"]["final_estimator"] = serialize_component(obj.final_estimator)
+        result["params"]["final_estimator"] = _serialize(obj.final_estimator, _Scope.ARGUMENT)
 
     # Add other changed params (cv, n_jobs, passthrough, etc.)
     other_params = _changed_kwargs(obj)
     for key in ['estimators', 'final_estimator']:
         other_params.pop(key, None)  # Already handled above
     if other_params:
-        result["params"].update(serialize_component(other_params))
+        result["params"].update(_serialize(other_params, _Scope.ARGUMENT))
 
     return result
 
@@ -163,14 +189,14 @@ def _deserialize_meta_estimator(cls, params: dict) -> Any:
     # Handle estimators list of [name, estimator_config] tuples
     if "estimators" in params:
         deserialized_params["estimators"] = [
-            (name, deserialize_component(est_config))
+            (name, _deserialize(est_config, None, False, _Scope.ARGUMENT))
             for name, est_config in params["estimators"]
         ]
 
     # Handle final_estimator
     if "final_estimator" in params:
-        deserialized_params["final_estimator"] = deserialize_component(
-            params["final_estimator"]
+        deserialized_params["final_estimator"] = _deserialize(
+            params["final_estimator"], None, False, _Scope.ARGUMENT
         )
 
     # Deserialize other params, separating top-level and nested params
@@ -178,10 +204,10 @@ def _deserialize_meta_estimator(cls, params: dict) -> Any:
         if key not in ["estimators", "final_estimator"]:
             if '__' in key:
                 # Nested parameter (e.g., final_estimator__alpha)
-                nested_params[key] = deserialize_component(value)
+                nested_params[key] = _deserialize(value, None, False, _Scope.ARGUMENT)
             else:
                 # Top-level parameter
-                deserialized_params[key] = deserialize_component(value)
+                deserialized_params[key] = _deserialize(value, None, False, _Scope.ARGUMENT)
 
     # Create instance with top-level params
     instance = cls(**deserialized_params)
@@ -208,12 +234,21 @@ def serialize_component(obj: Any) -> Any:
 
     Normalizes all syntaxes to canonical form for hash-based uniqueness.
     All instances serialize to their internal module paths with only non-default parameters.
+    Descriptive pipeline strings remain literal; constructor arguments retain
+    reference normalization. Live objects still normalize in either position.
     """
+    return _serialize(obj, _Scope.PIPELINE)
+
+
+def _serialize(obj: Any, scope: _Scope) -> Any:
+    """Normalize a component while retaining its pipeline/argument context."""
 
     if obj is None or isinstance(obj, (bool, int, float)):
         return obj
 
     if isinstance(obj, str):
+        if scope is _Scope.LITERAL:
+            return obj
         # Normalize string module paths to internal module paths for hash consistency
         # e.g., "sklearn.preprocessing.StandardScaler" → "sklearn.preprocessing._data.StandardScaler"
         if "." in obj and all(part.isidentifier() for part in obj.split(".")) and not obj.endswith(('.pkl', '.h5', '.keras', '.joblib', '.pt', '.pth')):
@@ -237,25 +272,28 @@ def serialize_component(obj: Any) -> Any:
         }
 
     if isinstance(obj, dict):
-        return {k: serialize_component(_preserve_finetune_ranges(v) if k == "finetune_params" else v) for k, v in obj.items()}
+        return {
+            k: _serialize(_preserve_finetune_ranges(v) if k == "finetune_params" else v, _child_scope(obj, k, scope))
+            for k, v in obj.items()
+        }
     if isinstance(obj, list):
-        return [serialize_component(x) for x in obj]
+        return [_serialize(x, scope) for x in obj]
     if isinstance(obj, tuple):
         # Convert tuples to lists for YAML/JSON compatibility
         # Hyperparameter range specifications like ('int', min, max) become ['int', min, max]
-        return [serialize_component(x) for x in obj]
+        return [_serialize(x, scope) for x in obj]
 
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"
 
     if isinstance(obj, partial):
-        serialized = serialize_component(obj.func)
+        serialized = _serialize(obj.func, scope)
         if not isinstance(serialized, dict) or "function" not in serialized:
             raise TypeError("Partial components must wrap an importable function")
         if obj.args:
-            serialized["args"] = serialize_component(obj.args)
+            serialized["args"] = _serialize(obj.args, _Scope.ARGUMENT)
         if obj.keywords:
-            serialized["params"] = serialize_component(obj.keywords)
+            serialized["params"] = _serialize(obj.keywords, _Scope.ARGUMENT)
         return serialized
 
     # Special handling for stacking/ensemble meta-estimators
@@ -281,14 +319,14 @@ def serialize_component(obj: Any) -> Any:
     method_id = _n4m_role_method_id(obj)
     if method_id is not None:
         token = N4M_ROLE_PREFIX + method_id
-        return {"class": token, "params": serialize_component(params)} if params else token
+        return {"class": token, "params": _serialize(params, _Scope.ARGUMENT)} if params else token
 
     if inspect.isfunction(obj) or inspect.isbuiltin(obj):
         func_serialized = {
             "function": f"{obj.__module__}.{obj.__name__}"
         }
         if params:
-            func_serialized["params"] = serialize_component(params)
+            func_serialized["params"] = _serialize(params, _Scope.ARGUMENT)
 
         # Store framework as string (not runtime instance) for JSON serialization
         if hasattr(obj, 'framework'):
@@ -301,7 +339,7 @@ def serialize_component(obj: Any) -> Any:
     if params:
         def_serialized = {
             "class": def_serialized,
-            "params": serialize_component(params),
+            "params": _serialize(params, _Scope.ARGUMENT),
         }
 
     return def_serialized
@@ -311,13 +349,19 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
 
     ``strict_imports`` preserves import failures for executable step references.
     The default remains permissive for ordinary dotted string parameter values.
+    Descriptive pipeline strings are not references, including in bare mappings.
     """
+    return _deserialize(blob, infer_type, strict_imports, _Scope.PIPELINE)
+
+
+def _deserialize(blob: Any, infer_type: Any, strict_imports: bool, scope: _Scope) -> Any:
+    """Resolve executable components without interpreting descriptive strings."""
     # --- trivial cases ------------------------------------------------------ #
     if blob is None or isinstance(blob, (bool, int, float)):
         return blob
 
     if isinstance(blob, str):
-        if infer_type is str or "/" in blob or "\\" in blob:
+        if scope is _Scope.LITERAL or infer_type is str or "/" in blob or "\\" in blob:
             return blob
         if blob.startswith(N4M_ROLE_PREFIX):
             return _n4m_role_class(blob)()
@@ -377,7 +421,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
     if isinstance(blob, list):
         if infer_type is not None and isinstance(infer_type, type):
             if issubclass(infer_type, tuple):
-                return tuple(deserialize_component(x) for x in blob)
+                return tuple(_deserialize(x, None, False, scope) for x in blob)
             # Handle numpy array deserialization
             try:
                 import numpy as np
@@ -389,9 +433,11 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                     return np.array(blob)
             except ImportError:
                 pass
-        return [deserialize_component(x) for x in blob]
+        return [_deserialize(x, None, False, scope) for x in blob]
 
     if isinstance(blob, dict):
+        if scope is _Scope.LITERAL:
+            return {k: _deserialize(v, None, False, scope) for k, v in blob.items()}
         # Handle Enum deserialization
         if "enum" in blob and "value" in blob:
             enum_path = blob["enum"]
@@ -415,7 +461,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
             portable_name = blob[key]
             assert isinstance(portable_name, str)
             if key == "class" and portable_name.startswith(N4M_ROLE_PREFIX):
-                return _n4m_role_class(portable_name)(**deserialize_component(blob.get("params", {})))
+                return _n4m_role_class(portable_name)(**_deserialize(blob.get("params", {}), None, False, _Scope.ARGUMENT))
             resolved_name = build_aliases.get(portable_name, portable_name)
             mod_name, _, cls_or_func_name = resolved_name.rpartition(".")
 
@@ -443,11 +489,8 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
 
             params = {}
             if "params" in blob:
-                # print(blob)
                 for k, v in blob["params"].items():
-                    # resolved_type = _resolve_type(cls_or_func, k)
-                    # print(k, v, resolved_type)
-                    params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
+                    params[k] = _deserialize(v, _resolve_type(cls_or_func, k), False, _Scope.ARGUMENT)
 
             for default_name, default_value in portable_model_defaults.get(portable_name, {}).items():
                 params.setdefault(default_name, default_value)
@@ -493,7 +536,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                     }
 
                 if key == "function":
-                    args = deserialize_component(blob.get("args", []))
+                    args = _deserialize(blob.get("args", []), None, False, _Scope.ARGUMENT)
                     return partial(cls_or_func, *args, **params) if args or params else cls_or_func
 
                 if key == "class" or key == "instance":
@@ -517,7 +560,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                 # silently trained with other hyperparameters is a wrong result.
                 raise ValueError(_invalid_parameters_message(cls_or_func, params, exc)) from exc
 
-        return {k: deserialize_component(v) for k, v in blob.items()}
+        return {k: _deserialize(v, None, False, _child_scope(blob, k, scope)) for k, v in blob.items()}
 
     # should not reach here
     return blob

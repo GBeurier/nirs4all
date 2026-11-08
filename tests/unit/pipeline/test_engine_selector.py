@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from nirs4all.api.session import Session
+from nirs4all.pipeline.dagml.host_container import N4aSource
 from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import (
     DEFAULT_ENGINE,
@@ -162,7 +163,8 @@ def test_predict_defaults_to_core_v2_and_legacy_archive_refuses_without_runner(
             raise AssertionError("default native prediction constructed PipelineRunner")
 
     monkeypatch.setattr(predict_module, "PipelineRunner", LegacyPathReached)
-    monkeypatch.setattr(replay_module, "detect_core_archive_version", lambda _model: 2)
+    native_source = N4aSource(Path("portable.n4a"), "native", None, 2, object())
+    monkeypatch.setattr(predict_module, "open_n4a_source", lambda _path: native_source)
     monkeypatch.setattr(
         replay_module,
         "predict_core_methods_archive_v2",
@@ -171,7 +173,7 @@ def test_predict_defaults_to_core_v2_and_legacy_archive_refuses_without_runner(
     result = predict_module.predict(model=Path("portable.n4a"), data=np.asarray([[1.0]]))
     np.testing.assert_array_equal(result.y_pred, np.asarray([1.5]))
 
-    monkeypatch.setattr(replay_module, "detect_core_archive_version", lambda _model: None)
+    monkeypatch.setattr(predict_module, "open_n4a_source", lambda path: N4aSource(Path(path), "none", None))
     with pytest.raises(RtError) as caught:
         predict_module.predict(model=Path("legacy.n4a"), data=np.asarray([[1.0]]))
     assert caught.value.cause == "unsupported_capability"

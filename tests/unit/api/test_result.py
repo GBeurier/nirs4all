@@ -1267,3 +1267,22 @@ class TestResultIntegration:
 
         # Str representations
         assert "PLSRegression" in str(result)
+
+
+class TestPredictResultSampleIds:
+    """Optional generic row labels on PredictResult."""
+
+    def test_default_has_no_sample_ids_and_no_column(self):
+        result = PredictResult(y_pred=np.array([1.0, 2.0]))
+        assert result.sample_ids is None
+        assert "sample_id" not in result.to_dataframe().columns
+
+    def test_positional_arguments_are_unchanged(self):
+        result = PredictResult(np.array([1.0]), {"k": 1}, None, "model", ["step"], {})
+        assert result.model_name == "model" and result.sample_ids is None
+
+    def test_sample_ids_become_the_first_dataframe_column(self):
+        result = PredictResult(y_pred=np.array([[1.0, 2.0], [3.0, 4.0]]), sample_ids=["s2", "s1"], sample_indices=np.array([5, 6]))
+        frame = result.to_dataframe()
+        assert list(frame.columns) == ["sample_id", "sample_index", "y_pred_0", "y_pred_1"]
+        assert list(frame["sample_id"]) == ["s2", "s1"]

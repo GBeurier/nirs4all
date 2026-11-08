@@ -5,6 +5,8 @@ for executing ML pipelines on spectroscopic datasets. It delegates execution to
 PipelineOrchestrator and provides prediction/explanation capabilities via
 Predictor and Explainer classes.
 """
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -24,6 +26,7 @@ from nirs4all.pipeline.retrainer import ExtractedPipeline, Retrainer, StepMode
 from nirs4all.visualization.display import show_figures as show_registered_figures
 
 if TYPE_CHECKING:
+    from nirs4all.pipeline.bundle import BundleLoader
     from nirs4all.pipeline.storage.library import PipelineLibrary
 
 def _get_default_workspace_path() -> Path:
@@ -151,7 +154,7 @@ class PipelineRunner:
         use_colors: bool | None = None,
         show_progress_bar: bool = True,
         json_output: bool = False,
-        should_stop: "Callable[[], bool] | None" = None,
+        should_stop: Callable[[], bool] | None = None,
     ):
         """Initialize pipeline runner.
 
@@ -367,7 +370,7 @@ class PipelineRunner:
 
     def predict(
         self,
-        prediction_obj: dict[str, Any] | str,
+        prediction_obj: dict[str, Any] | str | Path | BundleLoader,
         dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "prediction_dataset",
         all_predictions: bool = False,
@@ -398,7 +401,7 @@ class PipelineRunner:
 
     def explain(
         self,
-        prediction_obj: dict[str, Any] | str,
+        prediction_obj: dict[str, Any] | str | BundleLoader,
         dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "explain_dataset",
         shap_params: dict[str, Any] | None = None,
@@ -440,6 +443,10 @@ class PipelineRunner:
 
     def close(self) -> None:
         """Close workspace resources, including this runner's file logger."""
+        for consumer in (self.predictor, self.retrainer):
+            resolved = getattr(consumer, "_resolved", None)
+            if resolved is not None:
+                resolved.close()
         if hasattr(self, "orchestrator") and self.orchestrator is not None:
             store = self.orchestrator.store
             if store is not None:
@@ -495,7 +502,7 @@ class PipelineRunner:
         return self._last_aggregate_exclude_outliers
 
     @property
-    def library(self) -> "PipelineLibrary":
+    def library(self) -> PipelineLibrary:
         """Get pipeline library for template management.
 
         Returns:
@@ -520,8 +527,7 @@ class PipelineRunner:
         source: dict[str, Any] | str | Path,
         output_path: str | Path,
         format: str = "n4a",
-        include_metadata: bool = True,
-        compress: bool = True
+        include_metadata: bool = True
     ) -> Path:
         """Export a trained pipeline to a standalone bundle.
 
@@ -541,7 +547,6 @@ class PipelineRunner:
             output_path: Path for the output bundle file
             format: Bundle format ('n4a' or 'n4a.py')
             include_metadata: Whether to include full metadata in bundle
-            compress: Whether to compress artifacts (for .n4a format)
 
         Returns:
             Path to the created bundle file
@@ -576,8 +581,7 @@ class PipelineRunner:
             source=source,
             output_path=output_path,
             format=format,
-            include_metadata=include_metadata,
-            compress=compress
+            include_metadata=include_metadata
         )
 
     def export_model(
@@ -698,7 +702,7 @@ class PipelineRunner:
 
     def retrain(
         self,
-        source: dict[str, Any] | str | Path,
+        source: dict[str, Any] | str | Path | BundleLoader,
         dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         mode: str = "full",
         dataset_name: str = "retrain_dataset",

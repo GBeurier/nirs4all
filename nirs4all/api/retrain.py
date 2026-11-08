@@ -4,7 +4,10 @@ Module-level retrain() function for nirs4all.
 This module provides a simple interface for retraining nirs4all pipelines
 on new data.  Full retrain of a concrete DAG-ML bundle replays its native
 training contract; the historical PipelineRunner path requires an explicit
-``engine="legacy"`` selection.
+``engine="legacy"`` selection. A canonical Core ``.n4a`` container (or the
+:class:`~nirs4all.api.native_n4a.CanonicalN4aRunResult` that produced it) is
+retrained only with ``engine="native"``: Core re-runs cross-validation, selection
+and refit from the recipe stored in the container on a new IO record.
 
 Example:
     >>> import nirs4all
@@ -17,17 +20,21 @@ Example:
     >>> print(f"New RMSE: {result.best_rmse:.4f}")
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
-import zipfile
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.bundle.loader import BundleLoader as HeldBundleLoader
+from nirs4all.pipeline.dagml.host_container import N4aSource, open_n4a_source
 from nirs4all.pipeline.dagml.rt import RtError
 
 from .result import RunResult
@@ -39,8 +46,10 @@ from .retrain_capabilities import (
 )
 from .session import Session
 
+if TYPE_CHECKING:
+    from nirs4all.pipeline.bundle import BundleLoader
+
 _TRAIN_PIPELINE_MEMBER = "train_pipeline.json"
-_MAX_TRAIN_PIPELINE_BYTES = 1_048_576
 _NATIVE_FULL_OPTIONS = frozenset(
     {
         "cache",
@@ -100,14 +109,14 @@ def _native_retrain_request_error(
         verb="run",
         unsupported_capability=capability,
         mitigation=(
-            "provide a concrete DAG-ML .n4a bundle containing exactly one bounded "
+            "provide a concrete DAG-ML .n4a bundle containing exactly one "
             "train_pipeline.json specification, or select engine='legacy' explicitly"
         ),
     )
 
 
-def _bundle_training_spec(source: SourceSpec) -> tuple[Path, list[Any], str, str]:
-    """Read the bounded native training spec after the backend preflight."""
+def _bundle_training_spec(source: SourceSpec | BundleLoader, *, opened_source: N4aSource | None = None) -> tuple[Path, list[Any], str, str]:
+    """Read the verified native training spec after the backend preflight."""
     if not isinstance(source, (str, Path)):
         raise _native_retrain_request_error(
             "native full retrain requires a .n4a bundle path; in-memory prediction dictionaries have no native training contract",
@@ -127,38 +136,18 @@ def _bundle_training_spec(source: SourceSpec) -> tuple[Path, list[Any], str, str
             f"source bundle does not exist: {source_path}",
             capability="dagml_full_retrain_source",
         ) from exc
-    if not resolved_path.is_file() or not zipfile.is_zipfile(resolved_path):
-        raise _native_retrain_request_error(
-            f"source is not a regular .n4a ZIP bundle: {source_path}",
-            capability="dagml_full_retrain_source",
-        )
-
-    try:
-        with zipfile.ZipFile(resolved_path) as archive:
-            members = [info for info in archive.infolist() if info.filename == _TRAIN_PIPELINE_MEMBER]
-            if len(members) != 1:
-                raise _native_retrain_request_error(
-                    f"source bundle must contain exactly one {_TRAIN_PIPELINE_MEMBER}; found {len(members)}",
-                    capability="dagml_full_retrain_training_spec",
-                )
-            member = members[0]
-            if member.file_size > _MAX_TRAIN_PIPELINE_BYTES:
-                raise _native_retrain_request_error(
-                    f"{_TRAIN_PIPELINE_MEMBER} exceeds the {_MAX_TRAIN_PIPELINE_BYTES}-byte limit",
-                    capability="dagml_full_retrain_training_spec",
-                )
-            with archive.open(member) as stream:
-                payload_bytes = stream.read(_MAX_TRAIN_PIPELINE_BYTES + 1)
-            if len(payload_bytes) > _MAX_TRAIN_PIPELINE_BYTES:
-                raise _native_retrain_request_error(
-                    f"{_TRAIN_PIPELINE_MEMBER} exceeds the {_MAX_TRAIN_PIPELINE_BYTES}-byte limit",
-                    capability="dagml_full_retrain_training_spec",
-                )
-    except (OSError, zipfile.BadZipFile) as exc:
-        raise _native_retrain_request_error(
-            f"source bundle cannot be read safely: {exc}",
-            capability="dagml_full_retrain_source",
-        ) from exc
+    with open_n4a_source(resolved_path) if opened_source is None else nullcontext(opened_source) as opened:
+        if opened.path.resolve() != resolved_path:
+            raise ValueError("training source does not match its path")
+        container = opened.require_host()
+        members = [member for member in container.namelist() if member == _TRAIN_PIPELINE_MEMBER]
+        if len(members) != 1:
+            raise _native_retrain_request_error(
+                f"source bundle must contain exactly one {_TRAIN_PIPELINE_MEMBER}; found {len(members)}",
+                capability="dagml_full_retrain_training_spec",
+            )
+        payload_bytes = container.read(_TRAIN_PIPELINE_MEMBER)
+        source_sha256 = container.sha256.removeprefix("sha256:")
 
     try:
         payload = json.loads(payload_bytes)
@@ -179,20 +168,12 @@ def _bundle_training_spec(source: SourceSpec) -> tuple[Path, list[Any], str, str
             capability="dagml_full_retrain_training_spec",
         )
 
-    bundle_hasher = hashlib.sha256()
-    with resolved_path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            bundle_hasher.update(chunk)
-    return (
-        resolved_path,
-        steps,
-        bundle_hasher.hexdigest(),
-        hashlib.sha256(payload_bytes).hexdigest(),
-    )
+    return resolved_path, steps, source_sha256, hashlib.sha256(payload_bytes).hexdigest()
+
 
 
 def _native_full_retrain(
-    source: SourceSpec,
+    source: SourceSpec | BundleLoader,
     data: DataSpec,
     *,
     name: str,
@@ -201,6 +182,7 @@ def _native_full_retrain(
     options: dict[str, Any],
     mode: str = "full",
     new_model: Any = None,
+    opened_source: N4aSource | None = None,
 ) -> RunResult:
     """Train a concrete spec or captured winner through real DAG-ML."""
     unknown = sorted(set(options) - _NATIVE_FULL_OPTIONS)
@@ -225,7 +207,7 @@ def _native_full_retrain(
 
     from .general_retrain import captured_training_spec
 
-    captured = captured_training_spec(source, mode=mode, new_model=new_model)
+    captured = captured_training_spec(source, mode=mode, new_model=new_model, opened_source=opened_source)
     if captured is not None:
         steps, lineage = captured
     else:
@@ -234,7 +216,7 @@ def _native_full_retrain(
                 "transfer requires a recorded DAG workspace predictor or captured-host archive",
                 capability="dagml_transfer_retrain_source",
             )
-        source_path, steps, source_sha256, spec_sha256 = _bundle_training_spec(source)
+        source_path, steps, source_sha256, spec_sha256 = _bundle_training_spec(source, opened_source=opened_source)
         lineage = {
             "schema_version": 1, "operation": "retrain", "mode": "full", "engine": "dag-ml",
             "source_kind": "n4a_bundle", "source_bundle": source_path.name,
@@ -273,7 +255,7 @@ def _native_full_retrain(
 
 
 def retrain(
-    source: SourceSpec,
+    source: SourceSpec | BundleLoader,
     data: DataSpec,
     *,
     mode: str = "full",
@@ -295,12 +277,18 @@ def retrain(
             - Prediction dict from ``result.best`` or ``result.top()``
             - Path to exported bundle: ``"exports/model.n4a"``
             - Path to pipeline config directory
+            - Path to a canonical Core ``.n4a`` container, or the
+              ``CanonicalN4aRunResult`` returned by
+              ``run(..., native_profile="nirs4all.n4a.container.v1")``
+              (requires ``engine="native"``)
 
         data: New dataset to train on. Can be:
             - Path to data folder: ``"new_data/"``
             - Numpy arrays: ``(X, y)``
             - Dict: ``{"X": X, "y": y}``
             - SpectroDataset instance
+            - For a canonical ``.n4a`` source: the exact new IO record as a
+              path or bytes, or ``{"record": <path or bytes>}``
 
         mode: Retrain mode. Options:
             - "full": Train everything from scratch (same pipeline structure)
@@ -333,6 +321,10 @@ def retrain(
             - learning_rate: Learning rate for fine-tuning
             - freeze_layers: List of layers to freeze during fine-tuning
             - step_modes: Per-step mode overrides (advanced)
+            - methods_library_path: Methods library for a canonical ``.n4a``
+              retrain (the only option that retrain accepts). Other options,
+              ``new_model``, ``epochs``, sessions and non-``full`` modes are
+              refused before any fit.
 
     Returns:
         RunResult containing:
@@ -381,6 +373,16 @@ def retrain(
         ...     engine="legacy"
         ... )
 
+        Retrain a canonical Core ``.n4a`` on a new IO record (fresh full
+        retrain from the stored recipe; the source container is unchanged):
+
+        >>> result = nirs4all.retrain(
+        ...     "exports/canonical.n4a",
+        ...     "new_train_record.json",
+        ...     engine="native",
+        ... )
+        >>> result.export("exports/canonical_retrained.n4a")
+
         Retrain from an exported bundle:
 
         >>> result = nirs4all.retrain(
@@ -400,6 +402,12 @@ def retrain(
     requested_engine = options.pop("engine", None)
     requested_plugin = options.pop("plugin", None)
     allow_fallback = options.pop("allow_fallback", False)
+    # A held loader (for example a loaded Session's) is normalized once to its path and the
+    # already open source it borrows, so no lane reopens the container or sees a loader object.
+    held_source: N4aSource | None = None
+    if isinstance(source, HeldBundleLoader):
+        held_source = source._source
+        source = source.bundle_path
     decision = retrain_preflight(
         mode,
         engine=requested_engine,
@@ -408,99 +416,141 @@ def retrain(
         session_present=session is not None,
     ).require()
 
-    if decision.lane == "legacy" and isinstance(session, Session):
-        session._prepare_legacy_access("run")
+    if held_source is not None:
+        source_context: Any = nullcontext(held_source)
+    elif isinstance(source, (str, Path)):
+        source_context = open_n4a_source(Path(source))
+    else:
+        source_context = nullcontext(None)
+    with source_context as opened_source:
+        from .native_n4a import CanonicalN4aRunResult
 
-    if decision.lane == "dag-ml":
-        if (mode == "full" and new_model is not None) or epochs is not None:
-            raise _native_retrain_request_error(
-                "full retrain does not accept new_model; full/transfer retrain do not accept epochs",
-                capability="dagml_full_retrain_option",
+        if isinstance(source, CanonicalN4aRunResult) or (opened_source is not None and opened_source.kind == "canonical"):
+            # Canonical container: Core owns the single fresh fit. No bundle, V3, runner or
+            # legacy fallback exists for it; an unselected or other lane is refused.
+            if decision.lane != "native":
+                from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveReplayError
+
+                raise CoreArchiveReplayError("a canonical Core .n4a is retrained only with engine='native'")
+            from .native_n4a import retrain_canonical_n4a
+
+            return cast(
+                RunResult,
+                retrain_canonical_n4a(
+                    source, data, name=name, new_model=new_model, epochs=epochs,
+                    verbose=verbose, save_artifacts=save_artifacts, options=options, opened_source=opened_source,
+                ),
             )
-        return _native_full_retrain(
-            source,
-            data,
-            name=name,
-            verbose=verbose,
-            save_artifacts=save_artifacts,
-            options=options,
+
+        if (
+            opened_source is not None
+            and decision.lane in ("legacy", "plugin")
+            and (
+                opened_source.kind == "native"
+                or (opened_source.kind == "none" and opened_source.path.is_file() and opened_source.path.suffix.lower() == ".n4a")
+            )
+        ):
+            raise ValueError("host retrain requires a current host container; re-export old SDK ZIP bundles with current nirs4all")
+
+        if decision.lane == "legacy" and isinstance(session, Session):
+            session._prepare_legacy_access("run")
+
+        if decision.lane == "dag-ml":
+            if (mode == "full" and new_model is not None) or epochs is not None:
+                raise _native_retrain_request_error(
+                    "full retrain does not accept new_model; full/transfer retrain do not accept epochs",
+                    capability="dagml_full_retrain_option",
+                )
+            return _native_full_retrain(
+                source,
+                data,
+                name=name,
+                verbose=verbose,
+                save_artifacts=save_artifacts,
+                options=options,
+                mode=mode,
+                new_model=new_model,
+                opened_source=opened_source,
+            )
+
+        if decision.lane == "native":
+            from .native_archive_training import NativeMethodsArchiveRunResult
+            from .native_refit_result import NativeMethodsRefitResult
+            from .native_result import NativeMethodsRunResult
+            from .native_training import refit_native_methods
+
+            if mode != "full" or new_model is not None or epochs is not None or options:
+                raise _native_retrain_request_error(
+                    "native Methods V3 full refit accepts only the parent result and new dataset",
+                    capability="core_archive_v3_retrain_option",
+                )
+            if not save_artifacts:
+                raise _native_retrain_request_error(
+                    "native Methods V3 full refit requires save_artifacts=True",
+                    capability="core_archive_v3_retrain_option",
+                )
+            if not isinstance(source, (NativeMethodsRunResult, NativeMethodsArchiveRunResult)):
+                raise _native_retrain_request_error(
+                    "native Methods V3 full refit requires a native Methods run result parent",
+                    capability="core_archive_v3_retrain_source",
+                )
+            if not isinstance(data, dict):
+                raise _native_retrain_request_error(
+                    "native Methods V3 full refit requires a dataset mapping with X, y, and sample_ids",
+                    capability="core_archive_v3_retrain_data",
+                )
+            _ = verbose
+            result: NativeMethodsRefitResult = refit_native_methods(source, data, name=name)
+            # Preserve the published retrain() signature; the native V3 result is
+            # a separate runtime result type exposed through the same entry point.
+            return cast(RunResult, result)
+
+        # PipelineRunner is reachable only through the explicit Python-library
+        # transfer plugin or the explicitly selected ADR-24 rollback lane.
+        if decision.lane not in ("legacy", "plugin"):
+            raise AssertionError(f"unexpected executable retrain lane: {decision.lane}")
+        if decision.lane == "plugin":
+            if decision.plugin != PYTHON_LIBRARY_RETRAIN_PLUGIN or mode != "transfer":
+                raise AssertionError(f"unexpected retrain plugin decision: {decision!r}")
+            if session is not None:
+                raise AssertionError("plugin retrain preflight accepted a Session")
+            from nirs4all.pipeline import PipelineRunner
+
+            runner = PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
+        elif session is not None:
+            runner = session.runner
+        else:
+            from nirs4all.pipeline import PipelineRunner
+
+            runner = PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
+
+        # Convert Path to str for compatibility with type hints
+        source_arg: dict[str, Any] | str | BundleLoader = str(source) if isinstance(source, Path) else source
+        if opened_source is not None and opened_source.kind == "host":
+            from nirs4all.pipeline.bundle import BundleLoader
+
+            assert isinstance(source, (str, Path))
+            source_arg = BundleLoader(source, source=opened_source)
+        data_arg = str(data) if isinstance(data, Path) else data
+
+        # Call the runner's retrain method
+        predictions, per_dataset = runner.retrain(
+            source=source_arg,
+            dataset=data_arg,
             mode=mode,
+            dataset_name=name,
             new_model=new_model,
+            epochs=epochs,
+            verbose=verbose,
+            **options
         )
 
-    if decision.lane == "native":
-        from .native_archive_training import NativeMethodsArchiveRunResult
-        from .native_refit_result import NativeMethodsRefitResult
-        from .native_result import NativeMethodsRunResult
-        from .native_training import refit_native_methods
-
-        if mode != "full" or new_model is not None or epochs is not None or options:
-            raise _native_retrain_request_error(
-                "native Methods V3 full refit accepts only the parent result and new dataset",
-                capability="core_archive_v3_retrain_option",
-            )
-        if not save_artifacts:
-            raise _native_retrain_request_error(
-                "native Methods V3 full refit requires save_artifacts=True",
-                capability="core_archive_v3_retrain_option",
-            )
-        if not isinstance(source, (NativeMethodsRunResult, NativeMethodsArchiveRunResult)):
-            raise _native_retrain_request_error(
-                "native Methods V3 full refit requires a native Methods run result parent",
-                capability="core_archive_v3_retrain_source",
-            )
-        if not isinstance(data, dict):
-            raise _native_retrain_request_error(
-                "native Methods V3 full refit requires a dataset mapping with X, y, and sample_ids",
-                capability="core_archive_v3_retrain_data",
-            )
-        _ = verbose
-        result: NativeMethodsRefitResult = refit_native_methods(source, data, name=name)
-        # Preserve the published retrain() signature; the native V3 result is
-        # a separate runtime result type exposed through the same entry point.
-        return cast(RunResult, result)
-
-    # PipelineRunner is reachable only through the explicit Python-library
-    # transfer plugin or the explicitly selected ADR-24 rollback lane.
-    if decision.lane not in ("legacy", "plugin"):
-        raise AssertionError(f"unexpected executable retrain lane: {decision.lane}")
-    if decision.lane == "plugin":
-        if decision.plugin != PYTHON_LIBRARY_RETRAIN_PLUGIN or mode != "transfer":
-            raise AssertionError(f"unexpected retrain plugin decision: {decision!r}")
-        if session is not None:
-            raise AssertionError("plugin retrain preflight accepted a Session")
-        from nirs4all.pipeline import PipelineRunner
-
-        runner = PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
-    elif session is not None:
-        runner = session.runner
-    else:
-        from nirs4all.pipeline import PipelineRunner
-
-        runner = PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
-
-    # Convert Path to str for compatibility with type hints
-    source_arg = str(source) if isinstance(source, Path) else source
-    data_arg = str(data) if isinstance(data, Path) else data
-
-    # Call the runner's retrain method
-    predictions, per_dataset = runner.retrain(
-        source=source_arg,
-        dataset=data_arg,
-        mode=mode,
-        dataset_name=name,
-        new_model=new_model,
-        epochs=epochs,
-        verbose=verbose,
-        **options
-    )
-
-    return RunResult(
-        predictions=predictions,
-        per_dataset=per_dataset,
-        _runner=runner,
-        _owns_runner=session is None,
-    )
+        return RunResult(
+            predictions=predictions,
+            per_dataset=per_dataset,
+            _runner=runner,
+            _owns_runner=session is None,
+        )
 
 
 # Additive discovery surface without changing the frozen public signature.

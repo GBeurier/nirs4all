@@ -25,12 +25,14 @@ def is_native_pls_phase_package(package: Mapping[str, Any]) -> bool:
     )
 
 
-def read_native_pls_phase_archive(path: str | Path, *, methods_library_path: str) -> tuple[Any, list[dict[str, Any]]]:
+def read_native_pls_phase_archive(
+    path: str | Path, *, methods_library_path: str, source: Any = None,
+) -> tuple[Any, list[dict[str, Any]]]:
     """Validate Core/package/RAW links, then inspect officially imported states."""
 
     from nirs4all.api.portable_archive import read_portable_predictor_archive_v2
 
-    package = read_portable_predictor_archive_v2(path)
+    package = read_portable_predictor_archive_v2(path, source=source)
     document = _package_document(package)
     _require_native_methods_package(document, native_profile=NATIVE_PLS_PHASE_PROFILE)
     dag_ml = importlib.import_module("dag_ml")
@@ -57,14 +59,14 @@ def read_native_pls_phase_archive(path: str | Path, *, methods_library_path: str
 
 
 def predict_native_pls_phase_archive(
-    path: str | Path, data: Any, *, methods_library_path: str, outcome_id: str, run_id: str,
+    path: str | Path, data: Any, *, methods_library_path: str, outcome_id: str, run_id: str, source: Any = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Reopen the validated archive and replay current explicitly named rows."""
+    """Read the validated native package and replay current explicitly named rows."""
 
     from .core_archive_replay import _decode_prediction, _normalize_dataset
     from .fit_identity import normalize_predict_identity
 
-    package, models = read_native_pls_phase_archive(path, methods_library_path=methods_library_path)
+    package, models = read_native_pls_phase_archive(path, methods_library_path=methods_library_path, source=source)
     X, sample_ids = _normalize_dataset(data)
     identity = normalize_predict_identity(X, sample_ids=sample_ids, require_explicit_sample_ids=True)
     compiled = RawArrayMethodsReplayCompiler(

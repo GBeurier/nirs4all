@@ -69,7 +69,6 @@ _GENERATED_PREDICT_SCHEMA_VERSION = 5
 _DEFAULT_RESULTS_ROOT = "nirs4all_results"
 _ENV_GATE = "N4A_NATIVE_RESULTS"
 _GENERATED_VIEW_MANIFEST_FILE = "generated_view_manifest.json"
-_MAX_GENERATED_VIEW_MANIFEST_BYTES = 64 * 1024 * 1024
 _GENERATED_VIEW_FORBIDDEN_REPLAY_KEYS = (
     "stacking_replay", "host_hpo", "separation_replay", "residual_replay",
     "relation_replay_manifest", "source_stacking",
@@ -141,8 +140,6 @@ def _validated_generated_view_manifest(value: Any) -> tuple[bytes, str]:
 
 def _validate_generated_view_manifest_bytes(payload: bytes) -> str:
     """Validate the original bytes, including duplicate-key rejection, before load."""
-    if len(payload) > _MAX_GENERATED_VIEW_MANIFEST_BYTES:
-        raise ValueError("generated view manifest exceeds 64 MiB")
     import importlib
 
     native = importlib.import_module("dag_ml._dag_ml")
@@ -939,11 +936,9 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
             with os.fdopen(descriptor, "rb") as stream:
                 if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                     raise ValueError("native results generated view manifest must be a regular file")
-                payload_bytes = stream.read(_MAX_GENERATED_VIEW_MANIFEST_BYTES + 1)
+                payload_bytes = stream.read()
         except OSError as exc:
             raise ValueError("native results generated view manifest is missing or unreadable") from exc
-        if len(payload_bytes) > _MAX_GENERATED_VIEW_MANIFEST_BYTES:
-            raise ValueError("native results generated view manifest exceeds 64 MiB")
         if hashlib.sha256(payload_bytes).hexdigest() != generated_ref["sha256"]:
             raise ValueError("native results generated view manifest byte fingerprint mismatch")
         fingerprint = _validate_generated_view_manifest_bytes(payload_bytes)
@@ -999,8 +994,6 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
                 or source_ref["path"] != "source_training_captures.json"):
             raise ValueError("native source training capture reference is invalid")
         source_path = run_dir / source_ref["path"]
-        if source_path.stat().st_size > 64 * 1024 * 1024:
-            raise ValueError("native source training capture is oversized")
         source_bytes = source_path.read_bytes()
         if hashlib.sha256(source_bytes).hexdigest() != source_ref["sha256"]:
             raise ValueError("native source training capture hash differs")

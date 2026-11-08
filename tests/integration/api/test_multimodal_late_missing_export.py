@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +15,9 @@ from sklearn.preprocessing import StandardScaler
 from nirs4all.api.result import _DagmlExportedModel, _DagmlNativeStackingModel
 from nirs4all.pipeline.bundle import write_single_model_bundle
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
 from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 
 def _fitted_stack(width: int = 1) -> _DagmlNativeStackingModel:
@@ -96,18 +97,6 @@ def test_strict_stacking_keeps_prediction_only_columns_and_refuses_masks() -> No
         model.predict([x, x], source_masks={"signal": np.ones(8, dtype=bool), "image": np.ones(8, dtype=bool)})
 
 
-def _rewrite_manifest(source: Path, destination: Path, change: Any) -> Path:
-    with zipfile.ZipFile(source) as original, zipfile.ZipFile(destination, "w") as modified:
-        for item in original.infolist():
-            data = original.read(item.filename)
-            if item.filename == "manifest.json":
-                manifest = json.loads(data)
-                change(manifest)
-                data = json.dumps(manifest).encode()
-            modified.writestr(item, data)
-    return destination
-
-
 @pytest.mark.parametrize("field", ["missing_source_policy", "source_names", "prediction_widths", "meta_feature_layout", "missing_contract", "recipe"])
 def test_archive_manifest_must_attest_exact_fitted_presence_layout(tmp_path: Path, field: str) -> None:
     model = _fitted_stack()
@@ -132,7 +121,10 @@ def test_archive_manifest_must_attest_exact_fitted_presence_layout(tmp_path: Pat
         else:
             host["source_presence"][field] = "corrupted"
 
-    changed = _rewrite_manifest(archive, tmp_path / "changed.n4a", corrupt)
+    with open_n4a_source(archive) as source_archive:
+        manifest = source_archive.require_host().bundle_manifest
+    corrupt(manifest)
+    changed = reseal_host_member(archive, tmp_path / "changed.n4a", BUNDLE_MANIFEST_MEMBER, json.dumps(manifest).encode())
     with pytest.raises(ValueError, match="native stacking archive"):
         load_general_archive(changed)
 
@@ -202,8 +194,8 @@ def test_native_late_missing_export_replays_new_rows_without_fit(
         if all_series_absent:
             monkeypatch.setattr(SequenceSummary, "transform", forbidden)
         archive = child.export(tmp_path / "late-missing.n4a")
-        with zipfile.ZipFile(archive) as bundle:
-            layout = json.loads(bundle.read("manifest.json"))["multimodal_host"]["source_presence"]
+        with open_n4a_source(archive) as source_archive:
+            layout = source_archive.require_host().bundle_manifest["multimodal_host"]["source_presence"]
         assert layout["source_names"] == list(meta.multimodal_source_names)
         assert layout["prediction_widths"] == [width] * len(bases)
         assert layout["meta_feature_width"] == len(bases) * (width + 1)

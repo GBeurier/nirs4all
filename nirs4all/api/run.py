@@ -870,6 +870,11 @@ def run(
             and the model step's native ``finetune_params``. Requires an explicit
             standalone ``engine="native"`` run. Omitting it preserves the
             historical portable PLS and general DAG profiles.
+            ``"nirs4all.n4a.container.v1"`` produces a canonical Core ``.n4a``
+            container through Core's single fit (native recipe plus ``dataset=<IO record
+            path or bytes>`` and ``source_id=<id>``); ``random_state``,
+            tuning, calibration, sessions and ``workspace_path`` are refused, and
+            ``result.export`` only writes the already sealed bytes.
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -1029,6 +1034,25 @@ def run(
         runner_kwargs = {**{key: value for key, value in session._runner_kwargs.items() if key not in public_keys}, **runner_kwargs}
 
     if native_profile is not None:
+        from .native_n4a import CANONICAL_N4A_NATIVE_PROFILE
+
+        if native_profile == CANONICAL_N4A_NATIVE_PROFILE:
+            if engine != "native":
+                raise ValueError("native_profile requires explicit engine='native'")
+            if allow_fallback:
+                raise ValueError("native_profile requires a standalone native run without fallback")
+            if save_charts is not None and type(save_charts) is not bool:
+                raise TypeError("save_charts must be a bool or None")
+            from .native_n4a import run_native_n4a
+
+            return run_native_n4a(
+                pipeline, dataset, name=name, verbose=verbose, save_artifacts=save_artifacts,
+                save_charts=bool(save_charts), plots_visible=plots_visible, random_state=random_state,
+                refit=refit, cache=cache, project=project, report_naming=report_naming,
+                results_path=results_path, session=session, tuning=tuning, calibration=calibration,
+                terminal_predict=terminal_predict, runner_kwargs=runner_kwargs,
+            )
+
         from nirs4all.pipeline.dagml.native_pls_phase_controls import NATIVE_PLS_PHASE_PROFILE
 
         if native_profile != NATIVE_PLS_PHASE_PROFILE:

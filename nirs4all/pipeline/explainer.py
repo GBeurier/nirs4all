@@ -15,6 +15,7 @@ import numpy as np
 from nirs4all.core.logging import get_logger
 
 if TYPE_CHECKING:
+    from nirs4all.pipeline.bundle import BundleLoader
     from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
@@ -61,7 +62,7 @@ class Explainer:
 
     def explain(
         self,
-        prediction_obj: dict[str, Any] | str,
+        prediction_obj: "dict[str, Any] | str | BundleLoader",
         dataset: DatasetConfigs | SpectroDataset | np.ndarray | tuple[np.ndarray, ...] | dict | list[dict] | str | list[str],
         dataset_name: str = "explain_dataset",
         shap_params: dict[str, Any] | None = None,
@@ -293,7 +294,7 @@ class Explainer:
 
     def _prepare_replay(
         self,
-        selection_obj: dict[str, Any] | str,
+        selection_obj: "dict[str, Any] | str | BundleLoader",
         dataset_config: DatasetConfigs,
         verbose: int = 0,
     ) -> list[Any]:

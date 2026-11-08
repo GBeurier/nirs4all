@@ -17,10 +17,24 @@ nirs4all supports two bundle formats:
 
 ### `.n4a` Format (Full Bundle)
 
-A ZIP archive containing:
-- `manifest.json`: Bundle metadata (chain_id, model_class, preprocessings, etc.)
-- `chain.json`: Chain steps with fold and shared artifact references
-- `artifacts/`: Directory with serialized model and transformer binaries
+The SDK Python-host profile is stored inside a Core V1 container, schema
+`nirs4all.n4a.container.v1`, with required feature `nirs4all-python-host@1`
+and owner `nirs4all.python-host`. Its physical profile is uncompressed
+`zip-stored.v1`; there is no public `compress` option.
+
+- Root `manifest.json`: Core storage inventory and artifact declarations
+- `host/bundle_manifest.json`: SDK bundle metadata
+- `chain.json`, or `pipeline.json` and optional `trace.json`: Host replay declarations
+- `artifacts/`: Serialized model and transformer payloads
+
+Core validates storage inventory and integrity. SDK semantic and sidecar checks
+and full verified private extraction precede trusted joblib loading. Python/joblib
+host payloads are nonportable and require a trusted producer: checksums do not make
+pickle safe or confer native executability. Core-validated owner/feature/profile
+declarations determine routing; suffix or V1 schema alone does not choose execution.
+Old SDK ZIP inputs explicitly refuse with current re-export advice and no reader shim.
+Explicit V2/V3 lanes remain temporary and separately qualified; they are not old SDK ZIPs.
+The host transport described here is an unpublished local source cohort, not a release.
 
 **Best for**: Deployment with nirs4all, archival, full reproducibility
 
@@ -192,27 +206,27 @@ print(f"Predictions: {y_pred}")
 
 ### Direct BundleLoader Usage
 
-`BundleLoader` is the deprecated direct-Python replay API for historical
-legacy `.n4a` bundles. New applications should use `nirs4all.predict()`, which
-routes DAG-ML/Core archives through their native replay path; those backends do
-not execute `BundleLoader`. For compatibility tooling that explicitly needs the
-legacy lane:
+Use `nirs4all.predict()` for public prediction. For direct Python-host bundle
+access, `BundleLoader` adapts the shared verified Core V1 reader and retains its
+source for lazy artifacts. A standalone loader owns its opening and closes it
+through the context manager. With `source=<N4aSource>`, it borrows the caller's
+opening; keep that source open until all lazy reads finish. Canonical native
+payloads keep their separate execution contract.
 
 ```python
+import numpy as np
+
 from nirs4all.pipeline.bundle import BundleLoader
 
-loader = BundleLoader("exports/model.n4a")
+with BundleLoader("exports/model.n4a") as loader:
+    # Access metadata while the loader owns its verified source.
+    print(f"Pipeline UID: {loader.metadata.pipeline_uid}")
+    print(f"Model step: {loader.metadata.model_step_index}")
+    print(f"Preprocessing: {loader.metadata.preprocessing_chain}")
+    print(f"Fold weights: {loader.fold_weights}")
 
-# Access metadata
-print(f"Pipeline UID: {loader.metadata.pipeline_uid}")
-print(f"Model step: {loader.metadata.model_step_index}")
-print(f"Preprocessing: {loader.metadata.preprocessing_chain}")
-print(f"Fold weights: {loader.fold_weights}")
-
-# Make predictions
-import numpy as np
-X_new = np.random.randn(10, 100)
-y_pred = loader.predict(X_new)
+    X_new = np.random.randn(10, 100)
+    y_pred = loader.predict(X_new)
 ```
 
 ## Export Sources
@@ -226,8 +240,8 @@ result.export("model.n4a")
 # From store chain ID
 store.export_chain("chain_abc123", Path("model.n4a"))
 
-# From bundle path (re-export)
-preds = nirs4all.predict("old_model.n4a", data)
+# Predict from a current host bundle
+preds = nirs4all.predict("exports/model.n4a", data)
 ```
 
 ## Bundle Inspection
@@ -235,22 +249,22 @@ preds = nirs4all.predict("old_model.n4a", data)
 ### Check Bundle Contents
 
 ```python
-import zipfile
-import json
+from pathlib import Path
 
-with zipfile.ZipFile("exports/model.n4a", 'r') as zf:
-    # List files
-    print("Bundle contents:")
-    for name in zf.namelist():
-        info = zf.getinfo(name)
-        print(f"  {name}: {info.file_size / 1024:.1f} KB")
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 
-    # Read manifest
-    manifest = json.loads(zf.read('manifest.json'))
-    print(f"\nChain ID: {manifest['chain_id']}")
-    print(f"Model: {manifest['model_class']}")
-    print(f"Preprocessing: {manifest['preprocessings']}")
-    print(f"Exported at: {manifest['exported_at']}")
+with open_n4a_source(Path("exports/model.n4a")) as source:
+    container = source.require_host()
+    print(f"Core schema: {container.manifest['schema']}")
+    print("Bundle contents (declared order):")
+    for name in container.namelist():
+        print(f"  {name}: {container.size(name) / 1024:.1f} KB")
+
+    # SDK metadata is separate from root manifest.json, the Core inventory.
+    manifest = container.bundle_manifest  # host/bundle_manifest.json
+    print(f"\nPipeline UID: {manifest.get('pipeline_uid', 'N/A')}")
+    print(f"Preprocessing: {manifest.get('preprocessing_chain', 'N/A')}")
+    print(f"Created: {manifest.get('created_at', 'N/A')}")
 ```
 
 ## Batch Export
@@ -343,15 +357,21 @@ result = nirs4all.retrain("exports/wheat_model.n4a", new_data, mode="transfer")
 2. **Test before deployment**: Verify predictions match training validation
 3. **Document dependencies**: Note required Python version and packages
 4. **Store source metadata**: Keep the original prediction ID for traceability
-5. **Use compression**: Enable compression for smaller bundle sizes
+5. **Plan storage**: `zip-stored.v1` keeps member bytes uncompressed, so allow space for the captured state and private extraction
 
 ## Troubleshooting
 
 ### Bundle Too Large
 
-- Use compression: `compress=True`
+- Host storage uses uncompressed `zip-stored.v1`; export has no `compress` option
 - Use `export_model()` for lightweight model-only export
 - Consider `.n4a.py` for simpler models
+
+The V1 host transport has no intrinsic `.n4a` content-size cap. Models and JSON
+still materialize within the host allocator's capacity. Optional host-authorized
+`memory_budget_bytes` on low-level Core/host storage APIs bounds Core's working
+allocations only; this is neither a high-level `predict`/Session option nor a total
+process-RAM guarantee. Structural, schema and integrity checks still apply.
 
 ### Portable Script Errors
 

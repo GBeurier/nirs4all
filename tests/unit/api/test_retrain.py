@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -18,7 +19,9 @@ from nirs4all.api.retrain_capabilities import (
 )
 from nirs4all.api.session import Session
 from nirs4all.pipeline.bundle.loader import BundleMetadata
+from nirs4all.pipeline.dagml.core_archive_replay import CANONICAL_N4A_V1, CoreArchiveReplayError
 from nirs4all.pipeline.dagml.errors import DagMlUnavailable
+from nirs4all.pipeline.dagml.host_container import N4aSource
 from nirs4all.pipeline.dagml.rt import RtError
 
 
@@ -180,8 +183,9 @@ def test_missing_training_spec_refuses_before_run_data_or_legacy_loader(
     run_module = importlib.import_module("nirs4all.api.run")
     bundle_module = importlib.import_module("nirs4all.pipeline.bundle")
     bundle = tmp_path / "predict-only.n4a"
-    with zipfile.ZipFile(bundle, "w") as archive:
-        archive.writestr("manifest.json", "{}")
+    bundle.touch()
+    container = SimpleNamespace(bundle_manifest=None, namelist=lambda: [], close=lambda: None)
+    monkeypatch.setattr(retrain_module, "open_n4a_source", lambda path: N4aSource(path, "host", container))
 
     monkeypatch.delenv("N4A_ENGINE", raising=False)
     monkeypatch.setattr(retrain_module, "require_dagml_retrain_backend", lambda: None)
@@ -233,6 +237,62 @@ def test_explicit_legacy_preserves_pipeline_runner_rollback_lane(
     assert observed["retrain"]["new_model"] == "new-estimator"
     assert observed["retrain"]["learning_rate"] == 0.1
     assert "engine" not in observed["retrain"]
+
+
+def test_legacy_retrain_keeps_noncontainer_sources_supported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pipeline directory is not a container: the rollback lane still hands it to the runner as before."""
+    observed: dict[str, Any] = {}
+
+    class _FakeRunner:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def retrain(self, **kwargs: Any) -> tuple[object, dict[str, Any]]:
+            observed["retrain"] = kwargs
+            return object(), {"legacy": {"engine": "legacy"}}
+
+    directory = tmp_path / "pipeline_dir"
+    directory.mkdir()
+    monkeypatch.setattr(pipeline_module, "PipelineRunner", _FakeRunner)
+    monkeypatch.setattr(importlib.import_module("nirs4all.pipeline.bundle"), "BundleLoader", _never_runner)
+
+    result = retrain(directory, object(), engine="legacy", verbose=0)
+
+    assert result.per_dataset == {"legacy": {"engine": "legacy"}}
+    assert observed["retrain"]["source"] == str(directory)
+
+
+@pytest.mark.parametrize(
+    ("kind", "name", "refused"),
+    [("native", "native.n4a", True), ("none", "old.n4a", True), ("none", "weights.joblib", False)],
+)
+def test_legacy_and_plugin_retrain_refuse_only_old_or_native_n4a_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, name: str, refused: bool
+) -> None:
+    """Old/interim containers are refused without a shim; other existing files keep their historical source meaning."""
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    source = tmp_path / name
+    source.write_bytes(b"not a Core V1 container")
+    monkeypatch.setattr(retrain_module, "open_n4a_source", lambda path: N4aSource(Path(path), kind, None))  # type: ignore[arg-type]
+    constructed: list[dict[str, Any]] = []
+
+    class _FakeRunner:
+        def __init__(self, **kwargs: Any) -> None:
+            constructed.append(kwargs)
+
+        def retrain(self, **kwargs: Any) -> tuple[object, dict[str, Any]]:
+            return object(), {"legacy": {}}
+
+    monkeypatch.setattr(pipeline_module, "PipelineRunner", _FakeRunner)
+    for options in ({"engine": "legacy"}, {"mode": "transfer", "plugin": "nirs4all-python-library"}):
+        constructed.clear()
+        if refused:
+            with pytest.raises(ValueError, match="host retrain requires a current host container"):
+                retrain(source, object(), **options)
+            assert constructed == []
+        else:
+            assert retrain(source, object(), verbose=0, **options).per_dataset == {"legacy": {}}
+            assert len(constructed) == 1
 
 
 def test_transfer_executes_only_through_explicit_python_library_plugin(
@@ -353,3 +413,29 @@ def test_public_retrain_refuses_native_session_sharing_before_runner(
 
     assert caught.value.unsupported_capability == "native_retrain_session"
     assert session._runner is None
+
+
+@pytest.mark.parametrize("engine", [None, "dag-ml", "legacy"])
+def test_canonical_container_is_routed_by_schema_and_never_to_bundle_or_runner_lanes(
+    engine: str | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A canonical Core container selected without engine='native' is refused, not bundle-retrained."""
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    bundle_module = importlib.import_module("nirs4all.pipeline.bundle")
+    canonical = tmp_path / "canonical.n4a"
+    with zipfile.ZipFile(canonical, "w") as archive:
+        archive.writestr("manifest.json", f'{{"schema": "{CANONICAL_N4A_V1}"}}')
+
+    monkeypatch.setattr(retrain_module, "open_n4a_source", lambda path: N4aSource(path, "canonical", SimpleNamespace(close=lambda: None)))
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+    monkeypatch.delenv("N4A_RETRAIN_PLUGIN", raising=False)
+    monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
+    monkeypatch.setattr(bundle_module, "BundleLoader", _never_runner)
+    monkeypatch.setattr(retrain_module, "require_dagml_retrain_backend", lambda: pytest.fail("canonical container probed DAG-ML"))
+    monkeypatch.setattr(retrain_module, "_bundle_training_spec", lambda source: pytest.fail("canonical container read as a bundle"))
+    monkeypatch.setattr(retrain_module, "_native_full_retrain", lambda *args, **options: pytest.fail("canonical container entered DAG-ML"))
+
+    with pytest.raises(CoreArchiveReplayError, match="engine='native'"):
+        retrain(canonical, _MustNotBeTouched(), engine=engine)

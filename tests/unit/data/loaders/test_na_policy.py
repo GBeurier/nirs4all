@@ -163,41 +163,39 @@ class TestReplacePolicy:
         assert result.loc[2, "f2"] == 0.0
         assert report["fill_method"] == "value"
 
-    def test_replace_with_mean_per_column(self, df_with_nan):
-        """replace with MEAN per_column=True fills with column means."""
-        config = NAFillConfig(method=NAFillMethod.MEAN, per_column=True)
-        result, report = apply_na_policy(df_with_nan, "replace", config)
-        # f1 mean (excluding NaN): (1+3+4+5)/4 = 3.25
-        assert abs(result.loc[1, "f1"] - 3.25) < 1e-10
-        # f2 mean (excluding NaN): (10+40+50)/3 ≈ 33.33 — wait, there are 4 non-NaN: (10+20+40+50)/4 = 30.0
-        assert abs(result.loc[2, "f2"] - 30.0) < 1e-10
-        assert report["fill_method"] == "mean"
+    @pytest.mark.parametrize("fill_config", [
+        {"method": "mean"},
+        {"method": "median", "per_column": False},
+    ])
+    @pytest.mark.parametrize("policy", ["replace", "ignore", "abort", "auto"])
+    def test_statistical_fill_is_refused_with_or_without_nan(self, df_with_nan, df_clean, policy, fill_config):
+        """mean/median fills need fit-scoped imputation: refused even when inactive or NaN-free."""
+        for frame in (df_with_nan, df_clean):
+            with pytest.raises(ValueError, match="is refused"):
+                apply_na_policy(frame, policy, fill_config)
 
-    def test_replace_with_mean_global(self, df_with_nan):
-        """replace with MEAN per_column=False fills with global mean."""
-        config = NAFillConfig(method=NAFillMethod.MEAN, per_column=False)
-        result, report = apply_na_policy(df_with_nan, "replace", config)
-        # Global mean of all non-NaN values
-        all_values = df_with_nan.values.flatten()
-        global_mean = np.nanmean(all_values)
-        assert abs(result.loc[1, "f1"] - global_mean) < 1e-10
-        assert abs(result.loc[2, "f2"] - global_mean) < 1e-10
+    def test_statistical_fill_refusal_is_not_a_na_error(self, df_with_nan):
+        """The refusal is a configuration error, not the abort-policy NAError."""
+        with pytest.raises(ValueError) as excinfo:
+            apply_na_policy(df_with_nan, "replace", {"method": "mean"})
+        assert not isinstance(excinfo.value, NAError)
 
-    def test_replace_with_median_per_column(self, df_with_nan):
-        """replace with MEDIAN per_column=True fills with column medians."""
-        config = NAFillConfig(method=NAFillMethod.MEDIAN, per_column=True)
-        result, report = apply_na_policy(df_with_nan, "replace", config)
-        # f1 median (excluding NaN): median(1,3,4,5) = 3.5
-        assert abs(result.loc[1, "f1"] - 3.5) < 1e-10
-        assert report["fill_method"] == "median"
+    @pytest.mark.parametrize("method", ["mean", " MEDIAN "])
+    def test_fill_config_refuses_statistical_method(self, method):
+        """Public NAFillConfig refuses explicit mean/median, normalized for case and spaces."""
+        with pytest.raises(ValueError, match="is refused"):
+            NAFillConfig(method=method)
 
-    def test_replace_with_median_global(self, df_with_nan):
-        """replace with MEDIAN per_column=False fills with global median."""
-        config = NAFillConfig(method=NAFillMethod.MEDIAN, per_column=False)
-        result, report = apply_na_policy(df_with_nan, "replace", config)
-        all_values = df_with_nan.values.flatten()
-        global_median = float(np.nanmedian(all_values))
-        assert abs(result.loc[1, "f1"] - global_median) < 1e-10
+    def test_fill_config_unknown_method_keeps_generic_enum_refusal(self):
+        """Other unknown methods are not reported as fit-scope refusals."""
+        with pytest.raises(ValueError) as excinfo:
+            NAFillConfig(method="interpolate")
+        assert "is refused" not in str(excinfo.value)
+
+    def test_mean_and_median_are_not_fill_methods(self):
+        """The statistical methods are removed from the public enum."""
+        assert not hasattr(NAFillMethod, "MEAN")
+        assert not hasattr(NAFillMethod, "MEDIAN")
 
     def test_replace_with_forward_fill(self, df_with_nan):
         """replace with FORWARD_FILL fills NaN using forward fill along columns."""

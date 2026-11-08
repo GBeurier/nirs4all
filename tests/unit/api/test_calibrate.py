@@ -16,6 +16,8 @@ from nirs4all.api.calibrate import Nirs4AllCalibrationNotImplementedError
 from nirs4all.api.result import PredictResult
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.dagml.conformal_contracts import CalibratedRunResult
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, JSON_CONTENT_TYPE, HostMember, open_n4a_source
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member, write_host_bundle
 
 
 class _CalibrationIdentityAwarePredictor:
@@ -1950,10 +1952,7 @@ def test_public_predict_routes_calibrated_bundle_request(tmp_path) -> None:
 
 
 def test_public_attach_calibrated_result_to_model_bundle_roundtrips(tmp_path) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     calibrated = nirs4all.calibrate(
         y_true=[1.0, 2.0, 3.0, 4.0],
@@ -1969,20 +1968,20 @@ def test_public_attach_calibrated_result_to_model_bundle_roundtrips(tmp_path) ->
 
     assert attached == tmp_path / "model.calibrated.n4a"
     assert restored.to_dict() == calibrated.to_dict()
-    with zipfile.ZipFile(attached, "r") as archive:
-        members = set(archive.namelist())
-    assert "manifest.json" in members
-    assert "pipeline.json" in members
-    assert "conformal/manifest.json" in members
-    assert "conformal/artifact.json" in members
-    assert "conformal/calibrated_result.json" in members
+    with open_n4a_source(attached) as source:
+        members = source.require_host().namelist()
+    assert members == [
+        BUNDLE_MANIFEST_MEMBER,
+        "pipeline.json",
+        "conformal/manifest.json",
+        "conformal/artifact.json",
+        "conformal/calibrated_result.json",
+    ]
+    assert "manifest.json" not in members
 
 
 def test_public_predict_routes_attached_conformal_model_bundle(tmp_path, monkeypatch) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     calibrated = nirs4all.calibrate(
         y_true=[1.0, 2.0, 3.0, 4.0],
@@ -2024,10 +2023,7 @@ def test_public_predict_routes_attached_conformal_model_bundle(tmp_path, monkeyp
 
 
 def test_public_predict_attached_conformal_model_bundle_rejects_invalid_sidecar(tmp_path) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     calibrated = nirs4all.calibrate(
         y_true=[1.0, 2.0, 3.0, 4.0],
@@ -2038,12 +2034,11 @@ def test_public_predict_attached_conformal_model_bundle_rejects_invalid_sidecar(
         coverage=0.8,
     )
     attached = nirs4all.attach_calibrated_result_to_bundle(str(model_bundle), calibrated)
-    with zipfile.ZipFile(attached, "a") as archive:
-        archive.writestr("conformal/extra.json", "{}")
+    extended = reseal_host_member(attached, tmp_path / "model.extra-sidecar.n4a", "conformal/extra.json", b"{}", kind="result", content_type=JSON_CONTENT_TYPE)
 
     with pytest.raises(ValueError, match="unexpected conformal sidecar members"):
         nirs4all.predict(
-            model=str(attached),
+            model=str(extended),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
             coverage=0.8,
             engine="legacy",
@@ -2051,10 +2046,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_invalid_sidecar(
 
 
 def test_public_predict_attached_conformal_model_bundle_rejects_missing_prediction_sample_ids(tmp_path, monkeypatch) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     calibrated = nirs4all.calibrate(
         y_true=[1.0, 2.0, 3.0, 4.0],
@@ -2065,16 +2057,12 @@ def test_public_predict_attached_conformal_model_bundle_rejects_missing_predicti
         coverage=0.8,
     )
     attached = nirs4all.attach_calibrated_result_to_bundle(str(model_bundle), calibrated)
-    corrupted = tmp_path / "model.corrupted-missing-sample-ids.n4a"
-    with zipfile.ZipFile(attached, "r") as src, zipfile.ZipFile(corrupted, "w") as dst:
-        for member in src.namelist():
-            if member == "conformal/calibrated_result.json":
-                payload = json.loads(src.read(member).decode("utf-8"))
-                payload["sample_ids"] = []
-                payload.pop("fingerprint", None)
-                dst.writestr(member, json.dumps(payload, sort_keys=True))
-            else:
-                dst.writestr(member, src.read(member))
+    with open_n4a_source(attached) as source:
+        payload = source.require_host().read_json("conformal/calibrated_result.json")
+    payload["sample_ids"] = []
+    payload.pop("fingerprint", None)
+    # A fully valid container (Core accepts it) so the conformal semantic check is the one that refuses.
+    corrupted = reseal_host_member(attached, tmp_path / "model.corrupted-missing-sample-ids.n4a", "conformal/calibrated_result.json", json.dumps(payload, sort_keys=True).encode("utf-8"))
 
     def fail_if_model_prediction_runs(**_kwargs):
         raise AssertionError("invalid conformal sidecar must fail before model prediction")
@@ -2092,11 +2080,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_missing_predicti
 
 
 def test_public_predict_attached_conformal_model_bundle_rejects_incomplete_sidecar(tmp_path) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
-        archive.writestr("conformal/manifest.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a", [HostMember("conformal/manifest.json", b"{}", "result", JSON_CONTENT_TYPE)])
 
     with pytest.raises(ValueError, match="does not contain a complete conformal sidecar"):
         nirs4all.predict(
@@ -2107,11 +2091,8 @@ def test_public_predict_attached_conformal_model_bundle_rejects_incomplete_sidec
         )
 
 
-def test_public_predict_attached_conformal_model_bundle_rejects_duplicate_sidecar(tmp_path) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+def test_public_predict_attached_conformal_model_bundle_rejects_duplicate_sidecar(tmp_path, monkeypatch) -> None:
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     calibrated = nirs4all.calibrate(
         y_true=[1.0, 2.0, 3.0, 4.0],
@@ -2122,10 +2103,16 @@ def test_public_predict_attached_conformal_model_bundle_rejects_duplicate_sideca
         coverage=0.8,
     )
     attached = nirs4all.attach_calibrated_result_to_bundle(str(model_bundle), calibrated)
+    # A duplicated physical member cannot be a valid container: Core refuses it at the one open,
+    # before any conformal parse, model prediction or deserialization.
     with zipfile.ZipFile(attached, "a") as archive, pytest.warns(UserWarning, match="Duplicate name"):
         archive.writestr("conformal/artifact.json", "{}")
+    joblib = importlib.import_module("joblib")
+    monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("a refused container was deserialized"))
+    predict_module = importlib.import_module("nirs4all.api.predict")
+    monkeypatch.setattr(predict_module, "_predict_from_model", lambda **_kwargs: pytest.fail("a refused container reached model prediction"))
 
-    with pytest.raises(ValueError, match="duplicate members"):
+    with pytest.raises(ValueError, match=r"n4a (physical|integrity|manifest) refusal:"):
         nirs4all.predict(
             model=str(attached),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
@@ -2135,10 +2122,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_duplicate_sideca
 
 
 def test_public_predict_model_bundle_without_conformal_sidecar_stays_outside_coverage_lane(tmp_path) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     with pytest.raises(NotImplementedError, match="attached conformal sidecar"):
         nirs4all.predict(
@@ -2150,10 +2134,7 @@ def test_public_predict_model_bundle_without_conformal_sidecar_stays_outside_cov
 
 
 def test_public_predict_attached_conformal_model_bundle_rejects_unmaterialized_coverage(tmp_path, monkeypatch) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     calibrated = nirs4all.calibrate(
         y_true=[1.0, 2.0, 3.0, 4.0],
@@ -2181,10 +2162,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_unmaterialized_c
 
 
 def test_public_predict_attached_conformal_model_bundle_rejects_all_predictions(tmp_path) -> None:
-    model_bundle = tmp_path / "model.n4a"
-    with zipfile.ZipFile(model_bundle, "w") as archive:
-        archive.writestr("manifest.json", '{"bundle_format_version": "1.0"}')
-        archive.writestr("pipeline.json", "{}")
+    model_bundle = write_host_bundle(tmp_path / "model.n4a")
 
     calibrated = nirs4all.calibrate(
         y_true=[1.0, 2.0, 3.0, 4.0],

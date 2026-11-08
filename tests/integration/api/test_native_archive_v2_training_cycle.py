@@ -348,9 +348,17 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         assert reference is not None
         assert reference["archive_id"].startswith("archive:")
         assert len(reference["archive_sha256"]) == 64
-        with zipfile.ZipFile(archive_path) as archive:
-            manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["payloads"]["methods"]["n4mm"][0]["format_version"] == 2
+        import nirs4all_core
+
+        from nirs4all.pipeline.dagml.core_archive_replay import _resolve_methods_library_identity
+
+        library_identity = _resolve_methods_library_identity(library_path)
+        descriptors = nirs4all_core.inspect_methods_archive_v2_predictors(
+            archive_path, methods_library_path=library_identity[0], methods_library_sha256=library_identity[1],
+        )
+        # The current Methods N4MM writer emits format 3; the container version is independent of it.
+        assert descriptors[0]["format_version"] == 3
+        assert nirs4all_core.read_native_package_view(archive_path)["package_schema_version"] == 2
         result.close()
         result.close()
         assert result.native_execution_is_live is False
@@ -408,11 +416,15 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         assert before_tamper.metadata["sample_ids"] == prediction_ids
         _tamper_n4mm(revalidation_archive, replacement)
         os.replace(replacement, revalidation_archive)
-        with pytest.raises(CoreArchiveReplayError, match="validation|replay|refused"):
-            revalidated_session.predict(
-                {"X": prediction_features, "sample_ids": prediction_ids},
-                methods_library_path=library_path,
-            )
+        # The Session keeps the one verified Core handle it opened: replacing the path afterwards
+        # cannot alter the bytes it validated, so its replay is unchanged.
+        after_replace = revalidated_session.predict(
+            {"X": prediction_features, "sample_ids": prediction_ids},
+            methods_library_path=library_path,
+        )
+        np.testing.assert_allclose(after_replace.y_pred, before_tamper.y_pred, rtol=0.0, atol=0.0)
+    with pytest.raises((CoreArchiveReplayError, ValueError)):
+        nirs4all.load_session(revalidation_archive, methods_library_path=library_path)
 
     child = textwrap.dedent(
         """
@@ -527,7 +539,11 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
 
     tampered = tmp_path / "tampered.n4a"
     _tamper_n4mm(archive_path, tampered)
-    with pytest.raises(CoreArchiveReplayError, match="validation|replay|refused"):
+    # Core admission refuses the tampered fitted-state member before any dispatch or replay.
+    with pytest.raises(
+        ValueError,
+        match=r"n4a integrity refusal: raw size/SHA mismatch for `dagml/facets/[0-9a-f]+/states/[0-9a-f]+\.bin`",
+    ):
         nirs4all.predict(
             model=tampered,
             data={"X": prediction_features, "sample_ids": prediction_ids},
@@ -538,8 +554,10 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
 
 def _tamper_n4mm(source: Path, destination: Path) -> None:
     with zipfile.ZipFile(source) as archive:
-        manifest = json.loads(archive.read("manifest.json"))
-        member_path = manifest["payloads"]["methods"]["n4mm"][0]["member_path"]
+        # The fitted N4MM state is the only selected member carrying the N4MM magic.
+        state_paths = [info.filename for info in archive.infolist() if archive.read(info.filename)[:4] == b"N4MM"]
+        assert len(state_paths) == 1
+        member_path = state_paths[0]
         with zipfile.ZipFile(destination, "x") as altered:
             for info in archive.infolist():
                 payload = archive.read(info.filename)

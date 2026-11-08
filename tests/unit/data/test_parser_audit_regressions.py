@@ -161,19 +161,18 @@ def test_folder_validation_and_test_cohorts_are_not_feature_sources(tmp_path):
     assert dataset.num_samples == 4
 
 
-@pytest.mark.parametrize("method,expected", [("mean", 2.0), ("median", 2.0), ("value", 7.0)])
-def test_common_na_policy_accepts_dictionary_fill_configuration(method, expected):
+def test_common_na_policy_accepts_dictionary_fill_configuration():
     """DT2-09: every loader uses the common normalization of fill settings."""
     data = pd.DataFrame({"a": [1.0, np.nan, 3.0]})
-    result, _ = apply_na_policy(data, "replace", {"method": method, "fill_value": 7})
-    assert result.iloc[1, 0] == expected
+    result, _ = apply_na_policy(data, "replace", {"method": "value", "fill_value": 7})
+    assert result.iloc[1, 0] == 7.0
 
 
 def test_non_csv_fill_configuration_is_normalized(tmp_path):
     pytest.importorskip("pyarrow")
     path = tmp_path / "data.parquet"
     pd.DataFrame({"a": [1.0, np.nan, 3.0]}).to_parquet(path)
-    result = ParquetLoader().load(path, na_policy="replace", na_fill_config={"method": "mean"})
+    result = ParquetLoader().load(path, na_policy="replace", na_fill_config={"method": "value", "fill_value": 2.0})
     assert result.success
     assert result.data.iloc[1, 0] == 2
 

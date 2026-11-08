@@ -16,6 +16,7 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.models import MetaModel
 from nirs4all.pipeline.bundle import BundleGenerator, BundleLoader
 from nirs4all.pipeline.config.context import MapArtifactProvider
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
 from nirs4all.pipeline.resolver import ResolvedPrediction
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
@@ -132,6 +133,11 @@ def test_exact_selected_artifact_missing_rejects_before_export_write(tmp_path, f
     assert destination.read_bytes() == b"unchanged"
 
 
+def _declared_names(archive):
+    with open_n4a_source(archive) as source:
+        return source.require_host().namelist()
+
+
 def test_plain_base_cv_and_refit_exports_remain_replayable(tmp_path):
     dataset, x, y, xt = _cohort()
     splitter = KFold(3, shuffle=True, random_state=42)
@@ -145,6 +151,9 @@ def test_plain_base_cv_and_refit_exports_remain_replayable(tmp_path):
             for fmt in ("n4a", "n4a.py"):
                 archive = result.export(tmp_path / f"base-{refit}.{fmt}", source=source, format=fmt)
                 if fmt == "n4a":
+                    names = _declared_names(archive)
+                    assert names[:2] == [BUNDLE_MANIFEST_MEMBER, "pipeline.json"] and "manifest.json" not in names
+                    assert any(name.startswith("artifacts/") and name.endswith(".joblib") for name in names)
                     np.testing.assert_allclose(BundleLoader(archive).predict(xt).ravel(), expected, rtol=1e-6, atol=1e-6)
                 else:
                     namespace = {}
@@ -152,6 +161,8 @@ def test_plain_base_cv_and_refit_exports_remain_replayable(tmp_path):
                     np.testing.assert_allclose(namespace["predict"](xt).ravel(), expected, rtol=1e-6, atol=1e-6)
                 chain_archive = result.export(tmp_path / f"base-chain-{refit}.{fmt}", chain_id=source["chain_id"], format=fmt)
                 if fmt == "n4a":
+                    chain_names = _declared_names(chain_archive)
+                    assert chain_names[:3] == [BUNDLE_MANIFEST_MEMBER, "pipeline.json", "chain.json"]
                     np.testing.assert_allclose(BundleLoader(chain_archive).predict(xt).ravel(), expected, rtol=1e-6, atol=1e-6)
                 else:
                     namespace = {}

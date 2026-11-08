@@ -12,7 +12,6 @@ import io
 import json
 import os
 import sys
-import zipfile
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,16 @@ from typing import Any
 import numpy as np
 import pytest
 from sklearn.model_selection import KFold, StratifiedKFold
+
+from nirs4all.pipeline.dagml.host_container import (
+    BUNDLE_CONTENT_TYPE,
+    BUNDLE_MANIFEST_MEMBER,
+    JOBLIB_CONTENT_TYPE,
+    HostMember,
+    open_n4a_source,
+    write_host_container,
+)
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 pytest.importorskip("dag_ml")
 
@@ -125,20 +134,18 @@ class TabularPredictor:
     assert fitted.predictor_.fit_options["time_limit"] == 3
     assert fitted.predictor_.fit_options["ag_args_fit"]["random_seed"] == 9
     expected = np.asarray(fitted.predict(x[:3])).reshape(-1)
-    # A small synthetic file crosses a patched inline limit without allocating
-    # hundreds of MiB; the model payload itself must remain small.
-    from nirs4all.pipeline.dagml import general_archive
-
-    monkeypatch.setattr(general_archive, "_MAX_INLINE_MODEL_BYTES", 8192)
+    # Keep a small joblib reference while the larger predictor files stay independent.
     archive = result.export(tmp_path / "autogluon.n4a")
     from nirs4all.pipeline.dagml.general_archive import load_general_archive
 
-    with zipfile.ZipFile(archive) as bundle:
-        manifest = json.loads(bundle.read("manifest.json"))
+    with open_n4a_source(archive) as source_archive:
+        bundle = source_archive.require_host()
+        manifest = bundle.bundle_manifest
         sidecar = manifest["host_artifacts"][0]["files"]
         assert {entry["uri"].split("/")[-1] for entry in sidecar} == {"predictor.pkl", "large_model.bin"}
         model_member = next(name for name in bundle.namelist() if name.endswith(".joblib"))
-        assert bundle.getinfo(model_member).file_size < 8192
+        assert bundle.size(model_member) < 8192
+        assert bundle.size(next(entry["uri"] for entry in sidecar if entry["uri"].endswith("large_model.bin"))) == 65536
 
     restored = load_general_archive(archive)["artifact"]["estimator"]
     np.testing.assert_allclose(np.asarray(restored.predict(x[:3])).reshape(-1), expected, rtol=1e-6, atol=1e-6)
@@ -151,29 +158,27 @@ class TabularPredictor:
         actual = np.asarray(nirs4all.predict(archive, x[:3]).y_pred).reshape(-1)
         np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
     if mechanism == "in_process":
-        # Older archives inlined the predictor directory in joblib; they still replay.
+        # Replay the inlined predictor-directory payload in a current host envelope.
         import joblib
 
         payload = io.BytesIO()
         joblib.dump(fitted, payload)
-        old_member = "artifacts/step_1_foldfinal_old.joblib"
-        old_archive = tmp_path / "old_inline.n4a"
-        with zipfile.ZipFile(old_archive, "w") as bundle:
-            bundle.writestr("manifest.json", json.dumps({
+        inline_member = "artifacts/step_1_foldfinal_old.joblib"
+        inline_archive = tmp_path / "old_inline.n4a"
+        write_host_container(inline_archive, [
+            HostMember(BUNDLE_MANIFEST_MEMBER, json.dumps({
                 "source_type": "dagml_native",
-                "artifact_integrity": {old_member: "sha256:" + sha256(payload.getvalue()).hexdigest()},
-            }))
-            bundle.writestr(old_member, payload.getvalue())
-        monkeypatch.setattr(general_archive, "_MAX_INLINE_MODEL_BYTES", 512 * 1024 * 1024)
-        old_model = load_general_archive(old_archive)["artifact"]["estimator"]
-        np.testing.assert_allclose(np.asarray(old_model.predict(x[:3])).reshape(-1), expected)
+                "artifact_integrity": {inline_member: "sha256:" + sha256(payload.getvalue()).hexdigest()},
+            }).encode(), "provenance", BUNDLE_CONTENT_TYPE),
+            HostMember(inline_member, payload.getvalue(), "model", JOBLIB_CONTENT_TYPE),
+        ])
+        inline_model = load_general_archive(inline_archive)["artifact"]["estimator"]
+        np.testing.assert_allclose(np.asarray(inline_model.predict(x[:3])).reshape(-1), expected)
 
         # Tampering a sidecar is detected before pickle opcodes execute.
         corrupt = tmp_path / "corrupt.n4a"
-        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(corrupt, "w") as altered:
-            for name in original.namelist():
-                data = original.read(name)
-                altered.writestr(name, b"changed" if name.endswith("large_model.bin") else data)
+        sidecar_member = next(entry["uri"] for entry in sidecar if entry["uri"].endswith("large_model.bin"))
+        reseal_host_member(archive, corrupt, sidecar_member, b"changed")
         monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("unverified model deserialized"))
         with pytest.raises(ValueError, match="sidecar integrity mismatch"):
             load_general_archive(corrupt)

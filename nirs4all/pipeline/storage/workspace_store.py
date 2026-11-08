@@ -34,7 +34,6 @@ import sys
 import threading
 import time
 import weakref
-import zipfile
 from collections.abc import Callable, Generator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1967,6 +1966,16 @@ class WorkspaceStore:
         data = path.read_bytes()
         return _deserialize_artifact(data, row["format"])
 
+    def _artifact_declared_fingerprint(self, artifact_id: str) -> str | None:
+        """The stored SHA-256 of an artifact file as a declaration, or ``None`` when it is not one.
+
+        The export declares it as the member fingerprint and Core's write receipt must
+        agree with the bytes it streams, so a stale record is refused before publication.
+        """
+        row = self._fetch_one(GET_ARTIFACT, [artifact_id])
+        digest = str(row["content_hash"]).removeprefix("sha256:") if row is not None else ""
+        return f"sha256:{digest}" if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest) else None
+
     def get_artifact_path(self, artifact_id: str) -> Path:
         """Return the filesystem path of a stored artifact.
 
@@ -3066,8 +3075,9 @@ class WorkspaceStore:
 
         Supported formats:
 
-        * ``"n4a"`` -- ZIP archive containing ``manifest.json``,
-          ``chain.json``, and all referenced artifact files.
+        * ``"n4a"`` -- Core ``.n4a`` V1 host container holding
+          ``host/bundle_manifest.json``, ``pipeline.json``, ``chain.json`` and
+          all referenced artifact files (streamed from the store, never loaded).
         * ``"n4a.py"`` -- Portable Python script with embedded
           (base64-encoded) artifacts.
 
@@ -3088,7 +3098,8 @@ class WorkspaceStore:
             KeyError: If the chain does not exist.
             FileNotFoundError: If any referenced artifact file is missing.
         """
-        from nirs4all.pipeline.bundle.generator import BundleGenerator, _atomic_output_path
+        from nirs4all.pipeline.bundle.generator import BundleGenerator, bundle_manifest_member, json_member, model_artifact_member
+        from nirs4all.pipeline.dagml.host_container import write_host_container
 
         self._validate_chain_export(chain_id)
         if format == "n4a.py":
@@ -3154,30 +3165,29 @@ class WorkspaceStore:
         expanded = pipeline.get("expanded_config") if pipeline else None
         pipeline_config = expanded if isinstance(expanded, dict) else {"steps": expanded or []}
 
-        # Write ZIP bundle
-        with _atomic_output_path(output_path) as staged_path, zipfile.ZipFile(staged_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-            zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2, default=str))
-            zf.writestr(
+        # Declared member order is the replay order; artifacts keep ``artifact_names`` order.
+        members = [
+            bundle_manifest_member(manifest),
+            json_member("pipeline.json", pipeline_config, "recipe", default=str),
+            json_member(
                 "chain.json",
-                json.dumps(
-                    {
-                        "steps": chain["steps"],
-                        "model_step_idx": chain["model_step_idx"],
-                        "fold_artifacts": export_fold_artifacts,
-                        "shared_artifacts": shared_artifacts,
-                    },
-                    indent=2,
-                ),
-            )
-            if relation_manifest_payload is not None:
-                zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest_payload, indent=2, sort_keys=True))
-
-            for artifact_name, aid in artifact_names.items():
-                path = self.get_artifact_path(aid)
-                if not path.exists():
-                    raise FileNotFoundError(f"Artifact file missing: {path}")
-                zf.write(path, f"artifacts/{artifact_name}{path.suffix}")
+                {
+                    "steps": chain["steps"],
+                    "model_step_idx": chain["model_step_idx"],
+                    "fold_artifacts": export_fold_artifacts,
+                    "shared_artifacts": shared_artifacts,
+                },
+                "provenance",
+            ),
+        ]
+        if relation_manifest_payload is not None:
+            members.append(json_member("relation_replay_manifest.json", relation_manifest_payload, "provenance", sort_keys=True))
+        for artifact_name, aid in artifact_names.items():
+            path = self.get_artifact_path(aid)
+            if not path.exists():
+                raise FileNotFoundError(f"Artifact file missing: {path}")
+            members.append(model_artifact_member(f"artifacts/{artifact_name}{path.suffix}", path, self._artifact_declared_fingerprint(aid)))
+        write_host_container(output_path, members)
 
         return output_path
 

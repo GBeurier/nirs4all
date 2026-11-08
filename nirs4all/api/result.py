@@ -3944,6 +3944,8 @@ class PredictResult:
         model_name: Name of the model used for prediction.
         preprocessing_steps: List of preprocessing steps applied.
         intervals: Materialized conformal intervals keyed by coverage.
+        sample_ids: Optional row labels aligned with ``y_pred`` rows, in the same
+            order. Routes that only know positions leave it ``None``.
 
     Properties:
         values: Alias for y_pred (for consistency).
@@ -3976,6 +3978,7 @@ class PredictResult:
     model_name: str = ""
     preprocessing_steps: list[str] = field(default_factory=list)
     intervals: dict[float, Any] = field(default_factory=dict)
+    sample_ids: list[str] | None = None
 
     def __post_init__(self):
         """Ensure y_pred is a numpy array."""
@@ -4286,8 +4289,10 @@ class PredictResult:
         except ImportError as err:
             raise ImportError("pandas is required for to_dataframe()") from err
 
-        data = {}
+        data: dict[str, Any] = {}
 
+        if self.sample_ids is not None:
+            data["sample_id"] = list(self.sample_ids)
         if include_indices and self.sample_indices is not None:
             data["sample_index"] = self.sample_indices
 

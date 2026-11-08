@@ -1,17 +1,18 @@
-"""Methods-only PREDICT replay from a validated Core Archive V2.
+"""Methods-only PREDICT replay from a validated native Package V2 Core container.
 
 This is intentionally a composition boundary, not a second package or model
-reader: Core validates and returns the opaque Package V2 member; DAG-ML parses
-and validates the package and owns replay; the official ``pls4all`` binding
-imports N4MM only for the invocation.  No legacy ``PipelineRunner`` is
-consulted.
+reader: Core validates the selected native closure and returns the exact Package
+V2 root bytes; DAG-ML parses and validates the package and owns replay; the
+official ``pls4all`` binding imports N4MM only for the invocation.  Every reader
+takes the one retained Core handle of its public call (``source``) or opens the
+path itself.  No legacy ``PipelineRunner`` is consulted.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -62,6 +63,31 @@ class NativeArchivePrediction:
     conformal_presentation: dict[str, Any] | None = None
 
 
+def contract_bytes(value: Any, label: str) -> bytes:
+    """Exact JSON bytes of a native DAG-ML contract (outcome or package).
+
+    Accepts the typed DAG-ML object (its strict ``json()``), the JSON text or bytes, or a
+    finite JSON mapping. The owner builders parse and re-validate these bytes; nothing is
+    reinterpreted here.
+    """
+
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    serialize = getattr(value, "json", None)
+    if callable(serialize):
+        payload = serialize()
+        if isinstance(payload, str):
+            return payload.encode("utf-8")
+    if isinstance(value, Mapping):
+        try:
+            return json.dumps(value, allow_nan=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise NativeArchiveReplayError(f"native {label} is not finite JSON") from error
+    raise NativeArchiveReplayError(f"native {label} has no strict JSON serialization")
+
+
 def write_methods_archive_v2(
     archive_path: str | Path,
     *,
@@ -69,58 +95,61 @@ def write_methods_archive_v2(
     outcome: Any,
     package: Any,
 ) -> dict[str, str]:
-    """Persist one native Methods Package V2 as a Core Archive V2.
+    """Persist one native Methods Package V2 as a new Core native-package container.
 
-    DAG-ML alone assembles the closed manifest and the six companion members;
-    Core alone validates and writes the ZIP.  This boundary deliberately does
-    not accept arbitrary members, retrofit host sidecars, or calculate member
-    hashes in nirs4all.
+    Core builds the native scientific closure through DAG-ML and writes the V1
+    container; this boundary accepts no arbitrary members, retrofits no host
+    sidecars and calculates no member hashes in nirs4all. ``archive_id`` becomes
+    the Core container id. The destination must not exist (Core never replaces);
+    a caller that overwrites stages a new path and replaces it itself.
+
+    Returns:
+        ``archive_id`` (the container id) and ``archive_sha256`` (the full-file hash).
     """
 
     try:
-        import dag_ml
+        from nirs4all_core import write_native_predictor_package
     except ImportError as error:  # pragma: no cover - depends on optional wheel
         raise NativeArchiveReplayError(
-            "native Archive V2 writing requires the DAG-ML Python facade"
+            "native Package V2 writing requires an nirs4all-core wheel with the native package writer"
         ) from error
     try:
-        from nirs4all_core import write_archive_v2_from_native_payloads
-    except ImportError as error:  # pragma: no cover - depends on optional wheel
-        raise NativeArchiveReplayError(
-            "native Archive V2 writing requires an nirs4all-core wheel with the Archive V2 writer"
-        ) from error
-    try:
-        assemble = getattr(dag_ml, "build_archive_v2_native_portable_payloads", None)
-        if not callable(assemble):
-            raise NativeArchiveReplayError(
-                "installed DAG-ML lacks native Archive V2 payload assembly; upgrade DAG-ML"
-            )
-        manifest, members = assemble(archive_id, outcome, package)
-        reference = write_archive_v2_from_native_payloads(
-            str(archive_path), manifest, members
+        reference = write_native_predictor_package(
+            str(archive_path),
+            contract_bytes(outcome, "TrainingOutcome"),
+            contract_bytes(package, "Package V2"),
+            container_id=archive_id,
         )
     except Exception as error:  # DAG-ML/Core expose distinct native error subclasses.
-        raise NativeArchiveReplayError(
-            "DAG-ML/Core refused the native Archive V2 write inputs"
-        ) from error
-    if not isinstance(reference, dict) or set(reference) != {"archive_id", "archive_sha256"}:
-        raise NativeArchiveReplayError("Core Archive V2 writer returned an invalid reference")
-    if reference["archive_id"] != archive_id:
-        raise NativeArchiveReplayError("Core Archive V2 writer returned a mismatched archive id")
-    return {"archive_id": str(reference["archive_id"]), "archive_sha256": str(reference["archive_sha256"])}
+        raise NativeArchiveReplayError("DAG-ML/Core refused the native Package V2 write inputs") from error
+    return _writer_reference(reference, archive_id)
 
 
-def validate_methods_archive_v2(archive_path: str | Path) -> None:
-    """Preflight one Archive V2 without loading a Methods runtime or any cohort.
+def _writer_reference(reference: Any, container_id: str) -> dict[str, str]:
+    """Validate Core's ``(container_id, file_sha256)`` writer receipt."""
 
-    Core owns archive/container integrity and returns only the opaque Package
-    member.  DAG-ML then validates the Package V2 contract; this adapter adds
-    the public raw-Methods closure check.  Keeping that sequence at session
-    open time ensures malformed archives fail before callers provide feature
-    rows or native N4MM hydration is attempted.
+    if (
+        not isinstance(reference, tuple)
+        or len(reference) != 2
+        or not all(isinstance(item, str) and item for item in reference)
+    ):
+        raise NativeArchiveReplayError("Core native package writer returned an invalid reference")
+    if reference[0] != container_id:
+        raise NativeArchiveReplayError("Core native package writer returned a mismatched container id")
+    return {"archive_id": reference[0], "archive_sha256": reference[1]}
+
+
+def validate_methods_archive_v2(archive_path: str | Path, *, source: Any = None) -> None:
+    """Preflight one native Package V2 container without loading a Methods runtime or any cohort.
+
+    Core owns container and selected-closure integrity and returns only the exact
+    Package V2 root bytes.  DAG-ML then validates the Package V2 contract; this
+    adapter adds the public raw-Methods closure check.  Keeping that sequence at
+    session open time ensures malformed archives fail before callers provide
+    feature rows or native N4MM hydration is attempted.
     """
 
-    _dag_ml, package, _package_document = _load_methods_archive_package(archive_path)
+    _dag_ml, package, _package_document = _load_methods_archive_package(archive_path, source)
     try:
         validate_native_methods_package(package)
     except RawArrayMethodsReplayError as error:
@@ -138,6 +167,7 @@ def replay_methods_archive_v2(
     outcome_id: str,
     run_id: str,
     fallback: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    source: Any = None,
 ) -> dict[str, Any]:
     """Replay a portable Methods Package V2 stored in a Core Archive V2.
 
@@ -148,7 +178,7 @@ def replay_methods_archive_v2(
     Package bytes; Package/replay validation runs before a host data callback.
     """
 
-    dag_ml, package, package_document = _load_methods_archive_package(archive_path)
+    dag_ml, package, package_document = _load_methods_archive_package(archive_path, source)
     target_names_by_node = _target_names_by_node(package_document)
     callbacks = MethodsN4mmReplayCallbacks(
         resolver,
@@ -190,6 +220,7 @@ def predict_methods_archive_v2_raw(
     metadata: Any = None,
     outcome_id: str = "outcome:nirs4all.archive_predict",
     run_id: str = "run:nirs4all.archive_predict",
+    source: Any = None,
 ) -> np.ndarray:
     """Predict a fresh raw-array cohort from a Core Archive V2 Methods package.
 
@@ -208,6 +239,7 @@ def predict_methods_archive_v2_raw(
         metadata=metadata,
         outcome_id=outcome_id,
         run_id=run_id,
+        source=source,
     ).values
 
 
@@ -221,6 +253,7 @@ def predict_methods_archive_v2_raw_result(
     metadata: Any = None,
     outcome_id: str = "outcome:nirs4all.archive_predict",
     run_id: str = "run:nirs4all.archive_predict",
+    source: Any = None,
 ) -> NativeArchivePrediction:
     """Replay a native archive and retain its exact conformal result blocks.
 
@@ -236,7 +269,7 @@ def predict_methods_archive_v2_raw_result(
             "native Archive V2 Methods replay could not resolve a compatible Methods runtime"
         ) from error
 
-    dag_ml, package, package_document = _load_methods_archive_package(archive_path)
+    dag_ml, package, package_document = _load_methods_archive_package(archive_path, source)
     identity = normalize_predict_identity(
         X,
         sample_ids=sample_ids,
@@ -306,6 +339,7 @@ def project_methods_archive_v2_conformal_presentation(
     metadata: Any = None,
     outcome_id: str = "outcome:nirs4all.archive_conformal_presentation",
     run_id: str = "run:nirs4all.archive_conformal_presentation",
+    source: Any = None,
 ) -> dict[str, Any]:
     """Project DAG-ML's exact scalar conformal replay presentation.
 
@@ -323,7 +357,7 @@ def project_methods_archive_v2_conformal_presentation(
             "native Archive V2 conformal presentation could not resolve a compatible Methods runtime"
         ) from error
 
-    dag_ml, package, package_document = _load_methods_archive_package(archive_path)
+    dag_ml, package, package_document = _load_methods_archive_package(archive_path, source)
     identity = normalize_predict_identity(
         X,
         sample_ids=sample_ids,
@@ -378,8 +412,11 @@ def project_methods_archive_v2_conformal_presentation(
 
 def _load_methods_archive_package(
     archive_path: str | Path,
+    source: Any = None,
 ) -> tuple[Any, Any, dict[str, Any]]:
-    """Load opaque V2 bytes through Core, then validate the DAG-ML package."""
+    """Load the exact Package V2 root bytes through Core, then validate the DAG-ML package."""
+
+    from .core_archive_replay import core_input
 
     try:
         from nirs4all_core import read_portable_predictor_package_v2
@@ -395,7 +432,7 @@ def _load_methods_archive_package(
         ) from error
 
     try:
-        package_bytes = read_portable_predictor_package_v2(str(archive_path))
+        package_bytes = read_portable_predictor_package_v2(core_input(archive_path, source))
     except Exception as error:
         raise NativeArchiveReplayError(
             "Core Archive V2 rejected the portable predictor package"
@@ -798,6 +835,7 @@ __all__ = [
     "NativeArchiveConformalInterval",
     "NativeArchivePrediction",
     "NativeArchiveReplayError",
+    "contract_bytes",
     "validate_methods_archive_v2",
     "predict_methods_archive_v2_raw",
     "predict_methods_archive_v2_raw_result",

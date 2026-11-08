@@ -5,8 +5,8 @@ This module provides the BundleGenerator class for exporting trained pipelines
 to various bundle formats (.n4a, .n4a.py) for deployment, sharing, or archival.
 
 Bundle Formats:
-    .n4a: Full nirs4all bundle (ZIP archive) containing:
-        - manifest.json: Bundle metadata and version info
+    .n4a: Full nirs4all bundle (Core ``.n4a`` V1 host container) containing:
+        - host/bundle_manifest.json: Bundle metadata and version info
         - pipeline.json: Minimal pipeline configuration / chain.json
         - trace.json: Execution trace for deterministic replay
         - artifacts/: Directory with artifact binaries
@@ -42,7 +42,6 @@ import json
 import logging
 import os
 import tempfile
-import zipfile
 from collections.abc import Generator
 from datetime import UTC, datetime, timezone
 from enum import Enum, StrEnum
@@ -70,6 +69,44 @@ def _atomic_output_path(output_path: Path) -> Generator[Path, None, None]:
         staged_path.unlink(missing_ok=True)
 
 
+def _extra_member(name: str, payload: bytes) -> Any:
+    """Map one caller-supplied root-level member to its host container member."""
+    from nirs4all.pipeline.dagml.host_container import BLOB_CONTENT_TYPE, JOBLIB_CONTENT_TYPE, JSON_CONTENT_TYPE, HostMember
+
+    if name == "dagml_initial_full_refit_package.json":
+        kind, content_type = "full_refit", JSON_CONTENT_TYPE
+    elif name == "dagml_source_training_capture.json":
+        kind, content_type = "training_evidence", JSON_CONTENT_TYPE
+    elif name.startswith("dagml_source_sidecar_") and name.endswith(".joblib"):
+        kind, content_type = "attachment", JOBLIB_CONTENT_TYPE
+    elif name.endswith(".json"):
+        kind, content_type = "provenance", JSON_CONTENT_TYPE
+    else:
+        kind, content_type = "attachment", BLOB_CONTENT_TYPE
+    return HostMember(name, bytes(payload), kind, content_type)
+
+
+def json_member(path: str, document: Any, kind: str, **dumps: Any) -> Any:
+    """A JSON host member whose bytes are exactly ``json.dumps(document, indent=2, **dumps)``."""
+    from nirs4all.pipeline.dagml.host_container import JSON_CONTENT_TYPE, HostMember
+
+    return HostMember(path, json.dumps(document, indent=2, **dumps).encode("utf-8"), kind, JSON_CONTENT_TYPE)
+
+
+def bundle_manifest_member(manifest: dict[str, Any]) -> Any:
+    """The SDK bundle manifest member (the former root ``manifest.json``)."""
+    from nirs4all.pipeline.dagml.host_container import BUNDLE_CONTENT_TYPE, BUNDLE_MANIFEST_MEMBER, HostMember
+
+    return HostMember(BUNDLE_MANIFEST_MEMBER, json.dumps(manifest, indent=2).encode("utf-8"), "provenance", BUNDLE_CONTENT_TYPE)
+
+
+def model_artifact_member(archive_path: str, source: Path, fingerprint: str | None = None) -> Any:
+    """A fitted-state file streamed by Core; the loader joblib-loads every ``artifacts/*`` member."""
+    from nirs4all.pipeline.dagml.host_container import JOBLIB_CONTENT_TYPE, HostMember
+
+    return HostMember(archive_path, source, "model", JOBLIB_CONTENT_TYPE, fingerprint=fingerprint)
+
+
 class BundleFormat(StrEnum):
     """Supported bundle export formats.
 
@@ -94,9 +131,8 @@ def write_single_model_bundle(
     provenance: dict[str, Any] | None = None,
     extra_members: dict[str, bytes] | None = None,
     train_steps: list[Any] | None = None,
-    compress: bool = True,
 ) -> Path:
-    """Write a minimal, valid ``.n4a`` ZIP bundle whose sole step is one predict-capable model.
+    """Write a minimal, valid ``.n4a`` host container whose sole step is one predict-capable model.
 
     Unlike :class:`BundleGenerator` (which packages a workspace *chain* of per-step / per-fold
     artifacts resolved from a :class:`~nirs4all.pipeline.resolver.PredictionResolver`), this writes a
@@ -109,14 +145,15 @@ def write_single_model_bundle(
     model as exactly such a predict-capable object (``_DagmlExportedModel``), and this packages it
     into a portable bundle WITHOUT re-fitting the pipeline on the legacy engine.
 
-    The output conforms to the EXISTING ``.n4a`` format (``bundle_format_version``
-    :data:`BUNDLE_FORMAT_VERSION`): a ``manifest.json`` with
+    The output is a Core ``.n4a`` V1 host container (``bundle_format_version``
+    :data:`BUNDLE_FORMAT_VERSION`): a ``host/bundle_manifest.json`` with
     ``model_step_index == 1``, a ``pipeline.json`` carrying a single ``model`` step, and one
     ``artifacts/step_1_foldfinal_<label>.joblib`` payload. An unmodified :class:`BundleLoader` reads
     it through the no-trace index path and predicts by loading that single refit artifact and calling
     ``model.predict(X)`` directly — so the bundle reload-predict reproduces ``model.predict`` exactly.
     Directory-backed host estimators add individually hashed ``host_artifacts/`` files to the
-    manifest and ZIP; older inline joblib archives remain readable.
+    manifest and container. The model and sidecar files are streamed by Core from the staging
+    directory, never held in memory by this function.
 
     Args:
         model: A predict-capable object (``predict(X) -> np.ndarray``). Must be joblib-serializable
@@ -130,7 +167,7 @@ def write_single_model_bundle(
         provenance: Optional ADDITIVE manifest fields recording the export origin (e.g. the dag-ml
             run / plan / variant ids and an ``export_path`` marker). Older loaders ignore unknown
             manifest keys (:meth:`BundleMetadata.from_dict`), so this never breaks bundle reads.
-        extra_members: Optional additional named ZIP members supplied by the caller. Names must
+        extra_members: Optional additional named members supplied by the caller. Names must
             be plain root-level files distinct from the bundle's standard members.
         train_steps: Optional REPLAYABLE training pipeline steps (the JSON-serialized form produced by
             :func:`~nirs4all.pipeline.config.component_serialization.serialize_component`, one entry per
@@ -139,16 +176,14 @@ def write_single_model_bundle(
             predict path is untouched: ``pipeline.json`` keeps the single cosmetic model step the loader
             keys on, and older loaders ignore the extra member. Without it the bundle stays predict-only
             (its ``pipeline.json`` model label is cosmetic, not an importable component reference).
-        compress: ``ZIP_DEFLATED`` when ``True`` (default), else ``ZIP_STORED``.
 
     Returns:
         The written bundle path (with the enforced ``.n4a`` suffix).
     """
-    import tempfile
-
     import joblib
 
     from nirs4all.pipeline.dagml.host_artifacts import file_fingerprint, stage_host_artifacts
+    from nirs4all.pipeline.dagml.host_container import BLOB_CONTENT_TYPE, HostMember, write_host_container
 
     output_path = Path(output_path)
     if not output_path.suffix.lower().endswith(".n4a"):
@@ -187,28 +222,26 @@ def write_single_model_bundle(
     }
 
     artifact_member = f"artifacts/step_1_foldfinal_{safe_label}.joblib"
-    compression = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
     with tempfile.TemporaryDirectory(prefix="nirs4all_bundle_stage_") as stage_name:
         stage = Path(stage_name)
         with stage_host_artifacts(model, stage, "host_artifacts") as host_artifacts:
             artifact_path = stage / artifact_member
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             joblib.dump(model, artifact_path)
-        manifest["artifact_integrity"] = {artifact_member: file_fingerprint(artifact_path)[0]}
+        artifact_fingerprint = file_fingerprint(artifact_path)[0]
+        manifest["artifact_integrity"] = {artifact_member: artifact_fingerprint}
         if host_artifacts:
             manifest["host_artifacts"] = host_artifacts
-        with _atomic_output_path(output_path) as staged_path, zipfile.ZipFile(staged_path, "w", compression=compression) as zf:
-            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-            zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
-            if train_steps is not None:
-                zf.writestr("train_pipeline.json", json.dumps({"steps": train_steps}, indent=2))
-            for name, member in extra_members.items():
-                zf.writestr(name, member)
-            # The foldfinal token routes replay to the captured final model.
-            zf.write(artifact_path, artifact_member)
-            for directory in host_artifacts:
-                for file_ref in directory["files"]:
-                    zf.write(stage / file_ref["uri"], file_ref["uri"])
+        members = [bundle_manifest_member(manifest), json_member("pipeline.json", pipeline_config, "recipe")]
+        if train_steps is not None:
+            members.append(json_member("train_pipeline.json", {"steps": train_steps}, "recipe"))
+        members.extend(_extra_member(name, payload) for name, payload in extra_members.items())
+        # The foldfinal token routes replay to the captured final model.
+        members.append(model_artifact_member(artifact_member, artifact_path, artifact_fingerprint))
+        for directory in host_artifacts:
+            for file_ref in directory["files"]:
+                members.append(HostMember(file_ref["uri"], stage / file_ref["uri"], "attachment", BLOB_CONTENT_TYPE, fingerprint=file_ref["content_fingerprint"]))
+        write_host_container(output_path, members)
 
     return output_path
 
@@ -420,7 +453,6 @@ class BundleGenerator:
         output_path: str | Path,
         format: str | BundleFormat = BundleFormat.N4A,
         include_metadata: bool = True,
-        compress: bool = True
     ) -> Path:
         """Export a prediction source to a bundle.
 
@@ -429,7 +461,6 @@ class BundleGenerator:
             output_path: Path for the output bundle
             format: Bundle format ('n4a' or 'n4a.py')
             include_metadata: Whether to include full metadata in bundle
-            compress: Whether to compress artifacts (for .n4a format)
 
         Returns:
             Path to the created bundle
@@ -479,7 +510,7 @@ class BundleGenerator:
 
         # Dispatch to appropriate exporter
         if format == BundleFormat.N4A:
-            return self._export_n4a(resolved, output_path, include_metadata, compress)
+            return self._export_n4a(resolved, output_path, include_metadata)
         elif format == BundleFormat.N4A_PY:
             return self._export_n4a_py(resolved, output_path, include_metadata)
         else:
@@ -490,29 +521,31 @@ class BundleGenerator:
         resolved: ResolvedPrediction,
         output_path: str | Path,
         include_metadata: bool,
-        compress: bool
     ) -> Path:
-        """Export to .n4a ZIP bundle format.
+        """Export to the ``.n4a`` host container format.
 
-        Bundle structure:
-            model_bundle.n4a (ZIP archive)
-            ├── manifest.json           # Bundle metadata
-            ├── pipeline.json           # Minimal pipeline config
-            ├── trace.json              # Execution trace
-            ├── artifacts/
-            │   ├── step_0_MinMaxScaler.joblib
-            │   └── step_4_fold0_PLSRegression.joblib
-            └── fold_weights.json       # For CV ensemble
+        Bundle structure (declared member order)::
+
+            model_bundle.n4a (Core .n4a V1 host container)
+            ├── host/bundle_manifest.json   # Bundle metadata
+            ├── relation_replay_manifest.json  # when present
+            ├── pipeline.json               # Minimal pipeline config
+            ├── trace.json                  # Execution trace
+            ├── fold_weights.json           # For CV ensemble
+            └── artifacts/
+                ├── step_0_MinMaxScaler_sub0.joblib
+                └── step_4_fold0_PLSRegression_sub0.joblib
 
         Args:
             resolved: Resolved prediction source
             output_path: Output path for bundle
             include_metadata: Whether to include full metadata
-            compress: Whether to compress (ZIP_DEFLATED vs ZIP_STORED)
 
         Returns:
             Path to created bundle
         """
+        from nirs4all.pipeline.dagml.host_container import write_host_container
+
         output_path = Path(output_path)
 
         # Ensure .n4a extension
@@ -522,41 +555,27 @@ class BundleGenerator:
         # Create parent directory if needed
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        compression = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
+        manifest = self._create_bundle_manifest(resolved, include_metadata)
+        members = [bundle_manifest_member(manifest)]
+        relation_replay_manifest = self._relation_replay_manifest_payload(resolved)
+        if relation_replay_manifest is not None:
+            members.append(json_member('relation_replay_manifest.json', relation_replay_manifest, 'provenance', sort_keys=True))
+        members.append(json_member('pipeline.json', self._extract_pipeline_config(resolved), 'recipe'))
+        if resolved.trace:
+            members.append(json_member('trace.json', resolved.trace.to_dict(), 'provenance'))
+        if resolved.fold_weights:
+            # Convert int keys to strings for JSON
+            members.append(json_member('fold_weights.json', {str(k): v for k, v in resolved.fold_weights.items()}, 'provenance'))
 
-        with _atomic_output_path(output_path) as staged_path, zipfile.ZipFile(staged_path, 'w', compression=compression) as zf:
-            # 1. Write manifest.json
-            manifest = self._create_bundle_manifest(resolved, include_metadata)
-            zf.writestr('manifest.json', json.dumps(manifest, indent=2))
-            relation_replay_manifest = self._relation_replay_manifest_payload(resolved)
-            if relation_replay_manifest is not None:
-                zf.writestr(
-                    'relation_replay_manifest.json',
-                    json.dumps(relation_replay_manifest, indent=2, sort_keys=True),
-                )
+        with tempfile.TemporaryDirectory(prefix="nirs4all_bundle_stage_") as stage_name:
+            artifact_members = self._artifact_members(resolved, Path(stage_name))
+            members.extend(artifact_members)
+            write_host_container(output_path, members)
 
-            # 2. Write pipeline.json
-            pipeline_config = self._extract_pipeline_config(resolved)
-            zf.writestr('pipeline.json', json.dumps(pipeline_config, indent=2))
-
-            # 3. Write trace.json (if available)
-            if resolved.trace:
-                trace_dict = resolved.trace.to_dict()
-                zf.writestr('trace.json', json.dumps(trace_dict, indent=2))
-
-            # 4. Write fold_weights.json (if applicable)
-            if resolved.fold_weights:
-                # Convert int keys to strings for JSON
-                weights_json = {str(k): v for k, v in resolved.fold_weights.items()}
-                zf.writestr('fold_weights.json', json.dumps(weights_json, indent=2))
-
-            # 5. Write artifacts
-            artifacts_written = self._write_artifacts_to_zip(zf, resolved)
-
-            if self.verbose > 0:
-                logger.info(f"Bundle created: {output_path}")
-                logger.info(f"  Artifacts: {artifacts_written}")
-                logger.info(f"  Size: {staged_path.stat().st_size / 1024:.1f} KB")
+        if self.verbose > 0:
+            logger.info(f"Bundle created: {output_path}")
+            logger.info(f"  Artifacts: {len(artifact_members)}")
+            logger.info(f"  Size: {output_path.stat().st_size / 1024:.1f} KB")
 
         return output_path
 
@@ -756,24 +775,27 @@ class BundleGenerator:
 
         return config
 
-    def _write_artifacts_to_zip(
+    def _artifact_members(
         self,
-        zf: zipfile.ZipFile,
-        resolved: ResolvedPrediction
-    ) -> int:
-        """Write artifacts to ZIP file.
+        resolved: ResolvedPrediction,
+        stage: Path,
+    ) -> list[Any]:
+        """Dump resolved artifacts to ``stage`` and return them as streamed host members.
 
         Args:
-            zf: ZipFile object to write to
             resolved: Resolved prediction source
+            stage: Existing directory that outlives the container write
 
         Returns:
-            Number of artifacts written
+            One ``artifacts/<name>_sub<k>.joblib`` member per artifact, in step then
+            provider order (the declared order replay relies on).
         """
-        count = 0
+        import joblib
+
+        members: list[Any] = []
 
         if not resolved.artifact_provider:
-            return count
+            return members
 
         # For each step, write artifacts
         step_indices = set()
@@ -789,9 +811,6 @@ class BundleGenerator:
 
             for sub_idx, (artifact_id, artifact_obj) in enumerate(artifacts):
                 try:
-                    # Serialize artifact
-                    artifact_bytes = self._serialize_artifact(artifact_obj)
-
                     # Get artifact record for accurate step/fold info
                     record = None
                     if hasattr(resolved.artifact_provider, 'artifact_loader'):
@@ -803,9 +822,9 @@ class BundleGenerator:
                     )
                     archive_path = f"artifacts/{artifact_name.removesuffix('.joblib')}_sub{sub_idx}.joblib"
 
-                    # Write to ZIP
-                    zf.writestr(archive_path, artifact_bytes)
-                    count += 1
+                    staged = stage / f"artifact_{len(members)}.joblib"
+                    joblib.dump(artifact_obj, staged)
+                    members.append(model_artifact_member(archive_path, staged))
 
                     if self.verbose > 1:
                         logger.debug(f"  Added artifact: {archive_path}")
@@ -813,10 +832,10 @@ class BundleGenerator:
                 except Exception as e:
                     raise RuntimeError(f"Failed to serialize artifact {artifact_id}: {e}") from e
 
-        return count
+        return members
 
     def _serialize_artifact(self, artifact: Any) -> bytes:
-        """Serialize an artifact to bytes.
+        """Serialize an artifact to bytes for the base64-embedding ``.n4a.py`` script.
 
         Args:
             artifact: Artifact object to serialize
