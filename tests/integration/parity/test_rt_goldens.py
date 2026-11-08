@@ -197,7 +197,7 @@ def test_parity_environment_dependencies_are_declared() -> None:
     assert "0.5.0" not in dagml_specifier
     assert str(project_deps["dag-ml-data"].specifier) == "<0.3,>=0.2.16"
     assert str(native_deps["nirs4all-core"].specifier) == "<0.6,>=0.5.0"
-    assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.3.13"
+    assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.3.15"
     assert "shap" in explain_deps
     assert "shap" in dev_deps
     for filename in ("requirements.txt", "requirements-test.txt", "requirements-examples.txt"):

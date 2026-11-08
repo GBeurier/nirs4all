@@ -67,7 +67,7 @@ def _require_optimizer_abi(module: Any) -> None:
     if len(abi) != 3 or abi[0] != 2 or abi[1] < 2:
         raise DagMLNativeCoverageError(
             "installed n4m runtime ABI is incompatible with native DAG-ML Methods execution; "
-            "install nirs4all-methods>=1.0.10 or provide a compatible explicit "
+            "install nirs4all-methods>=1.3.15,<2 or provide a compatible explicit "
             "methods_library_path"
         )
 
