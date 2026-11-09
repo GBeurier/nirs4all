@@ -92,10 +92,9 @@ def _detect_delimiter(lines: list[str], possible_delimiters: list[str] | None = 
                 max_consistent_cols = consistency
                 most_cols_at_max_consistency = most_frequent_cols
                 best_delim = delim_candidate
-            elif consistency == max_consistent_cols:
-                if most_frequent_cols > most_cols_at_max_consistency:
-                    most_cols_at_max_consistency = most_frequent_cols
-                    best_delim = delim_candidate
+            elif consistency == max_consistent_cols and most_frequent_cols > most_cols_at_max_consistency:
+                most_cols_at_max_consistency = most_frequent_cols
+                best_delim = delim_candidate
         except (csv.Error, ValueError):
             continue
 
@@ -156,10 +155,9 @@ def _detect_decimal_and_header(
                 max_numeric_score = current_score
                 best_decimal_sep = decimal_sep
                 best_has_header = has_header_option
-            elif abs(current_score - max_numeric_score) < 1e-6:
-                if best_decimal_sep == "," and decimal_sep == "." or best_has_header and (not has_header_option):
-                    best_decimal_sep = decimal_sep
-                    best_has_header = has_header_option
+            elif abs(current_score - max_numeric_score) < 1e-6 and (best_decimal_sep == "," and decimal_sep == "." or best_has_header and (not has_header_option)):
+                best_decimal_sep = decimal_sep
+                best_has_header = has_header_option
 
     return best_decimal_sep, best_has_header
 
