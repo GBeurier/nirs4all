@@ -87,10 +87,9 @@ def parse_meta_yaml_deps() -> list[tuple[str, str]]:
                     continue
                 name, version = parse_dep(dep)
                 deps.append((name, version))
-            elif stripped and not stripped.startswith("#"):
+            elif stripped and not stripped.startswith("#") and not stripped.startswith("-"):
                 # New section
-                if not stripped.startswith("-"):
-                    break
+                break
     return deps
 
 
