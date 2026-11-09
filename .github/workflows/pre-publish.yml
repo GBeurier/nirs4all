@@ -1,4 +1,4 @@
-# Full scientific suites and examples run locally before publication.
+# Scientific qualification is separately scoped; exact source and artifact guards remain.
 name: Pre-Publish Check
 'on':
   workflow_dispatch: null
@@ -86,13 +86,3 @@ jobs:
         name: sdk-dist-smoke
         path: dist/
         if-no-files-found: error
-  local-qualification:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-python@v7
-      with:
-        python-version: '3.11'
-        cache: pip
-    - name: Verify local qualification for reviewed publication candidate
-      run: python scripts/verify_local_qualification.py --project sdk --receipt compat/local-qualification.json --root .

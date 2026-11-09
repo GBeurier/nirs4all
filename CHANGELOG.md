@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Retire historical local-machine proof as a mandatory PyPI/GHCR/recovery
+  prerequisite, including the report-overlay input. Preserve historical policy,
+  receipts, verifier and the frozen 1.4.15 evidence. Current release decisions
+  cite separately scoped accepted science; hosted builds/smokes do not reprove
+  Windows science or performance. Immutable tag/source, installed-package,
+  reproducible-wheel, artifact and authentication guards remain. Final source
+  and public owner pins must precede actual wheel qualification; only measured
+  artifact metadata may follow in a manifest-only commit outside the wheel.
+
 - Store SDK Python-host bundles in the Core V1 `.n4a` container, preserving
   complete recipes, model artifacts, sidecars and conformal results. Readers
   share the verified open source through prediction and loaded Sessions. There

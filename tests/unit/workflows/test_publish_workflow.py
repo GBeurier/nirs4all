@@ -27,9 +27,10 @@ def _load_named_workflow(name: str) -> dict[str, Any]:
 def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> None:
     workflow = _load_workflow()
     assert set(workflow["on"]) == {"release", "workflow_dispatch"}
+    assert "qualification_ref" not in workflow["on"]["workflow_dispatch"]["inputs"]
 
     jobs = workflow["jobs"]
-    assert set(jobs["publish-pypi"]["needs"]) == {"build", "build-docs", "package-smoke", "local-qualification"}
+    assert set(jobs["publish-pypi"]["needs"]) == {"build", "build-docs", "package-smoke"}
     assert jobs["publish-pypi"]["permissions"] == {"id-token": "write", "contents": "read"}
     assert jobs["publish-pypi"]["environment"] == "pypi"
 
@@ -86,10 +87,10 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
     assert {
         "dag-ml>=0.4.0,<0.5",
         "dag-ml-data>=0.2.16,<0.3",
-        "nirs4all-io>=0.3.0,<0.4",
+        "nirs4all-io>=0.3.1,<0.4",
         "nirs4all-core>=0.5.0,<0.6",
         "nirs4all-methods>=1.3.15,<2",
-        "pls4all>=1.3.13,<2",
+        "pls4all>=1.3.15,<2",
     } <= dependencies
     assert pyproject["project"]["license"] == "CeCILL-2.1 OR AGPL-3.0-or-later"
     assert set(pyproject["project"]["license-files"]) == {
@@ -131,11 +132,9 @@ def test_github_delivery_checks_keep_scientific_suites_local() -> None:
     assert trigger["jobs"]["exhaustive"]["with"]["upload-coverage"] == "false"
 
     for workflow_name in ("pre-publish.yml", "publish.yml"):
-        qualification = _load_named_workflow(workflow_name)["jobs"]["local-qualification"]
-        assert any(
-            "scripts/verify_local_qualification.py --project sdk --receipt compat/local-qualification.json --root ." in step.get("run", "")
-            for step in qualification["steps"]
-        )
+        workflow = _load_named_workflow(workflow_name)
+        assert "local-qualification" not in workflow["jobs"]
+        assert "scripts/verify_local_qualification.py" not in yaml.safe_dump(workflow)
     examples = _load_named_workflow("examples.yml")
     assert set(examples["on"]) == {"workflow_dispatch"}
     assert set(examples["jobs"]) == {"example-source"}
@@ -151,7 +150,7 @@ def test_github_delivery_checks_keep_scientific_suites_local() -> None:
 
 @pytest.mark.parametrize("changed_science", [False, True])
 def test_publication_refuses_checkout_that_differs_from_immutable_tag(tmp_path: Path, changed_science: bool) -> None:
-    """Package and qualification gates must run against the immutable release commit."""
+    """Package gates must run against the immutable release commit."""
     workflow = _load_workflow()
     root = tmp_path / "tag"
 
@@ -171,7 +170,7 @@ def test_publication_refuses_checkout_that_differs_from_immutable_tag(tmp_path: 
     tag = commit(root, {"nirs4all/__init__.py": "qualified package\n"})
     if changed_science:
         commit(root, {"nirs4all/__init__.py": "unqualified scientific change\n"})
-    for name in ("package-smoke", "local-qualification"):
+    for name in ("package-smoke",):
         steps = workflow["jobs"][name]["steps"]
         checkout = next(step for step in steps if step.get("uses") == "actions/checkout@v6")
         assert "needs.release-preflight.outputs.release_tag" in checkout["with"]["ref"]
