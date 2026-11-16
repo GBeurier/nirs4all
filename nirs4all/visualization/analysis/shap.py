@@ -381,7 +381,9 @@ class ShapAnalyzer:
         feature_names: list[str] | None = None,
         output_path: str | None = None,
         figsize: tuple[int, int] = (16, 10),
-        plots_visible: bool = True
+        plots_visible: bool = True,
+        axis_values: list[float] | np.ndarray | None = None,
+        axis_label: str | None = None,
     ):
         """
         Create NIRS-specific spectral importance visualization with binned regions.
@@ -392,6 +394,17 @@ class ShapAnalyzer:
 
         Uses self.bin_size, self.bin_stride, and self.bin_aggregation configured
         in explain_model().
+
+        Args:
+            feature_names: Feature names; parsed as wavelengths when
+                ``axis_values`` is not given.
+            output_path: Optional file to save the figure to.
+            figsize: Figure size.
+            plots_visible: Whether to display the figure.
+            axis_values: Recorded coordinate of each explained column (for
+                example group centres). When given, names are not parsed.
+            axis_label: X-axis label used with ``axis_values``; the historical
+                labels apply when omitted.
         """
         if self.shap_values is None:
             raise ValueError("SHAP values not computed. Call explain_model first.")
@@ -401,7 +414,13 @@ class ShapAnalyzer:
 
         # Create wavelength axis
         n_features = len(mean_shap)
-        if feature_names and len(feature_names) == n_features:
+        x_label = 'Wavelength (cm-1)' if feature_names else 'Feature Index'
+        if axis_values is not None:
+            wavelengths = np.asarray(axis_values, dtype=float)
+            if wavelengths.shape != (n_features,):
+                raise ValueError("axis_values must hold one coordinate per explained column")
+            x_label = axis_label or 'Feature Index'
+        elif feature_names and len(feature_names) == n_features:
             try:
                 wavelengths = np.array([
                     float(name.replace('λ', '').replace('cm-1', '').strip())
@@ -486,8 +505,7 @@ class ShapAnalyzer:
         ]
         ax1.legend(handles=legend_elements, loc='best', framealpha=0.9, fontsize=9)
 
-        ax1.set_xlabel('Wavelength (cm-1)' if feature_names else 'Feature Index',
-                      fontsize=12, fontweight='bold')
+        ax1.set_xlabel(x_label, fontsize=12, fontweight='bold')
         ax1.set_ylabel('Absorbance', fontsize=12, fontweight='bold')
         ax1.set_title(f'Mean Spectrum with Important Regions (Band Width = Bin Size: {self.bin_size} wavelengths)',
                      fontsize=14, fontweight='bold', pad=15)
@@ -516,8 +534,7 @@ class ShapAnalyzer:
         cbar.set_label('Relative Importance', rotation=270, labelpad=20, fontsize=10, fontweight='bold')
         cbar.ax.tick_params(labelsize=9)
 
-        ax2.set_xlabel('Wavelength (cm-1)' if feature_names else 'Feature Index',
-                      fontsize=12, fontweight='bold')
+        ax2.set_xlabel(x_label, fontsize=12, fontweight='bold')
         ax2.set_ylabel('Aggregated SHAP Importance', fontsize=12, fontweight='bold')
 
         # Show binning configuration in title
@@ -687,12 +704,14 @@ class ShapAnalyzer:
 
         self._finalize_figure(plots_visible=plots_visible)
 
-    def _aggregate_shap_bins(self, shap_values: np.ndarray) -> tuple[np.ndarray, list[str]]:
+    def _aggregate_shap_bins(self, shap_values: np.ndarray, feature_labels: list[str] | None = None) -> tuple[np.ndarray, list[str]]:
         """
         Aggregate SHAP values into bins based on configured parameters.
 
         Args:
             shap_values: SHAP values array (can be 1D or 2D)
+            feature_labels: Optional label per column; bins are then labelled
+                by their first and last column labels.
 
         Returns:
             Tuple of (binned_shap_values, bin_labels)
@@ -713,7 +732,9 @@ class ShapAnalyzer:
             bins.append((start, end))
 
             # Create label
-            if self.wavelengths is not None and self.feature_names is not None:
+            if feature_labels is not None:
+                bin_labels.append(feature_labels[start] if end - start == 1 else f"{feature_labels[start]}–{feature_labels[end - 1]}")
+            elif self.wavelengths is not None and self.feature_names is not None:
                 # Use wavelength ranges
                 wl_start = self.wavelengths[start]
                 wl_end = self.wavelengths[end - 1]
@@ -750,7 +771,8 @@ class ShapAnalyzer:
         self,
         output_path: str | None = None,
         max_display: int = 20,
-        plots_visible: bool = True
+        plots_visible: bool = True,
+        feature_labels: list[str] | None = None,
     ):
         """
         Create SHAP beeswarm plot with binned features.
@@ -762,7 +784,7 @@ class ShapAnalyzer:
             raise ValueError("SHAP values not computed. Call explain_model first.")
 
         # Aggregate SHAP values into bins
-        binned_shap, bin_labels = self._aggregate_shap_bins(self.shap_values)
+        binned_shap, bin_labels = self._aggregate_shap_bins(self.shap_values, feature_labels)
 
         # Create binned data (average features in each bin)
         n_samples, n_features = self.data.shape
@@ -806,7 +828,8 @@ class ShapAnalyzer:
         sample_idx: int = 0,
         output_path: str | None = None,
         max_display: int = 20,
-        plots_visible: bool = True
+        plots_visible: bool = True,
+        feature_labels: list[str] | None = None,
     ):
         """
         Create SHAP waterfall plot with binned features for a single sample.
@@ -818,7 +841,7 @@ class ShapAnalyzer:
             raise ValueError("SHAP values not computed. Call explain_model first.")
 
         # Aggregate SHAP values into bins for the selected sample
-        binned_shap, bin_labels = self._aggregate_shap_bins(self.shap_values[sample_idx])
+        binned_shap, bin_labels = self._aggregate_shap_bins(self.shap_values[sample_idx], feature_labels)
 
         # Create binned data for the sample
         n_features = self.data.shape[1]

@@ -162,6 +162,15 @@ class TestHeaderManager:
         assert mgr.headers == headers
         assert mgr.header_unit == "nm"
 
+    def test_implicit_unit_is_not_recorded(self):
+        """The cm-1 default stays the unit but is distinguishable from a declared one."""
+        mgr = HeaderManager()
+        mgr.set_headers(["0", "1", "2"])
+        assert mgr.header_unit == "cm-1"
+        assert not mgr.header_unit_recorded
+        mgr.set_headers(["0", "1", "2"], unit="cm-1")
+        assert mgr.header_unit_recorded
+
     def test_clear_headers(self):
         """Test clearing headers."""
         mgr = HeaderManager()

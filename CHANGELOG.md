@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `nirs4all.explain(..., explainer_backend="methods")` computes attributions with
+  the nirs4all-methods `n4m.explain` kernels on the general lane: grouped
+  permutation, exact, kernel (experimental), LIME (experimental) and occlusion
+  over the complete captured predictor, plus exact linear SHAP and
+  path-dependent TreeSHAP (scikit-learn trees/forests/gradient boosting,
+  XGBoost and LightGBM regressors, scikit-learn forest class probabilities)
+  through verified model exports. New options: `baseline`, `group_width`,
+  `group_ranges`, `n_permutations`, `n_coalitions`, `seed` and
+  `attribution_space` (`raw_input` or `transformed_features`). It requires a
+  nirs4all-methods release with the explain ABI 2.23 and refuses otherwise; the
+  default `shap` backend is unchanged and the legacy lane refuses the new backend.
+- `ExplainResult.explanation` and `ExplainResult.to_explanation_v1()` expose the
+  `nirs4all.explanation.v1` envelope for both general-lane backends (engine,
+  exactness, attribution space, output space, recorded axis, groups and
+  explained-row source indices); it is also written as `explanation_v1.json`.
+  General explain now validates `sample_indices` as in-range row indices.
+- `SpectroDataset.header_unit_recorded(src)` distinguishes a declared header unit
+  from the implicit `cm-1` default (`header_unit()` is unchanged); explanation
+  axes use a physical unit only when it was declared.
+- `ShapAnalyzer.plot_spectral_importance` accepts optional `axis_values` and
+  `axis_label`, and the binned waterfall/beeswarm plots accept `feature_labels`;
+  the general explain lane passes its recorded axis to them.
 - `nirs4all.retrain(...)` retrains a canonical Core `.n4a` container (path or
   `CanonicalN4aRunResult`) on a new IO record with `engine="native"`. Core's
   `retrain_n4a_native` reads the stored recipe and source and runs fresh
@@ -48,6 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or keep NaN (`"ignore"`) for a fit-scoped pipeline step.
 
 ### Fixed
+
+- General-lane SHAP waterfalls use disjoint, summed bins so they end exactly at
+  the explained prediction (overlapping default bins counted contributions
+  twice); explicit overlapping or averaged waterfall bins are refused.
 
 - Restore automatic DAG-host prediction dispatch, supported non-container
   Python retrain sources, and training-spec retrain from a loaded Session while

@@ -93,6 +93,10 @@ class MultimodalSpectroDataset(SpectroDataset):
         block = self.cohort.sources[self.source_names[src]]
         return list(block.feature_names or [])
 
+    def header_unit_recorded(self, src: int = 0) -> bool:
+        """IO owns multimodal axes; no host header unit is declared for them."""
+        return False
+
     def x_rows(self, sample_ints: list[int], layout: Any = "2d", concat_source: bool = True) -> Any:
         if concat_source:
             raise ValueError("raw multimodal sources require a source-aware model; fuse them inside the pipeline")

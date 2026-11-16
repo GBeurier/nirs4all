@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -16,6 +16,7 @@ from nirs4all.pipeline.dagml.dataset import _materialize_dataset
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
 from nirs4all.pipeline.explain_lineage import derive_relation_explain_lineage
 
+from .explanation_envelope import build_explanation_v1, describe_groups, feature_index_axis, recorded_axis
 from .result import ExplainResult, RunResult
 
 
@@ -66,21 +67,49 @@ def _load_captured_source(model: Any, session: Any, workspace_path: Any = None) 
         return load_general_archive(archive)
 
 
+_SHAP_KINDS = {"KernelExplainer": ("kernel_shap", "sampled"), "TreeExplainer": ("tree_shap", "exact"), "LinearExplainer": ("linear_shap", "exact")}
+
+
+def _explained_rows(sample_indices: Any, n_rows: int) -> list[int]:
+    if sample_indices is None:
+        return list(range(n_rows))
+    if isinstance(sample_indices, (str, bytes)) or not isinstance(sample_indices, Sequence | np.ndarray) or not len(sample_indices):
+        raise ValueError("sample_indices must be a nonempty sequence of row indices")
+    rows = [int(index) for index in sample_indices if isinstance(index, int | np.integer) and not isinstance(index, bool)]
+    if len(rows) != len(sample_indices) or any(index < 0 or index >= n_rows for index in rows):
+        raise ValueError(f"sample_indices must be integers in [0, {n_rows})")
+    return rows
+
+
 def explain_general(
     model: Any, data: Any, *, name: str, session: Any, verbose: int,
     plots_visible: bool, n_samples: int | None, explainer_type: str, options: dict[str, Any],
 ) -> ExplainResult:
-    """Reuse the library SHAP analyzer on the complete frozen raw-input predictor.
+    """Explain the complete frozen raw-input predictor with the selected attribution backend.
 
     Preprocessing and target inverses stay inside the captured predictor. SHAP
     therefore explains original input columns and original target units, not a
     terminal estimator with an incorrectly labelled raw feature axis. Multi-output
     requests expose a labelled selected output, preserving the 2D ExplainResult.
+    ``explainer_backend="shap"`` (default) uses the ``shap`` package;
+    ``explainer_backend="methods"`` uses the nirs4all-methods kernels (see
+    :mod:`nirs4all.api.methods_explain`). Both record a
+    ``nirs4all.explanation.v1`` envelope in ``ExplainResult.explanation``.
     """
+    from .methods_explain import METHODS_OPTIONS, NON_ADDITIVE_EXPLAINER_TYPES, parse_methods_options
+
     supported = {"feature_names", "background_samples", "max_display", "visualizations", "output_dir", "workspace_path",
-                 "bin_size", "bin_stride", "bin_aggregation", "sample_indices", "output_index"}
+                 "bin_size", "bin_stride", "bin_aggregation", "sample_indices", "output_index", "explainer_backend"} | METHODS_OPTIONS
     if set(options) - supported:
         raise TypeError(f"Unsupported general SHAP options: {sorted(set(options) - supported)}")
+    backend = options.get("explainer_backend", "shap")
+    if backend not in ("shap", "methods"):
+        raise ValueError("explainer_backend must be 'shap' or 'methods'")
+    methods_settings = None
+    if backend == "methods":
+        methods_settings = parse_methods_options(explainer_type, options)
+    elif set(options) & METHODS_OPTIONS:
+        raise TypeError(f"Options {sorted(set(options) & METHODS_OPTIONS)} require explainer_backend='methods'")
     output_index = options.get("output_index", 0)
     if type(output_index) is not int or output_index < 0:
         raise ValueError("output_index must be a nonnegative integer")
@@ -91,6 +120,15 @@ def explain_general(
     allowed_visualizations = {"spectral", "summary", "waterfall", "force", "beeswarm"}
     if not isinstance(visualizations, list) or any(item not in allowed_visualizations for item in visualizations):
         raise ValueError("Unsupported SHAP visualization selection")
+    decompositions = sorted({"waterfall", "force"} & set(visualizations))
+    if methods_settings is not None and decompositions:
+        if methods_settings.explainer_type in NON_ADDITIVE_EXPLAINER_TYPES:
+            raise ValueError(f"{decompositions} figures decompose a prediction additively, but {methods_settings.explainer_type} attributions are not additive; "
+                             "select spectral, summary or beeswarm")
+        if methods_settings.baseline == "interpolate":
+            raise ValueError(f"{decompositions} figures need one expected value; baseline='interpolate' has one per row. Select spectral, summary or beeswarm")
+    if "waterfall" in visualizations:
+        _require_additive_waterfall_options(options)
     if session is not None:
         session._ensure_open()
     loaded = _load_captured_source(model, session, options.get("workspace_path"))
@@ -98,6 +136,7 @@ def explain_general(
     X = np.asarray(dataset.x({}, layout="2d"))
     if X.ndim != 2 or not X.shape[0] or not X.shape[1] or not np.isfinite(X).all():
         raise ValueError("SHAP requires a nonempty finite 2D feature matrix")
+    rows = _explained_rows(options.get("sample_indices"), X.shape[0])
     supplied_names = options.get("feature_names")
     relation_manifest = getattr(dataset, "_relation_materialization_manifest", None)
     if relation_manifest is None:
@@ -109,6 +148,8 @@ def explain_general(
     names = list(supplied_names) if supplied_names is not None else list(default_names)
     if len(names) != X.shape[1] or any(not isinstance(item, str) for item in names) or len(set(names)) != len(names):
         raise ValueError("feature_names must be unique strings matching the raw input columns")
+    # Relation aggregates are derived features: their headers are names, not coordinates.
+    axis = recorded_axis(dataset, X.shape[1]) if relation is None else feature_index_axis(X.shape[1])
     captured = loaded["artifact"]["estimator"]
     # General exports retain the complete X-chain and optional target inverse.
     # Classification probabilities are read from that fitted X-chain only when
@@ -128,28 +169,72 @@ def explain_general(
 
     predictor = _CapturedPredictor(function, output_index)
     predictor.predict(X[:1])  # Validate output selection before lengthy SHAP work.
-
-    from nirs4all.visualization.analysis.shap import ShapAnalyzer
-
-    analyzer = ShapAnalyzer()
-    analyzed = analyzer.explain_model(
-        predictor, X, feature_names=names, sample_indices=options.get("sample_indices"),
-        n_background=background, explainer_type=explainer_type, visualizations=[], plots_visible=False,
-        bin_size=options.get("bin_size", 20), bin_stride=options.get("bin_stride", 10),
-        bin_aggregation=options.get("bin_aggregation", "sum"),
-    )
-    values = np.asarray(analyzed["shap_values"])
+    classes = getattr(estimator, "classes_", None) if probabilities else None
+    output_label = str(classes[output_index]) if classes is not None and output_index < len(classes) else None
     unit = "class probability" if probabilities else "original target"
     level = relation.explanation_level if relation is not None else "raw_observation"
-    summary = f"SHAP for captured REFIT predictor, {level} input columns, {unit} output {output_index}; {len(values)} rows. No training performed."
+    lineage = relation.feature_lineage if relation is not None else {feature: {"representation": "raw_input"} for feature in names}
+
+    analyzer: Any = None
+    if methods_settings is not None:
+        from .methods_explain import explain_with_methods
+
+        computed = explain_with_methods(
+            function=function, probabilities=probabilities, captured=captured, target_inverse=target_inverse, X=X, rows=rows, names=names, axis=axis,
+            output_index=output_index, output_label=output_label, background_samples=background, settings=methods_settings,
+        )
+        values = computed.values
+        base_value: Any = computed.base_value
+        result_names, explained_rows, explained_names = computed.labels, computed.explained_rows, computed.explained_names
+        actual_explainer = computed.kind
+        envelope = computed.envelope
+        engine = envelope["engine"]
+        if computed.attribution_space == "transformed_features":
+            level = "transformed_feature"
+            lineage = {feature: {"representation": "transformed_feature", "preprocessing": computed.preprocessing} for feature in explained_names}
+        if len(result_names) != len(explained_names):
+            lineage = {group["label"]: {"representation": "feature_group", "attribution_space": computed.attribution_space, "feature_start": group["feature_start"],
+                                        "feature_end": group["feature_end"], "group_source": group["source"],
+                                        "member_lineage": [lineage[feature] for feature in explained_names[group["feature_start"]:group["feature_end"]]]}
+                       for group in envelope["groups"]}
+        summary = (f"{actual_explainer} attributions from {engine['name']} {engine['version']} for captured REFIT predictor, {computed.attribution_space} space, "
+                   f"{level} features, {unit} output {output_index}; {len(values)} rows, {len(result_names)} groups. No training performed.")
+    else:
+        from nirs4all.visualization.analysis.shap import ShapAnalyzer
+
+        analyzer = ShapAnalyzer()
+        import shap
+
+        analyzed = analyzer.explain_model(
+            predictor, X, feature_names=names, sample_indices=rows if options.get("sample_indices") is not None else None,
+            n_background=background, explainer_type=explainer_type, visualizations=[], plots_visible=False,
+            bin_size=options.get("bin_size", 20), bin_stride=options.get("bin_stride", 10),
+            bin_aggregation=options.get("bin_aggregation", "sum"),
+        )
+        values = np.asarray(analyzed["shap_values"])
+        base_value = analyzed["base_value"]
+        result_names, explained_rows, explained_names = names, analyzer.data, names
+        actual_explainer = analyzed["explainer_type"]
+        kind, exactness = _SHAP_KINDS[actual_explainer]
+        expected = np.full((len(values), 1), float(np.asarray(base_value).reshape(-1)[0]))
+        prediction = predictor.predict(explained_rows).reshape(-1, 1)
+        envelope = build_explanation_v1(
+            kind=kind, engine={"name": "python-shap", "version": str(shap.__version__)}, exactness=exactness, additive=True, group_aggregation="none",
+            attribution_space="raw_input", output={"index": 0, "label": output_label, "space": "class_probability" if probabilities else "target"},
+            axis=axis, feature_names=names, groups=describe_groups(names, axis, None, len(names), ["per_feature"] * len(names)), sample_indices=rows,
+            attributions=values[:, :, None], std_error=None, expected=expected, prediction=prediction,
+            additivity_max_abs_error=float(np.max(np.abs(values.sum(axis=1)[:, None] + expected - prediction))),
+            settings={"baseline": "background", "n_background": min(background, X.shape[0]), "background_selection": "unseeded_random_without_replacement",
+                      "explainer": actual_explainer, "model_output_index": output_index, "grouping": "per_feature"},
+        )
+        summary = f"SHAP for captured REFIT predictor, {level} input columns, {unit} output {output_index}; {len(values)} rows. No training performed."
     if relation is not None and relation.lineage_warning:
         summary += " " + relation.lineage_warning
-    lineage = relation.feature_lineage if relation is not None else {feature: {"representation": "raw_input"} for feature in names}
     lineage = {feature: {**entry, "output_index": output_index, "output_space": unit} for feature, entry in lineage.items()}
     result = ExplainResult(
-        shap_values=values, feature_names=names, base_value=analyzed["base_value"],
-        explainer_type=analyzed["explainer_type"], model_name=loaded["model_name"], n_samples=len(values),
-        explanation_level=level, lineage_warning=summary, feature_lineage=lineage,
+        shap_values=values, feature_names=list(result_names), base_value=base_value,
+        explainer_type=actual_explainer, model_name=loaded["model_name"], n_samples=len(values),
+        explanation_level=level, lineage_warning=summary, feature_lineage=lineage, explanation=envelope,
     )
     if verbose or plots_visible:
         print(summary)
@@ -161,30 +246,48 @@ def explain_general(
         result.to_dataframe().to_csv(output / "shap_values.csv", index=False)
         import pandas as pd
 
-        pd.DataFrame(analyzer.data, columns=names).to_csv(output / "input_features.csv", index=False)
+        pd.DataFrame(explained_rows, columns=explained_names).to_csv(output / "input_features.csv", index=False)
+        (output / "explanation_v1.json").write_text(json.dumps(envelope, indent=2, allow_nan=False), encoding="utf-8")
         source_provenance = loaded.get("source_provenance") or {
             "source_type": "archive", "archive_fingerprint": loaded["archive_fingerprint"],
             "artifact_integrity_verified": loaded["artifact_integrity_verified"],
         }
         provenance = {"contract": "nirs4all.python.shap.v1", "training_performed": False, "dataset_name": name,
-                      **source_provenance,
+                      **source_provenance, "explainer_backend": backend, "explainer_type": actual_explainer,
+                      "attribution_space": envelope["attribution_space"], "explanation_schema": envelope["schema"],
                       "explanation_level": level, "feature_lineage": lineage,
                       "output_index": output_index, "output_space": unit, "base_value": np.asarray(result.base_value).tolist()}
         (output / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
         table = result.to_dataframe().to_html(index=False, escape=True)
         (output / "summary.html").write_text(f"<!doctype html><html lang='en'><title>SHAP explanation</title><h1>SHAP explanation</h1><p>{html.escape(summary)}</p>{table}</html>", encoding="utf-8")
         result.visualizations["summary_table"] = output / "summary.html"
+        result.visualizations["explanation_v1"] = output / "explanation_v1.json"
+        if visualizations and analyzer is None:
+            analyzer = _methods_figure_analyzer(computed, options)
+        # Figures use the envelope axis: recorded coordinates and unit, or feature indices.
+        axis_record = envelope["axis"]
+        axis_label = {"wavelength": f"Wavelength ({axis_record['unit']})", "wavenumber": f"Wavenumber ({axis_record['unit']})"}.get(
+            axis_record["kind"], "Transformed feature index" if envelope["attribution_space"] == "transformed_features" else "Feature index")
+        axis_centres = [(group["axis_start"] + group["axis_end"]) / 2 for group in envelope["groups"]]
         # Publish the text and exact values before rendering any optional figure.
         for kind in visualizations:
             path = output / ("force.html" if kind == "force" else f"{kind}.png")
             # A short spectrum still forms one bin; rendering must not fail
             # merely because the historical default window has 20 columns.
-            analyzer.bin_size = min(analyzer.bin_size_dict.get(kind, 20), X.shape[1])
+            analyzer.bin_size = min(analyzer.bin_size_dict.get(kind, 20), len(result_names))
             analyzer.bin_stride = analyzer.bin_stride_dict.get(kind, 10)
             analyzer.bin_aggregation = analyzer.bin_aggregation_dict.get(kind, "sum")
+            if kind == "waterfall":
+                # A waterfall decomposes one prediction: disjoint bins with signed
+                # sums cover every column, and the hidden bins form one remainder.
+                analyzer.bin_stride, analyzer.bin_aggregation = analyzer.bin_size, "sum"
             kwargs: dict[str, Any] = {"output_path": str(path), "plots_visible": plots_visible}
             if kind in {"spectral", "summary", "force"}:
-                kwargs["feature_names"] = names
+                kwargs["feature_names"] = list(result_names)
+            if kind == "spectral":
+                kwargs.update(axis_values=axis_centres, axis_label=axis_label)
+            if kind in {"waterfall", "beeswarm"}:
+                kwargs["feature_labels"] = list(result_names)
             if kind == "summary":
                 kwargs["max_display"] = options.get("max_display", 20)
             methods: dict[str, Callable[..., Any]] = {"spectral": analyzer.plot_spectral_importance, "summary": analyzer.plot_summary,
@@ -193,3 +296,40 @@ def explain_general(
             methods[kind](**kwargs)
             result.visualizations[kind] = path
     return result
+
+
+def _require_additive_waterfall_options(options: dict[str, Any]) -> None:
+    """Refuse waterfall-specific binning that would break its additive decomposition.
+
+    Shared ``bin_stride``/``bin_aggregation`` values configure the overlapping
+    spectral and beeswarm summaries; the waterfall always uses disjoint bins and
+    signed sums. Only an explicit waterfall entry that contradicts this is refused.
+    """
+    stride, size, aggregation = (options.get(name) for name in ("bin_stride", "bin_size", "bin_aggregation"))
+    waterfall_stride = stride.get("waterfall") if isinstance(stride, dict) else None
+    waterfall_size = size.get("waterfall") if isinstance(size, dict) else size
+    waterfall_aggregation = aggregation.get("waterfall") if isinstance(aggregation, dict) else None
+    if (waterfall_stride is not None and waterfall_stride != waterfall_size) or waterfall_aggregation not in (None, "sum"):
+        raise ValueError("A waterfall decomposes one prediction additively: its bins must be disjoint (waterfall bin_stride equal to its bin_size) and summed "
+                         "(bin_aggregation 'sum')")
+
+
+def _methods_figure_analyzer(computed: Any, options: dict[str, Any]) -> Any:
+    """Load Methods attributions into the shared SHAP figure helpers.
+
+    Grouped attributions are drawn per group against the mean explained value
+    of each group; groups are already the bins unless binning is requested.
+    """
+    from nirs4all.visualization.analysis.shap import ShapAnalyzer
+
+    analyzer = ShapAnalyzer()
+    grouped = len(computed.labels) != len(computed.explained_names)
+    analyzer.shap_values = computed.values
+    analyzer.data = computed.group_rows
+    analyzer.base_value = computed.base_value if isinstance(computed.base_value, float) else float(np.mean(computed.base_value))
+    analyzer.feature_names = computed.labels
+    defaults = {"bin_size": 1 if grouped else 20, "bin_stride": 1 if grouped else 10, "bin_aggregation": "sum"}
+    for option, attribute in (("bin_size", "bin_size_dict"), ("bin_stride", "bin_stride_dict"), ("bin_aggregation", "bin_aggregation_dict")):
+        value = options.get(option, defaults[option])
+        setattr(analyzer, attribute, value if isinstance(value, dict) else dict.fromkeys(("spectral", "waterfall", "beeswarm"), value))
+    return analyzer

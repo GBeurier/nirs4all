@@ -441,6 +441,21 @@ class SpectroDataset:
         """
         return self._feature_accessor.header_unit(src)
 
+    def header_unit_recorded(self, src: int = 0) -> bool:
+        """
+        Whether the header unit of a source was declared explicitly.
+
+        ``header_unit`` falls back to ``"cm-1"`` when no unit was supplied;
+        consumers that must not invent physical units check this first.
+
+        Args:
+            src: Source index
+
+        Returns:
+            True when the unit was supplied rather than defaulted.
+        """
+        return self._feature_accessor.header_unit_recorded(src)
+
     def float_headers(self, src: int = 0) -> np.ndarray:
         """
         Get headers as float array.

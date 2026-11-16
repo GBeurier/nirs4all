@@ -4379,6 +4379,9 @@ class ExplainResult:
             lineage/provenance payloads.
         lineage_warning: Optional warning when explanations are for derived or
             aggregated features rather than raw observations.
+        explanation: Optional ``nirs4all.explanation.v1`` envelope recorded by
+            the general explain lane (explained-row source indices, axis,
+            groups, output space, engine and settings).
 
     Properties:
         values: Raw SHAP values array.
@@ -4407,6 +4410,7 @@ class ExplainResult:
     explanation_level: str | None = None
     feature_lineage: dict[str, Any] = field(default_factory=dict)
     lineage_warning: str | None = None
+    explanation: dict[str, Any] | None = None
 
     def __post_init__(self):
         """Extract metadata from shap_values if available."""
@@ -4510,6 +4514,25 @@ class ExplainResult:
             result[name] = float(val)
 
         return result
+
+    def to_explanation_v1(self) -> dict[str, Any]:
+        """Return the ``nirs4all.explanation.v1`` envelope of this explanation.
+
+        Both general-lane backends record it: ``engine.name`` is
+        ``python-shap`` for the ``shap`` package and ``nirs4all-methods`` for
+        ``explainer_backend="methods"``. ``rows.sample_indices[i]`` is the index,
+        within the explained data, of explained row ``i``.
+
+        Returns:
+            A deep copy of the JSON-native envelope.
+
+        Raises:
+            ValueError: If the explanation was produced without the envelope
+                metadata (the explicitly selected legacy lane).
+        """
+        if self.explanation is None:
+            raise ValueError("This explanation records no nirs4all.explanation.v1 envelope; only the general explain lane records explained-row indices, axis and output metadata")
+        return copy.deepcopy(self.explanation)
 
     def get_feature_lineage(self, feature: str | int) -> dict[str, Any]:
         """Get relation lineage for an explained feature.

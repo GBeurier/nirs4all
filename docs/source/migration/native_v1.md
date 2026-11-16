@@ -261,6 +261,12 @@ preserved rather than labelling an aggregate as a raw observation.
 CSV values, provenance and an HTML table are written before optional figures;
 `visualizations=[]` disables figures. This does not claim portable Core SHAP
 or saved individual CV-fold models. Explicit `engine="native"` remains strict.
+The same lane accepts `explainer_backend="methods"`, which computes the
+attributions with the nirs4all-methods `n4m.explain` kernels over the same
+captured predictor (or, for linear and tree SHAP, over verified exports of its
+terminal estimator) and refuses installations without that binding. Both
+backends record a `nirs4all.explanation.v1` envelope (`explanation_v1.json`);
+`engine="legacy"` refuses the Methods backend.
 
 For a qualified request:
 

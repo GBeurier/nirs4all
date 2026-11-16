@@ -467,6 +467,18 @@ class FeatureAccessor:
         """
         return self._block.sources[source].header_unit
 
+    def header_unit_recorded(self, source: int = 0) -> bool:
+        """
+        Whether the header unit was declared rather than the implicit ``cm-1`` default.
+
+        Args:
+            source: Source index (default: 0)
+
+        Returns:
+            True when a caller supplied the unit explicitly.
+        """
+        return self._block.sources[source].header_unit_recorded
+
     def processing_names(self, source: int = 0) -> list[str]:
         """
         Get list of processing step names for a source.

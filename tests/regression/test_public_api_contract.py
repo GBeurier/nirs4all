@@ -666,6 +666,7 @@ EXPECTED_EXPLAINRESULT_MEMBERS: frozenset[str] = frozenset(
     {
         "base_value",
         "explainer_type",
+        "explanation",
         "explanation_level",
         "feature_names",
         "feature_lineage",
@@ -680,6 +681,7 @@ EXPECTED_EXPLAINRESULT_MEMBERS: frozenset[str] = frozenset(
         # dataclass instance fields (missed by dir(cls), recovered via fields())
         "shap_values",
         "to_dataframe",
+        "to_explanation_v1",
         "top_features",
         "values",
         "visualizations",

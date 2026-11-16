@@ -53,16 +53,27 @@ shap_params = {
     },
     'bin_stride': {
         'spectral': 10,      # 50% overlap
-        'waterfall': 25,     # 50% overlap
+        'waterfall': 50,     # disjoint (required for the waterfall)
         'beeswarm': 15       # 50% overlap
     },
     'bin_aggregation': {
         'spectral': 'sum',      # Total importance
-        'waterfall': 'mean',    # Average per wavelength
+        'waterfall': 'sum',     # Signed sum (required for the waterfall)
         'beeswarm': 'sum_abs'   # Absolute sum
     }
 }
 ```
+
+**Waterfall bins are disjoint.** A waterfall decomposes one prediction from the
+base value, so on the general explain lane it always uses disjoint bins
+(stride equal to its bin size) with signed sums; bins beyond `max_display` are
+shown as one remainder and the plot ends exactly at the prediction. Shared
+`bin_stride`/`bin_aggregation` values only configure the spectral and beeswarm
+summaries; an explicit `'waterfall'` entry with overlapping bins or a non-sum
+aggregation is refused. Waterfall and force figures are also refused for
+non-additive explainers (`lime`, `occlusion`) and for the per-row
+`interpolate` baseline. Spectral figures label their x axis from the recorded
+axis (`Wavelength (nm)`, `Wavenumber (cm-1)`) or as feature indices.
 
 **Aggregation methods:**
 - `'sum'` - Sum of SHAP values (emphasizes cumulative effect)
@@ -212,12 +223,12 @@ shap_params = {
     },
     'bin_stride': {
         'spectral': 10,      # 50% overlap
-        'waterfall': 25,     # 50% overlap
+        'waterfall': 50,     # disjoint (required for the waterfall)
         'beeswarm': 15       # 50% overlap
     },
     'bin_aggregation': {
         'spectral': 'sum',      # Total importance per region
-        'waterfall': 'mean',    # Average per wavelength
+        'waterfall': 'sum',     # Signed sum (required for the waterfall)
         'beeswarm': 'sum_abs'   # Absolute importance
     }
 }
@@ -227,7 +238,7 @@ explanation = nirs4all.explain(model=best, data="my_data/", **shap_params)
 
 **Why use different binning per visualization?**
 - **Spectral**: Fine detail to see all important regions
-- **Waterfall**: Coarser bins → fewer bars → easier to interpret
+- **Waterfall**: Coarser disjoint bins → fewer bars → easier to interpret
 - **Beeswarm**: Medium bins → balance between detail and readability
 
 ### All Parameters
@@ -235,8 +246,11 @@ explanation = nirs4all.explain(model=best, data="my_data/", **shap_params)
 ```python
 shap_params = {
     # SHAP computation
-    'n_samples': 200,              # Background samples (default: 200)
+    'n_samples': 200,              # Background samples (default: 100)
     'explainer_type': 'auto',      # 'auto', 'tree', 'linear', 'deep', 'kernel'
+    'explainer_backend': 'shap',   # or 'methods' (see "Methods attribution backend")
+    'sample_indices': None,        # rows of the supplied data to explain (default: all)
+    'output_index': 0,             # target or class-probability column
 
     # Visualizations (all support binning)
     'visualizations': ['spectral', 'summary', 'waterfall', 'beeswarm'],
@@ -247,6 +261,145 @@ shap_params = {
     'bin_aggregation': 'sum'       # str: same for all, dict: per-viz
 }
 ```
+
+## Methods attribution backend
+
+`nirs4all.explain(...)` on the general lane (the default for captured `.n4a`
+archives, trained DAG results and `result.best` selections) accepts
+`explainer_backend="methods"`. The attributions are then computed by the
+nirs4all-methods kernels (`n4m.explain`), the same native implementation used
+by the web application through WASM. The default `explainer_backend="shap"`
+keeps the `shap` package path unchanged. The explicitly selected
+`engine="legacy"` lane refuses the Methods backend and its options.
+
+The backend requires a nirs4all-methods release providing the `n4m.explain`
+binding (explain ABI 2.23, nirs4all-methods 1.3.17 or later). An older
+installation raises an `ImportError` naming that requirement; there is no
+fallback to the `shap` package.
+
+```python
+import nirs4all
+
+explanation = nirs4all.explain(
+    model="exports/protein.n4a",
+    data="my_data/",
+    explainer_backend="methods",
+    explainer_type="permutation",   # grouped permutation SHAP
+    group_width=20,                 # 20 contiguous wavelengths per group
+    baseline="interpolate",         # spectral bridge across the occluded band
+    n_permutations=10,
+    seed=0,
+    sample_indices=[3, 8, 15],      # rows of the supplied data to explain
+    output_dir="explanations/protein",
+)
+envelope = explanation.to_explanation_v1()  # nirs4all.explanation.v1
+```
+
+### Methods and status
+
+| `explainer_type` | Method | Status | Exactness / additivity |
+| --- | --- | --- | --- |
+| `"permutation"` | Grouped antithetic permutation SHAP | implemented | sampled, additive by construction, Monte-Carlo standard error |
+| `"exact"` | Exact group SHAP over all 2^G coalitions (G ≤ 16) | implemented | exact, additive |
+| `"kernel"` | Kernel SHAP (weighted least squares, efficiency enforced) | experimental | sampled, additive |
+| `"lime"` | LIME over binary group masks | experimental | local surrogate, not additive |
+| `"occlusion"` | Occlusion / ablation per group | implemented | perturbation, not additive |
+| `"linear"` | Linear SHAP of an affine estimator (Ridge, LinearRegression, PLSRegression, ...) | implemented | exact, additive |
+| `"tree"` | Path-dependent TreeSHAP of scikit-learn trees/forests/gradient boosting, XGBoost and LightGBM regressors, scikit-learn forest class probabilities | implemented | exact, additive; grouped values are sums of feature values |
+| `"auto"` | Tree, else linear, else permutation, among the kinds compatible with the options you set | implemented | as selected; recorded in `explainer_type` |
+| — | Integrated Gradients, conditional / on-manifold baselines | planned | — |
+
+`n_coalitions` applies to `kernel` and `lime` (`0` lets Methods choose);
+`n_permutations` (default 10 antithetic pairs) to `permutation`. Options that do
+not apply to the requested method are refused rather than ignored.
+
+### Raw input versus transformed features
+
+* `attribution_space="raw_input"` (default) explains the complete captured
+  predictor: preprocessing, estimator and target inverse. Model-agnostic methods
+  perturb raw input columns and read predictions in original target units, or
+  the selected class probability. `linear` and `tree` explain the estimator
+  itself, so in raw space they apply only when the captured predictor has no
+  preprocessing step. A target inverse is folded exactly only when it is a
+  recognized affine transform (`StandardScaler`, `MinMaxScaler`, `MaxAbsScaler`,
+  an identity `FunctionTransformer`, or a pipeline of these); any other target
+  inverse refuses linear and tree SHAP (model-agnostic methods remain available).
+* `attribution_space="transformed_features"` explains the terminal estimator
+  over the outputs of the fitted preprocessing chain (captured scikit-learn
+  pipelines only). Transformed features are labelled `transformed_<j>` with a
+  `feature_index` axis: they are not relabelled as wavelengths, even when a
+  step preserves the spectral width. The applied steps are recorded in the
+  lineage and in `settings.preprocessing`.
+
+Every model-specific export (linear coefficients, flat tree ensembles) and every
+transformed-space decomposition must reproduce the captured predictor on the
+explained rows; otherwise the request is refused.
+
+### Grouped spectral explanations
+
+Model-agnostic methods treat each **group** of features as one player of the
+coalition game (`group_aggregation="group_game"`): the result is the Shapley
+value of the band, not a sum of per-wavelength values.
+
+* `group_width=w` builds contiguous groups of `w` features (the last one may be
+  shorter).
+* `group_ranges=[(start, end), ...]` uses half-open feature-index ranges, for
+  example chemically informed absorption bands already mapped to column indices.
+  Ranges must be disjoint; each uncovered run becomes a `remainder` group.
+* Without either option, model-agnostic methods use one group per feature for
+  inputs of at most 20 features and groups of 20 contiguous features otherwise,
+  to keep wide spectra tractable. Linear and tree SHAP default to one group per
+  feature.
+
+`ExplainResult.shap_values` then has one column per group and
+`feature_names` holds the group labels (`"<first>–<last>"`). Figures draw the
+groups directly (the default bin size becomes one group).
+
+### Baselines and background
+
+* `baseline="background"` (default): interventional average over the background
+  rows.
+* `baseline="mean"`: a single reference row, the background column mean.
+* `baseline="interpolate"`: each absent band is replaced by the straight line
+  joining the explained spectrum at its nearest present neighbours. It keeps
+  perturbed spectra continuous for strongly correlated wavelengths, needs no
+  background, and gives one expected value per row (`base_value` is then an
+  array; waterfall and force figures are refused).
+
+The background is drawn, without replacement and with `seed`, from the supplied
+rows: `n_samples` (or `background_samples`, default 100) caps its size. Linear
+SHAP uses the background mean as its reference. Path-dependent TreeSHAP uses no
+background and refuses `baseline`.
+
+### Results and persisted envelope
+
+Both backends record a `nirs4all.explanation.v1` envelope
+(`ExplainResult.to_explanation_v1()`), and write it as `explanation_v1.json`
+next to `shap_values.csv`, `provenance.json` and `summary.html` when outputs are
+written. The envelope records the engine (`nirs4all-methods` with its version
+and ABI, or `python-shap` with the installed `shap` version), exactness,
+additivity error, attribution space, explained output (`target` or
+`class_probability`), groups, and settings. `rows.sample_indices[i]` is the
+index, within the supplied data, of explained row `i`; explained-row positions
+and source indices are never interchanged. The axis carries numeric
+wavelengths (`nm`) or wavenumbers (`cm-1`) only when a single-source dataset
+explicitly declares such headers (`header_unit="nm"` or `"cm-1"`; the implicit
+`cm-1` default of headers without a declared unit does not count); otherwise it
+is a `feature_index` axis with a null unit.
+The Methods backend explains every output column (its `output.index` addresses
+the attribution array), while `ExplainResult` keeps the selected `output_index`.
+The `shap` backend explains only the selected column, so its envelope holds one
+output (`output.index` 0) and records the model column as
+`settings.model_output_index`.
+
+### Performance notes
+
+* Model-agnostic cost is dominated by model evaluations: Methods batches the
+  perturbed rows (up to 4096 per call) through the captured predictor.
+  Permutation SHAP evaluates about `2 * n_permutations * (G + 1) * n_background`
+  rows per explained row; exact SHAP `2^G * n_background`. Grouping, the `mean`
+  or `interpolate` baselines and a smaller `n_samples` reduce the cost.
+* Linear and tree SHAP evaluate no perturbed rows and are fast on wide spectra.
 
 ## Interpreting Results
 

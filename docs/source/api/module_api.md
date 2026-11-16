@@ -717,7 +717,8 @@ result = nirs4all.explain(
 | `source` | `PredictionSource` | Trained model |
 | `dataset` | `DatasetSpec` | Data to explain |
 | `n_samples` | `int` | Number of background samples for SHAP |
-| `explainer_type` | `str` | "auto", "tree", "kernel", "deep", or "linear" |
+| `explainer_type` | `str` | "auto", "tree", "kernel", "deep", or "linear"; with `explainer_backend="methods"`: "auto", "permutation", "exact", "kernel", "lime", "occlusion", "linear" or "tree" |
+| `explainer_backend` | `str` | Keyword option: "shap" (default) or "methods" (nirs4all-methods kernels, general lane only); see the SHAP user guide for its options |
 
 **Returns:** `ExplainResult` containing SHAP values and feature importance.
 
@@ -890,6 +891,7 @@ Result from `nirs4all.explain()`.
 | `top_features` | `list` | Features sorted by importance |
 | `feature_names` | `list` | Feature names |
 | `base_value` | `float` | Baseline prediction |
+| `explanation` | `dict \| None` | `nirs4all.explanation.v1` envelope recorded by the general lane |
 
 **Methods:**
 
@@ -898,6 +900,7 @@ Result from `nirs4all.explain()`.
 | `get_feature_importance(top_n=None)` | Get importance ranking |
 | `get_sample_explanation(idx)` | Get explanation for single sample |
 | `to_dataframe()` | Get as pandas DataFrame |
+| `to_explanation_v1()` | Copy of the `nirs4all.explanation.v1` envelope (refused when none was recorded) |
 
 ## Type Aliases
 

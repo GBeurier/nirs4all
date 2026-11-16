@@ -93,6 +93,11 @@ class FeatureSource:
         return self._header_mgr.header_unit
 
     @property
+    def header_unit_recorded(self) -> bool:
+        """Whether the header unit was declared rather than the implicit ``cm-1`` default."""
+        return self._header_mgr.header_unit_recorded
+
+    @property
     def num_samples(self) -> int:
         """Get the number of samples.
 
@@ -167,9 +172,9 @@ class FeatureSource:
 
         self._storage.add_samples(new_samples)
 
-        # Only update headers if provided, and preserve existing unit
+        # Only update headers if provided, and preserve the existing unit and whether it was declared
         if headers is not None:
-            current_unit = self._header_mgr.header_unit
+            current_unit = self._header_mgr.header_unit if self._header_mgr.header_unit_recorded else None
             self._header_mgr.set_headers(headers, unit=current_unit)
 
     def add_samples_batch_3d(self, data: np.ndarray) -> None:
@@ -189,13 +194,14 @@ class FeatureSource:
 
         self._storage.add_samples_batch(data)
 
-    def set_headers(self, headers: list[str] | None, unit: str = "cm-1") -> None:
+    def set_headers(self, headers: list[str] | None, unit: str | None = None) -> None:
         """Set feature headers with unit metadata.
 
         Args:
             headers: List of header strings (wavelengths, feature names, etc.).
             unit: Unit type - "cm-1" (wavenumber), "nm" (wavelength),
-                  "none", "text", "index".
+                  "none", "text", "index". ``None`` keeps the implicit
+                  ``cm-1`` default without declaring it.
         """
         self._header_mgr.set_headers(headers, unit=unit)
 

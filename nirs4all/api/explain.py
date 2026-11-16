@@ -124,6 +124,18 @@ def explain(
             - feature_names: List of feature names
             - background_samples: Number of background samples
             - max_display: Max features to show in plots
+            - sample_indices: Rows of ``data`` to explain (default all)
+            - output_index: Explained target or class-probability column
+            - explainer_backend: ``"shap"`` (default, the ``shap`` package)
+              or ``"methods"`` (nirs4all-methods kernels; general lane only).
+              With ``"methods"``, ``explainer_type`` accepts ``"auto"``,
+              ``"permutation"``, ``"exact"``, ``"kernel"``, ``"lime"``,
+              ``"occlusion"``, ``"linear"`` and ``"tree"``, together with
+              ``baseline`` (``"background"``, ``"mean"``, ``"interpolate"``),
+              ``group_width``, ``group_ranges`` (half-open feature-index
+              ranges), ``n_permutations``, ``n_coalitions``, ``seed`` and
+              ``attribution_space`` (``"raw_input"`` or
+              ``"transformed_features"``). See the SHAP user guide.
 
     Returns:
         ExplainResult containing:
@@ -200,6 +212,15 @@ def explain(
             model, data, name=name, session=session, verbose=verbose,
             plots_visible=plots_visible, n_samples=n_samples,
             explainer_type=explainer_type, options=full_shap_params,
+        )
+    from .methods_explain import METHODS_OPTIONS
+
+    # The legacy runner uses the shap package only; Methods options would be ignored there.
+    legacy_backend = full_shap_params.pop("explainer_backend", "shap")
+    if legacy_backend != "shap" or set(full_shap_params) & METHODS_OPTIONS:
+        raise ValueError(
+            "explainer_backend='methods' and its options "
+            f"{sorted(set(full_shap_params) & METHODS_OPTIONS)} are available only on the general explain lane; engine='legacy' uses the shap package"
         )
     if isinstance(session, Session):
         session._prepare_legacy_access("explain")
