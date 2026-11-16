@@ -11,8 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- SDK 1.4.17 requires `nirs4all-methods` and `pls4all` 1.3.18 (explainability ABI
+- SDK 1.4.18 requires `nirs4all-methods` and `pls4all` 1.3.18 (explainability ABI
   2.23.0) so the optional `explainer_backend="methods"` works from a plain install.
+  Its installed-package smokes assert that ABI. The 1.4.17 tag was not published to
+  PyPI because its release smoke still asserted ABI 2.22.
 
 ### Added
 
