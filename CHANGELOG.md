@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- SDK 1.4.17 requires `nirs4all-methods` and `pls4all` 1.3.18 (explainability ABI
+  2.23.0) so the optional `explainer_backend="methods"` works from a plain install.
+
 ### Added
 
 - `nirs4all.explain(..., explainer_backend="methods")` computes attributions with

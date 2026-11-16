@@ -89,8 +89,8 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
         "dag-ml-data>=0.2.16,<0.3",
         "nirs4all-io>=0.3.1,<0.4",
         "nirs4all-core>=0.5.0,<0.6",
-        "nirs4all-methods>=1.3.15,<2",
-        "pls4all>=1.3.15,<2",
+        "nirs4all-methods>=1.3.18,<2",
+        "pls4all>=1.3.18,<2",
     } <= dependencies
     assert pyproject["project"]["license"] == "CeCILL-2.1 OR AGPL-3.0-or-later"
     assert set(pyproject["project"]["license-files"]) == {
