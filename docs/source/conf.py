@@ -231,6 +231,8 @@ suppress_warnings = [
     "autodoc",
     "autosummary",
     "design.grid",
+    # sphinx-design 0.8 deprecates the legacy ^^^/+++ card separators used by the index pages.
+    "design.card_legacy",
     "docutils",
     "myst.directive_comments",
     "myst.directive_option",
