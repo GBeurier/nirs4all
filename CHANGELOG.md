@@ -7,7 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.4.19] — 2026-11-18
+
+### Changed
+
+- The SDK depends on the other nirs4all repositories at minor granularity
+  (`dag-ml>=0.4,<0.5`, `dag-ml-data>=0.2,<0.3`, `nirs4all-io>=0.3,<0.4`,
+  `nirs4all-core>=0.5,<0.6`, `nirs4all-methods`/`pls4all>=1.3,<2`), following the
+  ecosystem version-constraint contract. Exact versions stay in the install
+  cohorts: `docker/native-constraints.txt`, the installed-example runtime and the
+  Methods installed-package smoke now use `dag-ml` 0.4.3 and `nirs4all-io` 0.3.6.
+  DAG-ML 0.4.3 accepts the `ddof` parameter that Methods >= 1.3.15 records in
+  `standard_scale` classifier states. The portable export of a multimodal
+  classifier that scales a source still fails with the published
+  `nirs4all-core` 0.5.0, whose native package writer embeds DAG-ML 0.4.0; it
+  needs a Core release built on DAG-ML 0.4.3. The tests concerned are declared as
+  a strict expectation bounded to Core <= 0.5.0.
+- The Studio Playground callable (`nirs4all.api.library_playground.studio_playground_job_v1`)
+  no longer imposes content-size ceilings. `MAX_PLAYGROUND_REQUEST_BYTES` (8 MiB)
+  and `MAX_PLAYGROUND_RESPONSE_BYTES` (32 MiB) and their `request_too_large` and
+  `response_too_large` refusals are removed: request and response byte budgets
+  belong to the host transport. The closed request contract, nesting depth, finite
+  JSON values, identifier bounds and operator authorization are still checked.
+  The fixed limit of 50 Playground steps is removed as well; a host may still bound
+  the step count with `options.max_steps`.
+- `read_model_catalogue(workspace_path, max_models=None)` reads every chain by
+  default. `max_models` is an optional host bound (any positive integer) and a
+  catalogue larger than the bound is still refused, never truncated; the fixed
+  10,000-model ceiling is removed.
+- Hosted CI runs `pytest` again: the `tests` job of `CI.yaml` runs every suite
+  except `tests/integration/{parity,api,pipeline}` and `tests/e2e` on each push
+  and pull request, and `tests-full.yml` runs the whole of `tests/` nightly, on
+  demand and when it changes, in three shards with the `dag-ml-cli` of the
+  installed DAG-ML release and an installed-wheel interpreter.
+
+### Fixed
+
+- `ResidualModel` on the legacy engine no longer fails at random with
+  `Processing 'residual__<base>_<hex>' already exists` when it runs more than once
+  on a dataset (branches, variants). The residual target was named after 16 bits
+  of an object address, which CPython reuses; it is now numbered per dataset.
+- `SpectroDataset.content_hash()` and `nirs4all.utils.hashing.compute_data_hash`
+  always return the SHA-256 digest (64 hex characters) of the feature bytes. They
+  used the 128-bit `xxhash` digest (32 hex characters) whenever the undeclared
+  optional `xxhash` package happened to be importable, so the dataset identity
+  persisted in workspace runs, bundle fingerprints and Studio provenance depended
+  on the environment, and `validate_studio_provenance` refused every Studio run
+  in such an environment. Identities recorded by an environment that had `xxhash`
+  (32 characters) are not converted or matched: the same data now has its SHA-256
+  identity there, as it always had in a plain installation.
+
+- Component serialization no longer reads user-chosen mapping keys as fields of
+  a step envelope. Branch names in a named `branch` mapping, the per-branch
+  `steps` and `values` keys of a separation branch (source names, partition
+  values, group names) and tag names in a named `tag` mapping are names, whatever
+  they spell. A source, branch, partition or tag named `name`, `description`,
+  `metadata`, `_metadata_`, `_tags_`, `class`, `function` or `instance`
+  previously had its steps restored as inert strings and dictionaries instead of
+  components, so a serialized pipeline using it was refused by `engine="dag-ml"`
+  (`run/unsupported_shape`, for example a `by_source` stack over a source named
+  `metadata`) while the same live objects trained. Under names spelling an
+  argument field (`params`, `args`, `*_params`) the descriptive fields of the
+  nested steps were resolved as references. Only pipelines using such a name
+  change: their bodies now deserialize like under any other name, and string
+  references under them are canonicalized on serialization, which changes the
+  identity hash of those pipelines when they are declared as non-canonical
+  strings. Descriptive fields of step and component envelopes, `_`-prefixed keys
+  of a duplication mapping and generator annotations remain literal.
+
+- Repair the test suite, which no hosted workflow had run since 2026-10-08: tests
+  read host bundles and native packages through the Core V1 container, the
+  `RunResult` store double honours `fold_id`, the Methods binding identity table
+  records 1.3.18, the SNV/Savitzky-Golay oracles evaluate in float64 like Methods,
+  non-finite training controls are expected to round-trip, and the frozen
+  `retrain`/`load_calibrated_result` signatures follow the current API. Schema
+  validation of runtime envelopes skips with a stated reason when the sibling
+  `dag-ml` ScoreSet/SelectionDecision schemas are not checked out, instead of
+  failing on an unresolvable reference.
+
+## [1.4.16] – [1.4.18] — 2026-11-09 to 2026-11-16
 
 ### Changed
 
@@ -77,38 +155,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or keep NaN (`"ignore"`) for a fit-scoped pipeline step.
 
 ### Fixed
-
-- `ResidualModel` on the legacy engine no longer fails at random with
-  `Processing 'residual__<base>_<hex>' already exists` when it runs more than once
-  on a dataset (branches, variants). The residual target was named after 16 bits
-  of an object address, which CPython reuses; it is now numbered per dataset.
-- `SpectroDataset.content_hash()` and `nirs4all.utils.hashing.compute_data_hash`
-  always return the SHA-256 digest (64 hex characters) of the feature bytes. They
-  used the 128-bit `xxhash` digest (32 hex characters) whenever the undeclared
-  optional `xxhash` package happened to be importable, so the dataset identity
-  persisted in workspace runs, bundle fingerprints and Studio provenance depended
-  on the environment, and `validate_studio_provenance` refused every Studio run
-  in such an environment. Identities recorded by an environment that had `xxhash`
-  (32 characters) are not converted or matched: the same data now has its SHA-256
-  identity there, as it always had in a plain installation.
-
-- Component serialization no longer reads user-chosen mapping keys as fields of
-  a step envelope. Branch names in a named `branch` mapping, the per-branch
-  `steps` and `values` keys of a separation branch (source names, partition
-  values, group names) and tag names in a named `tag` mapping are names, whatever
-  they spell. A source, branch, partition or tag named `name`, `description`,
-  `metadata`, `_metadata_`, `_tags_`, `class`, `function` or `instance`
-  previously had its steps restored as inert strings and dictionaries instead of
-  components, so a serialized pipeline using it was refused by `engine="dag-ml"`
-  (`run/unsupported_shape`, for example a `by_source` stack over a source named
-  `metadata`) while the same live objects trained. Under names spelling an
-  argument field (`params`, `args`, `*_params`) the descriptive fields of the
-  nested steps were resolved as references. Only pipelines using such a name
-  change: their bodies now deserialize like under any other name, and string
-  references under them are canonicalized on serialization, which changes the
-  identity hash of those pipelines when they are declared as non-canonical
-  strings. Descriptive fields of step and component envelopes, `_`-prefixed keys
-  of a duplication mapping and generator annotations remain literal.
 
 - General-lane SHAP waterfalls use disjoint, summed bins so they end exactly at
   the explained prediction (overlapping default bins counted contributions
