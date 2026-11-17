@@ -1,7 +1,6 @@
 """The v2 host contract uses real general DAG results and bounded JSON."""
 
 import json
-import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +13,7 @@ from sklearn.preprocessing import StandardScaler
 import nirs4all
 from nirs4all.api import studio_scientific_general as general
 from nirs4all.pipeline.config.component_serialization import serialize_component
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from tests.integration.api.test_multimodal_late_missing import _late_pipeline
 from tests.integration.api.test_multimodal_ragged import _ragged_cohort
 
@@ -81,8 +81,8 @@ def test_general_contract_executes_typed_ragged_cohort_with_missing_sources(tmp_
     assert response["result"]["native_results_dirs"] == []
     archive = Path(response["result"]["archive_path"])
     assert archive.is_file() and archive.parent == tmp_path / "exports"
-    with zipfile.ZipFile(archive) as bundle:
-        manifest = json.loads(bundle.read("manifest.json"))
+    with open_n4a_source(archive) as source:
+        manifest = source.require_host().bundle_manifest
     assert manifest["multimodal_host"]["source_presence"]["source_names"] == list(cohort.sources)
     from nirs4all.operators.transforms import SequenceSummary
 
