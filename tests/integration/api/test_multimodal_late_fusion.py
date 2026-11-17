@@ -17,6 +17,7 @@ from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardSc
 
 import nirs4all
 from nirs4all.operators.models.multimodal import TensorPCA
+from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
 
 
 def _cohort(*, poison: list[int] | None = None, prediction: bool = False) -> MultimodalDataset:
@@ -208,3 +209,34 @@ def test_nested_transformer_with_local_callable_is_refused_before_fit(tmp_path: 
     monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("unreconstructible transformer reached fitting"))
     with pytest.raises(Exception, match="cannot route ColumnTransformer"):
         nirs4all.run(pipeline, _cohort(), engine="dag-ml", workspace_path=tmp_path, save_artifacts=False, save_charts=False, verbose=0)
+
+
+def test_serialized_late_fusion_matches_live_objects_for_sources_named_like_descriptive_fields(tmp_path: Path) -> None:
+    """A source name spelling a descriptive step field must not change the executed pipeline."""
+    names = ("name", "description", "metadata", "_metadata_", "_tags_")
+    rng = np.random.default_rng(409)
+    ids = tuple(f"sample-{index:02d}" for index in range(30))
+    latent = rng.normal(size=(30, len(names)))
+    cohort = MultimodalDataset(
+        {name: TensorSource(latent[:, [index]] + rng.normal(scale=0.2, size=(30, 4)), ids, representation_id="signal_1d") for index, name in enumerate(names)},
+        sample_ids=ids, y=latent @ np.arange(1.0, len(names) + 1), groups=[f"plant-{group}" for group in np.repeat(np.arange(10), 3)],
+        partitions=["train"] * 24 + ["test"] * 6, name="descriptive-source-names",
+    )
+
+    def scores(pipeline: list[Any], workspace: Path) -> list[float]:
+        result = nirs4all.run(pipeline, cohort, engine="dag-ml", refit=True, save_artifacts=True, save_charts=False, verbose=0, random_state=17, workspace_path=workspace)
+        try:
+            layout = result.per_dataset[cohort.name]["source_stacking"]["layout"]
+            assert [source["source_name"] for source in layout["sources"]] == list(names)
+            return [child.cv_best_score for child in result.runs]
+        finally:
+            result.close()
+
+    def pipeline() -> list[Any]:
+        branches = {name: [StandardScaler(), Ridge(alpha=0.1 * (index + 1))] for index, name in enumerate(names)}
+        return [GroupKFold(3), {"branch": {"by_source": True, "steps": branches}}, {"merge": "predictions"}, Ridge(alpha=0.5)]
+
+    restored = deserialize_component(json.loads(json.dumps(serialize_component(pipeline()))))
+    live = scores(pipeline(), tmp_path / "live")
+    assert len(live) == len(names) + 1 and np.isfinite(live).all()
+    assert scores(restored, tmp_path / "serialized") == live
