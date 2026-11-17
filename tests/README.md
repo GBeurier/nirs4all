@@ -136,12 +136,39 @@ When adding new tests:
 
 ## Continuous Integration
 
-Tests are automatically run on:
-- Pull requests
-- Commits to main branches
-- Release builds
+Hosted runs are CPU-only (`CUDA_VISIBLE_DEVICES=""`, `-m "not gpu"`) on Python
+3.11 with the cohort of `requirements-test.txt`, the official CPU `torch` wheel
+and no `triton` (importing it next to TensorFlow/JAX aborts the interpreter).
 
-See `.github/workflows/` for CI configuration.
+| Where | When | What |
+| --- | --- | --- |
+| `CI.yaml`, job `tests` | every push and pull request | `tests/` except `tests/integration/parity`, `tests/integration/api`, `tests/integration/pipeline` and `tests/e2e` |
+| `tests-full.yml` | nightly, on demand, and on pull requests that change it or `requirements-test.txt` | the whole of `tests/` in three shards (`integration-parity`, `integration-api`, `remainder`) |
+
+`tests-full.yml` also builds the `dag-ml-cli` of the installed DAG-ML release
+(`N4A_DAGML_CLI`) and installs the built SDK wheel in a second interpreter
+(`NIRS4ALL_U07_INSTALLED_PYTHON`), so the subprocess parity tests and the
+installed-replay tests execute instead of being skipped or failing. Without a
+`dag-ml-cli` binary about 400 parity tests are skipped.
+
+Still skipped everywhere unless explicitly enabled: the release-qualification
+gates (`NIRS4ALL_REQUIRE_*=1`, `NIRS4ALL_*_INSTALLED_PYTHON`, Octave), tests of
+optional packages that are not in the cohort (`xgboost`, `docutils`) and the
+CUDA test.
+
+`tests/unit/workflows/test_publish_workflow.py` checks that the shards cover
+every test file and that no test is deselected by keyword or node id.
+
+To reproduce the full run locally:
+
+```bash
+python -m pip install numpy -r requirements-test.txt && python -m pip install -e . --no-deps
+python -m pip uninstall -y triton
+export CUDA_VISIBLE_DEVICES="" N4A_DAGML_CLI=/path/to/dag-ml/target/debug/dag-ml-cli
+python -m pytest -n auto --dist worksteal -m "not gpu" tests/ \
+  --ignore=tests/integration/pipeline/test_merge_mixed.py --ignore=tests/integration/pipeline/test_merge_per_branch.py
+python -m pytest -n 0 tests/integration/pipeline/test_merge_mixed.py tests/integration/pipeline/test_merge_per_branch.py
+```
 
 ## Test Statistics
 

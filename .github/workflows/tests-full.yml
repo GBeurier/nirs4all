@@ -1,0 +1,85 @@
+# The complete pytest suite in three shards whose union is tests/. CI.yaml runs
+# the fast part on every push and pull request; this workflow also runs the
+# slow integration suites, with the DAG-ML CLI and an installed-wheel
+# interpreter so the subprocess and installed-replay tests execute.
+name: Full test suite
+'on':
+  schedule:
+  - cron: 17 3 * * *
+  workflow_dispatch: null
+  pull_request:
+    paths:
+    - .github/workflows/tests-full.yml
+    - .github/actions/test-environment/**
+    - requirements-test.txt
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  suite:
+    name: ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - shard: integration-parity
+          selection: tests/integration/parity
+        - shard: integration-api
+          selection: tests/integration/api
+        - shard: remainder
+          selection: >-
+            tests/
+            --ignore=tests/integration/parity
+            --ignore=tests/integration/api
+            --ignore=tests/integration/pipeline/test_merge_mixed.py
+            --ignore=tests/integration/pipeline/test_merge_per_branch.py
+    env:
+      CUDA_VISIBLE_DEVICES: ''
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+      TF_FORCE_GPU_ALLOW_GROWTH: 'true'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+    - uses: actions/checkout@v6
+    - name: Free disk space
+      uses: ./.github/actions/free-disk-space
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install the declared CPU test cohort and the SDK
+      uses: ./.github/actions/test-environment
+    - name: Build the dag-ml-cli of the installed DAG-ML release
+      shell: bash
+      run: |
+        dag_ml_version="$(python -c 'from importlib.metadata import version; print(version("dag-ml"))')"
+        git clone --depth 1 --branch "v${dag_ml_version}" https://github.com/GBeurier/dag-ml.git "$RUNNER_TEMP/dag-ml"
+        cargo build --locked -p dag-ml-cli --manifest-path "$RUNNER_TEMP/dag-ml/Cargo.toml"
+        cli="$RUNNER_TEMP/dag-ml/target/debug/dag-ml-cli"
+        test "$("$cli" --version)" = "dag-ml-cli ${dag_ml_version}"
+        echo "N4A_DAGML_CLI=$cli" >> "$GITHUB_ENV"
+    - name: Install the built SDK wheel in a separate interpreter for installed-replay tests
+      shell: bash
+      run: |
+        python -m build --wheel --outdir "$RUNNER_TEMP/sdk-dist"
+        python -m venv --system-site-packages "$RUNNER_TEMP/installed-sdk"
+        installed="$RUNNER_TEMP/installed-sdk/bin/python"
+        "$installed" -m pip install --no-deps "$RUNNER_TEMP"/sdk-dist/*.whl
+        cd "$RUNNER_TEMP"
+        "$installed" -I -c "import nirs4all, pathlib; path = pathlib.Path(nirs4all.__file__); assert 'installed-sdk' in path.parts and 'site-packages' in path.parts, path"
+        echo "NIRS4ALL_U07_INSTALLED_PYTHON=$installed" >> "$GITHUB_ENV"
+    - name: Run the shard
+      run: >-
+        python -m pytest -q -n auto --dist worksteal -m "not gpu" --timeout=1800 --durations=25
+        ${{ matrix.selection }}
+    - name: Run the write-contended merge suites serially
+      if: ${{ matrix.shard == 'remainder' }}
+      run: >-
+        python -m pytest -q -n 0 --timeout=1800
+        tests/integration/pipeline/test_merge_mixed.py
+        tests/integration/pipeline/test_merge_per_branch.py
