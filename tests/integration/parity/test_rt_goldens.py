@@ -222,21 +222,24 @@ def _find_sibling_schema_dir() -> Path | None:
     return None
 
 
-def _schema_registry(schema_dir: Path):
+# ``rt_result`` references the ScoreSet and SelectionDecision schemas owned by DAG-ML.
+_DAGML_SCHEMAS = ("score_set.schema.json", "selection_decision.schema.json")
+
+
+def _dagml_schema_paths(schema_dir: Path) -> list[Path] | None:
+    """The DAG-ML schemas from the ``dag-ml`` checkout beside the ecosystem one, or ``None`` if any is absent."""
+    dagml_contracts = schema_dir.parent.parent.parent.parent / "dag-ml" / "docs" / "contracts"
+    paths = [dagml_contracts / name for name in _DAGML_SCHEMAS]
+    return paths if all(path.is_file() for path in paths) else None
+
+
+def _schema_registry(schema_paths: list[Path]):
     from referencing import Registry, Resource
 
     resources = []
-    for path in schema_dir.glob("*.v1.schema.json"):
+    for path in schema_paths:
         schema = json.loads(path.read_text(encoding="utf-8"))
         resources.append((schema["$id"], Resource.from_contents(schema)))
-
-    dagml_contracts = schema_dir.parent.parent.parent.parent / "dag-ml" / "docs" / "contracts"
-    for name in ("score_set.schema.json", "selection_decision.schema.json"):
-        path = dagml_contracts / name
-        if path.is_file():
-            schema = json.loads(path.read_text(encoding="utf-8"))
-            resources.append((schema["$id"], Resource.from_contents(schema)))
-
     return Registry().with_resources(resources)
 
 
@@ -256,9 +259,15 @@ def test_runtime_goldens_validate_against_current_schemas(schema_id: str, fixtur
     schema_dir = _find_sibling_schema_dir()
     if schema_dir is None:
         pytest.skip("sibling nirs4all-ecosystem runtime schemas not checked out")
+    schema_paths = sorted(schema_dir.glob("*.v1.schema.json"))
+    if fixture_name.startswith("rt_result."):
+        dagml_paths = _dagml_schema_paths(schema_dir)
+        if dagml_paths is None:
+            pytest.skip("sibling dag-ml ScoreSet/SelectionDecision schemas not checked out")
+        schema_paths += dagml_paths
 
     import jsonschema
 
-    registry = _schema_registry(schema_dir)
+    registry = _schema_registry(schema_paths)
     schema = registry.get_or_retrieve(schema_id).value.contents
     jsonschema.Draft202012Validator(schema, registry=registry).validate(_read_fixture(fixture_name))

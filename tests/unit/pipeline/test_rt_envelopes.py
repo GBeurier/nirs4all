@@ -337,20 +337,25 @@ def _runtime_schema_dir() -> Path | None:
     return None
 
 
-def _build_registry(schema_dir: Path):
-    """A ``referencing`` Registry mapping every available runtime + dag-ml schema by its ``$id`` to local files."""
+# ``rt_result`` references the ScoreSet and SelectionDecision schemas owned by DAG-ML.
+_DAGML_SCHEMAS = ("score_set.schema.json", "selection_decision.schema.json")
+
+
+def _dagml_schema_paths(schema_dir: Path) -> list[Path] | None:
+    """The DAG-ML schemas from the ``dag-ml`` checkout beside the ecosystem one, or ``None`` if any is absent."""
+    dagml_contracts = schema_dir.parent.parent.parent.parent / "dag-ml" / "docs" / "contracts"
+    paths = [dagml_contracts / name for name in _DAGML_SCHEMAS]
+    return paths if all(path.is_file() for path in paths) else None
+
+
+def _build_registry(schema_paths: list[Path]):
+    """A ``referencing`` Registry mapping each schema by its ``$id`` to its local file."""
     from referencing import Registry, Resource
 
     resources = []
-    for path in schema_dir.glob("*.v1.schema.json"):
+    for path in schema_paths:
         schema = json.loads(path.read_text())
         resources.append((schema["$id"], Resource.from_contents(schema)))
-    dagml_contracts = schema_dir.parent.parent.parent.parent / "dag-ml" / "docs" / "contracts"
-    for name in ("score_set.schema.json", "selection_decision.schema.json"):
-        path = dagml_contracts / name
-        if path.is_file():
-            schema = json.loads(path.read_text())
-            resources.append((schema["$id"], Resource.from_contents(schema)))
     return Registry().with_resources(resources)
 
 
@@ -361,11 +366,16 @@ def test_to_dict_validates_against_ecosystem_schema(tmp_path: Path, envelope: st
     schema_dir = _runtime_schema_dir()
     if schema_dir is None:
         pytest.skip("sibling nirs4all-ecosystem runtime schemas not checked out")
-    assert schema_dir is not None
+    schema_paths = sorted(schema_dir.glob("*.v1.schema.json"))
+    if envelope == "result":
+        dagml_paths = _dagml_schema_paths(schema_dir)
+        if dagml_paths is None:
+            pytest.skip("sibling dag-ml ScoreSet/SelectionDecision schemas not checked out")
+        schema_paths += dagml_paths
 
     import jsonschema
 
-    registry = _build_registry(schema_dir)
+    registry = _build_registry(schema_paths)
     if envelope == "error":
         schema_id = "https://github.com/GBeurier/nirs4all-ecosystem/schemas/runtime/rt_error.v1.schema.json"
         instance = RtError("run", "unsupported_shape", "x", mitigation="use legacy").to_dict()
