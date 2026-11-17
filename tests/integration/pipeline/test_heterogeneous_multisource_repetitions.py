@@ -8,9 +8,6 @@ running quickly.
 
 from __future__ import annotations
 
-import io
-import json
-import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -22,7 +19,9 @@ from nirs4all.controllers.data.rep_fusion import RepFusionController
 from nirs4all.data.raw_multisource import RawMultiSourceDataset, RepresentationPlan, replay_materialization
 from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
 from nirs4all.data.relations import RepetitionSpec
+from nirs4all.pipeline.bundle.generator import bundle_manifest_member, json_member, model_artifact_member
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+from nirs4all.pipeline.dagml.host_container import write_host_container
 from nirs4all.pipeline.predictor import Predictor
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
 
@@ -111,30 +110,24 @@ def _relation_bundle(tmp_path: Path, training_dataset: RawMultiSourceDataset) ->
     materialization = training_dataset.materialize("per_source_aggregate")
     relation_manifest = build_relation_replay_manifest(materialization=materialization).to_dict()
     bundle_path = tmp_path / "heterogeneous_relation_model.n4a"
-
-    with zipfile.ZipFile(bundle_path, "w") as zf:
-        zf.writestr(
-            "manifest.json",
-            json.dumps(
-                {
-                    "bundle_format_version": "1.0",
-                    "pipeline_uid": "heterogeneous_relation_pipeline",
-                    "model_step_index": 4,
-                    "relation_replay_manifest": {
-                        "path": "relation_replay_manifest.json",
-                        "version": relation_manifest["version"],
-                        "fingerprint": relation_manifest["fingerprint"],
-                    },
-                }
-            ),
-        )
-        zf.writestr("pipeline.json", json.dumps({"steps": [{"model": "PLSRegression"}], "model_step_index": 4}))
-        zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest))
-        model_buffer = io.BytesIO()
-        joblib.dump(_LengthModel(), model_buffer)
-        zf.writestr("artifacts/step_4_fold0_PLSRegression.joblib", model_buffer.getvalue())
-
-    return bundle_path
+    model_file = tmp_path / "heterogeneous_relation_model.joblib"
+    joblib.dump(_LengthModel(), model_file)
+    # The members the bundle generator declares, in its order, in a Core V1 host container.
+    return write_host_container(bundle_path, [
+        bundle_manifest_member({
+            "bundle_format_version": "1.0",
+            "pipeline_uid": "heterogeneous_relation_pipeline",
+            "model_step_index": 4,
+            "relation_replay_manifest": {
+                "path": "relation_replay_manifest.json",
+                "version": relation_manifest["version"],
+                "fingerprint": relation_manifest["fingerprint"],
+            },
+        }),
+        json_member("relation_replay_manifest.json", relation_manifest, "provenance", sort_keys=True),
+        json_member("pipeline.json", {"steps": [{"model": "PLSRegression"}], "model_step_index": 4}, "recipe"),
+        model_artifact_member("artifacts/step_4_fold0_PLSRegression.joblib", model_file),
+    ])
 
 
 def test_rep_fusion_materializes_a2_b3_c2_and_preserves_manifest_lineage():

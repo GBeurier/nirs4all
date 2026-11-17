@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from zipfile import ZIP_DEFLATED, ZipFile
 
 import numpy as np
 import pytest
@@ -15,20 +14,21 @@ import pytest
 from nirs4all.api.result import PredictResult
 from nirs4all.pipeline.dagml import core_archive_replay
 from nirs4all.pipeline.dagml.rt import RtError
+from tests.unit.api.test_core_archive_session import _NativePackage, _open_native, _open_native_package
+from tests.unit.pipeline.dagml.host_container_helpers import write_host_bundle
 
 predict_module = importlib.import_module("nirs4all.api.predict")
 
 
 def _archive(path: Path, version: int) -> Path:
-    manifest = {
-        "schema_version": version,
-        "profile": f"nirs4all.archive_workspace.v{version}",
-        "persistence_kind": "n4a_archive",
-        "writer": {"product_aggregate_owner": "nirs4all-core"},
-    }
-    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest))
+    """A file that the Core double of :func:`_core` opens as a container declaring a native Package ``version``."""
+    path.write_bytes(f"native-v{version}".encode())
     return path
+
+
+def _core(**facades: Any) -> SimpleNamespace:
+    """A Core double: the file-backed container open plus the given owner facades."""
+    return SimpleNamespace(open_n4a_file=_open_native, open_native_package=_open_native_package, write_n4a_file=lambda *a, **k: None, **facades)
 
 
 def _descriptor(
@@ -153,7 +153,7 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
             ]
         }
 
-    core = SimpleNamespace(
+    core = _core(
         read_portable_predictor_package_v2=lambda _: json.dumps(package).encode(),
         inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [descriptor],
         predict_methods_archive_v2_matrix=replay,
@@ -183,7 +183,9 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
     assert result.metadata["target_names"] == ["protein", "moisture"]
     assert result.metadata["native_predictor_descriptors"] == [descriptor]
     assert "serialized_model_predict" not in result.metadata
-    assert observed["archive_path"] == str(path)
+    # Core replays from the retained native proof of the one container it opened, not from a reopened path.
+    assert isinstance(observed["archive_path"], _NativePackage) and observed["archive_path"].version == 2
+    assert result.metadata["archive_path"] == str(path)
     assert observed["sample_ids"] == ["sample.one", "sample.two"]
     assert observed["x"] == [[1.0, 2.0], [3.0, 4.0]]
     assert observed["target_names"] == ["protein", "moisture"]
@@ -312,7 +314,7 @@ def test_core_v2_cross_link_refusal_never_falls_back_to_pipeline_runner(
     def replay(*_args: Any, **_kwargs: Any) -> None:
         raise ValueError("execution bundle content is not cross-linked by outcome reference")
 
-    core = SimpleNamespace(
+    core = _core(
         read_portable_predictor_package_v2=lambda _: json.dumps(package).encode(),
         inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [descriptor],
         predict_methods_archive_v2_matrix=replay,
@@ -379,7 +381,7 @@ def test_recognized_v2_old_core_wheel_fails_without_pipeline_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "portable.n4a", 2)
-    old_core = SimpleNamespace(
+    old_core = _core(
         read_portable_predictor_package_v2=lambda _: json.dumps(_package()).encode()
     )
     monkeypatch.setattr(
@@ -402,22 +404,39 @@ def test_invalid_core_v3_fails_closed_before_native_replay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "refit.n4a", 3)
-    monkeypatch.setattr(predict_module, "PipelineRunner", _never_runner)
+    read: list[Any] = []
 
-    with pytest.raises(ValueError, match="Archive V3 validation refused"):
+    def refuse(package: Any) -> bytes:
+        read.append(package)
+        raise ValueError("native Package V3 closure refused")
+
+    core = _core(read_portable_refit_package_v3=refuse)
+    monkeypatch.setattr(
+        core_archive_replay.importlib,
+        "import_module",
+        lambda name: core if name == "nirs4all_core" else importlib.import_module(name),
+    )
+    monkeypatch.setattr(predict_module, "PipelineRunner", _never_runner)
+    monkeypatch.setattr(
+        predict_module.NativeMethodsRefitResult,
+        "from_package_json",
+        lambda *args, **kwargs: pytest.fail("a refused Package V3 reached native replay"),
+    )
+
+    with pytest.raises(ValueError, match="native Package V3 closure refused"):
         predict_module.predict(
             model=path,
             data={"X": [[1.0]], "sample_ids": ["sample.one"]},
         )
+    # Core's own Package V3 reader refused the retained proof of the declared V3 container.
+    assert len(read) == 1 and isinstance(read[0], _NativePackage) and read[0].version == 3
 
 
 def test_non_core_archive_requires_explicit_legacy_rollback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path / "legacy.n4a"
-    with ZipFile(path, "w") as archive:
-        archive.writestr("manifest.json", json.dumps({"bundle_format_version": "1.0"}))
+    path = write_host_bundle(tmp_path / "legacy.n4a")
     monkeypatch.setattr(predict_module, "PipelineRunner", _never_runner)
 
     with pytest.raises(RtError, match="requires conversion") as caught:

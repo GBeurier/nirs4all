@@ -7,9 +7,11 @@ import json
 import runpy
 import sqlite3
 import zipfile
+from pathlib import Path
 from unittest.mock import Mock
 
 import joblib
+import nirs4all_core
 import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression
@@ -18,6 +20,7 @@ from sklearn.preprocessing import StandardScaler
 from nirs4all.pipeline.bundle.generator import BundleGenerator, write_single_model_bundle
 from nirs4all.pipeline.bundle.loader import BundleLoader
 from nirs4all.pipeline.config.context import MapArtifactProvider
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.resolver import ResolvedPrediction
 from nirs4all.pipeline.storage import workspace_store as storage_module
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
@@ -276,22 +279,21 @@ def test_zip_write_failure_preserves_previous_export(store, tmp_path, monkeypatc
     def export():
         if route == "single_model":
             return write_single_model_bundle(ids["model"], path)
-        return generator._export_n4a(resolved, path, True, True)
+        return generator._export_n4a(resolved, path, True)
 
     export()
     original = path.read_bytes()
-    write = zipfile.ZipFile.writestr
 
-    def fail_after_manifest(self, name, *args, **kwargs):
-        if name == "pipeline.json":
-            raise OSError("injected disk failure")
-        return write(self, name, *args, **kwargs)
+    def fail_mid_write(staged, *args, **kwargs):
+        # Core's writer fails after part of the staged container reached the disk.
+        Path(staged).write_bytes(b"partial container")
+        raise OSError("injected disk failure")
 
-    monkeypatch.setattr(zipfile.ZipFile, "writestr", fail_after_manifest)
+    monkeypatch.setattr(nirs4all_core, "write_n4a_file", fail_mid_write)
     with pytest.raises(OSError, match="injected disk failure"):
         export()
     assert path.read_bytes() == original
-    assert not list(tmp_path.glob(".*.tmp"))
+    assert sorted(entry.name for entry in tmp_path.iterdir() if entry.name.startswith(".")) == []
 
 
 def test_duplicate_transformer_zip_members_remain_individually_loadable(store, tmp_path):
@@ -299,8 +301,9 @@ def test_duplicate_transformer_zip_members_remain_individually_loadable(store, t
     first = StandardScaler().fit(X)
     second = StandardScaler().fit(X + 10)
     resolved = ResolvedPrediction(artifact_provider=MapArtifactProvider({1: [("pipeline$one:all", first), ("pipeline$two:all", second)]}))
-    path = BundleGenerator(store.workspace_path)._export_n4a(resolved, tmp_path / "unique.n4a", True, True)
-    with zipfile.ZipFile(path) as archive:
+    path = BundleGenerator(store.workspace_path)._export_n4a(resolved, tmp_path / "unique.n4a", True)
+    with open_n4a_source(path) as source:
+        archive = source.require_host()
         names = [name for name in archive.namelist() if name.startswith("artifacts/")]
         assert len(names) == len(set(names)) == 2
         loaded = [joblib.load(io.BytesIO(archive.read(name))) for name in names]
@@ -319,14 +322,14 @@ def test_serialization_failure_aborts_export_and_preserves_bundle(store, tmp_pat
     generator = BundleGenerator(store.workspace_path)
     path = tmp_path / "model.n4a"
     good = ResolvedPrediction(model_step_index=1, artifact_provider=MapArtifactProvider({1: [("pipeline$good:final", ids["model"])]}))
-    generator._export_n4a(good, path, True, True)
+    generator._export_n4a(good, path, True)
     original = path.read_bytes()
     broken = ResolvedPrediction(model_step_index=1, artifact_provider=MapArtifactProvider({1: [("pipeline$broken:final", _UnserializableArtifact())]}))
     with pytest.raises(RuntimeError, match=r"pipeline\$broken:final") as error:
-        generator._export_n4a(broken, path, True, True)
+        generator._export_n4a(broken, path, True)
     assert isinstance(error.value.__cause__, ValueError)
     assert path.read_bytes() == original
-    assert not list(tmp_path.glob(".*.tmp"))
+    assert sorted(entry.name for entry in tmp_path.iterdir() if entry.name.startswith(".")) == []
 
 
 def test_export_chain_rejects_unknown_format_before_creating_file(store, tmp_path):
