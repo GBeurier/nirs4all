@@ -75,11 +75,11 @@ jobs:
         echo "NIRS4ALL_U07_INSTALLED_PYTHON=$installed" >> "$GITHUB_ENV"
     - name: Run the shard
       run: >-
-        python -m pytest -q -n auto --dist worksteal -m "not gpu" --timeout=1800 --durations=25
+        python -m pytest -q -rs -n auto --dist worksteal -m "not gpu" --timeout=1800 --durations=25
         ${{ matrix.selection }}
     - name: Run the write-contended merge suites serially
       if: ${{ matrix.shard == 'remainder' }}
       run: >-
-        python -m pytest -q -n 0 --timeout=1800
+        python -m pytest -q -rs -n 0 --timeout=1800
         tests/integration/pipeline/test_merge_mixed.py
         tests/integration/pipeline/test_merge_per_branch.py

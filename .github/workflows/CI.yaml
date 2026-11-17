@@ -66,7 +66,7 @@ jobs:
       uses: ./.github/actions/test-environment
     - name: Run the unit, regression and fast integration suites
       run: >-
-        python -m pytest -q -n auto --dist worksteal -m "not gpu" --timeout=1800 --durations=25
+        python -m pytest -q -rs -n auto --dist worksteal -m "not gpu" --timeout=1800 --durations=25
         tests/
         --ignore=tests/integration/parity
         --ignore=tests/integration/api
