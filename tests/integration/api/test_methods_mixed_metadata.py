@@ -18,9 +18,11 @@ import pytest
 from sklearn.base import clone
 from sklearn.model_selection import GroupKFold
 
-PUBLIC_HELPER_SHA256 = {
-    "1.3.2": "bee669e75773c568171ef5ced6c8575a4fead0265b4426856ceba3cb4251ef38",
-    "1.3.4": "8aad87791d4968ad23dc01813d5a657753ee1e1df0f69439e2dd0611d4282cb9",
+# SHA-256 of ``n4m/roles/_multimodal.py`` in the published PyPI wheel and that release's ABI.
+PUBLIC_BINDING = {
+    "1.3.2": ("bee669e75773c568171ef5ced6c8575a4fead0265b4426856ceba3cb4251ef38", (2, 17, 0)),
+    "1.3.4": ("8aad87791d4968ad23dc01813d5a657753ee1e1df0f69439e2dd0611d4282cb9", (2, 17, 0)),
+    "1.3.18": ("a0f6c78451a9e6038c278479226eb4b00b7272035d1091627bcf53dce81d504e", (2, 23, 0)),
 }
 
 
@@ -29,9 +31,11 @@ def _require_public_binding():
     import n4m.roles._multimodal as binding
 
     installed = version("nirs4all-methods")
-    assert hashlib.sha256(Path(binding.__file__).read_bytes()).hexdigest() == PUBLIC_HELPER_SHA256[installed]
-    assert n4m.version() == f"{installed}+abi.2.17.0"
-    assert n4m.abi_version() == (2, 17, 0)
+    assert installed in PUBLIC_BINDING, f"nirs4all-methods {installed} has no recorded public binding identity"
+    helper_sha256, abi = PUBLIC_BINDING[installed]
+    assert hashlib.sha256(Path(binding.__file__).read_bytes()).hexdigest() == helper_sha256
+    assert n4m.version() == f"{installed}+abi.{abi[0]}.{abi[1]}.{abi[2]}"
+    assert n4m.abi_version() == abi
 
 
 def _case(classification, selected):
