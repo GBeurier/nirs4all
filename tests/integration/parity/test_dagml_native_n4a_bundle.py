@@ -32,7 +32,6 @@ import importlib
 import json
 import sys
 import warnings
-import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +43,7 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.transforms.scalers import StandardNormalVariate as SNV
 from nirs4all.pipeline.bundle import BundleLoader
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
@@ -96,8 +96,8 @@ def _run_native(tmp_path: Path, pipeline, *, random_state, dataset_key: str = "r
 
 
 def _read_manifest(bundle_path: Path) -> dict:
-    with zipfile.ZipFile(bundle_path) as zf:
-        return json.loads(zf.read("manifest.json"))
+    with open_n4a_source(bundle_path) as source:
+        return source.require_host().bundle_manifest
 
 
 def _poison_legacy_run(monkeypatch: pytest.MonkeyPatch) -> None:
