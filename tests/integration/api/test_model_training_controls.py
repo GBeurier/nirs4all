@@ -31,10 +31,21 @@ def test_nested_component_controls_survive_json_without_repr():
     json.dumps(evidence, allow_nan=False)
 
 
-@pytest.mark.parametrize("value", [[], "ignored", {1: 2}, {"alpha": float("nan")}, {"alpha": object()}])
+@pytest.mark.parametrize("value", [[], "ignored", {1: 2}, {"alpha": object()}])
 def test_training_metadata_cannot_lossily_serialize(value):
     with pytest.raises((TypeError, ValueError)):
         controls.encode_training_controls(value, name="train_params")
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_training_controls_round_trip_through_strict_json(value):
+    """Strict JSON cannot carry a non-finite float, so it is marked and restored exactly, never dropped or stringified."""
+    encoded = controls.encode_training_controls({"missing": value, "alpha": 2.5}, name="train_params")
+    transported = json.loads(json.dumps(encoded, allow_nan=False))
+    restored = controls.effective_training_controls({"nirs4all_train_params": transported}, "FIT_CV")
+    assert set(restored) == {"missing", "alpha"} and restored["alpha"] == 2.5
+    assert type(restored["missing"]) is float
+    assert np.isnan(restored["missing"]) if np.isnan(value) else restored["missing"] == value
 
 
 def test_unknown_controls_are_not_historically_ignored():
