@@ -49,6 +49,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Component serialization no longer reads user-chosen mapping keys as fields of
+  a step envelope. Branch names in a named `branch` mapping, the per-branch
+  `steps` and `values` keys of a separation branch (source names, partition
+  values, group names) and tag names in a named `tag` mapping are names, whatever
+  they spell. A source, branch, partition or tag named `name`, `description`,
+  `metadata`, `_metadata_`, `_tags_`, `class`, `function` or `instance`
+  previously had its steps restored as inert strings and dictionaries instead of
+  components, so a serialized pipeline using it was refused by `engine="dag-ml"`
+  (`run/unsupported_shape`, for example a `by_source` stack over a source named
+  `metadata`) while the same live objects trained. Under names spelling an
+  argument field (`params`, `args`, `*_params`) the descriptive fields of the
+  nested steps were resolved as references. Only pipelines using such a name
+  change: their bodies now deserialize like under any other name, and string
+  references under them are canonicalized on serialization, which changes the
+  identity hash of those pipelines when they are declared as non-canonical
+  strings. Descriptive fields of step and component envelopes, `_`-prefixed keys
+  of a duplication mapping and generator annotations remain literal.
+
 - Restore automatic DAG-host prediction dispatch, supported non-container
   Python retrain sources, and training-spec retrain from a loaded Session while
   preserving explicit native refusals and reusing the held Core source.

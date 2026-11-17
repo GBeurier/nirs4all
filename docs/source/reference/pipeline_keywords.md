@@ -2494,6 +2494,14 @@ Literal containers are copied and still normalize class objects, arrays and
 tuples. Live objects inside descriptive fields retain normal object serialization
 and executable constructor-argument handling.
 
+Keys chosen by the user are names, not fields: the branch names of
+`{"branch": {"<name>": [...]}}`, the per-branch `steps` and `values` keys of a
+separation branch (source names, partition values, group names) and the tag names
+of `{"tag": {"<name>": filter}}`. Their bodies stay executable whatever the name
+spells, including `metadata`, `name`, `description`, `params` or `class`. In a
+duplication mapping, keys starting with `_` remain reserved, and a generator node
+in any of these positions keeps its `_metadata_` and `_tags_` annotations literal.
+
 The hash algorithm and inclusion policy are unchanged. Labels that previously
 resolved to another canonical path can acquire different identities; labels that
 previously failed resolution can now receive identities. Historical templates,

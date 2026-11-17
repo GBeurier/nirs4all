@@ -16,18 +16,63 @@ class _Scope(Enum):
     PIPELINE = "pipeline"
     ARGUMENT = "argument"
     LITERAL = "literal"
+    # Mappings keyed by user-chosen names; each value is pipeline content.
+    NAMED = "named"
+    # Named duplication branches: BranchController reads every key that does
+    # not start with "_" as a branch name.
+    BRANCHES = "branches"
 
 
 _DESCRIPTIVE_KEYS = frozenset({"name", "description", "metadata", "_metadata_", "_tags_"})
 _ARGUMENT_KEYS = frozenset({"params", "args", "_grid_", "_zip_"})
 _COMPONENT_KEYS = ("class", "function", "instance")
+_SEPARATION_KEYS = frozenset({"by_tag", "by_metadata", "by_filter", "by_source"})
+# Mirror of ``_generator.keywords.GENERATION_KEYWORDS``: this module must stay
+# loadable without the generator package.
+_GENERATOR_KEYS = frozenset({"_or_", "_range_", "_log_range_", "_grid_", "_zip_", "_chain_", "_sample_", "_cartesian_"})
+
+
+def _declares_component(mapping: dict) -> bool:
+    """Whether ``mapping`` is a string ``class``, ``function`` or ``instance`` declaration."""
+    return any(isinstance(mapping.get(k), str) for k in _COMPONENT_KEYS)
+
+
+def _named_scope(owner: dict, key: Any) -> _Scope | None:
+    """Scope of ``owner[key]`` when its keys are user-chosen names, else ``None``.
+
+    The pipeline grammar keys three mappings by names: the bodies of a named
+    duplication ``branch``, the per-branch ``steps`` and ``values`` of a
+    separation branch (source names, partition values, group names), and a
+    named ``tag`` mapping. A component declaration or a generator node in the
+    same position keeps its own fields.
+    """
+    value = owner[key]
+    if not isinstance(value, dict) or _declares_component(value) or not _GENERATOR_KEYS.isdisjoint(value):
+        return None
+    if key == "branch":
+        return _Scope.BRANCHES if _SEPARATION_KEYS.isdisjoint(value) else None
+    if key == "tag" or (key in ("steps", "values") and not _SEPARATION_KEYS.isdisjoint(owner)):
+        return _Scope.NAMED
+    return None
 
 
 def _child_scope(owner: dict, key: Any, scope: _Scope) -> _Scope:
-    """Keep descriptive strings literal, but preserve nested callable arguments."""
+    """Keep descriptive strings literal, but preserve nested callable arguments.
+
+    A user-chosen name is never a descriptive, argument or component field:
+    its value keeps the pipeline scope whatever the name spells.
+    """
     if scope is _Scope.LITERAL:
         return _Scope.LITERAL
-    is_envelope = scope is _Scope.PIPELINE or any(isinstance(owner.get(k), str) for k in _COMPONENT_KEYS)
+    if scope is _Scope.BRANCHES and isinstance(key, str) and key.startswith("_"):
+        scope = _Scope.PIPELINE
+    if scope in (_Scope.NAMED, _Scope.BRANCHES):
+        return _Scope.PIPELINE
+    if scope is _Scope.PIPELINE:
+        named = _named_scope(owner, key)
+        if named is not None:
+            return named
+    is_envelope = scope is _Scope.PIPELINE or _declares_component(owner)
     if key in _DESCRIPTIVE_KEYS and is_envelope:
         return _Scope.LITERAL
     if scope is _Scope.ARGUMENT or key in _ARGUMENT_KEYS or (isinstance(key, str) and key.endswith("_params")):
@@ -350,6 +395,7 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
     ``strict_imports`` preserves import failures for executable step references.
     The default remains permissive for ordinary dotted string parameter values.
     Descriptive pipeline strings are not references, including in bare mappings.
+    Branch, source, partition and tag names are names, never descriptive fields.
     """
     return _deserialize(blob, infer_type, strict_imports, _Scope.PIPELINE)
 
@@ -436,8 +482,9 @@ def _deserialize(blob: Any, infer_type: Any, strict_imports: bool, scope: _Scope
         return [_deserialize(x, None, False, scope) for x in blob]
 
     if isinstance(blob, dict):
-        if scope is _Scope.LITERAL:
-            return {k: _deserialize(v, None, False, scope) for k, v in blob.items()}
+        if scope in (_Scope.LITERAL, _Scope.NAMED, _Scope.BRANCHES):
+            # Literal text and user-chosen names never declare an enum or a component.
+            return {k: _deserialize(v, None, False, _child_scope(blob, k, scope)) for k, v in blob.items()}
         # Handle Enum deserialization
         if "enum" in blob and "value" in blob:
             enum_path = blob["enum"]
