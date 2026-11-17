@@ -15,6 +15,23 @@ from nirs4all.operators.transforms import StandardNormalVariate
 from ._datasets import dataset_path
 
 
+def _assert_replay_matches_training(native, replayed: np.ndarray, targets: np.ndarray) -> None:
+    """The archive replays the refit model's own test predictions, at float32 accuracy.
+
+    These residual models predict the 6453 float32 features of three concatenated sources
+    through large cancelling partial sums. Replayed and training-time predictions of the same
+    refit model differ by float32 ulps of those sums: multiples of 2**-13, at most 2**-11
+    (4.9e-4), with 1 and with 4 BLAS threads on the reference machine. The RMSE difference
+    that follows is 0.3e-5 to 1.8e-5 depending on the thread count and the CPU, so an
+    absolute 1e-5 (7e-7 relative) held on some machines only. Compare the predictions within
+    2**-10 and the RMSE at 1e-5 relative.
+    """
+    stored = np.asarray(native.final["y_pred"]).ravel()
+    assert replayed.shape == stored.shape == targets.shape
+    np.testing.assert_allclose(replayed, stored, rtol=0, atol=2.0**-10)
+    assert np.sqrt(np.mean((targets - replayed) ** 2)) == pytest.approx(native.best_rmse, rel=1e-5)
+
+
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("source_style", ["shared", "distinct"])
@@ -61,7 +78,7 @@ def test_residual_after_by_source_concat_refit_and_replay(tmp_path, monkeypatch,
     features = dataset.x({"partition": "test"}, layout="2d")
     targets = np.asarray(dataset.y({"partition": "test"})).ravel()
     replay = nirs4all.predict(archive, features)
-    assert np.sqrt(np.mean((targets - np.asarray(replay.y_pred).ravel()) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
+    _assert_replay_matches_training(native, np.asarray(replay.y_pred).ravel(), targets)
     native.close()
 
 
@@ -137,6 +154,6 @@ def test_named_by_source_residual_learner_search_replays(tmp_path, monkeypatch, 
         replay = nirs4all.predict(native.export(tmp_path / "named_by_source_search.n4a"), features)
         actual = np.asarray(replay.y_pred).ravel()
         assert actual.shape == targets.shape
-        assert np.sqrt(np.mean((targets - actual) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
+        _assert_replay_matches_training(native, actual, targets)
     finally:
         native.close()
