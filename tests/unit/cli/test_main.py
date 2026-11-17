@@ -597,7 +597,9 @@ class TestCLISubcommandHelp:
         tools_requirements = [Requirement(value) for value in transition_deps if Requirement(value).name == "nirs4all-tools"]
         assert len(tools_requirements) == 1
         assert tools_requirements[0].extras == {"duckdb", "parquet"}
-        assert "0.0.4" not in tools_requirements[0].specifier
+        # Cross-repository owners use minor-level ranges; the install cohort,
+        # not a patch floor, delivers the current converter release.
+        assert str(tools_requirements[0].specifier) == "<0.1,>=0.0"
 
 
 class TestCLIErrorHandling:
