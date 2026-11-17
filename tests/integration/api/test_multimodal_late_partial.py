@@ -8,7 +8,6 @@ import json
 import os
 import subprocess
 import textwrap
-import zipfile
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -25,10 +24,12 @@ from sklearn.pipeline import make_pipeline
 import nirs4all
 from nirs4all.operators.models.multimodal import TensorPCA
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
 from nirs4all.pipeline.dagml.multimodal_contracts import validate_late_partial_stack
 from nirs4all.pipeline.dagml.native_results import read_native_results
 from tests.integration.api.test_multimodal_late_fusion import _cohort as complete_cohort
 from tests.integration.api.test_multimodal_late_fusion import _pipeline as complete_pipeline
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 
 def _cohort(*, classification: bool = False, prediction: bool = False, absent: str | None = None,
@@ -226,20 +227,19 @@ def test_partial_target_or_source_refit_and_cold_replay(classification: bool, so
 
 
 def _rewrite_archive(source: Path, target: Path, mutate: Any) -> None:
-    with zipfile.ZipFile(source) as archive:
-        members = {name: archive.read(name) for name in archive.namelist()}
-    manifest = json.loads(members["manifest.json"])
-    member = next(name for name in members if name.startswith("artifacts/") and name.endswith(".joblib"))
-    model = joblib.load(io.BytesIO(members[member]))
+    with open_n4a_source(source) as opened:
+        container = opened.require_host()
+        manifest = container.bundle_manifest
+        member = next(name for name in container.namelist() if name.startswith("artifacts/") and name.endswith(".joblib"))
+        model = joblib.load(io.BytesIO(container.read(member)))
     mutate(manifest, model)
     stream = io.BytesIO()
     joblib.dump(model, stream)
-    members[member] = stream.getvalue()
-    manifest["artifact_integrity"][member] = "sha256:" + hashlib.sha256(members[member]).hexdigest()
-    members["manifest.json"] = json.dumps(manifest).encode()
-    with zipfile.ZipFile(target, "w") as archive:
-        for name, contents in members.items():
-            archive.writestr(name, contents)
+    payload = stream.getvalue()
+    # Re-sign the changed carrier in the bundle manifest and reseal the container around both members.
+    manifest["artifact_integrity"][member] = "sha256:" + hashlib.sha256(payload).hexdigest()
+    reseal_host_member(source, target, member, payload)
+    reseal_host_member(target, target, BUNDLE_MANIFEST_MEMBER, json.dumps(manifest).encode())
 
 
 @pytest.mark.parametrize("mutation", ["weights", "schema", "source_order", "target_names", "target_ids", "policy", "vocabulary", "origin", "marker"])

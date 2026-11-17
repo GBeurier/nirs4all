@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,7 @@ from nirs4all.data.multimodal import MultimodalSpectroDataset
 from nirs4all.operators.models.multimodal import MultimodalRegressor
 from nirs4all.operators.models.sklearn.mbpls import MBPLS
 from nirs4all.operators.transforms import SequenceSummary
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
 from tests.integration.api.test_multimodal_dagml import _cohort, _model
 from tests.integration.api.test_multimodal_tuning import _checkpoint, _stop_after, _tuning
@@ -108,8 +108,8 @@ def test_ragged_native_folds_and_archive_accept_new_lengths(fusion: str, tmp_pat
         assert sorted(seen, key=lambda ids: (len(ids), sorted(ids))) == sorted(expected, key=lambda ids: (len(ids), sorted(ids)))
         assert np.isfinite(result.best_rmse)
         archive = result.export(tmp_path / "ragged.n4a")
-        with zipfile.ZipFile(archive) as bundle:
-            schema = json.loads(bundle.read("manifest.json"))["multimodal_host"]["input_schema"]["series"]
+        with open_n4a_source(archive) as source:
+            schema = source.require_host().bundle_manifest["multimodal_host"]["input_schema"]["series"]
         assert schema["shape"] == [None, None, 2]
         assert schema["native_representation"]["ragged"] is True
         monkeypatch.setattr(SequenceSummary, "fit", lambda *a, **k: pytest.fail("Replay fitted a series encoder"))
