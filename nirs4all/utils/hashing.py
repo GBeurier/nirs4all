@@ -1,33 +1,26 @@
-"""Fast, deterministic content hashing for numpy arrays.
+"""Deterministic content identity for numpy arrays.
 
-Provides ``compute_data_hash`` which hashes the raw bytes of a numpy array
-using xxhash (preferred for speed) with a SHA-256 fallback.
+``compute_data_hash`` is the single algorithm behind dataset content identities:
+SHA-256 over the raw bytes of the C-contiguous array. The identity is persisted
+(workspace runs, bundle fingerprints, Studio provenance) and compared across
+sessions and machines, so it never depends on optional installed packages.
 """
 
 import hashlib
 
 import numpy as np
 
-try:
-    import xxhash
-    _HAS_XXHASH = True
-except ImportError:
-    _HAS_XXHASH = False
 
 def compute_data_hash(X: np.ndarray) -> str:
-    """Compute a deterministic hex digest for a numpy array.
+    """Compute the SHA-256 hex digest of a numpy array's raw bytes.
 
-    Uses xxhash (xxh128) when available for speed, otherwise falls back
-    to SHA-256.  The array is made contiguous before hashing so that
-    the result is independent of memory layout.
+    The array is made contiguous before hashing so that the result is
+    independent of memory layout.
 
     Args:
         X: Numpy array to hash.
 
     Returns:
-        Hex digest string.
+        64-character lowercase hex digest.
     """
-    data = np.ascontiguousarray(X).data.tobytes()
-    if _HAS_XXHASH:
-        return str(xxhash.xxh128(data).hexdigest())
-    return hashlib.sha256(data).hexdigest()
+    return hashlib.sha256(np.ascontiguousarray(X).data.tobytes()).hexdigest()

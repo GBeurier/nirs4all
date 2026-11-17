@@ -1,9 +1,14 @@
 """Tests for data content hashing utility and SpectroDataset.content_hash()."""
 
+import hashlib
+import sys
+import types
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
+from nirs4all.api.studio_lineage import validate_studio_provenance
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.utils.hashing import compute_data_hash
 
@@ -125,6 +130,62 @@ class TestSpectroDatasetContentHash:
         assert h1 == h2
         # Verify the internal cache is set
         assert ds._content_hash_cache is not None
+
+class _FakeXxh128:
+    """Stand-in for ``xxhash.xxh128``: a 128-bit (32 hex character) digest."""
+
+    def __init__(self, data: bytes = b"") -> None:
+        self._digest = hashlib.md5(data)
+
+    def update(self, data: bytes) -> None:
+        self._digest.update(data)
+
+    def hexdigest(self) -> str:
+        return self._digest.hexdigest()
+
+
+@pytest.fixture(params=["xxhash_importable", "xxhash_missing"])
+def xxhash_environment(request, monkeypatch):
+    """Run a test once with ``xxhash`` importable and once with its import failing."""
+    if request.param == "xxhash_importable":
+        module = types.ModuleType("xxhash")
+        module.xxh128 = _FakeXxh128
+        monkeypatch.setitem(sys.modules, "xxhash", module)
+    else:
+        monkeypatch.setitem(sys.modules, "xxhash", None)
+    return request.param
+
+
+class TestContentIdentityIsEnvironmentIndependent:
+    """The persisted dataset identity is SHA-256 whatever optional packages are installed."""
+
+    def test_single_source_identity_is_sha256_of_feature_bytes(self, xxhash_environment):
+        X = np.random.default_rng(0).normal(size=(8, 4))
+        ds = SpectroDataset("identity")
+        ds.add_samples(X, {"partition": "train"})
+        stored = np.ascontiguousarray(ds._features.sources[0]._storage.array)
+        expected = hashlib.sha256(stored.tobytes()).hexdigest()
+        assert ds.content_hash() == expected
+        assert ds.content_hash(source_index=0) == expected
+        assert compute_data_hash(stored) == expected
+        assert len(expected) == 64
+
+    def test_multi_source_identity_is_sha256_of_concatenated_source_bytes(self, xxhash_environment):
+        rng = np.random.default_rng(1)
+        ds = SpectroDataset("identity-multi")
+        ds.add_samples([rng.normal(size=(6, 5)), rng.normal(size=(6, 3))], {"partition": "train"})
+        hasher = hashlib.sha256()
+        for source in ds._features.sources:
+            hasher.update(np.ascontiguousarray(source._storage.array).tobytes())
+        assert ds.content_hash() == hasher.hexdigest()
+
+    def test_studio_provenance_accepts_the_dataset_identity(self, xxhash_environment):
+        ds = SpectroDataset("studio")
+        ds.add_samples(np.random.default_rng(2).normal(size=(8, 4)), {"partition": "train"})
+        digest = ds.content_hash()
+        provenance = validate_studio_provenance({"job_id": "job", "dataset_ids_by_hash": {digest: "dataset-a"}}, "job")
+        assert provenance == {"job_id": "job", "dataset_ids_by_hash": {digest: "dataset-a"}}
+
 
 class TestDatasetMetadataHashing:
     """Tests metadata hashing path for get_dataset_metadata()."""

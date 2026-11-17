@@ -1587,7 +1587,7 @@ class SpectroDataset:
                 If ``None`` (default), hash all sources concatenated.
 
         Returns:
-            Hex digest string.
+            64-character SHA-256 hex digest, identical in every environment.
         """
         from nirs4all.utils.hashing import compute_data_hash
 
@@ -1599,13 +1599,11 @@ class SpectroDataset:
         if self._content_hash_cache is not None:
             return self._content_hash_cache
 
-        # Hash all sources by concatenating their bytes
+        # Hash all sources by concatenating their bytes. The identity is persisted and
+        # validated across environments, so it is always SHA-256.
         import hashlib
-        try:
-            import xxhash
-            hasher = xxhash.xxh128()
-        except ImportError:
-            hasher = hashlib.sha256()
+
+        hasher = hashlib.sha256()
 
         for source in self._features.sources:
             arr = np.ascontiguousarray(source._storage.array)

@@ -78,6 +78,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `SpectroDataset.content_hash()` and `nirs4all.utils.hashing.compute_data_hash`
+  always return the SHA-256 digest (64 hex characters) of the feature bytes. They
+  used the 128-bit `xxhash` digest (32 hex characters) whenever the undeclared
+  optional `xxhash` package happened to be importable, so the dataset identity
+  persisted in workspace runs, bundle fingerprints and Studio provenance depended
+  on the environment, and `validate_studio_provenance` refused every Studio run
+  in such an environment. Identities recorded by an environment that had `xxhash`
+  (32 characters) are not converted or matched: the same data now has its SHA-256
+  identity there, as it always had in a plain installation.
+
 - Component serialization no longer reads user-chosen mapping keys as fields of
   a step envelope. Branch names in a named `branch` mapping, the per-branch
   `steps` and `values` keys of a separation branch (source names, partition
