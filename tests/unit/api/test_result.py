@@ -104,6 +104,15 @@ def mock_predictions():
     mock.get_datasets.return_value = ["wheat"]
     mock.get_models.return_value = ["PLSRegression", "RandomForest"]
     mock.filter_predictions.return_value = sample_entries
+
+    def filter_predictions(**filters):
+        # Like Predictions.filter_predictions, a fold_id filter selects only that fold's rows:
+        # RunResult asks for fold_id="macro" to detect macrofold (target-domain) results.
+        rows = mock.filter_predictions.return_value
+        fold_id = filters.get("fold_id")
+        return rows if fold_id is None else [row for row in rows if row.get("fold_id") == fold_id]
+
+    mock.filter_predictions.side_effect = filter_predictions
     mock.get_best.return_value = None  # Falls back to self.best via top()
 
     return mock
