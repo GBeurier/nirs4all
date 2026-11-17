@@ -78,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ResidualModel` on the legacy engine no longer fails at random with
+  `Processing 'residual__<base>_<hex>' already exists` when it runs more than once
+  on a dataset (branches, variants). The residual target was named after 16 bits
+  of an object address, which CPython reuses; it is now numbered per dataset.
 - `SpectroDataset.content_hash()` and `nirs4all.utils.hashing.compute_data_hash`
   always return the SHA-256 digest (64 hex characters) of the feature bytes. They
   used the 128-bit `xxhash` digest (32 hex characters) whenever the undeclared
