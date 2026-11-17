@@ -180,7 +180,11 @@ def _assert_fit_oracle(observer: _SourceObserver, dataset: Any, catalogue: dict[
         np.testing.assert_allclose(model["X"], features, rtol=2e-6, atol=2e-6)
         np.testing.assert_array_equal(model["y"].reshape(-1), y[train])
         fitted = chains._MODELS[model["kind"]](**model["params"])
-        observer.original_fits[model["kind"]](fitted, features, model["y"])
+        # The captured model input was just verified against the independent chain. Fit the
+        # independent estimator on that exact input: a Methods-owned transform can differ from
+        # NumPy/SciPy by one float32 ulp, which an ill-conditioned float32 solve amplifies beyond
+        # the coefficient tolerance in a hardware-dependent way.
+        observer.original_fits[model["kind"]](fitted, model["X"], model["y"])
         np.testing.assert_allclose(model["coef_"], fitted.coef_, rtol=2e-6, atol=2e-6)
         np.testing.assert_allclose(model["intercept_"], fitted.intercept_, rtol=2e-6, atol=2e-6)
         prediction = np.asarray(fitted.predict(prediction_features)).reshape(-1)
