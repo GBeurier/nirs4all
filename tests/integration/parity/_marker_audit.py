@@ -252,7 +252,7 @@ def classify_skip(*, kind: str, reason: str, func: str, condition_src: str) -> s
         return "registry_skip"
     if "optional dependency not installed" in reason:
         return "optional_env_dependency"
-    if "runtime schemas not checked out" in reason:
+    if "schemas not checked out" in reason:
         return "optional_env_sibling"
     if "optional GPU environment unavailable" in reason:
         return "optional_env_gpu"
