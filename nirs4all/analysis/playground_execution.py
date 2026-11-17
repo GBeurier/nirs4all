@@ -83,7 +83,7 @@ def execute_preview(batch: PreviewBatch, steps: list[PreviewStep] | None = None,
     options = dict(options or {})
     steps = list(steps or [])
     budget = limits or PreviewLimits()
-    if len(steps) > positive_count(options.get("max_steps", 50), "max_steps"):
+    if options.get("max_steps") is not None and len(steps) > positive_count(options["max_steps"], "max_steps"):
         raise ValueError("Preview exceeds configured step count")
     original, subset, warnings = prepare_batch(batch, sampling, options)
     assert original.origins is not None  # prepare_batch establishes row lineage.

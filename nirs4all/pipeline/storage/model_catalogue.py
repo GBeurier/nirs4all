@@ -11,7 +11,7 @@ from nirs4all.pipeline.storage.store_queries import GET_CHAIN, build_chain_summa
 from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION
 
 
-def read_model_catalogue(workspace_path: str | Path, *, max_models: int = 10000) -> list[dict[str, Any]]:
+def read_model_catalogue(workspace_path: str | Path, *, max_models: int | None = None) -> list[dict[str, Any]]:
     """Read chain summaries and metadata without opening a writable store.
 
     One read-only transaction includes committed WAL data while another owner
@@ -19,9 +19,17 @@ def read_model_catalogue(workspace_path: str | Path, *, max_models: int = 10000)
     model deserialization or array reconciliation. SQLite may maintain its
     coordination files; persisted data is never written by this reader.
     The existing chain-summary SQL remains the source of score meaning.
+
+    Args:
+        workspace_path: Workspace directory holding ``store.sqlite``.
+        max_models: Optional host-supplied bound on the number of chains; ``None``
+            reads every chain. A catalogue larger than the bound is refused, never truncated.
+
+    Returns:
+        One ``{"summary", "chain"}`` record per chain.
     """
-    if type(max_models) is not int or not 0 < max_models <= 10000:
-        raise ValueError("max_models must be an integer between 1 and 10000")
+    if max_models is not None and (type(max_models) is not int or max_models < 1):
+        raise ValueError("max_models must be a positive integer or None")
     database = Path(workspace_path) / "store.sqlite"
     if not database.is_file():
         raise FileNotFoundError(f"WorkspaceStore database not found: {database}")
@@ -33,9 +41,10 @@ def read_model_catalogue(workspace_path: str | Path, *, max_models: int = 10000)
         if version != SCHEMA_VERSION:
             raise RuntimeError(f"Model catalogue requires WorkspaceStore schema {SCHEMA_VERSION}, got {version}")
         query, params = build_chain_summary_query()
-        rows = connection.execute(query, params).fetchmany(max_models + 1)
-        if len(rows) > max_models:
-            raise ValueError("Model catalogue exceeds the bounded response capacity")
+        cursor = connection.execute(query, params)
+        rows = cursor.fetchall() if max_models is None else cursor.fetchmany(max_models + 1)
+        if max_models is not None and len(rows) > max_models:
+            raise ValueError(f"Model catalogue exceeds the host bound of {max_models} models")
         result = []
         for row in rows:
             summary = dict(row)

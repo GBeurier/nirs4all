@@ -127,3 +127,10 @@ def test_budget_precedes_projection_array_construction(batch, monkeypatch):
     monkeypatch.setattr(execution, "pca_projection", lambda *args: pytest.fail("projection must not run"))
     with pytest.raises(ValueError, match="before projection"):
         execute_preview(batch, options={"max_response_cells": 1})
+
+
+def test_step_count_is_bounded_only_by_an_explicit_host_option(batch):
+    steps = [PreviewStep(f"snv-{index}", "preprocessing", "StandardNormalVariate", StandardNormalVariate()) for index in range(60)]
+    assert execute_preview(batch, steps, options={"compute_repetitions": False})["success"] is True
+    with pytest.raises(ValueError, match="step count"):
+        execute_preview(batch, steps, options={"max_steps": 59})
