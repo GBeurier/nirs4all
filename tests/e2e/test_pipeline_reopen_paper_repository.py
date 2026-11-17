@@ -217,12 +217,18 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
     legacy_final_pred = _vector(legacy_final["y_pred"])
     assert bundle_pred.shape == legacy_final_pred.shape
 
-    # Independent row-wise SNV and sklearn full-train refit, preserving the
-    # dataset's float32 feature storage rather than reading the exported model.
-    centered_train = x_train - np.mean(x_train, axis=1, keepdims=True)
-    centered_test = x_test - np.mean(x_test, axis=1, keepdims=True)
-    snv_train = centered_train / np.std(centered_train, axis=1, keepdims=True)
-    snv_test = centered_test / np.std(centered_test, axis=1, keepdims=True)
+    # Independent row-wise SNV and sklearn full-train refit rather than reading the
+    # exported model. Methods owns SNV: it evaluates in float64 and returns the
+    # dataset's float32 storage precision, so the oracle rounds once in the same way.
+    assert x_train.dtype == np.float32 and x_test.dtype == np.float32
+
+    def independent_snv(values: np.ndarray) -> np.ndarray:
+        exact = values.astype(np.float64)
+        centered = exact - np.mean(exact, axis=1, keepdims=True)
+        return (centered / np.std(centered, axis=1, keepdims=True)).astype(values.dtype)
+
+    snv_train = independent_snv(x_train)
+    snv_test = independent_snv(x_test)
     independent_model = PLSRegression(n_components=5).fit(snv_train, dataset.y({"partition": "train"}))
     independent_test_pred = _vector(independent_model.predict(snv_test))
     np.testing.assert_allclose(bundle_pred, independent_test_pred, rtol=0, atol=1e-8)
