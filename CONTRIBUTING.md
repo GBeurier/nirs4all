@@ -46,25 +46,28 @@ To add new artifact types, serialization formats, or customize the storage:
 
 ## Cross-repository version constraints
 
-nirs4all packages from different repositories depend on each other at **minor**
-granularity, never more precisely: Python `>=0.4,<0.5` (`>=1.3,<2` for 1.x),
-Rust `"0.4"`, npm `^0.4.0`, R `pkg (>= 0.4.0), pkg (< 0.5.0)`. The SDK declares
-`dag-ml>=0.4,<0.5`, `dag-ml-data>=0.2,<0.3`, `nirs4all-io>=0.3,<0.4`,
-`nirs4all-core>=0.5,<0.6`, `nirs4all-methods`/`pls4all>=1.3,<2` in
-`pyproject.toml`, the `requirements*.txt` mirrors and `conda-forge/meta.yaml`.
-Exact, reproducible versions live in lockfiles and install constraints
-(`docker/native-constraints.txt`, the release workflows' installed cohort) and
-in the release order, never in these manifests.
+Versions are `X.Y.Z`. A **patch** (`Z`) release carries fixes and purely
+additive, backward-compatible features: existing outputs, wire formats,
+persisted schemas (workspace store, bundles), `.n4a` payload semantics and
+shared fixtures are unchanged. A **minor** (`Y`) release carries any
+compatibility break: a changed or removed API signature, a wire/byte/schema/
+fixture change, renamed ids or changed numerical results of existing
+operations. `X` is the product version. The package that bumps classifies its
+change.
 
-In return, a **patch** release of `nirs4all` is backward compatible and changes
-no wire format, byte contract, persisted schema (workspace store, bundles),
-`.n4a` payload semantics or shared fixture; any such change needs at least a
-**minor** release. A fix needed from a specific owner patch travels through the
-lockfiles and the release order, not a patch floor; native Methods libraries are
-accepted by their runtime ABI check (the Methods explainer needs ABI 2.23, first
-carried by Methods 1.3.18). The full policy is
-`docs/contracts/release/VERSION_CONSTRAINTS.md` in `nirs4all-ecosystem`;
-`tests/unit/workflows/test_publish_workflow.py` and
+nirs4all packages from different repositories accept every patch of one tested
+series: `>=X.Y[.Z],<X.(Y+1)` (for example `nirs4all-methods>=1.4,<1.5`; Rust
+`">=1.4, <1.5"`, npm `~1.4.0`; for 0.x `>=0.4,<0.5`, Rust `"0.4"`, npm
+`^0.4.0`). A patch floor (`>=1.4.1,<1.5`) is allowed when a fix or feature from
+that patch is required. Moving to a new minor series is an explicit, tested
+decision. The SDK declares its owner ranges in `pyproject.toml`, the
+`requirements*.txt` mirrors and `conda-forge/meta.yaml`; ranges written before
+this rule are aligned at the next normal release. Exact, reproducible versions
+live only in lockfiles and install constraints (`docker/native-constraints.txt`,
+the release workflows' installed cohort). Native Methods libraries are accepted
+by their runtime ABI check. The full policy is
+[`docs/contracts/release/VERSION_CONSTRAINTS.md`](https://github.com/GBeurier/nirs4all-ecosystem/blob/main/docs/contracts/release/VERSION_CONSTRAINTS.md) in
+`nirs4all-ecosystem`; `tests/unit/workflows/test_publish_workflow.py` and
 `tests/integration/parity/test_rt_goldens.py` check the declared ranges.
 
 ## Contribution licensing (inbound = outbound)
