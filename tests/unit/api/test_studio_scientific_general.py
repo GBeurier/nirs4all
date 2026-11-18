@@ -231,3 +231,20 @@ def test_missing_tabpfn_execution_fails_before_instantiation_or_run(tmp_path, mo
     with pytest.raises(general.StudioScientificJobError, match="preset can still be imported and edited") as error:
         general.studio_scientific_job_v2(request)
     assert error.value.code == "dependency_missing"
+
+
+def test_unwritable_workspace_fails_before_execution(tmp_path, monkeypatch):
+    monkeypatch.setattr(general, "_ambient_runtime_preflight", lambda: None)
+    monkeypatch.setattr(general, "_run_strict_product", lambda *args, **kwargs: pytest.fail("ran before workspace probe"))
+    original = Path.write_bytes
+
+    def blocked(self, data):
+        if self.name.startswith(".nirs4all-write-probe-"):
+            raise PermissionError(13, "Permission denied", str(self))
+        return original(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", blocked)
+    with pytest.raises(general.StudioScientificJobError, match="Controlled Folder Access") as refused:
+        general.studio_scientific_job_v2(_request(tmp_path))
+    assert refused.value.code == "workspace_not_writable"
+    assert not list(tmp_path.glob(".nirs4all-write-probe-*"))
