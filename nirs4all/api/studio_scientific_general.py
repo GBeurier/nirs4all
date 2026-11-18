@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import sys
 from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
@@ -217,6 +218,30 @@ def _validate_multimodal_array_budget(cohort: dict[str, Any]) -> None:
                 pending.extend(item.values())
 
 
+def _preflight_workspace_writable(workspace: Path) -> None:
+    """Refuse before execution when this Python process cannot create workspace files.
+
+    Rust authorizes the path, but Windows Controlled Folder Access or endpoint
+    security can still block this interpreter specifically, often after folder
+    creation succeeds. Probing with a real file avoids losing a completed run
+    at the final write.
+    """
+    probe = workspace / f".nirs4all-write-probe-{uuid4().hex}"
+    try:
+        workspace.mkdir(parents=True, exist_ok=True)
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError as error:
+        # A Windows venv launcher runs the base interpreter, which is the process to allow.
+        interpreters = dict.fromkeys((sys.executable, getattr(sys, "_base_executable", sys.executable)))
+        raise StudioScientificJobError(
+            "workspace_not_writable",
+            f"Cannot create files in the workspace {workspace} ({error.strerror or error}). "
+            "Windows Controlled Folder Access or antivirus software may block the Python "
+            f"interpreter ({' and '.join(interpreters)}); allow it or choose another workspace folder.",
+        ) from error
+
+
 def studio_scientific_job_v2(request: object) -> dict[str, Any]:
     """Run one canonical general request with Rust-owned job/path authority.
 
@@ -267,6 +292,7 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
         provenance = validate_studio_provenance(provenance, job_id)
     dataset = _inline_dataset_arrays(request["dataset"])
     _ambient_runtime_preflight()
+    _preflight_workspace_writable(Path(workspace))
     _preflight_optional_product_operators(request["pipeline"])
     dataset = _materialize_file_dataset(dataset)
     pipeline = deserialize_component(request["pipeline"])
