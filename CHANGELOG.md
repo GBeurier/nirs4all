@@ -15,14 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`dag-ml>=0.4,<0.5`, `dag-ml-data>=0.2,<0.3`, `nirs4all-io>=0.3,<0.4`,
   `nirs4all-core>=0.5,<0.6`, `nirs4all-methods`/`pls4all>=1.3,<2`), following the
   ecosystem version-constraint contract. Exact versions stay in the install
-  cohorts: `docker/native-constraints.txt`, the installed-example runtime and the
-  Methods installed-package smoke now use `dag-ml` 0.4.3 and `nirs4all-io` 0.3.6.
-  DAG-ML 0.4.3 accepts the `ddof` parameter that Methods >= 1.3.15 records in
-  `standard_scale` classifier states. The portable export of a multimodal
-  classifier that scales a source still fails with the published
-  `nirs4all-core` 0.5.0, whose native package writer embeds DAG-ML 0.4.0; it
-  needs a Core release built on DAG-ML 0.4.3. The tests concerned are declared as
-  a strict expectation bounded to Core <= 0.5.0.
+  cohorts: `docker/native-constraints.txt`, the release image check, the
+  installed-example runtime and the installed-package smokes now use `dag-ml`
+  0.4.3, `nirs4all-io` 0.3.6 and `nirs4all-core` 0.5.1.
+  DAG-ML 0.4.3, and Core 0.5.1 whose native package writer is built on it, accept
+  the `ddof` parameter that Methods >= 1.3.15 records in `standard_scale`
+  classifier states. With DAG-ML <= 0.4.2 or Core <= 0.5.0 the portable export
+  of a multimodal classifier that scales a source is refused, so install
+  DAG-ML 0.4.3 and Core 0.5.1 or later.
 - The Studio Playground callable (`nirs4all.api.library_playground.studio_playground_job_v1`)
   no longer imposes content-size ceilings. `MAX_PLAYGROUND_REQUEST_BYTES` (8 MiB)
   and `MAX_PLAYGROUND_RESPONSE_BYTES` (32 MiB) and their `request_too_large` and
