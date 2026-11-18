@@ -48,6 +48,16 @@ def test_linear_explainer_is_exact_for_a_linear_chain(tmp_path):
     np.testing.assert_allclose(linear.base_value, predicted[-1], atol=1e-6 * scale)
 
 
+def test_linear_explainer_is_reproducible_with_a_subsampled_background(tmp_path):
+    model, X = _chain(tmp_path, [StandardScaler(), SavitzkyGolay(window_length=7, polyorder=2)])
+    runs = [nirs4all.explain(model=model, data=X, engine="dag-ml", verbose=0, plots_visible=False, explainer_type="linear",
+                             background_samples=10, workspace_path=str(tmp_path), visualizations=[], sample_indices=list(range(8)))
+            for _ in range(2)]
+    np.testing.assert_array_equal(runs[0].shap_values, runs[1].shap_values)
+    assert runs[0].base_value == runs[1].base_value
+    assert runs[0].explanation["settings"]["background_selection"] == "seeded_without_replacement"
+
+
 def test_linear_explainer_refuses_a_nonlinear_chain(tmp_path):
     model, X = _chain(tmp_path, [StandardNormalVariate()])
     with pytest.raises(ValueError, match="linear in its raw inputs"):

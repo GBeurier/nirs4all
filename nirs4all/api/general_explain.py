@@ -81,6 +81,10 @@ def _explained_rows(sample_indices: Any, n_rows: int) -> list[int]:
     return rows
 
 
+#: Background subsampling seed of the exact linear path (the Methods backend default).
+LINEAR_BACKGROUND_SEED = 0
+
+
 def _affine_shap(predictor: _CapturedPredictor, X: np.ndarray, rows: list[int], background: int) -> tuple[np.ndarray, float]:
     """Exact interventional linear SHAP for a captured predictor verified to be affine in its raw inputs.
 
@@ -89,7 +93,8 @@ def _affine_shap(predictor: _CapturedPredictor, X: np.ndarray, rows: list[int], 
     background and explained rows. A nonlinear chain (for example SNV or a
     nonlinear model) is refused instead of silently using another explainer.
     """
-    take = np.random.default_rng().choice(X.shape[0], background, replace=False) if X.shape[0] > background else np.arange(X.shape[0])
+    # Seeded like the Methods backend default so reference, base value and attributions are reproducible.
+    take = np.sort(np.random.default_rng(LINEAR_BACKGROUND_SEED).choice(X.shape[0], size=min(background, X.shape[0]), replace=False))
     reference = X[take].mean(axis=0)
     steps = X[take].std(axis=0)
     steps[~(steps > 0)] = 1.0
@@ -259,7 +264,9 @@ def explain_general(
             axis=axis, feature_names=names, groups=describe_groups(names, axis, None, len(names), ["per_feature"] * len(names)), sample_indices=rows,
             attributions=values[:, :, None], std_error=None, expected=expected, prediction=prediction,
             additivity_max_abs_error=float(np.max(np.abs(values.sum(axis=1)[:, None] + expected - prediction))),
-            settings={"baseline": "background", "n_background": min(background, X.shape[0]), "background_selection": "unseeded_random_without_replacement",
+            settings={"baseline": "background", "n_background": min(background, X.shape[0]),
+                      **({"background_selection": "seeded_without_replacement", "seed": LINEAR_BACKGROUND_SEED} if explainer_type == "linear"
+                         else {"background_selection": "unseeded_random_without_replacement"}),
                       "explainer": actual_explainer, "model_output_index": output_index, "grouping": "per_feature"},
         )
         summary = f"SHAP for captured REFIT predictor, {level} input columns, {unit} output {output_index}; {len(values)} rows. No training performed."
