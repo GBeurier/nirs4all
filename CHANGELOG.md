@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.20] — 2026-11-18
+
+### Fixed
+
+- Studio scientific jobs refuse a workspace this Python process cannot write to
+  before any fit starts, with a typed `workspace_not_writable` error naming the
+  interpreter to allow. On Windows, Controlled Folder Access or endpoint security
+  could let the host create the results directory yet deny `score_set.json`, so
+  the run failed only after every cross-validation fit and refit had completed.
+- `explain_general(..., explainer_type="linear")` (the Studio SHAP tab's
+  "Linear (PLS, Ridge)" explainer) computes exact interventional linear SHAP for
+  a captured linear chain (preprocessing + model + target inverse) instead of
+  silently falling back to the sampled, very slow `KernelExplainer`. The chain's
+  raw-input affine form is identified from batched predictions, verified against
+  the predictor on the background and explained rows (relative tolerance 1e-6),
+  and the background subsample is drawn with seed 0 without replacement, so
+  values, base value and reference are reproducible (`background_selection:
+  seeded_without_replacement`). A nonlinear chain (for example SNV, a nonlinear
+  model or class probabilities) is refused with an explicit error pointing to
+  `auto` or `kernel`.
+
+### Changed
+
+- The exact install cohorts (`docker/native-constraints.txt`, the release image
+  check, the installed-example runtime and the installed-package smokes) use
+  `nirs4all-methods`/`pls4all` 1.3.19 and DAG-ML 0.4.4, which no longer speak of
+  "preflight" in user-facing messages. Declared ranges are unchanged.
+
 ## [1.4.19] — 2026-11-18
 
 ### Changed
