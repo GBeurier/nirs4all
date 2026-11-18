@@ -102,6 +102,7 @@ pipeline = [
 - No helpers/utilities/abstractions for one-time operations. Reuse existing abstractions (DRY).
 - Write general-purpose solutions, not hard-coded workarounds for specific test inputs.
 - After API changes, run: `cd examples && ./run.sh`
+- Versioning: `Z` (patch) = fixes and purely additive, backward-compatible features; `Y` (minor) = any compatibility break (API signature, ABI version, wire/schema/fixture, renamed ids, changed numerical results). Cross-repository ranges accept one tested series, `>=X.Y[.Z],<X.(Y+1)`; never `>=1.x,<2`. See the [ecosystem version constraints](https://github.com/GBeurier/nirs4all-ecosystem/blob/main/docs/contracts/release/VERSION_CONSTRAINTS.md).
 
 ## Scoped local agent mechanics
 
