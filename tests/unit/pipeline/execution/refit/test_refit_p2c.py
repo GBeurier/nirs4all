@@ -10,8 +10,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
-import zipfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -26,6 +24,7 @@ from nirs4all.pipeline.config.context import (
     MapArtifactProvider,
     RuntimeContext,
 )
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
 from nirs4all.pipeline.execution.refit.executor import (
     _extract_cv_strategy,
@@ -562,9 +561,10 @@ class TestExportChainRefit:
         store.export_chain(chain_id, output_path)
 
         # Read the bundle and verify
-        with zipfile.ZipFile(output_path, "r") as zf:
-            manifest = json.loads(zf.read("manifest.json"))
-            chain_data = json.loads(zf.read("chain.json"))
+        with open_n4a_source(output_path) as source:
+            container = source.require_host()
+            manifest = container.bundle_manifest
+            chain_data = container.read_json("chain.json")
 
         assert manifest["has_refit"] is True
         assert manifest["fold_strategy"] == "single_refit"
@@ -604,9 +604,10 @@ class TestExportChainRefit:
         output_path = tmp_path / "cv_model.n4a"
         store.export_chain(chain_id, output_path)
 
-        with zipfile.ZipFile(output_path, "r") as zf:
-            manifest = json.loads(zf.read("manifest.json"))
-            chain_data = json.loads(zf.read("chain.json"))
+        with open_n4a_source(output_path) as source:
+            container = source.require_host()
+            manifest = container.bundle_manifest
+            chain_data = container.read_json("chain.json")
 
         assert manifest["has_refit"] is False
         assert manifest["fold_strategy"] == "per_fold"

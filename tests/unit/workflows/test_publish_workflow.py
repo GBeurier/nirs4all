@@ -102,11 +102,11 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
 
 
 def test_github_delivery_checks_keep_scientific_suites_local() -> None:
-    """GitHub builds and verifies packages; scientific qualification stays local."""
+    """GitHub builds and verifies packages and runs pytest; release qualification and examples stay local."""
 
     ci = _load_named_workflow("CI.yaml")
     assert set(ci["on"]) == {"push", "pull_request"}
-    assert set(ci["jobs"]) == {"lint", "type-check", "package-smoke"}
+    assert set(ci["jobs"]) == {"lint", "type-check", "tests", "package-smoke"}
 
     for workflow_name, job_name in (
         ("CI.yaml", "package-smoke"), ("publish.yml", "package-smoke"),
@@ -143,9 +143,67 @@ def test_github_delivery_checks_keep_scientific_suites_local() -> None:
     for workflow_name in ("CI.yaml", "publish.yml", "shared-test-and-docs.yml", "pre-publish.yml", "examples.yml"):
         jobs = _load_named_workflow(workflow_name)["jobs"]
         commands = "\n".join(step.get("run", "") for job in jobs.values() for step in job.get("steps", []))
-        assert "python -m pytest" not in commands
+        assert ("python -m pytest" in commands) == (workflow_name == "CI.yaml")
         assert "run_full_dagml_pytest.py" not in commands
         assert "run_ci_examples.sh" not in commands
+
+
+def _pytest_commands(job: dict[str, Any]) -> list[list[str]]:
+    return [step["run"].split() for step in job["steps"] if "python -m pytest" in step.get("run", "")]
+
+
+def _selected_test_files(arguments: list[str]) -> set[Path]:
+    """The test files one pytest command line selects, from its path and ``--ignore`` arguments."""
+    root = WORKFLOW_PATH.parents[2]
+    ignored = [root / argument.split("=", 1)[1] for argument in arguments if argument.startswith("--ignore=")]
+    selected: set[Path] = set()
+    for argument in arguments:
+        if not argument.startswith("tests/"):
+            continue
+        path = root / argument
+        assert path.exists(), f"workflow selects a missing test path: {argument}"
+        files = [path] if path.is_file() else path.rglob("test_*.py")
+        selected.update(file for file in files if not any(file == skip or skip in file.parents for skip in ignored))
+    return selected
+
+
+def test_hosted_pytest_runs_the_whole_suite_and_nothing_is_silently_excluded() -> None:
+    """Every test file runs in the nightly workflow; pull requests run all but the named slow suites."""
+
+    root = WORKFLOW_PATH.parents[2]
+    every_test_file = set((root / "tests").rglob("test_*.py"))
+
+    fast = _load_named_workflow("CI.yaml")["jobs"]["tests"]
+    (fast_command,) = _pytest_commands(fast)
+    assert fast["env"]["CUDA_VISIBLE_DEVICES"] == ""
+    slow_suites = {"tests/integration/parity", "tests/integration/api", "tests/integration/pipeline", "tests/e2e"}
+    assert {argument.split("=", 1)[1] for argument in fast_command if argument.startswith("--ignore=")} == slow_suites
+    deferred = every_test_file - _selected_test_files(fast_command)
+    assert deferred and all(any((root / suite) in file.parents for suite in slow_suites) for file in deferred)
+
+    full = _load_named_workflow("tests-full.yml")
+    assert {"schedule", "workflow_dispatch"} <= set(full["on"])
+    job = full["jobs"]["suite"]
+    assert str(job["strategy"]["fail-fast"]).lower() == "false"
+    assert job["env"]["CUDA_VISIBLE_DEVICES"] == ""
+    shard_command, serial_command = _pytest_commands(job)
+    assert "${{" in " ".join(shard_command) and "-n 0" in " ".join(serial_command)
+    covered = _selected_test_files(serial_command)
+    for shard in job["strategy"]["matrix"]["include"]:
+        files = _selected_test_files(shard["selection"].split())
+        assert files, shard["shard"]
+        assert not files & covered, f"{shard['shard']} repeats a test file of another shard"
+        covered |= files
+    assert covered == every_test_file
+
+    # Hosted runs are CPU-only: gpu is the single marker they deselect, and no test is
+    # deselected by keyword or node id.
+    for command in (fast_command, shard_command, serial_command):
+        line = " ".join(command)
+        assert line.startswith("python -m pytest ")
+        assert [command[index + 1:index + 3] for index, word in enumerate(command) if word == "-m"][1:] in ([['"not', 'gpu"']], [])
+        assert "-k" not in command and not any(word.startswith("--deselect") for word in command)
+    assert '-m "not gpu"' in " ".join(fast_command) and '-m "not gpu"' in " ".join(shard_command)
 
 
 @pytest.mark.parametrize("changed_science", [False, True])

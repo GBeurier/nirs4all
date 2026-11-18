@@ -452,6 +452,34 @@ def assert_same_winner(legacy: Any, dagml: Any, case: PipelineCase) -> None:
     )
 
 
+def native_winner_split_is_a_tie(legacy: Any, dagml: Any, case: PipelineCase, *, rel: float = 1e-6) -> bool:
+    """Whether the engines picked different winners that are tied in the native ranking.
+
+    Returns ``False`` when the winners are identical (the normal path) or when they
+    differ and the native selection scores separate them (a real selection split, which
+    :func:`assert_same_winner` then reports). Returns ``True`` only when the legacy
+    winner's native selection score equals the native winner's within ``rel``: the two
+    variants are co-best for the native engine and floating-point kernels decide between
+    them, so which one wins depends on the CPU. The native selection score of a variant
+    is the ``val_score`` of its fold-average validation row.
+    """
+    legacy_cfg = legacy.best.get("config_name")
+    dagml_cfg = dagml.best.get("config_name")
+    if not legacy_cfg or not dagml_cfg or legacy_cfg == dagml_cfg:
+        return False
+    scores = {
+        row["config_name"]: float(row["val_score"])
+        for row in dagml.predictions.filter_predictions(partition="val", fold_id="avg", load_arrays=False)
+        if row.get("config_name") and row.get("val_score") is not None
+    }
+    legacy_score = scores.get(legacy_cfg.removesuffix("_refit"))
+    dagml_score = scores.get(dagml_cfg.removesuffix("_refit"))
+    if legacy_score is None or dagml_score is None:
+        return False
+    assert dagml_score == min(scores.values()), f"{case.name}: the native winner {dagml_cfg!r} is not the best native selection score"
+    return abs(legacy_score - dagml_score) <= rel * abs(dagml_score)
+
+
 def round_trip_export_reload_predict(result: Any, x_predict: np.ndarray, output_path: Any) -> np.ndarray:
     """Export the run's model, reload it, and predict on ``x_predict``.
 

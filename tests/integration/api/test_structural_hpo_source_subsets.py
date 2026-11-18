@@ -116,24 +116,6 @@ def _blocks(dataset: Any) -> list[np.ndarray]:
     return [np.asarray(block) for block in dataset.x({}, layout="2d", concat_source=False)]
 
 
-def _source_oracle_transform(kind: str, params: dict[str, Any], train: np.ndarray, predict: np.ndarray, observer: _SourceObserver) -> tuple[np.ndarray, np.ndarray, Any]:
-    """Preserve the projected array layout in independent row-wise SNV math."""
-    if kind != "StandardNormalVariate":
-        return chains._oracle_transform(kind, params, train, predict, observer)
-
-    def snv(values: np.ndarray) -> np.ndarray:
-        values = values.copy(order="K")
-        if params["with_mean"]:
-            values = values - values.mean(axis=1, keepdims=True)
-        if params["with_std"]:
-            scale = values.std(axis=1, ddof=params["ddof"], keepdims=True)
-            scale[scale == 0] = 1.0
-            values = values / scale
-        return values
-
-    return snv(train), snv(predict), None
-
-
 def _assert_fit_oracle(observer: _SourceObserver, dataset: Any, catalogue: dict[str, Any], result: Any) -> np.ndarray:
     """Fit an independent ordered hstack/chain/sklearn oracle on native fit rows."""
     X, y, groups, rows = baseline._raw(dataset)
@@ -191,14 +173,18 @@ def _assert_fit_oracle(observer: _SourceObserver, dataset: Any, catalogue: dict[
             np.testing.assert_allclose(actual["X"], features, rtol=2e-6, atol=2e-6)
             assert actual["X"].flags.c_contiguous == features.flags.c_contiguous
             assert actual["X"].flags.f_contiguous == features.flags.f_contiguous
-            features, prediction_features, independent = _source_oracle_transform(actual["kind"], actual["params"], features, prediction_features, observer)
+            features, prediction_features, independent = chains._oracle_transform(actual["kind"], actual["params"], features, prediction_features, observer)
             if independent is not None:
                 for name in ("mean_", "var_", "scale_"):
                     np.testing.assert_allclose(actual[name], getattr(independent, name), rtol=0, atol=0)
         np.testing.assert_allclose(model["X"], features, rtol=2e-6, atol=2e-6)
         np.testing.assert_array_equal(model["y"].reshape(-1), y[train])
         fitted = chains._MODELS[model["kind"]](**model["params"])
-        observer.original_fits[model["kind"]](fitted, features, model["y"])
+        # The captured model input was just verified against the independent chain. Fit the
+        # independent estimator on that exact input: a Methods-owned transform can differ from
+        # NumPy/SciPy by one float32 ulp, which an ill-conditioned float32 solve amplifies beyond
+        # the coefficient tolerance in a hardware-dependent way.
+        observer.original_fits[model["kind"]](fitted, model["X"], model["y"])
         np.testing.assert_allclose(model["coef_"], fitted.coef_, rtol=2e-6, atol=2e-6)
         np.testing.assert_allclose(model["intercept_"], fitted.intercept_, rtol=2e-6, atol=2e-6)
         prediction = np.asarray(fitted.predict(prediction_features)).reshape(-1)

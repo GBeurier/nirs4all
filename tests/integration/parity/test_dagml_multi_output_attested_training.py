@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import zipfile
 
 import dag_ml
 import numpy as np
@@ -16,6 +15,7 @@ from nirs4all.pipeline.dagml.attested_by_source import execute_attested_by_sourc
 from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
 from nirs4all.pipeline.dagml.envelope import build_envelope
 from nirs4all.pipeline.dagml.folds import _build_folds
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.run_paths import _canonical_source_branch
 from nirs4all.pipeline.dagml_bridge import controller_manifests
@@ -100,8 +100,8 @@ def test_public_by_source_cv_attested_capture_preserves_cli_predictions(monkeypa
         np.testing.assert_allclose(np.asarray(actual["y_pred"]).ravel(), np.asarray(expected["y_pred"]).ravel(), atol=1e-6)
         np.testing.assert_allclose(np.asarray(actual["y_true"]).ravel(), np.asarray(expected["y_true"]).ravel(), atol=1e-6)
     archive = attested.export(tmp_path / "by_source_cv.n4a")
-    with zipfile.ZipFile(archive) as contents:
-        topology = json.loads(contents.read("manifest.json"))["dagml_independent_output_topology"]
+    with open_n4a_source(archive) as contents:
+        topology = contents.require_host().bundle_manifest["dagml_independent_output_topology"]
     spectro = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
     blocks = spectro.x({"partition": "test"}, "3d", concat_source=False)
     sample_ids = [f"sample_{row}" for row in range(len(blocks[0]))]

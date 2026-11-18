@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
-import zipfile
 
 import numpy as np
 import pytest
@@ -16,7 +16,9 @@ from sklearn.preprocessing import StandardScaler
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.full_train import NoSplitEvaluationWarning
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
 from nirs4all.pipeline.dagml.rt import RtError
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 from ._datasets import dataset_path
 
@@ -134,11 +136,13 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         loader = BundleLoader(archive)
         output_ids = tuple(f"output:source_{index}" for index in range(len(source_names)))
         assert loader.named_outputs == output_ids
-        with zipfile.ZipFile(archive) as archive_file:
-            archive_manifest = json.loads(archive_file.read("manifest.json"))
+        with open_n4a_source(archive) as archive_source:
+            archive_file = archive_source.require_host()
+            archive_manifest = archive_file.bundle_manifest
             topology = archive_manifest["dagml_independent_output_topology"]
             package_ref = archive_manifest["dagml_initial_full_refit_package_ref"]
-            package = json.loads(archive_file.read(package_ref["path"]))
+            package_bytes = archive_file.read(package_ref["path"])
+            package = json.loads(package_bytes)
         assert package["schema_version"] == 1
         assert len(package["outputs"]) == len(source_names)
         assert {entry["dagml_output_id"] for entry in topology["outputs"]} == {
@@ -189,41 +193,27 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         with pytest.raises(ValueError, match="no named output"):
             nirs4all.predict(archive, full_x, output=source_names[0])
         corrupt_archive = tmp_path / f"by_source_swapped_{mode}.n4a"
-        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(corrupt_archive, "w") as corrupt:
-            for member in original.namelist():
-                payload = original.read(member)
-                if member == "manifest.json":
-                    manifest = json.loads(payload)
-                    manifest["dagml_independent_output_topology"]["outputs"][0]["source_id"] = "other_source"
-                    payload = json.dumps(manifest).encode()
-                corrupt.writestr(member, payload)
+        manifest = copy.deepcopy(archive_manifest)
+        manifest["dagml_independent_output_topology"]["outputs"][0]["source_id"] = "other_source"
+        reseal_host_member(archive, corrupt_archive, BUNDLE_MANIFEST_MEMBER, json.dumps(manifest).encode())
         with pytest.raises(ValueError, match="disagrees with its named-output manifest"):
             BundleLoader(corrupt_archive).predict_outputs(full_x)
         corrupt_package_archive = tmp_path / f"by_source_package_corrupt_{mode}.n4a"
-        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(corrupt_package_archive, "w") as corrupt:
-            for member in original.namelist():
-                payload = original.read(member)
-                if member == package_ref["path"]:
-                    payload += b" "
-                corrupt.writestr(member, payload)
+        # Reseal only the container inventory; the bundle manifest keeps the original package digest.
+        reseal_host_member(archive, corrupt_package_archive, package_ref["path"], package_bytes + b" ")
         from nirs4all.pipeline.dagml.general_archive import load_general_archive
 
         with pytest.raises(ValueError, match="package fingerprint mismatch"):
             load_general_archive(corrupt_package_archive)
         forged_package_archive = tmp_path / f"by_source_package_forged_{mode}.n4a"
-        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(forged_package_archive, "w") as forged:
-            forged_package = json.loads(original.read(package_ref["path"]))
-            forged_package["outputs"][0]["output_id"] = "output:forged"
-            forged_bytes = json.dumps(forged_package, sort_keys=True, separators=(",", ":")).encode()
-            for member in original.namelist():
-                payload = original.read(member)
-                if member == package_ref["path"]:
-                    payload = forged_bytes
-                elif member == "manifest.json":
-                    forged_manifest = json.loads(payload)
-                    forged_manifest["dagml_initial_full_refit_package_ref"]["sha256"] = hashlib.sha256(forged_bytes).hexdigest()
-                    payload = json.dumps(forged_manifest).encode()
-                forged.writestr(member, payload)
+        forged_package = json.loads(package_bytes)
+        forged_package["outputs"][0]["output_id"] = "output:forged"
+        forged_bytes = json.dumps(forged_package, sort_keys=True, separators=(",", ":")).encode()
+        forged_manifest = copy.deepcopy(archive_manifest)
+        forged_manifest["dagml_initial_full_refit_package_ref"]["sha256"] = hashlib.sha256(forged_bytes).hexdigest()
+        # Re-sign the forged package in the bundle manifest and reseal the container around both members.
+        reseal_host_member(archive, forged_package_archive, package_ref["path"], forged_bytes)
+        reseal_host_member(forged_package_archive, forged_package_archive, BUNDLE_MANIFEST_MEMBER, json.dumps(forged_manifest).encode())
         with pytest.raises(ValueError, match="fingerprint"):
             load_general_archive(forged_package_archive)
         with pytest.raises(ValueError, match="multiple named outputs"):
@@ -255,8 +245,8 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         selected = next(row for row in rows if row["branch_name"] == source_names[1])
         selected_archive = tmp_path / f"by_source_selected_{mode}.n4a"
         result.export(selected_archive, source=selected)
-        with zipfile.ZipFile(selected_archive) as archive_file:
-            manifest = json.loads(archive_file.read("manifest.json"))
+        with open_n4a_source(selected_archive) as archive_source:
+            manifest = archive_source.require_host().bundle_manifest
         assert manifest["dagml_native_export_shape"] == "independent_by_source_selected"
         assert manifest["dagml_selected_source"]["name"] == source_names[1]
         assert manifest["dagml_selected_source"]["index"] == 1

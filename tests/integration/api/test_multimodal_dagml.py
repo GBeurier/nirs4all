@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 import sys
-import zipfile
 from collections import Counter
 from itertools import product
 from pathlib import Path
@@ -24,6 +23,8 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import nirs4all
 from nirs4all.operators.models.multimodal import MultimodalRegressor, TensorPCA
 from nirs4all.operators.models.sklearn.mbpls import MBPLS
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 
 def _cohort(*, prediction: bool = False, unequal_groups: bool = False) -> MultimodalDataset:
@@ -346,27 +347,26 @@ def test_multimodal_archive_refuses_incompatibility_before_deserializing(damage:
 
     result = _run(_cohort(), tmp_path / "workspace")
     archive = result.export(tmp_path / "original.n4a")
-    with zipfile.ZipFile(archive) as bundle:
-        members = {name: bundle.read(name) for name in bundle.namelist()}
-    manifest = json.loads(members["manifest.json"])
+    with open_n4a_source(archive) as source:
+        container = source.require_host()
+        manifest = container.bundle_manifest
+        artifact_name = next(name for name in container.namelist() if name.startswith("artifacts/") and name.endswith(".joblib"))
+        artifact = container.read(artifact_name)
     contract = manifest["multimodal_host"]
     assert set(contract["input_schema"]) == {"nir", "image", "series", "metadata"}
     assert all(source["shape"][0] is None for source in contract["input_schema"].values())
     assert {"nirs4all", "nirs4all-io", "dag-ml", "dag-ml-data", "numpy", "scikit-learn", "joblib"} <= set(contract["dependencies"])
     if damage == "dependency_version":
         contract["dependencies"]["numpy"] = "0.0.0-incompatible"
-        members["manifest.json"] = json.dumps(manifest).encode()
+        member, payload = BUNDLE_MANIFEST_MEMBER, json.dumps(manifest).encode()
         expected_error: type[Exception] = ImportError
         message = "requires numpy==0.0.0-incompatible"
     else:
-        artifact_name = next(name for name in members if name.startswith("artifacts/") and name.endswith(".joblib"))
-        members[artifact_name] += b"corrupted-model-payload"
+        # Reseal only the container inventory; the bundle manifest keeps the original model digest.
+        member, payload = artifact_name, artifact + b"corrupted-model-payload"
         expected_error = ValueError
         message = "artifact content fingerprint mismatch"
-    damaged = tmp_path / "damaged.n4a"
-    with zipfile.ZipFile(damaged, "w") as bundle:
-        for name, contents in members.items():
-            bundle.writestr(name, contents)
+    damaged = reseal_host_member(archive, tmp_path / "damaged.n4a", member, payload)
 
     def forbidden(*args: Any, **kwargs: Any) -> None:
         pytest.fail("incompatible or corrupted archive reached joblib.load")

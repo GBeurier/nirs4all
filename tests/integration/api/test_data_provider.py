@@ -10,7 +10,6 @@ import signal
 import subprocess
 import sys
 import time
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +25,13 @@ import nirs4all
 from nirs4all.data.multimodal import MultimodalSpectroDataset
 from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor, TensorPCA
 from nirs4all.pipeline.dagml.cancellation import DagRunCancelled
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
 from nirs4all.pipeline.dagml.native_results import read_native_results
 from tests.integration.api.test_multimodal_dagml import _cohort, _model
 from tests.integration.api.test_multimodal_targets import _classification_cohort, _classifier
 from tests.integration.api.test_multimodal_tuning import _checkpoint, _tuning
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 
 def _generate(*, seed: int, params: dict[str, Any], context: dict[str, Any]) -> MultimodalDataset:
@@ -89,8 +90,8 @@ def test_native_source_executes_once_before_grouped_fits_and_survives_archive(tm
         wrapped = MultimodalSpectroDataset(cohort)
         assert pickle.loads(pickle.dumps(wrapped))._data_provider_evidence == evidence
         archive = result.export(tmp_path / "provider.n4a")
-        with zipfile.ZipFile(archive) as bundle:
-            manifest = json.loads(bundle.read("manifest.json"))
+        with open_n4a_source(archive) as source:
+            manifest = source.require_host().bundle_manifest
         assert manifest["multimodal_host"]["data_provider"] == evidence
         monkeypatch.setattr(DataProvider, "materialize", lambda *a, **k: pytest.fail("Replay regenerated training data"))
         monkeypatch.setattr(TensorPCA, "fit", lambda *a, **k: pytest.fail("Replay fitted an encoder"))
@@ -269,9 +270,10 @@ def test_generated_multimodal_archive_predicts_without_provider_or_fit(tmp_path:
     with pytest.raises(Exception, match="generated data views have no qualified model replay contract"):
         result.export(tmp_path / "generated-legacy.n4a", compatibility="legacy-refit")
     archive = result.export(tmp_path / "generated-multimodal.n4a")
-    with zipfile.ZipFile(archive) as bundle:
-        assert "train_pipeline.json" not in bundle.namelist()
-        assert "dagml_generated_view_manifest.json" in bundle.namelist()
+    with open_n4a_source(archive) as source:
+        members = source.require_host().namelist()
+    assert "train_pipeline.json" not in members
+    assert "dagml_generated_view_manifest.json" in members
     with pytest.raises(Exception, match="prediction-only"):
         nirs4all.retrain(archive, base, mode="full", verbose=0)
     with pytest.raises(Exception, match="prediction-only"):
@@ -319,13 +321,10 @@ np.save('predictions.npy', result.y_pred)
     with pytest.raises(Exception, match="input schema mismatch"):
         nirs4all.predict(archive, invalid)
 
-    damaged = tmp_path / "damaged-generated.n4a"
-    with zipfile.ZipFile(archive) as source, zipfile.ZipFile(damaged, "w") as target:
-        for member in source.infolist():
-            payload = source.read(member.filename)
-            if member.filename == "dagml_generated_view_manifest.json":
-                payload += b" "
-            target.writestr(member, payload)
+    with open_n4a_source(archive) as source:
+        payload = source.require_host().read("dagml_generated_view_manifest.json") + b" "
+    # Reseal only the container inventory; the bundle manifest keeps the original fingerprint.
+    damaged = reseal_host_member(archive, tmp_path / "damaged-generated.n4a", "dagml_generated_view_manifest.json", payload)
     monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("unverified model was deserialized"))
     from nirs4all.pipeline.dagml.general_archive import load_general_archive
 
@@ -1812,8 +1811,8 @@ def test_provider_lineage_is_retained_by_late_fusion_export(tune: bool, tmp_path
             if any(item.get("producer_node") == "merge:stack" for item in view.per_dataset.values())
         )
         archive = ensemble.export(tmp_path / "late.n4a")
-        with zipfile.ZipFile(archive) as bundle:
-            manifest = json.loads(bundle.read("manifest.json"))
+        with open_n4a_source(archive) as source:
+            manifest = source.require_host().bundle_manifest
         contract = manifest["multimodal_host"]
         assert contract["selected_model"]["fusion"] == "late_oof"
         assert contract["data_provider"] == evidence

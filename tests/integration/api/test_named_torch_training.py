@@ -7,7 +7,6 @@ import json
 import os
 import subprocess
 import textwrap
-import zipfile
 from contextvars import ContextVar
 from copy import deepcopy
 from pathlib import Path
@@ -25,10 +24,12 @@ import nirs4all
 from nirs4all.operators.models.multimodal import MultimodalRegressor
 from nirs4all.pipeline.dagml import full_train, in_process_runner
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
 from nirs4all.pipeline.dagml.named_torch_estimator import DagMLNamedTorchEstimator
 from nirs4all.pipeline.dagml.native_results import _rehydrate_artifacts, _write_model_artifacts, read_native_results
 from nirs4all.pipeline.dagml.torch_estimator import DagMLTorchEstimator
 from tests.fixtures import named_torch_training as oracle
+from tests.unit.pipeline.dagml.host_container_helpers import reseal_host_member
 
 pytestmark = pytest.mark.torch
 _ACTIVE: ContextVar[dict[str, Any] | None] = ContextVar("named_torch_native_fit", default=None)
@@ -503,11 +504,11 @@ def test_archive_rejects_resigned_carrier_with_unchanged_native_origin(change: s
     result = _run(_cohort(), tmp_path / "workspace")
     try:
         archive = result.export(tmp_path / "original.n4a")
-        with zipfile.ZipFile(archive) as source:
-            members = {name: source.read(name) for name in source.namelist()}
-        manifest = json.loads(members["manifest.json"])
-        member = next(name for name in members if name.startswith("artifacts/") and name.endswith(".joblib"))
-        model = joblib.load(io.BytesIO(members[member]))
+        with open_n4a_source(archive) as source:
+            container = source.require_host()
+            manifest = container.bundle_manifest
+            member = next(name for name in container.namelist() if name.startswith("artifacts/") and name.endswith(".joblib"))
+            model = joblib.load(io.BytesIO(container.read(member)))
         if change == "weights":
             with torch.no_grad():
                 model.estimator.model_.head.weight.add_(0.01)
@@ -521,13 +522,11 @@ def test_archive_rejects_resigned_carrier_with_unchanged_native_origin(change: s
             _change_full_input_schema(model.estimator.multimodal_input_schema, change)
         buffer = io.BytesIO()
         joblib.dump(model, buffer)
-        members[member] = buffer.getvalue()
-        manifest["artifact_integrity"][member] = "sha256:" + hashlib.sha256(members[member]).hexdigest()
-        members["manifest.json"] = json.dumps(manifest).encode()
-        changed = tmp_path / "changed.n4a"
-        with zipfile.ZipFile(changed, "w") as target:
-            for name, value in members.items():
-                target.writestr(name, value)
+        payload = buffer.getvalue()
+        # Re-sign the changed carrier in the bundle manifest and reseal the container around both members.
+        manifest["artifact_integrity"][member] = "sha256:" + hashlib.sha256(payload).hexdigest()
+        changed = reseal_host_member(archive, tmp_path / "changed.n4a", member, payload)
+        reseal_host_member(changed, changed, BUNDLE_MANIFEST_MEMBER, json.dumps(manifest).encode())
         with pytest.raises(ValueError, match="named Torch"):
             load_general_archive(changed)
         monkeypatch.setattr(DagMLNamedTorchEstimator, "predict", lambda *a, **k: pytest.fail("changed state reached numerical PREDICT"))

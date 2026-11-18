@@ -12,7 +12,6 @@ import json
 import sqlite3
 import threading
 import weakref
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -24,6 +23,7 @@ import yaml
 
 from nirs4all.data.raw_multisource import RepresentationPlan
 from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
+from nirs4all.pipeline.dagml.host_container import BUNDLE_MANIFEST_MEMBER, open_n4a_source
 from nirs4all.pipeline.dagml.tuning_contracts import TrialResult, TuningResult, parse_tuning_spec
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
@@ -1375,20 +1375,21 @@ class TestExportChainN4a:
         assert result_path.exists()
         assert result_path.suffix == ".n4a"
 
-        # Verify ZIP contents
-        with zipfile.ZipFile(result_path, "r") as zf:
+        # Verify host container contents
+        with open_n4a_source(result_path) as source:
+            zf = source.require_host()
             names = zf.namelist()
-            assert "manifest.json" in names
+            assert BUNDLE_MANIFEST_MEMBER in names
             assert "chain.json" in names
 
             # Check manifest
-            manifest = json.loads(zf.read("manifest.json"))
+            manifest = zf.bundle_manifest
             assert manifest["chain_id"] == ids["chain_id"]
             assert "model_class" in manifest
             assert "exported_at" in manifest
 
             # Check chain
-            chain_data = json.loads(zf.read("chain.json"))
+            chain_data = zf.read_json("chain.json")
             assert "steps" in chain_data
             assert "fold_artifacts" in chain_data
 
@@ -1414,14 +1415,15 @@ class TestExportChainN4a:
             relation_replay_manifest=relation_manifest,
         )
 
-        with zipfile.ZipFile(result_path, "r") as zf:
+        with open_n4a_source(result_path) as source:
+            zf = source.require_host()
             names = zf.namelist()
             assert "relation_replay_manifest.json" in names
-            manifest = json.loads(zf.read("manifest.json"))
+            manifest = zf.bundle_manifest
             relation_ref = manifest["relation_replay_manifest"]
             assert relation_ref["path"] == "relation_replay_manifest.json"
             assert relation_ref["fingerprint"] == relation_manifest.fingerprint()
-            relation_payload = json.loads(zf.read("relation_replay_manifest.json"))
+            relation_payload = zf.read_json("relation_replay_manifest.json")
             assert relation_payload["representation_plan"]["representation"] == "sample_aggregate"
             assert relation_payload["extra_fingerprints"] == {"relation": "abc123"}
 

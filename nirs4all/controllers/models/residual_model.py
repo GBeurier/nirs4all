@@ -149,6 +149,21 @@ class ResidualModelController(OperatorController):
         except Exception:  # noqa: BLE001
             return None
 
+    @staticmethod
+    def _residual_target_name(dataset, base_name: str) -> str:
+        """Name the residual target of one execution, unique among the dataset's target processings.
+
+        One dataset hosts a residual target per execution (branches, variants). The name is
+        numbered rather than derived from an object address, which CPython reuses.
+        """
+        existing = set(dataset._targets.processing_ids)  # noqa: SLF001
+        name = f"residual__{base_name}"
+        index = 1
+        while name in existing:
+            index += 1
+            name = f"residual__{base_name}_{index}"
+        return name
+
     # ----- main ----------------------------------------------------------------------------------
     def execute(self, step_info, dataset, context, runtime_context, source: int = -1,
                 mode: str = "train", loaded_binaries=None, prediction_store=None):
@@ -165,7 +180,7 @@ class ResidualModelController(OperatorController):
         residual_full = y_full.copy()
         if len(v_idx):
             residual_full[v_idx] = r_oof
-        res_proc = f"residual__{base_name}_{id(op) & 0xffff:x}"
+        res_proc = self._residual_target_name(dataset, base_name)
         from sklearn.preprocessing import FunctionTransformer
         identity = FunctionTransformer(validate=False).fit(residual_full.reshape(-1, 1))  # numeric-space => identity inverse
         dataset.add_processed_targets(res_proc, residual_full, ancestor_processing="numeric", transformer=identity)

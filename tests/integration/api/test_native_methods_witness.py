@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib
 import json
 import os
-import zipfile
 from importlib.metadata import requires, version
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
 from nirs4all.api.native_archive_training import NativeMethodsArchiveRunResult
+from nirs4all.pipeline.dagml.host_container import HostContainer, open_n4a_source
 from nirs4all.pipeline.dagml.native_archive_replay import (
     predict_methods_archive_v2_raw_result,
     validate_methods_archive_v2,
@@ -28,6 +28,17 @@ from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
 _REQUIRE_N4M = os.environ.get("NIRS4ALL_REQUIRE_N4M") == "1"
 
 pytestmark = pytest.mark.methods
+
+
+def _facet_member(container: HostContainer, kind: str, content_type: str) -> str:
+    """The embedded root member of the one artifact Core declares for a DAG-ML facet."""
+
+    (artifact,) = [
+        artifact
+        for artifact in container.manifest["artifacts"]
+        if artifact["kind"] == kind and artifact["content_type"]["id"] == content_type and artifact["storage"]["kind"] == "embedded"
+    ]
+    return str(artifact["storage"]["root_member"])
 
 
 def _require_installed_runtime() -> tuple[Any, Any]:
@@ -241,19 +252,20 @@ def test_installed_terminal_predict_is_callback_free_and_archives_without_a_rece
         archive_path = result.export(tmp_path / "native-terminal.n4a")
         assert archive_path.is_file()
         validate_methods_archive_v2(archive_path)
-        with zipfile.ZipFile(archive_path) as archive:
+        with open_n4a_source(archive_path) as source:
+            assert source.kind == "native"
+            archive = source.container
             names = archive.namelist()
-            cache_payload = json.loads(archive.read("dagml/prediction_cache_payload_set.json"))
-            outcome_payload = json.loads(archive.read("dagml/training_outcome.json"))
-            package_bytes = archive.read("dagml/portable_predictor_package.json")
+            declared = {(artifact["kind"], artifact["content_type"]["id"]) for artifact in archive.manifest["artifacts"]}
+            outcome_payload = archive.read_json(_facet_member(archive, "result", "dagml.training_outcome"))
+            package_bytes = archive.read(_facet_member(archive, "model", "dagml.portable_predictor_package"))
             archive_json = "\n".join(
-                archive.read(name).decode("utf-8") for name in names if name.endswith(".json")
+                [json.dumps(archive.manifest), *(archive.read(name).decode("utf-8") for name in names if name.endswith(".json"))]
             )
-        assert cache_payload == {
-            "bundle_id": outcome_payload["execution_bundle"]["bundle_id"],
-            "schema_version": 2,
-            "caches": [],
-        }
+        # A terminal run retains no prediction cache: the container declares no cache facet
+        # and the archived outcome and execution bundle carry none.
+        assert not any(kind == "prediction" or content_type == "dagml.prediction_cache_payload_set" for kind, content_type in declared)
+        assert outcome_payload["execution_bundle"]["prediction_caches"] == []
         assert outcome_payload["portable_prediction_caches"] is None
         assert all("receipt" not in name.lower() for name in names)
         assert "terminal_run_id" not in archive_json
@@ -316,8 +328,9 @@ def test_installed_native_stacking_keeps_normal_oof_cache_payloads(
         assert all(cache["block_count"] == 2 for cache in retained_caches["caches"])
 
         archive_path = result.export(tmp_path / "native-stacking-oof.n4a")
-        with zipfile.ZipFile(archive_path) as archive:
-            archived_caches = json.loads(archive.read("dagml/prediction_cache_payload_set.json"))
+        with open_n4a_source(archive_path) as source:
+            assert source.kind == "native"
+            archived_caches = source.container.read_json(_facet_member(source.container, "prediction", "dagml.prediction_cache_payload_set"))
         assert archived_caches == retained_caches
     finally:
         result.close()

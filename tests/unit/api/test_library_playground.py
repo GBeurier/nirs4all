@@ -117,3 +117,25 @@ def test_capabilities_report_stateless_limits_and_complete_descriptors():
     assert result["cache"] is False
     assert result["default_limits"] == {"max_samples": 10_000, "max_features": 10_000, "max_cells": 100_000_000}
     assert "hotelling_t2" in result["spectral_descriptors"]
+
+
+def test_library_imposes_no_request_response_or_step_count_ceiling():
+    import nirs4all.api.library_playground as adapter
+
+    # Byte budgets belong to the host transport; the library defines none.
+    assert not [name for name in vars(adapter) if name.startswith("MAX_PLAYGROUND")]
+    step = {"id": "snv", "type": "preprocessing", "name": "StandardNormalVariate",
+            "operator": {"class": "nirs4all.operators.transforms.StandardNormalVariate", "params": {}}}
+    steps = [dict(step, id=f"snv-{index}") for index in range(60)]
+    assert len(studio_playground_job_v1(request("validate", {"steps": steps}))["result"]["steps"]) == 60
+    # A request above the former 8 MiB request ceiling is processed.
+    x = np.linspace(0.123456789, 0.987654321, 12_000 * 100).reshape(12_000, 100).tolist()
+    payload = request("execute", {
+        "data": {"x": x}, "sampling": {"method": "all", "n_samples": 1},
+        "options": {"compute_repetitions": False, "compute_statistics": False, "compute_metrics": False},
+        "limits": {"max_samples": 12_000},
+    })
+    assert len(json.dumps(payload).encode("utf-8")) > 8 * 1024 * 1024
+    response = studio_playground_job_v1(payload)
+    assert response["result"]["success"] is True
+    assert response["result"]["processed"]["shape"] == [12_000, 100]

@@ -1,4 +1,6 @@
-# Full scientific suites and examples run locally before publication.
+# Lint, types, package smoke and the fast pytest cohort on every push and pull
+# request. The slow integration suites run in tests-full.yml; release
+# qualification and examples still run locally before publication.
 name: CI
 'on':
   push:
@@ -40,6 +42,36 @@ jobs:
         python -m pip install mypy types-PyYAML
     - name: Run mypy
       run: mypy nirs4all
+  tests:
+    # Everything under tests/ except the slow integration suites named below,
+    # which tests-full.yml runs nightly, on demand and when it changes.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CUDA_VISIBLE_DEVICES: ''
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+      TF_FORCE_GPU_ALLOW_GROWTH: 'true'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+    - uses: actions/checkout@v6
+    - name: Free disk space
+      uses: ./.github/actions/free-disk-space
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install the declared CPU test cohort and the SDK
+      uses: ./.github/actions/test-environment
+    - name: Run the unit, regression and fast integration suites
+      run: >-
+        python -m pytest -q -rs -n auto --dist worksteal -m "not gpu" --timeout=1800 --durations=25
+        tests/
+        --ignore=tests/integration/parity
+        --ignore=tests/integration/api
+        --ignore=tests/integration/pipeline
+        --ignore=tests/e2e
   package-smoke:
     runs-on: ubuntu-latest
     steps:

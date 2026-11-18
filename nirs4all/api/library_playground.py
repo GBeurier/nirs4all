@@ -1,13 +1,13 @@
-"""Bounded Playground callable for a Rust-owned Studio stdio host.
+"""Closed-contract Playground callable for a Rust-owned Studio stdio host.
 
-The caller owns path authorization, transport and cancellation.  This module
-only validates one closed JSON request and delegates scientific work to the
-library's stateless Playground facade.  It opens no listener, queue or store.
+The caller owns path authorization, transport, cancellation and any request or
+response byte budget.  This module only validates one closed JSON request and
+delegates scientific work to the library's stateless Playground facade.  It
+opens no listener, queue or store and imposes no content-size ceiling.
 """
 
 from __future__ import annotations
 
-import json
 import math
 from datetime import date, datetime, time
 from typing import Any, Final, cast
@@ -32,8 +32,6 @@ from .studio_scientific_general import _validate_json, _validate_operator_import
 
 STUDIO_PLAYGROUND_JOB_SCHEMA: Final = "nirs4all.studio-playground-job.v1"
 STUDIO_PLAYGROUND_RESULT_SCHEMA: Final = "nirs4all.studio-playground-result.v1"
-MAX_PLAYGROUND_REQUEST_BYTES: Final = 8 * 1024 * 1024
-MAX_PLAYGROUND_RESPONSE_BYTES: Final = 32 * 1024 * 1024
 _OPERATIONS = frozenset({"execute", "metadata_columns", "diff", "repetition_variance", "validate", "capabilities"})
 _OPTION_KEYS = frozenset({
     "auto_detect_repetitions", "bio_sample_column", "bio_sample_pattern", "compute_metrics",
@@ -98,8 +96,8 @@ def _options(value: Any) -> dict[str, Any]:
 
 
 def _steps(value: Any) -> list[PreviewStep]:
-    if type(value) is not list or len(value) > 50:
-        raise _refuse("invalid_steps", "payload.steps must be an array of at most 50 steps")
+    if type(value) is not list:
+        raise _refuse("invalid_steps", "payload.steps must be an array of steps")
     result: list[PreviewStep] = []
     keys = {"id", "type", "name", "params", "enabled", "operator"}
     for index, raw in enumerate(value):
@@ -238,9 +236,6 @@ def _json_native(value: Any, diagnostics: dict[str, int]) -> Any:
 def studio_playground_job_v1(request: object) -> dict[str, Any]:
     """Run one closed Playground request for an attested stdio caller."""
     _validate_json(request)
-    encoded = json.dumps(request, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
-    if len(encoded) > MAX_PLAYGROUND_REQUEST_BYTES:
-        raise _refuse("request_too_large", "Playground request exceeds 8 MiB")
     root = _object(request, required={"schema", "operation", "request_id", "payload"},
                    allowed={"schema", "operation", "request_id", "payload"}, where="request")
     if root["schema"] != STUDIO_PLAYGROUND_JOB_SCHEMA:
@@ -268,15 +263,10 @@ def studio_playground_job_v1(request: object) -> dict[str, Any]:
                              "operation": operation, "result": value}, wire_diagnostics)
     if wire_diagnostics:
         response["wire_diagnostics"] = wire_diagnostics
-    encoded_response = json.dumps(response, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
-    if len(encoded_response) > MAX_PLAYGROUND_RESPONSE_BYTES:
-        raise _refuse("response_too_large", "Playground response exceeds 32 MiB")
     return cast(dict[str, Any], response)
 
 
 __all__ = [
-    "MAX_PLAYGROUND_REQUEST_BYTES",
-    "MAX_PLAYGROUND_RESPONSE_BYTES",
     "STUDIO_PLAYGROUND_JOB_SCHEMA",
     "STUDIO_PLAYGROUND_RESULT_SCHEMA",
     "studio_playground_job_v1",

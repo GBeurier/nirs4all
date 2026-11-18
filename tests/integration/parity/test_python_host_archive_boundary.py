@@ -1,7 +1,6 @@
 """Python model replay works on both DAG mechanisms without claiming portable Raw."""
 
 import json
-import zipfile
 
 import numpy as np
 import pytest
@@ -10,6 +9,7 @@ from sklearn.linear_model import Ridge
 import nirs4all
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.bundle.loader import BundleLoader
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.rt import RtError
 
 from ._dagml_cli import dagml_cli_path
@@ -53,8 +53,9 @@ def test_sklearn_host_archive_replays_on_python_but_does_not_claim_raw_portabili
         assert native.execution_engine == "dag-ml"
         archive = native.export(tmp_path / "native.n4a")
         np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, features[16:]).y_pred).ravel(), expected, atol=1e-6)
-        with zipfile.ZipFile(archive) as bundle:
-            manifest = json.loads(bundle.read("manifest.json"))
+        with open_n4a_source(archive) as source:
+            bundle = source.require_host()
+            manifest = bundle.bundle_manifest
             assert manifest["source_type"] == "dagml_native"
             assert "dagml_initial_full_refit_package_ref" not in manifest
             assert len([name for name in bundle.namelist() if name.startswith("artifacts/") and name.endswith(".joblib")]) == 1

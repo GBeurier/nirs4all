@@ -26,6 +26,8 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
 )
 from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import require_legacy_engine
+from tests.unit.api.test_core_archive_predict import _package
+from tests.unit.api.test_native_archive_session import _native_archive
 
 
 @pytest.fixture(autouse=True)
@@ -529,33 +531,45 @@ def test_retrain_in_memory_native_results_fail_closed_before_execution(
     assert caught.value.unsupported_capability == "dagml_full_retrain_source"
 
 
-def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observed: dict[str, object] = {}
-
-    def native_predict(path, X, *, sample_ids, methods_library_path, groups, metadata):  # noqa: ANN001
-        observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), methods_library_path=methods_library_path, groups=groups, metadata=metadata)
-        return NativeArchivePrediction(
-            values=np.asarray([[2.0], [3.0]]),
-            sample_ids=("p1", "p2"),
-            intervals={},
-            conformal_guarantee_status=None,
-        )
-
+def _forbid_legacy_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
-        native_predict,
+        importlib.import_module("nirs4all.api.predict"),
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runner constructed")),
     )
 
+
+def _record_core_replay(monkeypatch: pytest.MonkeyPatch, observed: dict[str, object]) -> None:
+    """Replace Core's Package V2 replay of the one opened native container with a recording double."""
+
+    def native_predict(path, data, *, methods_library_path, source):  # noqa: ANN001
+        assert source.kind == "native" and source.package_version == 2
+        observed.update(path=str(path), X=np.asarray(data["X"]), sample_ids=list(data["sample_ids"]), methods_library_path=methods_library_path)
+        return np.asarray([[2.0], [3.0]]), {"engine": "core-native", "sample_ids": list(data["sample_ids"])}
+
+    monkeypatch.setattr("nirs4all.pipeline.dagml.core_archive_replay.predict_core_methods_archive_v2", native_predict)
+
+
+def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    archive = _native_archive(tmp_path, monkeypatch)
+    observed: dict[str, object] = {}
+    _record_core_replay(monkeypatch, observed)
+    _forbid_legacy_runner(monkeypatch)
+
     result = predict(
-        model="portable.n4a",
+        model=archive,
         data={"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]},
         engine="native",
     )
 
     assert result.y_pred.tolist() == [[2.0], [3.0]]
-    assert result.metadata["engine"] == "native"
+    assert result.metadata["engine"] == "core-native"
+    assert result.model_name == "MethodsN4MM"
+    assert observed["path"] == str(archive)
+    assert observed["X"].tolist() == [[1.0], [2.0]]
     assert observed["sample_ids"] == ["p1", "p2"]
 
 
@@ -663,34 +677,24 @@ def test_explain_native_run_result_is_not_a_captured_dagml_model() -> None:
 
 def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identities(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> None:
     """The native public boundary must not require a synthetic mapping wrapper."""
 
+    archive = _native_archive(tmp_path, monkeypatch)
     observed: dict[str, object] = {}
-
-    def native_predict(path, X, *, sample_ids, methods_library_path, groups, metadata):  # noqa: ANN001
-        observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids))
-        return NativeArchivePrediction(
-            values=np.asarray([[2.0], [3.0]]),
-            sample_ids=("p1", "p2"),
-            intervals={},
-            conformal_guarantee_status=None,
-        )
-
-    monkeypatch.setattr(
-        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
-        native_predict,
-    )
+    _record_core_replay(monkeypatch, observed)
 
     result = predict(
-        model="portable.n4a",
+        model=archive,
         data=np.asarray([[1.0], [2.0]]),
         sample_ids=["p1", "p2"],
         engine="native",
     )
 
     assert result.y_pred.tolist() == [[2.0], [3.0]]
-    assert observed["path"] == "portable.n4a"
+    assert observed["path"] == str(archive)
+    assert observed["X"].tolist() == [[1.0], [2.0]]
     assert observed["sample_ids"] == ["p1", "p2"]
 
 
@@ -704,9 +708,16 @@ def test_predict_native_archive_refuses_two_identity_sources_before_replay() -> 
         )
 
 
-def test_predict_native_archive_selects_dagml_materialized_conformal_intervals(
+def test_native_archive_session_exposes_dagml_materialized_conformal_intervals(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> None:
+    """DAG-ML's materialized intervals reach the caller through the native archive Session.
+
+    ``predict(path, coverage=...)`` on a native Package V2 container does not project
+    intervals and refuses before any replay.
+    """
+    archive = _native_archive(tmp_path, monkeypatch)
     interval = NativeArchiveConformalInterval(
         coverage=0.9,
         lower=np.asarray([[1.0], [2.0]]),
@@ -731,12 +742,17 @@ def test_predict_native_archive_selects_dagml_materialized_conformal_intervals(
         "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
         native_predict,
     )
-    result = predict(
-        model="portable.n4a",
-        data={"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]},
-        coverage=0.9,
-        engine="native",
+    monkeypatch.setattr("nirs4all.pipeline.dagml.native_archive_replay.validate_methods_archive_v2", lambda path, *, source: None)
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.core_archive_replay.predict_core_methods_archive_v2",
+        lambda *_args, **_kwargs: pytest.fail("an interval request reached Core replay"),
     )
+    data = {"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]}
+    with pytest.raises(NotImplementedError, match="does not project conformal intervals on this facade"):
+        predict(model=archive, data=data, coverage=0.9, engine="native")
+
+    with nirs4all.load_session(archive, engine="native") as session:
+        result = session.predict(data["X"], sample_ids=data["sample_ids"])
 
     assert result.interval_coverages == (0.9,)
     assert result.interval(0.9) is interval
@@ -752,20 +768,20 @@ def test_predict_native_archive_selects_dagml_materialized_conformal_intervals(
     [
         ("portable.n4a", np.zeros((1, 2)), {}, "data={'X': matrix, 'sample_ids': explicit_ids}"),
         ("portable.joblib", {"X": [[1.0]], "sample_ids": ["p1"]}, {}, "non-portable model"),
-        ("portable.n4a", {"X": [[1.0]], "sample_ids": ["p1"]}, {"coverage": 0.9}, "not materialized"),
+        ("portable.n4a", {"X": [[1.0]], "sample_ids": ["p1"]}, {"coverage": 0.9}, "does not project conformal intervals on this facade"),
     ],
 )
-def test_predict_native_archive_fails_closed_before_execution(monkeypatch: pytest.MonkeyPatch, model, data, kwargs, message) -> None:
-    if kwargs.get("coverage") is not None:
-        monkeypatch.setattr(
-            "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
-            lambda *_args, **_kwargs: NativeArchivePrediction(
-                values=np.asarray([[1.0]]),
-                sample_ids=("p1",),
-                intervals={},
-                conformal_guarantee_status=None,
-            ),
+def test_predict_native_archive_fails_closed_before_execution(monkeypatch: pytest.MonkeyPatch, tmp_path, model, data, kwargs, message) -> None:
+    from nirs4all.pipeline.dagml import core_archive_replay
+
+    if model.endswith(".n4a"):
+        model = _native_archive(tmp_path, monkeypatch, name=model)
+        # A valid package contract is in hand; the refusal must precede Core's matrix replay.
+        validation = core_archive_replay.CoreArchiveValidation(
+            core=SimpleNamespace(predict_methods_archive_v2_matrix=lambda *_args, **_kwargs: pytest.fail("a refused request reached Core replay")),
+            package=_package(), predictors=(), methods_library_path="/native/libn4m.so", methods_library_sha256="0" * 64,
         )
+        monkeypatch.setattr(core_archive_replay, "validate_core_methods_archive_v2", lambda *_args, **_kwargs: validation)
     with pytest.raises((TypeError, ValueError, NotImplementedError, RtError), match=message):
         predict(model=model, data=data, engine="native", **kwargs)
 

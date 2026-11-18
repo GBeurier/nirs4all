@@ -354,6 +354,18 @@ Y_PRED_TOL_OVERRIDES: dict[str, float] = {
 }
 
 
+# SAME-winner cases whose two best variants are tied in the NATIVE ranking, so the CPU's
+# floating-point kernels decide which one the native engine selects. The winner must still
+# be identical unless the legacy winner is co-best natively within 1e-6 relative
+# (`native_winner_split_is_a_tie`, checked on the live scores of the run).
+#
+#   generator_cartesian_pick: SNV and MSC are near-equivalent scatter corrections, so the
+#   pairs {SNV..., ...} and {MSC..., ...} tie natively: config_8ee9444f 14.449551 vs
+#   config_ad018d2d 14.449557 (3.7e-7 relative) on the reference machine, where both engines
+#   select config_8ee9444f. A GitHub-hosted runner selects config_ad018d2d natively.
+NATIVE_NEAR_TIE_CASES: frozenset[str] = frozenset({"generator_cartesian_pick"})
+
+
 # Generator/constraint cases that MUST select the IDENTICAL winning variant on both
 # engines (asserted via config_name). This is the engine-level companion to the
 # DSL-level EXACT-survivor lock in test_generators_conformance_extra: the survivor
@@ -645,6 +657,11 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
     # here both engines must agree on WHICH survivor wins (a wrong-prune that tipped
     # the winner is caught). Single-variant cases are excluded (empty dag-ml config_name).
     if case.name in SAME_WINNER_CASES:
+        if case.name in NATIVE_NEAR_TIE_CASES and H.native_winner_split_is_a_tie(legacy, dagml, case):
+            # Scores, native evidence and the result contract are asserted above. Per-sample
+            # y_pred parity compares one model on both engines; it does not apply to two
+            # co-best variants.
+            return
         H.assert_same_winner(legacy, dagml, case)
 
     y_pred_tol = Y_PRED_TOL_OVERRIDES.get(case.name, H._DEFAULT_YPRED_TOL)  # noqa: SLF001

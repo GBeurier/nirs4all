@@ -142,9 +142,16 @@ def test_general_explain_session_rejects_replaced_archive_before_pickle(tmp_path
         with nirs4all.load_session(archive) as session:
             explained = explain(archive, X[:2], session=session, n_samples=3, visualizations=[], plots_visible=False, verbose=0)
             assert explained.shape == (2, 3)
-            archive.write_bytes(b"replaced archive")
+            # Replace the archive with another valid container: Core accepts it, so the
+            # Session's own source binding is the check that must refuse it.
+            with nirs4all.run([Ridge(alpha=5.0)], (X, X[:, 1]), save_charts=False, verbose=0, workspace_path=tmp_path / "other") as other:
+                replacement = other.export(tmp_path / "other.n4a")
+            archive.write_bytes(replacement.read_bytes())
             monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("changed archive was deserialized"))
             with pytest.raises(ValueError, match="source archive changed"):
+                explain(archive, X[:2], session=session, plots_visible=False)
+            archive.write_bytes(b"replaced archive")
+            with pytest.raises(ValueError, match="n4a physical refusal"):
                 explain(archive, X[:2], session=session, plots_visible=False)
     finally:
         result.close()

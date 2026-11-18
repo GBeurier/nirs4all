@@ -148,6 +148,7 @@ def test_gate_classifies_each_sanctioned_skip_shape() -> None:
         "    pytest.skip('example on engine=dagml: optional dependency not installed')\n"
         "def test_sib():\n"
         "    pytest.skip('sibling nirs4all-ecosystem runtime schemas not checked out')\n"
+        "    pytest.skip('sibling dag-ml ScoreSet/SelectionDecision schemas not checked out')\n"
         "def test_na():\n"
         "    pytest.skip('c: dag-ml ran the legacy fallback on this build; N/A')\n"
         "def test_cap():\n"

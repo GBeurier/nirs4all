@@ -185,20 +185,30 @@ def _oracle_transform(kind: str, params: dict[str, Any], train: np.ndarray, pred
         independent = StandardScaler(**params)
         observer.original_fits[kind](independent, train)
         return independent.transform(train), independent.transform(predict), independent
+    # Methods owns SNV and Savitzky-Golay: it computes in float64 and returns a new C-ordered
+    # array in the input precision. The independent oracle therefore evaluates the same
+    # mathematics in float64 (NumPy/SciPy) and rounds once, instead of accumulating in float32.
+    def owner_result(values: np.ndarray, result: np.ndarray) -> np.ndarray:
+        return np.ascontiguousarray(result, dtype=np.float32 if values.dtype == np.float32 else np.float64)
+
     if kind == "StandardNormalVariate":
         def snv(values: np.ndarray) -> np.ndarray:
-            values = values.copy()
+            exact = values.astype(np.float64)
             if params["with_mean"]:
-                values = values - values.mean(axis=1, keepdims=True)
+                exact = exact - exact.mean(axis=1, keepdims=True)
             if params["with_std"]:
-                scale = values.std(axis=1, ddof=params["ddof"], keepdims=True)
+                scale = exact.std(axis=1, ddof=params["ddof"], keepdims=True)
                 scale[scale == 0] = 1.0
-                values = values / scale
-            return values
+                exact = exact / scale
+            return owner_result(values, exact)
         return snv(train), snv(predict), None
     assert kind == "SavitzkyGolay"
     arguments = {key: params[key] for key in ("window_length", "polyorder", "deriv", "delta")}
-    return savgol_filter(train, **arguments), savgol_filter(predict, **arguments), None
+
+    def savgol(values: np.ndarray) -> np.ndarray:
+        return owner_result(values, savgol_filter(values.astype(np.float64), **arguments))
+
+    return savgol(train), savgol(predict), None
 
 
 def _assert_fit_oracle(observer: _ChainObserver, dataset: Any, catalogue: dict[str, Any], result: Any) -> np.ndarray:
@@ -245,7 +255,11 @@ def _assert_fit_oracle(observer: _ChainObserver, dataset: Any, catalogue: dict[s
         np.testing.assert_allclose(model["X"], features, rtol=2e-6, atol=2e-6)
         np.testing.assert_array_equal(model["y"].reshape(-1), y[train])
         fitted = _MODELS[model["kind"]](**model["params"])
-        observer.original_fits[model["kind"]](fitted, features, model["y"])
+        # The captured model input was just verified against the independent chain. Fit the
+        # independent estimator on that exact input: a Methods-owned transform can differ from
+        # NumPy/SciPy by one float32 ulp, which an ill-conditioned float32 solve amplifies beyond
+        # the coefficient tolerance in a hardware-dependent way.
+        observer.original_fits[model["kind"]](fitted, model["X"], model["y"])
         np.testing.assert_allclose(model["coef_"], fitted.coef_, rtol=2e-6, atol=2e-6)
         np.testing.assert_allclose(model["intercept_"], fitted.intercept_, rtol=2e-6, atol=2e-6)
         prediction = np.asarray(fitted.predict(prediction_features)).reshape(-1)

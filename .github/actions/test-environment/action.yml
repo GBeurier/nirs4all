@@ -1,0 +1,37 @@
+name: Test environment
+description: Install the declared test cohort (requirements-test.txt) on CPU and the SDK from this checkout.
+
+runs:
+  using: composite
+  steps:
+    - name: Install the declared test cohort
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        # Keep Linux tests on the official CPU wheel: the PyPI wheel pulls CUDA
+        # and Triton, which are not a valid target on CPU runners. Installing it
+        # first lets the cohort's own torch requirements resolve to it.
+        python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.13.0+cpu'
+        grep -v '^torch' requirements-test.txt > "$RUNNER_TEMP/requirements-test-linux.txt"
+        python -m pip install numpy -r "$RUNNER_TEMP/requirements-test-linux.txt"
+        python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.13.0+cpu'
+        # Importing Triton next to TensorFlow/JAX aborts the interpreter.
+        python -m pip uninstall -y triton
+
+    - name: Install the SDK from this checkout
+      shell: bash
+      run: python -m pip install -e . --no-deps
+
+    - name: Report the installed cohort
+      shell: bash
+      run: |
+        python - <<'PY'
+        from importlib.metadata import version
+
+        import torch
+
+        for name in ("nirs4all", "nirs4all-methods", "pls4all", "nirs4all-core", "nirs4all-io", "dag-ml", "dag-ml-data",
+                     "numpy", "scipy", "scikit-learn", "tensorflow", "jax", "keras", "pytest", "pytest-xdist"):
+            print(f"{name}=={version(name)}")
+        print("torch==" + torch.__version__, "cuda:", torch.cuda.is_available())
+        PY

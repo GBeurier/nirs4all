@@ -96,15 +96,14 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "explainer_type: str = 'auto', **shap_params: Any) -> "
         "nirs4all.api.result.ExplainResult"
     ),
+    # Same parameters, order and defaults as before; the module now defers annotation
+    # evaluation and ``source`` also accepts a held BundleLoader.
     "retrain": (
-        "(source: dict[str, typing.Any] | str | pathlib.Path, "
-        "data: str | pathlib.Path | numpy.ndarray | tuple[numpy.ndarray, ...] | "
-        "dict[str, typing.Any] | nirs4all.data.dataset.SpectroDataset | "
-        "nirs4all.data.config.DatasetConfigs, *, mode: str = 'full', "
-        "name: str = 'retrain_dataset', new_model: typing.Any | None = None, "
-        "epochs: int | None = None, "
-        "session: nirs4all.api.session.Session | None = None, verbose: int = 1, "
-        "save_artifacts: bool = True, **kwargs: Any) -> nirs4all.api.result.RunResult"
+        "(source: 'SourceSpec | BundleLoader', data: 'DataSpec', *, mode: 'str' = 'full', "
+        "name: 'str' = 'retrain_dataset', new_model: 'Any | None' = None, "
+        "epochs: 'int | None' = None, "
+        "session: 'Session | None' = None, verbose: 'int' = 1, "
+        "save_artifacts: 'bool' = True, **kwargs: 'Any') -> 'RunResult'"
     ),
     "session": ("(pipeline: list[typing.Any] | None = None, name: str = '', **kwargs: Any) -> collections.abc.Generator[nirs4all.api.session.Session, None, None]"),
     "load_session": ("(path: str | pathlib.Path, *, engine: str | None = None, methods_library_path: str | pathlib.Path | None = None) -> nirs4all.api.session.Session | nirs4all.api.session.NativeArchiveSession"),
@@ -197,7 +196,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
     "robustness_summary_schema_json": ("(*, indent: 'int | None' = 2) -> 'str'"),
     "tuning_space_schema_json": ("(*, indent: 'int | None' = 2) -> 'str'"),
     "tuning_summary_schema_json": ("(*, indent: 'int | None' = 2) -> 'str'"),
-    "load_calibrated_result": ("(path: 'str | Path') -> 'CalibratedRunResult'"),
+    "load_calibrated_result": ("(path: 'str | Path', *, source: 'N4aSource | None' = None) -> 'CalibratedRunResult'"),
     "export_calibrated_result": ("(result: 'CalibratedRunResult', path: 'str | Path', *, overwrite: 'bool' = False) -> 'Path'"),
     "attach_calibrated_result_to_bundle": ("(model_bundle_path: 'str | Path', calibrated: 'CalibratedRunResult | str | Path', output_path: 'str | Path | None' = None, *, overwrite: 'bool' = False) -> 'Path'"),
     "save_workspace_calibrated_result": (
@@ -1015,7 +1014,20 @@ def test_explain_signature_frozen() -> None:
 
 
 def test_retrain_signature_frozen() -> None:
+    import importlib
+    from pathlib import Path
+    from typing import Any
+
+    import numpy as np
+
+    from nirs4all.data.config import DatasetConfigs
+    from nirs4all.data.dataset import SpectroDataset
+
     assert _sig(nirs4all.retrain) == EXPECTED_SIGNATURES["retrain"]
+    # The signature names these aliases; their accepted types are part of the frozen contract.
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    assert retrain_module.SourceSpec == dict[str, Any] | str | Path
+    assert retrain_module.DataSpec == str | Path | np.ndarray | tuple[np.ndarray, ...] | dict[str, Any] | SpectroDataset | DatasetConfigs
 
 
 def test_session_signature_frozen() -> None:

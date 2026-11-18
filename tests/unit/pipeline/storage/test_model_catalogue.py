@@ -50,3 +50,12 @@ def test_schema_and_bounds_are_not_silently_migrated(tmp_path):
     with pytest.raises(FileNotFoundError):
         read_model_catalogue(tmp_path / "absent")
     assert not (tmp_path / "absent").exists()
+
+
+def test_model_bound_is_an_optional_host_choice(tmp_path):
+    with WorkspaceStore(tmp_path):
+        pass
+    assert read_model_catalogue(tmp_path, max_models=None) == []
+    assert read_model_catalogue(tmp_path, max_models=1_000_000) == []
+    with pytest.raises(ValueError, match="max_models"):
+        read_model_catalogue(tmp_path, max_models=0)

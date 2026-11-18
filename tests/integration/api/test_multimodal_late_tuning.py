@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import zipfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.operators.models.multimodal import TensorPCA
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
 from tests.integration.api.test_multimodal_late_fusion import _cohort, _pipeline
 from tests.integration.api.test_multimodal_tuning import _checkpoint, _stop_after
@@ -120,8 +120,8 @@ def test_late_search_tunes_real_branches_and_returns_meta_ensemble(tmp_path: Pat
         assert result.execution_engine == "dag-ml"
         # The public result must export the selected ensemble directly.
         archive = result.export(tmp_path / "selected-ensemble.n4a")
-        with zipfile.ZipFile(archive) as bundle:
-            manifest = json.loads(bundle.read("manifest.json"))
+        with open_n4a_source(archive) as source:
+            manifest = source.require_host().bundle_manifest
         assert manifest["multimodal_host"]["tuning"] == result.tuning_result.to_dict()
         new = _cohort(prediction=True)
         expected = nirs4all.predict(archive, new).y_pred
@@ -391,8 +391,8 @@ def test_resampled_late_search_resume_keeps_partitioned_refit_oof_and_direct_rep
         _forbid_fit(monkeypatch)
         archive = resumed.export(tmp_path / "resampled.n4a")
         reference = continuous.export(tmp_path / "continuous.n4a")
-        with zipfile.ZipFile(archive) as bundle:
-            manifest = json.loads(bundle.read("manifest.json"))
+        with open_n4a_source(archive) as source:
+            manifest = source.require_host().bundle_manifest
         assert manifest["stacking_evaluation"] == evidence
         resumed.close()
         continuous.close()

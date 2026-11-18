@@ -366,7 +366,7 @@ Three **closed** policies — each fails on the *first* item it cannot place:
 | `optional_env_import` | optional_env | `pytest.importorskip(dag_ml / dag_ml_data / shap / jsonschema / referencing)` |
 | `optional_env_dagml_cli` | optional_env | `skipif(not _DAGML_CLI.exists())` — the native `dag-ml-cli` binary is not built on this host |
 | `optional_env_dependency` | optional_env | an example needs an optional dependency that is not installed |
-| `optional_env_sibling` | optional_env | sibling `nirs4all-ecosystem` runtime schemas not checked out |
+| `optional_env_sibling` | optional_env | sibling `nirs4all-ecosystem` runtime schemas, or the `dag-ml` ScoreSet/SelectionDecision schemas they reference, not checked out |
 | `optional_env_methods` | optional_env | the `nirs4all-methods` SNV / n4m binding is unavailable (hard-fails only under `NIRS4ALL_REQUIRE_N4M=1`) |
 | `runtime_na` | runtime_precondition | a cross-engine comparison is N/A on this build: dag-ml ran the legacy fallback, wrote no native results, or the case is not a single-artifact native run. With `coverage_meter.fallback == 0` the fallback branch does not fire for covered cases |
 | `baseline_capture` | workflow | gold-baseline capture / absent-baseline guard in `test_parity_baseline` (`--parity-capture`) |
