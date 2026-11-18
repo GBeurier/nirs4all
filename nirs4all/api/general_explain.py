@@ -81,6 +81,33 @@ def _explained_rows(sample_indices: Any, n_rows: int) -> list[int]:
     return rows
 
 
+def _affine_shap(predictor: _CapturedPredictor, X: np.ndarray, rows: list[int], background: int) -> tuple[np.ndarray, float]:
+    """Exact interventional linear SHAP for a captured predictor verified to be affine in its raw inputs.
+
+    The affine form is identified from one batched prediction at the background
+    mean and one per feature, then checked against the predictor on the
+    background and explained rows. A nonlinear chain (for example SNV or a
+    nonlinear model) is refused instead of silently using another explainer.
+    """
+    take = np.random.default_rng().choice(X.shape[0], background, replace=False) if X.shape[0] > background else np.arange(X.shape[0])
+    reference = X[take].mean(axis=0)
+    steps = X[take].std(axis=0)
+    steps[~(steps > 0)] = 1.0
+    probes = np.vstack([reference, reference + np.diag(steps)])
+    responses = predictor.predict(probes)
+    intercept = float(responses[0])
+    weights = (responses[1:] - intercept) / steps
+    checked = np.unique(np.concatenate([take, np.asarray(rows)]))
+    actual = predictor.predict(X[checked])
+    error = np.max(np.abs(actual - (intercept + (X[checked] - reference) @ weights)))
+    if not np.isfinite(error) or error > 1e-6 * max(float(np.max(np.abs(actual))), float(np.ptp(actual)), 1e-12):
+        raise ValueError(
+            "The linear explainer requires a pipeline that is linear in its raw inputs (for example linear preprocessing "
+            "followed by PLS or Ridge); this captured pipeline is not. Use the 'auto' or 'kernel' explainer instead."
+        )
+    return (X[rows] - reference) * weights, intercept
+
+
 def explain_general(
     model: Any, data: Any, *, name: str, session: Any, verbose: int,
     plots_visible: bool, n_samples: int | None, explainer_type: str, options: dict[str, Any],
@@ -200,21 +227,29 @@ def explain_general(
         summary = (f"{actual_explainer} attributions from {engine['name']} {engine['version']} for captured REFIT predictor, {computed.attribution_space} space, "
                    f"{level} features, {unit} output {output_index}; {len(values)} rows, {len(result_names)} groups. No training performed.")
     else:
-        from nirs4all.visualization.analysis.shap import ShapAnalyzer
-
-        analyzer = ShapAnalyzer()
         import shap
 
-        analyzed = analyzer.explain_model(
-            predictor, X, feature_names=names, sample_indices=rows if options.get("sample_indices") is not None else None,
-            n_background=background, explainer_type=explainer_type, visualizations=[], plots_visible=False,
-            bin_size=options.get("bin_size", 20), bin_stride=options.get("bin_stride", 10),
-            bin_aggregation=options.get("bin_aggregation", "sum"),
-        )
-        values = np.asarray(analyzed["shap_values"])
-        base_value = analyzed["base_value"]
-        result_names, explained_rows, explained_names = names, analyzer.data, names
-        actual_explainer = analyzed["explainer_type"]
+        if explainer_type == "linear":
+            # shap.LinearExplainer cannot read a complete captured chain; explain
+            # its verified raw-input affine form exactly instead of sampling.
+            values, base_value = _affine_shap(predictor, X, rows, background)
+            explained_rows, actual_explainer = X[rows], "LinearExplainer"
+            if visualizations:
+                analyzer = _loaded_figure_analyzer(values, explained_rows, base_value, names, options)
+        else:
+            from nirs4all.visualization.analysis.shap import ShapAnalyzer
+
+            analyzer = ShapAnalyzer()
+            analyzed = analyzer.explain_model(
+                predictor, X, feature_names=names, sample_indices=rows if options.get("sample_indices") is not None else None,
+                n_background=background, explainer_type=explainer_type, visualizations=[], plots_visible=False,
+                bin_size=options.get("bin_size", 20), bin_stride=options.get("bin_stride", 10),
+                bin_aggregation=options.get("bin_aggregation", "sum"),
+            )
+            values = np.asarray(analyzed["shap_values"])
+            base_value = analyzed["base_value"]
+            explained_rows, actual_explainer = analyzer.data, analyzed["explainer_type"]
+        result_names, explained_names = names, names
         kind, exactness = _SHAP_KINDS[actual_explainer]
         expected = np.full((len(values), 1), float(np.asarray(base_value).reshape(-1)[0]))
         prediction = predictor.predict(explained_rows).reshape(-1, 1)
@@ -312,6 +347,18 @@ def _require_additive_waterfall_options(options: dict[str, Any]) -> None:
     if (waterfall_stride is not None and waterfall_stride != waterfall_size) or waterfall_aggregation not in (None, "sum"):
         raise ValueError("A waterfall decomposes one prediction additively: its bins must be disjoint (waterfall bin_stride equal to its bin_size) and summed "
                          "(bin_aggregation 'sum')")
+
+
+def _loaded_figure_analyzer(values: np.ndarray, rows: np.ndarray, base_value: float, names: list[str], options: dict[str, Any]) -> Any:
+    """Load precomputed per-feature attributions into the shared SHAP figure helpers."""
+    from nirs4all.visualization.analysis.shap import ShapAnalyzer
+
+    analyzer = ShapAnalyzer()
+    analyzer.shap_values, analyzer.data, analyzer.base_value, analyzer.feature_names = values, rows, base_value, names
+    for option, attribute, default in (("bin_size", "bin_size_dict", 20), ("bin_stride", "bin_stride_dict", 10), ("bin_aggregation", "bin_aggregation_dict", "sum")):
+        value = options.get(option, default)
+        setattr(analyzer, attribute, value if isinstance(value, dict) else dict.fromkeys(("spectral", "waterfall", "beeswarm"), value))
+    return analyzer
 
 
 def _methods_figure_analyzer(computed: Any, options: dict[str, Any]) -> Any:
