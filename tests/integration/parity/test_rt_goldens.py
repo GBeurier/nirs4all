@@ -199,8 +199,8 @@ def test_parity_environment_dependencies_are_declared() -> None:
     assert str(native_deps["nirs4all-core"].specifier) == "<0.7,>=0.6"
     # Cross-repository owners select one tested minor series. The source/runtime
     # qualification separately identifies the actual Methods library and ABI.
-    assert str(native_deps["nirs4all-methods"].specifier) == "<1.6,>=1.5.0"
-    assert str(project_deps["nirs4all-methods"].specifier) == "<1.6,>=1.5.0"
+    assert str(native_deps["nirs4all-methods"].specifier) == "<1.6,>=1.5.1"
+    assert str(project_deps["nirs4all-methods"].specifier) == "<1.6,>=1.5.1"
     assert "shap" in explain_deps
     assert "shap" in dev_deps
     for filename in ("requirements.txt", "requirements-test.txt", "requirements-examples.txt"):
