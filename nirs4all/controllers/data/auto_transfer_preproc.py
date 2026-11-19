@@ -430,9 +430,17 @@ class AutoTransferPreprocessingController(OperatorController):
 
         # Add generator spec if specified
         if config.get("preprocessing_spec") is not None:
+            from nirs4all.analysis import TransferCandidateRecord, TransferSelectionError
             from nirs4all.pipeline.config.component_serialization import deserialize_component
 
-            kwargs["preprocessing_spec"] = deserialize_component(config["preprocessing_spec"])
+            try:
+                kwargs["preprocessing_spec"] = deserialize_component(config["preprocessing_spec"])
+            except Exception as error:
+                record = TransferCandidateRecord(
+                    "preprocessing_spec", "selection", "failed", stage="specification",
+                    exception_type=type(error).__name__, message=str(error),
+                )
+                raise TransferSelectionError("Transfer preprocessing specification could not be constructed", [record]) from error
         if config.get("applicability_checks") is not None:
             kwargs["applicability_checks"] = config["applicability_checks"]
 

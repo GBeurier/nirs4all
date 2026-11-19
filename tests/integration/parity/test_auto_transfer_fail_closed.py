@@ -422,3 +422,31 @@ def test_declared_generation_failure_cannot_be_skipped_with_continue_on_error(tr
     assert any(record.status == "failed" for record in error.value.candidate_records)
 
 
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
+def test_invalid_serialized_candidate_cannot_be_skipped(transfer_views, tmp_path, monkeypatch, engine: str) -> None:
+    """Constructor failures retain their cause before any downstream fit."""
+    dataset = _candidate_failure_dataset(transfer_views)
+    fitted = []
+
+    def forbidden_fit(*args, **kwargs):
+        fitted.append(True)
+        raise AssertionError("A failed transfer specification must not train a model")
+
+    monkeypatch.setattr(PLSRegression, "fit", forbidden_fit)
+    if engine == "dag-ml":
+        monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    pipeline = [{"auto_transfer_preproc": {
+        "preprocessing_spec": {"_or_": [{"class": "sklearn.decomposition.PCA", "params": {"bogus": 1}}]},
+        "verbose": 0,
+    }}, PLSRegression(2)]
+    # DAG rejects malformed constructors in its public preflight, before a
+    # selector exists. Legacy also reaches its guarded step-parser boundary.
+    expected_error = TransferSelectionError if engine == "legacy" else ValueError
+    with pytest.raises(expected_error, match="bogus") as error:
+        nirs4all.run(pipeline, dataset, engine=engine, continue_on_error=True, workspace_path=tmp_path / engine, verbose=0)
+    assert not fitted
+    if engine == "legacy":
+        assert error.value.candidate_records[0].stage == "specification"
+        assert "bogus" in error.value.candidate_records[0].message
