@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Explicit tree SHAP can reuse unchanged scalar tree predictors; incompatible
   preprocessing or explainer requests fail with actionable errors.
+- Pin Methods and PLS dependencies to the tested 1.3 series (minimum 1.3.19),
+  preventing a clean install from selecting an incompatible 1.4 ABI.
 - LogTransform accepts natural-log and numeric string bases consistently.
 - Native Methods operators are resolved by their manifest token rather than their
   display label, retaining strict identity checks for ordinary Python operators.
