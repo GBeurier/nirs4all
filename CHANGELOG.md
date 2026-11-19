@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.21] — 2026-11-19
+
+### Changed
+
+- The Studio Playground callable (`studio_playground_job_v1`) keeps the last
+  loaded dataset in its warm host process. An identical dataset request (same
+  config, load limits and input byte budget) whose input files still have the
+  same path, size, modification time and inode reuses it instead of re-reading
+  the files; any change reloads. Scientific steps work on copies extracted from
+  the dataset, so results equal those of a fresh load.
+
+### Added
+
+- Playground `execute` accepts `options.omit_unchanged_processed_spectra`. When
+  it is `true` and the processed spectra are bitwise identical to the original
+  spectra (no step changed them), the result omits `processed.spectra` and
+  carries `processed_is_original: true`, so the matrix is encoded and sent once.
+  Without the option the response is unchanged.
+
 ## [1.4.20] — 2026-11-18
 
 ### Fixed
