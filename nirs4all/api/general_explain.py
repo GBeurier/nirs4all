@@ -39,7 +39,11 @@ def _is_affine_transform(operator: Any) -> bool:
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import MaxAbsScaler, MinMaxScaler, RobustScaler, StandardScaler
 
+    from nirs4all.operators.transforms import SavitzkyGolay
+
     if operator is None or isinstance(operator, str) and operator == "passthrough":
+        return True
+    if type(operator) is SavitzkyGolay:
         return True
     if not type(operator).__module__.startswith("sklearn.") or isinstance(operator, MinMaxScaler) and operator.clip:
         return False
@@ -343,9 +347,9 @@ def explain_general(
             axis=axis, feature_names=names, groups=describe_groups(names, axis, None, len(names), ["per_feature"] * len(names)), sample_indices=rows,
             attributions=values[:, :, None], std_error=None, expected=expected, prediction=prediction,
             additivity_max_abs_error=float(np.max(np.abs(values.sum(axis=1)[:, None] + expected - prediction))),
-            settings={"baseline": "background", "n_background": min(background, X.shape[0]),
-                      **({"background_selection": "seeded_without_replacement", "seed": LINEAR_BACKGROUND_SEED} if actual_explainer == "LinearExplainer"
-                         else {"background_selection": "seeded_without_replacement", "seed": 42}),
+            settings={**({"baseline": "tree_path_dependent"} if actual_explainer == "TreeExplainer" else
+                         {"baseline": "background", "n_background": min(background, X.shape[0]),
+                          "background_selection": "seeded_without_replacement", "seed": LINEAR_BACKGROUND_SEED if actual_explainer == "LinearExplainer" else 42}),
                       "explainer": actual_explainer, "model_output_index": output_index, "grouping": "per_feature"},
         )
         summary = f"SHAP for captured REFIT predictor, {level} input columns, {unit} output {output_index}; {len(values)} rows. No training performed."

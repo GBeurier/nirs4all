@@ -58,6 +58,8 @@ def test_explicit_tree_shap_reuses_unchanged_forest_predictor(monkeypatch):
     monkeypatch.setattr(shap, "KernelExplainer", lambda *args, **kwargs: pytest.fail("tree must not become kernel"))
     explanation = explain("captured.n4a", X[:3], explainer_type="tree", visualizations=[], plots_visible=False, verbose=0)
     assert explanation.explainer_type == "TreeExplainer"
+    assert explanation.explanation["settings"]["baseline"] == "tree_path_dependent"
+    assert "n_background" not in explanation.explanation["settings"]
     np.testing.assert_allclose(explanation.values.sum(axis=1) + explanation.base_value, predictor.predict(X[:3]), atol=1e-7)
 
 
