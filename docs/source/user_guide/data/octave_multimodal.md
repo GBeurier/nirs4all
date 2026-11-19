@@ -7,23 +7,24 @@ recorded parameter proposals, and a meta-model trained on out-of-fold branch
 predictions. It captures all four source Ridge models and the meta Ridge in one
 portable `.n4a` archive. The selected fixture recipe uses `alpha=0.05`.
 
-This development workflow requires a real Octave runtime and compiled Methods
-MEX bindings. Its real Octave qualification remains pending until that runtime
-is available. The inputs are numeric projections; raw N-D encoders and licensed
-MATLAB are outside this example's qualification.
+This workflow requires Octave 7.1 or newer with built-in `jsonencode` and
+`jsondecode`, plus compiled Methods MEX bindings. Missing runtime prerequisites
+are failures in the canonical example runner. The inputs are numeric
+projections; raw N-D encoders and licensed MATLAB are separate profiles.
 
 ## Prepare the runtime
 
 Install matching `nirs4all`, `dag_ml` and `nirs4all_core` Python wheels. Keep the
 DAG-ML checkout containing the shipped Octave adapter and the Methods checkout
-containing `bindings/matlab/+n4m/RolePipeline.m`. Use a compiled Methods MEX
-linked to the released public ABI 2.14 library. To build it, supply the headers
-from that same ABI release and run the Methods build helper:
+containing `bindings/matlab/+n4m/RolePipeline.m`. The current release cohort is
+SDK 1.6.0, DAG-ML 0.5.0, Core 0.6.0 and Methods 1.5.1 with ABI 2.24.0. Build the
+Methods MEX against the actual released library and headers from that same
+release. The generated export header must match its platform and ABI:
 
 ```bash
-export N4M_INCLUDE_DIR=/absolute/path/to/public-abi214/include
-export N4M_GENERATED_DIR=/absolute/path/to/public-abi214/include
-export N4M_LIB_DIR=/absolute/path/to/public-abi214/lib
+export N4M_INCLUDE_DIR=/absolute/path/to/methods-1.5.1/cpp/include
+export N4M_GENERATED_DIR=/absolute/path/to/methods-1.5.1/build/dev-release/generated
+export N4M_LIB_DIR=/absolute/path/to/public-methods-1.5.1/lib
 cd /absolute/path/to/nirs4all-methods/bindings/matlab
 octave --no-gui --no-history --eval "build_mex({'n4m_role_pipeline_mex','n4m_version_mex'})"
 ```
@@ -33,7 +34,7 @@ Select the installed binding locations for the external controller:
 ```bash
 export DAG_ML_OCTAVE_METHODS_PATH=/absolute/path/to/nirs4all-methods/bindings/matlab
 export DAG_ML_OCTAVE_MEX_PATH=/absolute/path/to/compiled-mex-directory
-export LD_LIBRARY_PATH=/absolute/path/to/public-abi214/lib:${LD_LIBRARY_PATH:-}
+export LD_LIBRARY_PATH=/absolute/path/to/public-methods-1.5.1/lib:${LD_LIBRARY_PATH:-}
 ```
 
 Use the fresh capture emitted by DAG-ML's
@@ -62,6 +63,12 @@ portable package with `nirs4all.write_portable_predictor_archive_v2(...)`.
 Outputs include `five-octave-models.n4a` and `heldout-replay.json`, which contains
 only current heldout sources and signed prediction contracts.
 
+The archive is a Core V1 container with a DAG-ML Package V2 root. Container and
+package versions are independent. Core's `read_archive_v2_payloads` API returns
+the validated V1 manifest, selected physical members, exact package/outcome
+bytes and native view. Fitted-state members follow the selected model's declared
+facet paths; they are not an old physical Archive V2 inventory.
+
 ## Predict in a new process
 
 Start a separate installed Python process. The prediction command opens a new
@@ -84,6 +91,20 @@ hydrates the five models, predicts and releases their native states. The output
 `predictions.json` retains sample IDs, target names, predictions and lifecycle
 counts. The training data and an attached training session are unnecessary for
 this step.
+
+For the canonical example runner, provide the same real runtime and fresh Node
+capture explicitly:
+
+```bash
+export NIRS4ALL_CI_U15_DAG_ROOT=/absolute/path/to/dag-ml
+export NIRS4ALL_CI_U15_OCTAVE=/absolute/path/to/octave
+export NIRS4ALL_CI_U15_NODE_CAPTURE=/absolute/path/to/fresh-node-capture.json
+cd examples
+bash ./run.sh
+```
+
+The runner performs both U15 commands in separate Python interpreters and new
+output directories. It fails if the inputs are absent or either operation fails.
 
 ## Use the same SDK entry points with another controller
 

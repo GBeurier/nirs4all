@@ -216,10 +216,9 @@ else
   unset DISABLE_EMOJI 2>/dev/null || true
 fi
 
-# Track completed outcomes and explicitly declared precondition skips.
+# Track every completed or refused example.
 failedExamples=()
 passedExamples=()
-skippedExamples=()
 
 for example in "${selectedExamples[@]}"; do
   if [ -f "$example" ]; then
@@ -228,8 +227,9 @@ for example in "${selectedExamples[@]}"; do
          [ -z "${NIRS4ALL_CI_U15_OCTAVE:-}" ] || \
          [ -z "${NIRS4ALL_CI_U15_NODE_CAPTURE:-}" ]; }; then
       reason="requires NIRS4ALL_CI_U15_DAG_ROOT, NIRS4ALL_CI_U15_OCTAVE and NIRS4ALL_CI_U15_NODE_CAPTURE"
-      skippedExamples+=("$example ($reason)")
-      echo "SKIPPED (declared precondition): $example; $reason"
+      failedExamples+=("$example (exit code: 2; $reason)")
+      echo "Error: $example $reason" >&2
+      echo "FAILED: $example with exit code 2"
       continue
     fi
     startTime=$(date +%s)
@@ -322,10 +322,6 @@ echo "Total examples selected: ${#selectedExamples[@]}"
 echo "Total examples run: $((${#passedExamples[@]} + ${#failedExamples[@]}))"
 echo "Passed: ${#passedExamples[@]}"
 echo "Failed: ${#failedExamples[@]}"
-echo "Skipped (declared precondition): ${#skippedExamples[@]}"
-if [ "${#skippedExamples[@]}" -gt 0 ]; then
-  printf '  - %s\n' "${skippedExamples[@]}"
-fi
 
 if [ ${#failedExamples[@]} -gt 0 ]; then
   echo ""
@@ -344,9 +340,5 @@ if [ ${#failedExamples[@]} -gt 0 ]; then
   exit 1
 else
   echo ""
-  if [ "${#skippedExamples[@]}" -gt 0 ]; then
-    echo "Execution completed with declared precondition skips; those profiles remain unqualified."
-  else
-    echo "All examples passed successfully!"
-  fi
+  echo "All examples passed successfully!"
 fi
