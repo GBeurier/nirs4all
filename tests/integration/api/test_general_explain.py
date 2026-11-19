@@ -12,6 +12,75 @@ from nirs4all import explain
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
 
 
+def test_affine_explanation_does_not_certify_arbitrary_wrappers_or_clipping():
+    from types import SimpleNamespace
+
+    from sklearn.preprocessing import MinMaxScaler
+
+    from nirs4all.api.general_explain import _is_affine_predictor
+
+    assert not _is_affine_predictor(SimpleNamespace(estimator=Ridge()))
+    assert not _is_affine_predictor(Pipeline([("scale", MinMaxScaler(clip=True)), ("model", Ridge())]))
+
+
+def test_explicit_linear_shap_preserves_scaled_pls_target_units(monkeypatch):
+    from sklearn.cross_decomposition import PLSRegression
+
+    from nirs4all.api import general_explain
+    from nirs4all.api.result import _DagmlExportedModel
+
+    X = np.random.default_rng(12).normal(size=(24, 64)) + 50
+    y = 100 + X[:, 0] - X[:, 3]
+    target = StandardScaler().fit(y[:, None])
+    pipeline = Pipeline([("scale", StandardScaler()), ("model", PLSRegression(n_components=3))]).fit(X, target.transform(y[:, None]))
+    predictor = _DagmlExportedModel(pipeline, target)
+    monkeypatch.setattr(general_explain, "_load_captured_source", lambda *args: {
+        "artifact": {"estimator": predictor}, "model_name": "PLS", "manifest": {},
+    })
+    explanation = explain("captured.n4a", X, sample_indices=[1, 8], explainer_type="linear", visualizations=[], plots_visible=False, verbose=0)
+    assert explanation.explainer_type == "LinearExplainer"
+    np.testing.assert_allclose(explanation.values.sum(axis=1) + explanation.base_value, predictor.predict(X[[1, 8]]).reshape(-1), atol=1e-7)
+
+
+def test_explicit_tree_shap_reuses_unchanged_forest_predictor(monkeypatch):
+    import shap
+    from sklearn.ensemble import RandomForestRegressor
+
+    from nirs4all.api import general_explain
+    from nirs4all.api.result import _DagmlExportedModel
+
+    X = np.random.default_rng(63).normal(size=(20, 8))
+    pipeline = Pipeline([("model", RandomForestRegressor(n_estimators=3, max_depth=3, random_state=42))]).fit(X, X[:, 0] ** 2 - X[:, 2])
+    predictor = _DagmlExportedModel(pipeline, None)
+    monkeypatch.setattr(general_explain, "_load_captured_source", lambda *args: {
+        "artifact": {"estimator": predictor}, "model_name": "Forest", "manifest": {},
+    })
+    monkeypatch.setattr(shap, "KernelExplainer", lambda *args, **kwargs: pytest.fail("tree must not become kernel"))
+    explanation = explain("captured.n4a", X[:3], explainer_type="tree", visualizations=[], plots_visible=False, verbose=0)
+    assert explanation.explainer_type == "TreeExplainer"
+    np.testing.assert_allclose(explanation.values.sum(axis=1) + explanation.base_value, predictor.predict(X[:3]), atol=1e-7)
+
+
+@pytest.mark.parametrize("nonlinear", [False, True])
+def test_auto_shap_on_spectral_axis_avoids_kernel_regression_and_keeps_additivity(monkeypatch, nonlinear):
+    import shap
+
+    from nirs4all.api import general_explain
+
+    X = np.random.default_rng(32).normal(size=(12, 128))
+    from sklearn.preprocessing import Normalizer
+
+    predictor = Pipeline([("scale", Normalizer() if nonlinear else StandardScaler()), ("model", Ridge())]).fit(X, X[:, 0] - 2 * X[:, 7])
+    monkeypatch.setattr(general_explain, "_load_captured_source", lambda *args: {
+        "artifact": {"estimator": predictor}, "model_name": "Ridge", "manifest": {},
+    })
+    monkeypatch.setattr(shap, "KernelExplainer", lambda *args, **kwargs: pytest.fail("unbounded kernel regression"))
+    monkeypatch.setattr(Pipeline, "fit", lambda *args, **kwargs: pytest.fail("predictor retrained"))
+    explained = explain("captured.n4a", X, n_samples=4, sample_indices=[2, 8], visualizations=[], verbose=0, plots_visible=False)
+    assert explained.explainer_type == ("PermutationExplainer" if nonlinear else "LinearExplainer")
+    np.testing.assert_allclose(explained.values.sum(axis=1) + explained.base_value, predictor.predict(X[[2, 8]]), atol=1e-5)
+
+
 @pytest.mark.parametrize("kind", ["regression", "multi_target", "classification"])
 def test_captured_shap_additivity_and_no_predictor_fit(kind, tmp_path, monkeypatch):
     import nirs4all
@@ -158,11 +227,13 @@ def test_general_explain_session_rejects_replaced_archive_before_pickle(tmp_path
 
 
 def test_general_explain_scientific_error_never_retries_legacy(tmp_path, monkeypatch):
+    from sklearn.preprocessing import Normalizer
+
     import nirs4all
     from nirs4all.visualization.analysis.shap import ShapAnalyzer
 
     X = np.random.default_rng(41).normal(size=(20, 3)).astype(np.float32)
-    result = nirs4all.run([Ridge()], (X, X[:, 0]), save_charts=False, verbose=0, workspace_path=tmp_path / "workspace")
+    result = nirs4all.run([Normalizer(), Ridge()], (X, X[:, 0]), save_charts=False, verbose=0, workspace_path=tmp_path / "workspace")
     calls = []
 
     def fail_once(*args, **kwargs):

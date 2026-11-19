@@ -504,6 +504,14 @@ class AreaNormalization(TransformerMixin, BaseEstimator):
     def _more_tags(self):
         return {"allow_nan": False}
 
+def _log_base(base: float | str) -> float:
+    """Normalize JSON/UI base labels without changing sklearn constructor state."""
+    value = np.e if base == "e" else float(base)
+    if not np.isfinite(value) or value <= 0 or value == 1:
+        raise ValueError("Logarithm base must be finite, positive and different from 1")
+    return value
+
+
 def log_transform(
     spectra: np.ndarray,
     base: float = np.e,
@@ -524,6 +532,7 @@ def log_transform(
     Returns:
         numpy.ndarray: Log-transformed spectra.
     """
+    base = _log_base(base)
     X = spectra.copy() if hasattr(spectra, 'copy') else np.array(spectra)
 
     # Apply manual offset first
@@ -583,6 +592,7 @@ class LogTransform(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise ValueError("LogTransform does not support scipy.sparse input")
 
+        _log_base(self.base)
         # Pre-compute the total offset that will be applied
         X_temp = X.copy() if hasattr(X, 'copy') else np.array(X)
 
@@ -616,14 +626,16 @@ class LogTransform(TransformerMixin, BaseEstimator):
         X_copy = np.where(X_copy <= 0, self.min_value, X_copy)
 
         # Perform log transform
-        result = np.log(X_copy) if self.base == np.e else np.log(X_copy) / np.log(self.base)
+        base = _log_base(self.base)
+        result = np.log(X_copy) if base == np.e else np.log(X_copy) / np.log(base)
 
         return result
 
     def inverse_transform(self, X):
         """Exact inverse of the forward transform."""
         # X = check_array(X, copy=self.copy, dtype=FLOAT_DTYPES)
-        Y = np.exp(X) if self.base == np.e else np.power(self.base, X)
+        base = _log_base(self.base)
+        Y = np.exp(X) if base == np.e else np.power(base, X)
         return Y - self._fitted_offset
 
     def _more_tags(self):

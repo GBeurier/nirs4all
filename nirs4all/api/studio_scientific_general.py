@@ -74,6 +74,11 @@ def _validate_operator_imports(value: Any) -> None:
         for key in ("class", "function", "instance", "enum"):
             if key in value:
                 declaration = value[key]
+                if key == "class" and isinstance(declaration, str) and re.fullmatch(r"n4m:[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+", declaration):
+                    # Portable Methods tokens select a manifest role, never a
+                    # Python import. The canonical deserializer resolves and
+                    # validates the exact method through its owner registry.
+                    continue
                 if not isinstance(declaration, str) or not _MODULE_PATH.fullmatch(declaration):
                     raise StudioScientificJobError("invalid_operator", f"{key} must be a qualified approved operator name")
         for item in value.values():

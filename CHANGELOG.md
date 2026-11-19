@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.0] — 2026-11-19
+
+### Changed
+
+- Automatic captured-predictor SHAP uses exact raw-input affine attributions for
+  certified linear chains and seeded permutation SHAP for other predictors.
+  Preprocessing and inverse target scaling remain inside the explained predictor.
+- Playground previews exclude incomplete or nonfinite spectra before operators
+  and PCA, preserving sample, target, metadata and partition alignment. The source
+  dataset is unchanged and exclusions are reported.
+
+### Fixed
+
+- Explicit tree SHAP can reuse unchanged scalar tree predictors; incompatible
+  preprocessing or explainer requests fail with actionable errors.
+- LogTransform accepts natural-log and numeric string bases consistently.
+- Native Methods operators are resolved by their manifest token rather than their
+  display label, retaining strict identity checks for ordinary Python operators.
+
 ## [1.4.21] — 2026-11-19
 
 ### Changed

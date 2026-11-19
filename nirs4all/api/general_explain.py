@@ -35,6 +35,82 @@ class _CapturedPredictor:
         return matrix[:, self.output_index]
 
 
+def _is_affine_transform(operator: Any) -> bool:
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import MaxAbsScaler, MinMaxScaler, RobustScaler, StandardScaler
+
+    if operator is None or isinstance(operator, str) and operator == "passthrough":
+        return True
+    if not type(operator).__module__.startswith("sklearn.") or isinstance(operator, MinMaxScaler) and operator.clip:
+        return False
+    return isinstance(operator, (StandardScaler, MinMaxScaler, MaxAbsScaler, RobustScaler, PCA))
+
+
+def _is_affine_predictor(operator: Any) -> bool:
+    """Certify the fitted structure before extracting raw-input coefficients."""
+    from sklearn.base import is_classifier
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.linear_model._base import LinearModel
+    from sklearn.pipeline import Pipeline
+
+    from nirs4all.api.result import _DagmlExportedModel
+
+    if type(operator) is Pipeline:
+        return all(_is_affine_transform(step) for _, step in operator.steps[:-1]) and _is_affine_predictor(operator.steps[-1][1])
+    if type(operator).__module__.startswith("sklearn.") and isinstance(operator, (LinearModel, PLSRegression)):
+        return not is_classifier(operator)
+    # Captured DAG predictors retain their complete fitted X-chain and target
+    # inverse. Both must be affine; a class label or a local numerical probe is
+    # never evidence that an arbitrary nonlinear pipeline is globally linear.
+    if type(operator) is _DagmlExportedModel:
+        return _is_affine_predictor(operator.estimator) and _is_affine_transform(getattr(operator, "y_transform", None))
+    return False
+
+
+def _raw_affine_parameters(predictor: _CapturedPredictor, X: np.ndarray) -> tuple[np.ndarray, float] | None:
+    """Extract the certified affine callable in batches, without fitting."""
+    width = X.shape[1]
+    anchor = np.mean(X, axis=0, dtype=float)
+    steps = np.maximum(np.ptp(X, axis=0), 1.0)
+    baseline = float(predictor.predict(anchor[None])[0])
+    coefficients = np.empty(width, dtype=float)
+    for start in range(0, width, 128):
+        end = min(start + 128, width)
+        basis = np.tile(anchor, (end - start, 1))
+        basis[np.arange(end - start), np.arange(start, end)] += steps[start:end]
+        coefficients[start:end] = (predictor.predict(basis) - baseline) / steps[start:end]
+    intercept = baseline - float(anchor @ coefficients)
+    # Admission is relative to observed variation, not a potentially enormous
+    # target offset that could conceal cancellation in coefficient extraction.
+    expected = predictor.predict(X)
+    affine_replay_atol, affine_replay_rtol = 1e-8, 1e-6
+    tolerance = affine_replay_atol + affine_replay_rtol * float(np.ptp(expected))
+    if not np.all(np.abs((X @ coefficients + intercept) - expected) <= tolerance):
+        return None
+    return coefficients, intercept
+
+
+def _raw_tree_estimator(captured: Any, target_inverse: Any) -> Any:
+    """Expose an unchanged scalar tree predictor only across identity wrappers."""
+    from sklearn.pipeline import Pipeline
+
+    from nirs4all.api.result import _DagmlExportedModel
+
+    if target_inverse is not None:
+        return None
+    if type(captured) is _DagmlExportedModel:
+        if captured.y_transform is not None:
+            return None
+        captured = captured.estimator
+    elif not type(captured).__module__.startswith("sklearn."):
+        return None
+    if type(captured) is Pipeline:
+        if len(captured.steps) != 1:
+            return None
+        captured = captured.steps[0][1]
+    return captured
+
+
 def _load_captured_source(model: Any, session: Any, workspace_path: Any = None) -> dict[str, Any]:
     if isinstance(model, (str, Path)):
         expected = getattr(session, "_general_archive_fingerprint", None)
@@ -67,7 +143,7 @@ def _load_captured_source(model: Any, session: Any, workspace_path: Any = None) 
         return load_general_archive(archive)
 
 
-_SHAP_KINDS = {"KernelExplainer": ("kernel_shap", "sampled"), "TreeExplainer": ("tree_shap", "exact"), "LinearExplainer": ("linear_shap", "exact")}
+_SHAP_KINDS = {"KernelExplainer": ("kernel_shap", "sampled"), "TreeExplainer": ("tree_shap", "exact"), "LinearExplainer": ("linear_shap", "exact"), "PermutationExplainer": ("permutation_shap", "sampled")}
 
 
 def _explained_rows(sample_indices: Any, n_rows: int) -> list[int]:
@@ -96,21 +172,11 @@ def _affine_shap(predictor: _CapturedPredictor, X: np.ndarray, rows: list[int], 
     # Seeded like the Methods backend default so reference, base value and attributions are reproducible.
     take = np.sort(np.random.default_rng(LINEAR_BACKGROUND_SEED).choice(X.shape[0], size=min(background, X.shape[0]), replace=False))
     reference = X[take].mean(axis=0)
-    steps = X[take].std(axis=0)
-    steps[~(steps > 0)] = 1.0
-    probes = np.vstack([reference, reference + np.diag(steps)])
-    responses = predictor.predict(probes)
-    intercept = float(responses[0])
-    weights = (responses[1:] - intercept) / steps
-    checked = np.unique(np.concatenate([take, np.asarray(rows)]))
-    actual = predictor.predict(X[checked])
-    error = np.max(np.abs(actual - (intercept + (X[checked] - reference) @ weights)))
-    if not np.isfinite(error) or error > 1e-6 * max(float(np.max(np.abs(actual))), float(np.ptp(actual)), 1e-12):
-        raise ValueError(
-            "The linear explainer requires a pipeline that is linear in its raw inputs (for example linear preprocessing "
-            "followed by PLS or Ridge); this captured pipeline is not. Use the 'auto' or 'kernel' explainer instead."
-        )
-    return (X[rows] - reference) * weights, intercept
+    parameters = _raw_affine_parameters(predictor, X)
+    if parameters is None:
+        raise ValueError("Raw linear SHAP reconstruction is numerically unstable; use auto or kernel.")
+    weights, intercept = parameters
+    return (X[rows] - reference) * weights, float(reference @ weights + intercept)
 
 
 def explain_general(
@@ -234,7 +300,11 @@ def explain_general(
     else:
         import shap
 
-        if explainer_type == "linear":
+        affine = not probabilities and _is_affine_predictor(captured) and _is_affine_transform(target_inverse)
+        use_linear = explainer_type == "linear" or explainer_type == "auto" and affine and _raw_affine_parameters(predictor, X) is not None
+        if use_linear:
+            if not affine:
+                raise ValueError("Linear SHAP requires a pipeline that is linear in its raw inputs; use auto or kernel.")
             # shap.LinearExplainer cannot read a complete captured chain; explain
             # its verified raw-input affine form exactly instead of sampling.
             values, base_value = _affine_shap(predictor, X, rows, background)
@@ -244,10 +314,19 @@ def explain_general(
         else:
             from nirs4all.visualization.analysis.shap import ShapAnalyzer
 
+            selected_explainer = "permutation" if explainer_type == "auto" else explainer_type
+            explained_model: Any = predictor
+            if explainer_type == "tree" and not probabilities and output_index == 0:
+                tree = _raw_tree_estimator(captured, target_inverse)
+                if tree is None or np.asarray(tree.predict(X[:1])).size != 1:
+                    raise ValueError("Tree SHAP requires an unchanged single-output tree predictor; use auto for a preprocessing pipeline.")
+                explained_model = tree
+            elif explainer_type in {"tree", "deep"}:
+                raise ValueError(f"{explainer_type} SHAP cannot explain this complete captured pipeline; use auto or kernel.")
             analyzer = ShapAnalyzer()
             analyzed = analyzer.explain_model(
-                predictor, X, feature_names=names, sample_indices=rows if options.get("sample_indices") is not None else None,
-                n_background=background, explainer_type=explainer_type, visualizations=[], plots_visible=False,
+                explained_model, X, feature_names=names, sample_indices=rows if options.get("sample_indices") is not None else None,
+                n_background=background, explainer_type=selected_explainer, visualizations=[], plots_visible=False,
                 bin_size=options.get("bin_size", 20), bin_stride=options.get("bin_stride", 10),
                 bin_aggregation=options.get("bin_aggregation", "sum"),
             )
@@ -265,8 +344,8 @@ def explain_general(
             attributions=values[:, :, None], std_error=None, expected=expected, prediction=prediction,
             additivity_max_abs_error=float(np.max(np.abs(values.sum(axis=1)[:, None] + expected - prediction))),
             settings={"baseline": "background", "n_background": min(background, X.shape[0]),
-                      **({"background_selection": "seeded_without_replacement", "seed": LINEAR_BACKGROUND_SEED} if explainer_type == "linear"
-                         else {"background_selection": "unseeded_random_without_replacement"}),
+                      **({"background_selection": "seeded_without_replacement", "seed": LINEAR_BACKGROUND_SEED} if actual_explainer == "LinearExplainer"
+                         else {"background_selection": "seeded_without_replacement", "seed": 42}),
                       "explainer": actual_explainer, "model_output_index": output_index, "grouping": "per_feature"},
         )
         summary = f"SHAP for captured REFIT predictor, {level} input columns, {unit} output {output_index}; {len(values)} rows. No training performed."

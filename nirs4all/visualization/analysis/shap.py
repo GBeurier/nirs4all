@@ -125,7 +125,12 @@ class ShapAnalyzer:
         logger.info("Computing SHAP values...")
 
         # No need to reshape - the predict function wrapper handles it
-        self.shap_values = self.explainer.shap_values(X_explain)
+        if isinstance(self.explainer, shap.PermutationExplainer):
+            explanation = self.explainer(X_explain, max_evals=5 * (2 * X.shape[1] + 1), batch_size=10, silent=True)
+            self.shap_values = explanation.values
+            self.base_value = float(np.asarray(explanation.base_values).reshape(-1)[0])
+        else:
+            self.shap_values = self.explainer.shap_values(X_explain)
 
         # Handle multi-output case (e.g., multi-class classification)
         if isinstance(self.shap_values, list):
@@ -138,7 +143,9 @@ class ShapAnalyzer:
             self.shap_values = self.shap_values.squeeze(axis=2)
 
         # Get base value (expected value)
-        if hasattr(self.explainer, 'expected_value'):
+        if isinstance(self.explainer, shap.PermutationExplainer):
+            pass  # The callable API returns the prediction baseline per row.
+        elif hasattr(self.explainer, 'expected_value'):
             self.base_value = self.explainer.expected_value
             if isinstance(self.base_value, np.ndarray):
                 self.base_value = self.base_value[0]
@@ -266,6 +273,14 @@ class ShapAnalyzer:
     ):
         """Create appropriate SHAP explainer based on model type."""
 
+        background = X
+        if len(X) > n_background:
+            indices = np.random.default_rng(42).choice(len(X), n_background, replace=False)
+            background = X[indices]
+        if explainer_type == "permutation":
+            masker = shap.maskers.Independent(background, max_samples=len(background))
+            return shap.PermutationExplainer(model.predict, masker, seed=42)
+
         if explainer_type == "auto":
             # Auto-detect best explainer
             model_type = type(model).__name__
@@ -298,7 +313,7 @@ class ShapAnalyzer:
 
         if explainer_type == "linear":
             try:
-                return shap.LinearExplainer(model, X)
+                return shap.LinearExplainer(model, background)
             except Exception as e:
                 error_msg = str(e).split('\n')[0]
                 logger.warning(f"   LinearExplainer failed: {error_msg}, falling back to Kernel")
@@ -317,7 +332,7 @@ class ShapAnalyzer:
 
                 with warnings.catch_warnings():
                     warnings.filterwarnings('ignore', category=Warning)
-                    explainer = shap.DeepExplainer(model, X[:n_background])
+                    explainer = shap.DeepExplainer(model, background)
 
                 # Restore logging
                 tf_logger.setLevel(old_level)
@@ -331,15 +346,6 @@ class ShapAnalyzer:
 
         # Fallback to KernelExplainer (works with any model)
         if explainer_type == "kernel":
-            # Sample background data
-            if X.shape[0] > n_background:
-                background_indices = np.random.choice(
-                    X.shape[0], n_background, replace=False
-                )
-                background = X[background_indices]
-            else:
-                background = X
-
             # Create prediction function with proper wrapping for TensorFlow/Keras
             model_type = type(model).__name__
             is_keras = any(name in model_type for name in ['Sequential', 'Functional', 'Model'])

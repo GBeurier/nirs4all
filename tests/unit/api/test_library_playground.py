@@ -19,6 +19,21 @@ def request(operation, payload):
     return {"schema": STUDIO_PLAYGROUND_JOB_SCHEMA, "operation": operation, "request_id": "preview-1", "payload": payload}
 
 
+def test_native_role_identity_uses_manifest_token_not_palette_display_name(monkeypatch):
+    from types import SimpleNamespace
+
+    import nirs4all.api.library_playground as adapter
+
+    native = SimpleNamespace(_method_id="preprocessing.scatter.snv", fit_transform=lambda X: X)
+    monkeypatch.setattr(adapter, "deserialize_component", lambda declaration: native)
+    step = {"id": "snv", "type": "preprocessing", "name": "SNV (n4m)",
+            "operator": {"class": "n4m:preprocessing.scatter.snv", "params": {}}}
+    assert adapter._steps([step])[0].operator is native
+    native._method_id = "preprocessing.scaling.standard_scale"
+    with pytest.raises(StudioScientificJobError, match="name does not match"):
+        adapter._steps([step])
+
+
 def test_inline_canonical_steps_execute_and_return_strict_json():
     x = (np.arange(60, dtype=float).reshape(12, 5) + 1).tolist()
     response = studio_playground_job_v1(request("execute", {
