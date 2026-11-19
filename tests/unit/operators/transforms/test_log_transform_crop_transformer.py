@@ -16,6 +16,24 @@ from sklearn.base import clone
 class TestLogTransformFittedOffset:
     """Regression tests for LogTransform fitted-offset correctness."""
 
+    @pytest.mark.parametrize("base,numeric", [("e", np.e), ("10", 10), ("2", 2)])
+    def test_studio_base_labels_roundtrip_and_clone(self, base, numeric):
+        from nirs4all.operators.transforms import LogTransform, log_transform
+
+        values = np.array([[1., 2., 4.]])
+        operator = clone(LogTransform(base=base))
+        transformed = operator.fit_transform(values)
+        np.testing.assert_allclose(transformed, np.log(values) / np.log(numeric))
+        np.testing.assert_allclose(operator.inverse_transform(transformed), values)
+        np.testing.assert_allclose(log_transform(values, base=base), transformed)
+
+    @pytest.mark.parametrize("base", [0, 1, -2, np.inf, np.nan])
+    def test_invalid_base_reports_domain_error(self, base):
+        from nirs4all.operators.transforms import LogTransform
+
+        with pytest.raises(ValueError, match="Logarithm base"):
+            LogTransform(base=base).fit(np.ones((2, 3)))
+
     def test_fitted_offset_computed_from_train_data(self):
         """_fitted_offset is computed from fit() data, not transform() data."""
         from nirs4all.operators.transforms import LogTransform

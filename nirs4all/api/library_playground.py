@@ -146,7 +146,8 @@ def _steps(value: Any) -> list[PreviewStep]:
             expected_method = "split" if item["type"] == "splitting" else "get_mask" if item["type"] == "filter" else "fit_transform"
             if not callable(getattr(operator, expected_method, None)):
                 raise _refuse("invalid_operator", f"payload.steps[{index}] operator does not implement {expected_method}()")
-            if item["name"] != operator.__class__.__name__:
+            native_identity = declaration.get("class") == f"n4m:{getattr(operator, '_method_id', '')}"
+            if not native_identity and item["name"] != operator.__class__.__name__:
                 raise _refuse("operator_identity_mismatch", f"payload.steps[{index}] name does not match its canonical operator")
         elif declaration is not None:
             raise _refuse("invalid_operator", "SampleIndexFilter is an explicit index operation and takes no operator declaration")

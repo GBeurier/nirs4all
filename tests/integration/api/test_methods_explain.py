@@ -163,7 +163,7 @@ def test_default_shap_backend_records_python_shap_envelope(tmp_path):
     envelope = explained.to_explanation_v1()
     _validate_envelope(envelope, 2, 4)
     assert envelope["engine"] == {"name": "python-shap", "version": shap.__version__}
-    assert (envelope["kind"], envelope["exactness"], envelope["group_aggregation"]) == ("kernel_shap", "sampled", "none")
+    assert (envelope["kind"], envelope["exactness"], envelope["group_aggregation"]) == ("linear_shap", "exact", "none")
     assert envelope["rows"]["sample_indices"] == [4, 1]
     assert envelope["axis"]["kind"] == "feature_index"
     assert envelope["additivity_max_abs_error"] < 1e-6

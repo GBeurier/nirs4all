@@ -40,6 +40,18 @@ def _project(function: Callable[[], Any]) -> Any:
         return {"error": str(error)}
 
 
+def _finite_rows(batch: PreviewBatch, warnings: list[str]) -> tuple[PreviewBatch, np.ndarray]:
+    """Exclude incomplete spectra using the batch's aligned row selection."""
+    parents = np.flatnonzero(np.isfinite(batch.x).all(axis=1))
+    removed = len(batch.x) - len(parents)
+    if removed:
+        warnings.append(f"Excluded {removed} samples containing missing or infinite feature values from analysis; source data is unchanged.")
+        if not len(parents):
+            raise ValueError("No complete spectra remain after excluding missing or infinite feature values.")
+        batch = batch.take(parents)
+    return batch, parents
+
+
 def _step(batch: PreviewBatch, step: PreviewStep, options: dict[str, Any], limits: PreviewLimits,
           split_count: int) -> tuple[PreviewBatch, dict[str, Any]]:
     params = dict(step.params)
@@ -88,7 +100,7 @@ def execute_preview(batch: PreviewBatch, steps: list[PreviewStep] | None = None,
     original, subset, warnings = prepare_batch(batch, sampling, options)
     assert original.origins is not None  # prepare_batch establishes row lineage.
     budget.admit(*original.x.shape)
-    current = original
+    current, _ = _finite_rows(original, warnings)
     folds = None
     filter_info: dict[str, Any] | None = None
     augmentation: dict[str, Any] | None = None
@@ -102,6 +114,10 @@ def execute_preview(batch: PreviewBatch, steps: list[PreviewStep] | None = None,
             next_batch, info = _step(current, step, options, budget, split_count)
             if "parents" in info:
                 folds = remap_folds(folds, info["parents"], next_batch)
+            unfiltered_count = len(next_batch.x)
+            next_batch, finite_parents = _finite_rows(next_batch, warnings)
+            if len(finite_parents) != unfiltered_count:
+                folds = remap_folds(folds, finite_parents, next_batch)
             current = next_batch
             assert current.origins is not None  # All owner steps retain lineage.
             if "folds" in info:

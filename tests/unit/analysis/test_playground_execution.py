@@ -134,3 +134,30 @@ def test_step_count_is_bounded_only_by_an_explicit_host_option(batch):
     assert execute_preview(batch, steps, options={"compute_repetitions": False})["success"] is True
     with pytest.raises(ValueError, match="step count"):
         execute_preview(batch, steps, options={"max_steps": 59})
+
+
+def test_missing_spectra_are_excluded_before_operators_and_pca_with_aligned_rows(batch):
+    from dataclasses import replace
+
+    from sklearn.decomposition import PCA
+
+    values = batch.x.copy()
+    values[2, 0], values[7, 5], values[11, 4] = np.nan, np.inf, -np.inf
+    partitions = np.array(["train"] * 20 + ["test"] * 10)
+    dirty = replace(batch, x=values, partitions=partitions)
+    result = execute_preview(dirty, [PreviewStep("pca", "preprocessing", "PCA", PCA(n_components=3))])
+    kept = np.delete(np.arange(30), [2, 7, 11])
+    assert result["success"] is True
+    assert len(result["pca"]["coordinates"]) == 27
+    assert np.isfinite(result["pca"]["coordinates"]).all()
+    np.testing.assert_array_equal(result["processed"]["sample_indices"], kept)
+    for key, expected in (("y", batch.y), ("sample_ids", batch.sample_ids), ("sample_partitions", partitions)):
+        np.testing.assert_array_equal(result["processed"][key], expected[kept])
+    np.testing.assert_array_equal(result["processed"]["metadata"]["bio_sample"], batch.metadata["bio_sample"][kept])
+    assert "Excluded 3 samples" in result["warnings"][0]
+    assert np.isnan(values[2, 0])
+
+
+def test_all_missing_spectra_produce_actionable_error():
+    with pytest.raises(ValueError, match="No complete spectra remain"):
+        execute_preview(PreviewBatch.from_arrays([[np.nan, 1], [2, np.inf]]))
