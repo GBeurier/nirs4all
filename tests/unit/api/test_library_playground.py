@@ -139,3 +139,99 @@ def test_library_imposes_no_request_response_or_step_count_ceiling():
     response = studio_playground_job_v1(payload)
     assert response["result"]["success"] is True
     assert response["result"]["processed"]["shape"] == [12_000, 100]
+
+
+@pytest.fixture
+def csv_dataset(tmp_path, monkeypatch):
+    import nirs4all.api.library_playground as adapter
+
+    monkeypatch.setattr(adapter, "_loaded_dataset", None)
+    rng = np.random.default_rng(3)
+    x_path, y_path = tmp_path / "Xtrain.csv", tmp_path / "Ytrain.csv"
+    header = ";".join(str(1000 + 2 * index) for index in range(8))
+    np.savetxt(x_path, rng.normal(1.0, 0.1, size=(10, 8)), delimiter=";", header=header, comments="")
+    np.savetxt(y_path, rng.normal(size=(10, 2)), delimiter=";", header="a;b", comments="")
+    loads = []
+    original_load = adapter.load_dataset_for_analysis
+
+    def counting_load(config, **options):
+        loads.append(config)
+        return original_load(config, **options)
+
+    monkeypatch.setattr(adapter, "load_dataset_for_analysis", counting_load)
+    return {"config": {"train_x": str(x_path), "train_y": str(y_path)}}, x_path, loads
+
+
+def dataset_execution(dataset, *, target_index=0, steps=(), options=None):
+    return studio_playground_job_v1(request("execute", {
+        "dataset": dataset, "selection": {"partition": "train", "target_index": target_index}, "steps": list(steps),
+        "options": {"compute_repetitions": False, **(options or {})},
+    }))["result"]
+
+
+SNV_STEP = {"id": "snv", "type": "preprocessing", "name": "StandardNormalVariate", "params": {}, "enabled": True,
+            "operator": {"class": "nirs4all.operators.transforms.StandardNormalVariate", "params": {}}}
+
+
+def test_warm_host_reuses_the_loaded_dataset_for_an_identical_request(csv_dataset):
+    dataset, _, loads = csv_dataset
+    first = dataset_execution(dataset, target_index=0)
+    second = dataset_execution(dataset, target_index=1)
+    metadata = studio_playground_job_v1(request("metadata_columns", {"dataset": dataset}))
+    assert len(loads) == 1
+    assert second["dataset_reader"] == first["dataset_reader"] == metadata["result"]["dataset_reader"]
+    assert second["original"]["y"] != first["original"]["y"]
+
+
+def test_dataset_reuse_is_invalidated_when_an_input_file_changes(csv_dataset):
+    dataset, x_path, loads = csv_dataset
+    first = dataset_execution(dataset)
+    lines = x_path.read_text().splitlines()
+    x_path.write_text("\n".join([lines[0], *(";".join(["2.5"] * 8) for _ in lines[1:])]) + "\n")
+    second = dataset_execution(dataset)
+    assert len(loads) == 2
+    assert second["original"]["spectra"][0] == [2.5] * 8
+    assert first["original"]["spectra"][0] != second["original"]["spectra"][0]
+
+
+def test_dataset_reuse_is_invalidated_when_the_request_changes(csv_dataset):
+    dataset, _, loads = csv_dataset
+    dataset_execution(dataset)
+    dataset_execution({**dataset, "max_input_bytes": 10**9})
+    dataset_execution({"config": {**dataset["config"], "train_y_params": {"header": True}}})
+    assert len(loads) == 3
+
+
+def test_a_reused_dataset_is_not_changed_by_a_previous_request(csv_dataset):
+    import nirs4all.api.library_playground as adapter
+
+    dataset, _, loads = csv_dataset
+    raw = dataset_execution(dataset)
+    processed = dataset_execution(dataset, steps=[SNV_STEP])
+    assert processed["processed"]["spectra"] != raw["processed"]["spectra"]
+    again = dataset_execution(dataset)
+    assert len(loads) == 1
+    adapter._loaded_dataset = None
+    fresh = dataset_execution(dataset)
+    assert len(loads) == 2
+    for result in (again, fresh):
+        assert result["original"] == raw["original"]
+        assert result["processed"] == raw["processed"]
+        assert result["pca"] == raw["pca"]
+
+
+def test_unchanged_processed_spectra_are_sent_once_only_on_request(csv_dataset):
+    dataset, _, _ = csv_dataset
+    both = dataset_execution(dataset)
+    assert "processed_is_original" not in both
+    assert both["processed"]["spectra"] == both["original"]["spectra"]
+    once = dataset_execution(dataset, options={"omit_unchanged_processed_spectra": True})
+    assert once["processed_is_original"] is True
+    assert "spectra" not in once["processed"]
+    assert once["original"] == both["original"]
+    assert {key: value for key, value in both["processed"].items() if key != "spectra"} == once["processed"]
+    processed = dataset_execution(dataset, steps=[SNV_STEP], options={"omit_unchanged_processed_spectra": True})
+    assert "processed_is_original" not in processed
+    assert processed["processed"]["spectra"] != processed["original"]["spectra"]
+    with pytest.raises(StudioScientificJobError):
+        dataset_execution(dataset, options={"omit_unchanged_processed_spectra": "yes"})

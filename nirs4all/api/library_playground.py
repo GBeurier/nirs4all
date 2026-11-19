@@ -4,10 +4,24 @@ The caller owns path authorization, transport, cancellation and any request or
 response byte budget.  This module only validates one closed JSON request and
 delegates scientific work to the library's stateless Playground facade.  It
 opens no listener, queue or store and imposes no content-size ceiling.
+
+A warm host process keeps the last loaded dataset between requests.  It is
+reused only for an identical dataset request whose input files still have the
+same path, size, modification time and inode; scientific steps work on copies
+extracted from it, so a reused dataset gives the same result as a fresh load.
+
+Response contract additions (``nirs4all.studio-playground-result.v1``):
+
+* With ``options.omit_unchanged_processed_spectra`` set to ``true``, an
+  ``execute`` result whose processed spectra are bitwise identical to its
+  original spectra omits ``processed.spectra`` and carries
+  ``processed_is_original: true``; the caller reads ``original.spectra`` for
+  both.  Without the option, both matrices are always returned.
 """
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import date, datetime, time
 from typing import Any, Final, cast
@@ -24,7 +38,8 @@ from nirs4all.analysis.playground_facade import preview_arrays, preview_spectro_
 from nirs4all.analysis.playground_metrics import ALL_METRICS
 from nirs4all.analysis.playground_prepare import PreviewStep
 from nirs4all.analysis.playground_types import PreviewLimits
-from nirs4all.api.dataset_inspection import load_dataset_for_analysis
+from nirs4all.api.dataset_documents import normalize_dataset_document
+from nirs4all.api.dataset_inspection import _references, load_dataset_for_analysis
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 from .studio_scientific import StudioScientificJobError
@@ -37,9 +52,12 @@ _OPTION_KEYS = frozenset({
     "auto_detect_repetitions", "bio_sample_column", "bio_sample_pattern", "compute_metrics",
     "compute_pca", "compute_repetitions", "compute_statistics", "compute_umap", "dataset_repetition",
     "distance_metric", "lof_contamination", "max_covariance_cells", "max_response_cells", "max_steps",
-    "max_wavelengths_returned", "metrics", "n_pca_components", "saturation_threshold", "split_index",
-    "subset_mode", "max_samples_displayed", "umap_params", "use_cache",
+    "max_wavelengths_returned", "metrics", "n_pca_components", "omit_unchanged_processed_spectra",
+    "saturation_threshold", "split_index", "subset_mode", "max_samples_displayed", "umap_params", "use_cache",
 })
+# One warm host process serves one request at a time; it keeps its last loaded
+# dataset as (request key, input file stamps, dataset, reader evidence).
+_loaded_dataset: tuple[str, tuple[tuple[str, int, int, int], ...], Any, dict[str, Any]] | None = None
 
 
 def _refuse(code: str, message: str) -> StudioScientificJobError:
@@ -88,10 +106,13 @@ def _sampling(value: Any) -> dict[str, Any] | None:
 
 def _options(value: Any) -> dict[str, Any]:
     item = _object(value or {}, required=set(), allowed=set(_OPTION_KEYS), where="payload.options")
-    # The historical flag is accepted as an explicit no-op; this callable is
-    # stateless and never reintroduces the unsafe prefix cache.
+    # The historical flag is accepted as an explicit no-op; this callable keeps
+    # no results (only the loaded dataset) and never reintroduces the unsafe
+    # prefix cache.
     if item.get("use_cache") not in {None, True, False}:
         raise _refuse("invalid_option", "options.use_cache must be a boolean")
+    if item.get("omit_unchanged_processed_spectra") not in {None, True, False}:
+        raise _refuse("invalid_option", "options.omit_unchanged_processed_spectra must be a boolean")
     return item
 
 
@@ -136,7 +157,19 @@ def _steps(value: Any) -> list[PreviewStep]:
     return result
 
 
+def _input_stamps(config: dict[str, Any]) -> tuple[tuple[str, int, int, int], ...] | None:
+    """Return the identity of every declared input file, or None when one cannot be read."""
+    try:
+        paths = dict.fromkeys(_references(normalize_dataset_document(config)))
+        stats = [(str(path), path.stat()) for path in paths]
+    except Exception:
+        # The loader reports the actual problem; such a request is never reused.
+        return None
+    return tuple((path, stat.st_size, stat.st_mtime_ns, stat.st_ino) for path, stat in stats) or None
+
+
 def _dataset(value: Any) -> tuple[Any, dict[str, Any]]:
+    global _loaded_dataset
     item = _object(value, required={"config"}, allowed={"config", "load_limits", "max_input_bytes"}, where="payload.dataset")
     if type(item["config"]) is not dict:
         raise _refuse("invalid_dataset", "payload.dataset.config must be one authorized canonical dataset object")
@@ -144,10 +177,33 @@ def _dataset(value: Any) -> tuple[Any, dict[str, Any]]:
     load_limits = item.get("load_limits")
     if load_limits is not None and type(load_limits) is not dict:
         raise _refuse("invalid_dataset", "dataset.load_limits must be an object")
+    key = json.dumps({"config": item["config"], "load_limits": load_limits, "max_input_bytes": maximum},
+                     sort_keys=True, separators=(",", ":"))
+    stamps = _input_stamps(item["config"])
+    if stamps is not None and _loaded_dataset is not None and _loaded_dataset[:2] == (key, stamps):
+        return _loaded_dataset[2], dict(_loaded_dataset[3])
+    # Release the previous dataset before loading another one.
+    _loaded_dataset = None
     try:
-        return load_dataset_for_analysis(item["config"], load_limits=load_limits, max_input_bytes=maximum)
+        dataset, reader = load_dataset_for_analysis(item["config"], load_limits=load_limits, max_input_bytes=maximum)
     except Exception as error:
         raise _refuse("dataset_load_failed", str(error)) from error
+    # A file that changed while it was read is not kept.
+    if stamps is not None and _input_stamps(item["config"]) == stamps:
+        _loaded_dataset = (key, stamps, dataset, dict(reader))
+    return dataset, reader
+
+
+def _omit_unchanged_processed_spectra(result: dict[str, Any]) -> None:
+    """Send the spectra once when processing left them bitwise unchanged."""
+    original, processed = result.get("original"), result.get("processed")
+    if not isinstance(original, dict) or not isinstance(processed, dict):
+        return
+    before, after = original.get("spectra"), processed.get("spectra")
+    if (isinstance(before, np.ndarray) and isinstance(after, np.ndarray) and before.dtype == after.dtype
+            and before.shape == after.shape and before.tobytes() == after.tobytes()):
+        del processed["spectra"]
+        result["processed_is_original"] = True
 
 
 def _execute(payload: dict[str, Any]) -> dict[str, Any]:
@@ -157,27 +213,31 @@ def _execute(payload: dict[str, Any]) -> dict[str, Any]:
     limits = _limits(payload.get("limits"))
     steps = _steps(payload.get("steps", []))
     sampling = _sampling(payload.get("sampling"))
-    options = _options(payload.get("options"))
+    options = dict(_options(payload.get("options")))
+    omit_unchanged = options.pop("omit_unchanged_processed_spectra", False)
     if "data" in payload:
         data = _object(payload["data"], required={"x"},
                        allowed={"x", "y", "wavelengths", "sample_ids", "metadata", "partitions", "header_unit"}, where="payload.data")
-        return preview_arrays(data["x"], y=data.get("y"), wavelengths=data.get("wavelengths"),
-                              sample_ids=data.get("sample_ids"), metadata=data.get("metadata"), partitions=data.get("partitions"),
-                              header_unit=data.get("header_unit"), steps=steps, sampling=sampling, options=options, limits=limits)
-    dataset, reader = _dataset(payload["dataset"])
-    selection = _object(payload.get("selection", {}), required=set(),
-                        allowed={"partition", "source_index", "target_index"}, where="payload.selection")
-    result = preview_spectro_dataset(
-        dataset,
-        partition=selection.get("partition", "all"),
-        source_index=_integer(selection.get("source_index", 0), "selection.source_index"),
-        target_index=_integer(selection.get("target_index", 0), "selection.target_index"),
-        steps=steps,
-        sampling=sampling,
-        options=options,
-        limits=limits,
-    )
-    result["dataset_reader"] = reader
+        result = preview_arrays(data["x"], y=data.get("y"), wavelengths=data.get("wavelengths"),
+                                sample_ids=data.get("sample_ids"), metadata=data.get("metadata"), partitions=data.get("partitions"),
+                                header_unit=data.get("header_unit"), steps=steps, sampling=sampling, options=options, limits=limits)
+    else:
+        dataset, reader = _dataset(payload["dataset"])
+        selection = _object(payload.get("selection", {}), required=set(),
+                            allowed={"partition", "source_index", "target_index"}, where="payload.selection")
+        result = preview_spectro_dataset(
+            dataset,
+            partition=selection.get("partition", "all"),
+            source_index=_integer(selection.get("source_index", 0), "selection.source_index"),
+            target_index=_integer(selection.get("target_index", 0), "selection.target_index"),
+            steps=steps,
+            sampling=sampling,
+            options=options,
+            limits=limits,
+        )
+        result["dataset_reader"] = reader
+    if omit_unchanged:
+        _omit_unchanged_processed_spectra(result)
     return result
 
 
