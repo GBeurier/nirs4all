@@ -651,6 +651,9 @@ def _refit_nested_stacking_branch(
             _current_depth=current_depth + 1,
         )
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         logger.error(
             f"Nested stacking refit failed for "
             f"branch {branch_i}: {e}"
@@ -771,6 +774,9 @@ def _refit_base_branch(
             generator_choices=refit_config.generator_choices,
         )
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         logger.error(f"Stacking refit: base model branch {branch_i} failed: {e}")
         return _ABORT_STACKING_REFIT
 
@@ -1104,6 +1110,9 @@ def execute_stacking_refit(
             return result
 
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         logger.error(f"Stacking refit failed: {e}")
         result.success = False
     finally:

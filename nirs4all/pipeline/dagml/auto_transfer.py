@@ -10,6 +10,32 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 
+def transfer_selection_metadata(estimator: Any) -> list[dict[str, Any]]:
+    """Snapshot selections retained in fitted host chains without evaluating data."""
+    selections: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    def visit(value: Any, path: str) -> None:
+        if value is None or id(value) in seen:
+            return
+        seen.add(id(value))
+        if isinstance(value, DagMLAutoTransferPreprocessor):
+            selections.append({"path": path, "recommendation": deepcopy(value.recommendation_)})
+        elif isinstance(value, (list, tuple)):
+            for index, child in enumerate(value):
+                visit(child, f"{path}/{index}")
+        elif hasattr(value, "__dict__"):
+            state = vars(value)
+            # Only the SDK/sklearn fitted-chain links; never scan data buffers or
+            # arbitrary estimator state during result serialization.
+            for name in ("steps", "source_steps", "_source_chains", "transformer", "chain", "estimator", "model", "_model", "branches"):
+                if name in state:
+                    visit(state[name], f"{path}/{name}")
+
+    visit(estimator, "estimator")
+    return selections
+
+
 class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
     """Select a preprocessing from explicit source and target partition views.
 
@@ -38,6 +64,7 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
 
     def select_with_views(self, views: dict[str, tuple[np.ndarray, np.ndarray | None]]) -> DagMLAutoTransferPreprocessor:
         """Choose once from the joint feature view before source-local fitting."""
+        self.__dict__.pop("recommendation_", None)
         from nirs4all.analysis import TransferPreprocessingSelector
         from nirs4all.controllers.data.auto_transfer_preproc import AutoTransferPreprocessingController
 
@@ -49,78 +76,94 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
             raise ValueError("auto_transfer_preproc requires nonempty source and target partitions")
         selector = TransferPreprocessingSelector(**controller._build_selector_kwargs(config))  # noqa: SLF001
         results = selector.fit(source[0], target[0], source[1], target[1])
-        self.recommendation_ = {
+        self.recommendation_: dict[str, Any] = {
             "pipeline_spec": results.to_pipeline_spec(
                 top_k=config["top_k"], use_augmentation=config["use_augmentation"],
             ),
             "best_name": results.best.name,
             "transfer_score": results.best.transfer_score,
             "improvement_pct": results.best.improvement_pct,
+            "complete": results.complete,
+            "candidate_records": [record.to_dict() for record in results.candidate_records],
         }
         return self
 
     def fit_selected(self, recommendation: dict[str, Any], train_x: np.ndarray) -> DagMLAutoTransferPreprocessor:
         """Fit the selected preprocessing on one source's training features."""
+        self.__dict__.pop("recommendation_", None)
+        from nirs4all.analysis import TransferCandidateRecord, TransferSelectionError
         from nirs4all.controllers.data.auto_transfer_preproc import AutoTransferPreprocessingController
 
-        config = AutoTransferPreprocessingController()._parse_config(self.config)  # noqa: SLF001
-        self.recommendation_ = recommendation
-        self._chains: list[list[Any]] = []
-        self._channel_chains: list[list[list[Any]]] = []
-        self._augment = False
-        if config["apply_recommendation"]:
-            from nirs4all.analysis import get_base_preprocessings
+        records = [TransferCandidateRecord(**record) for record in recommendation.get("candidate_records", [])]
+        if recommendation.get("complete") is not True or any(record.status in ("failed", "non_finite") for record in records):
+            raise TransferSelectionError("Cannot fit an incomplete transfer preprocessing recommendation", records)
+        try:
+            config = AutoTransferPreprocessingController()._parse_config(self.config)  # noqa: SLF001
+            self.recommendation_ = recommendation
+            self._chains: list[list[Any]] = []
+            self._channel_chains: list[list[list[Any]]] = []
+            self._augment = False
+            if config["apply_recommendation"]:
+                from nirs4all.analysis import get_base_preprocessings
 
-            preprocessings = get_base_preprocessings()
-            spec = self.recommendation_["pipeline_spec"]
-            if isinstance(spec, str):
-                names = [spec]
-            elif isinstance(spec, list) and all(isinstance(name, str) for name in spec):
-                names = spec
-            elif isinstance(spec, dict) and isinstance(spec.get("feature_augmentation"), list):
-                names = spec["feature_augmentation"]
-                self._augment = True
-            else:
-                raise ValueError(f"unsupported transfer preprocessing recommendation {spec!r}")
-
-            def fit_chain(name: str, X: np.ndarray) -> tuple[list[Any], np.ndarray]:
-                chain: list[Any] = []
-                branch = X
-                for component in name.split(">"):
-                    if component not in preprocessings:
-                        raise ValueError(f"unknown transfer preprocessing {component!r}")
-                    transform = deepcopy(preprocessings[component])
-                    transform.fit(branch)
-                    branch = np.asarray(transform.transform(branch))
-                    chain.append(transform)
-                return chain, branch
-
-            raw = np.asarray(train_x)
-            widths = getattr(self, "input_channel_widths_", None)
-            if widths is not None:
-                if sum(widths) != raw.shape[1]:
-                    raise ValueError("auto_transfer_preproc processing widths do not match fitted features")
-                channels = np.split(raw, np.cumsum(widths)[:-1], axis=1)
-                if self._augment:
-                    for name in names:
-                        chain, _ = fit_chain(name, channels[0])
-                        self._chains.append(chain)
+                preprocessings = get_base_preprocessings()
+                spec = self.recommendation_["pipeline_spec"]
+                if isinstance(spec, str):
+                    names = [spec]
+                elif isinstance(spec, list) and all(isinstance(name, str) for name in spec):
+                    names = spec
+                elif isinstance(spec, dict) and isinstance(spec.get("feature_augmentation"), list):
+                    names = spec["feature_augmentation"]
+                    self._augment = True
                 else:
-                    for channel in channels:
-                        current = channel
-                        channel_chains = []
+                    raise ValueError(f"unsupported transfer preprocessing recommendation {spec!r}")
+
+                def fit_chain(name: str, X: np.ndarray) -> tuple[list[Any], np.ndarray]:
+                    chain: list[Any] = []
+                    branch = X
+                    for component in name.split(">"):
+                        if component not in preprocessings:
+                            raise ValueError(f"unknown transfer preprocessing {component!r}")
+                        transform = deepcopy(preprocessings[component])
+                        transform.fit(branch)
+                        branch = np.asarray(transform.transform(branch))
+                        chain.append(transform)
+                    return chain, branch
+
+                raw = np.asarray(train_x)
+                widths = getattr(self, "input_channel_widths_", None)
+                if widths is not None:
+                    if sum(widths) != raw.shape[1]:
+                        raise ValueError("auto_transfer_preproc processing widths do not match fitted features")
+                    channels = np.split(raw, np.cumsum(widths)[:-1], axis=1)
+                    if self._augment:
                         for name in names:
-                            chain, current = fit_chain(name, current)
-                            channel_chains.append(chain)
-                        self._channel_chains.append(channel_chains)
-            else:
-                current = raw
-                for name in names:
-                    chain, branch = fit_chain(name, raw if self._augment else current)
-                    self._chains.append(chain)
-                    if not self._augment:
-                        current = branch
-        return self
+                            chain, _ = fit_chain(name, channels[0])
+                            self._chains.append(chain)
+                    else:
+                        for channel in channels:
+                            current = channel
+                            channel_chains = []
+                            for name in names:
+                                chain, current = fit_chain(name, current)
+                                channel_chains.append(chain)
+                            self._channel_chains.append(channel_chains)
+                else:
+                    current = raw
+                    for name in names:
+                        chain, branch = fit_chain(name, raw if self._augment else current)
+                        self._chains.append(chain)
+                        if not self._augment:
+                            current = branch
+            return self
+        except Exception as error:
+            self.__dict__.pop("recommendation_", None)
+            record = TransferCandidateRecord(
+                str(recommendation.get("best_name", "recommendation")), "selection", "failed", stage="recommendation",
+                exception_type=type(error).__name__, message=str(error),
+            )
+            raise TransferSelectionError("Cannot apply transfer preprocessing recommendation", [*records, record]) from error
+
 
     def transform(self, X: Any) -> np.ndarray:
         """Replay the selected transforms, or preserve X in analysis-only mode."""

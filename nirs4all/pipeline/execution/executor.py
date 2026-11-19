@@ -1059,6 +1059,9 @@ class PipelineExecutor:
             # Record step end even on failure
             if runtime_context:
                 runtime_context.record_step_end(skip_trace=True)
+            from nirs4all.analysis.results import TransferSelectionError
+
+            TransferSelectionError.reraise_if_present(e)
             if self.continue_on_error:
                 logger.warning(f"Branch {branch_id} step {self.step_number} failed: {str(e)}")
                 # Keep original context on failure
@@ -1260,6 +1263,9 @@ class PipelineExecutor:
             # Record step end even on failure
             if runtime_context:
                 runtime_context.record_step_end(skip_trace=True)
+            from nirs4all.analysis.results import TransferSelectionError
+
+            TransferSelectionError.reraise_if_present(e)
             if self.continue_on_error:
                 logger.warning(f"Step {self.step_number} failed but continuing: {str(e)}")
             else:

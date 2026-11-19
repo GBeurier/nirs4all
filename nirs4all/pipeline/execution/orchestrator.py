@@ -287,6 +287,9 @@ class PipelineOrchestrator:
               except RunCancelledError:
                 raise
               except Exception as e:
+                from nirs4all.analysis.results import TransferSelectionError
+
+                TransferSelectionError.reraise_if_present(e)
                 logger.error(f"Dataset '{name}' failed: {e}")
                 failed_datasets.append(name)
                 # For single-dataset runs, propagate the exception immediately
@@ -2764,6 +2767,9 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
             f"{config_predictions.num_predictions} predictions generated"
         )
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         error_msg = str(e)
         # Check if this is a recoverable error (invalid hyperparameters for this dataset)
         if 'n_components' in error_msg or 'upper bound' in error_msg or 'Invalid hyperparameters' in error_msg:

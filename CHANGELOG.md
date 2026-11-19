@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Preflight PCA requests also account for projection work at admission.
 - Qualify the native aggregate with DAG-ML 0.5.0 and Core 0.6.0. The supported
   dependency ranges remain limited to one tested minor series.
+- Automatic transfer preprocessing selection fails on every unexpected candidate
+  exception or non-finite score, including supervised validation. Results retain
+  every candidate outcome; declared pre-computation applicability exclusions are
+  explicit. Recommendations and archived run metadata preserve these records,
+  and incomplete searches cannot produce automatic pipelines.
+- Require Methods/pls4all 1.5.1, whose Python binding fixes concurrent first
+  imports of transform modules without changing numerical kernels or ABI.
+  Preserve serialized preprocessing constructor parameters before selection;
+  unresolved generator combinations and recommendation application failures
+  refuse explicitly, including with generic continuation or refit policies.
 
 ## [1.5.0] — 2026-11-19
 

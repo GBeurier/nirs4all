@@ -171,6 +171,9 @@ def execute_simple_refit(
         runtime_context.phase = ExecutionPhase.CV
         runtime_context.refit_fold_id = prev_refit_fold_id
         runtime_context.refit_context_name = prev_refit_context_name
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         return result
 
     # Mark refit prediction entries with fold_id="final", refit_context, and metadata

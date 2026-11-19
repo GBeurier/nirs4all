@@ -686,6 +686,15 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
     )
     if host_searches and getattr(result, "_dagml_generated_view_manifest", None) is None:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
+    from .auto_transfer import transfer_selection_metadata
+
+    transfer_selections = [
+        {"artifact_id": artifact.get("artifact_id"), "selections": selections}
+        for artifact in result._dagml_refit_artifacts
+        if (selections := transfer_selection_metadata(artifact.get("estimator")))
+    ]
+    if transfer_selections:
+        manifest["transfer_preprocessing_selection"] = {"artifacts": transfer_selections}
     if stacking_replay is not None:
         manifest["stacking_replay"] = stacking_replay
     for key in ("relation_replay_manifest", "relation_materialization_manifest", "source_stacking", "stacking_evaluation", "separation_replay", "residual_replay"):

@@ -208,7 +208,7 @@ jobs:
       shell: bash
       run: 'set -euo pipefail
 
-        python -m pip install nirs4all-methods==1.5.0
+        python -m pip install nirs4all-methods==1.5.1
 
         source_root="$PWD"
 
@@ -286,7 +286,7 @@ jobs:
             "dag-ml": "0.5.0", "dag-ml-data": "0.2.17",
             "nirs4all-core": "0.6.0", "nirs4all-io": "0.3.6",
             "nirs4all-formats": "0.2.17",
-            "nirs4all-methods": "1.5.0", "pls4all": "1.5.0",
+            "nirs4all-methods": "1.5.1", "pls4all": "1.5.1",
         }
         actual = {name: metadata.version(name) for name in expected}
         assert actual == expected, actual
@@ -353,7 +353,7 @@ jobs:
         name: dist
         path: dist
     - name: Install built wheel
-      run: python -m pip install dist/*.whl nirs4all-methods==1.5.0
+      run: python -m pip install dist/*.whl nirs4all-methods==1.5.1
     - name: Verify installed package metadata, origins and native ABI
       shell: bash
       run: 'source_root="$PWD"

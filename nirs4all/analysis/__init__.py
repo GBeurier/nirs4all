@@ -50,7 +50,7 @@ from nirs4all.analysis.presets import PRESETS, get_preset, list_presets
 from nirs4all.analysis.projections import compute_pca_projection
 
 # Results
-from nirs4all.analysis.results import TransferResult, TransferSelectionResults
+from nirs4all.analysis.results import TransferCandidateRecord, TransferResult, TransferSelectionError, TransferSelectionResults
 
 # Main selector
 from nirs4all.analysis.selector import TransferPreprocessingSelector
@@ -90,6 +90,8 @@ __all__ = [
     "TransferPreprocessingSelector",
     # Results
     "TransferResult",
+    "TransferCandidateRecord",
+    "TransferSelectionError",
     "TransferSelectionResults",
     # Metrics
     "TransferMetrics",
