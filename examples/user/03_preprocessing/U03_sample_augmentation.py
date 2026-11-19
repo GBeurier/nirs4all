@@ -38,8 +38,6 @@ from nirs4all.operators.transforms import (
     GaussianAdditiveNoise,
     # Baseline augmenters
     LinearBaselineDrift,
-    # Advanced
-    MixupAugmenter,
     MultiplicativeNoise,
     PolynomialBaselineDrift,
     # Basic augmenters
@@ -96,9 +94,11 @@ Available Augmenters:
      Spline_Y_Perturbations  - Smooth Y-axis perturbations
      Spline_X_Simplification - Reduce spectral resolution
 
-  🎲 MIXING
-     MixupAugmenter         - Linear interpolation between samples
+  🎲 SCATTER
      ScatterSimulationMSC   - Simulate scatter effects
+
+MixupAugmenter is refused in controller pipelines: joint X/y mixing and
+multiple-parent sample identities are required before it can preserve labels.
 """)
 
 # =============================================================================
@@ -361,9 +361,6 @@ result_comprehensive = nirs4all.run(
     
                 # Spline
                 Spline_Y_Perturbations(perturbation_intensity=0.003),
-    
-                # Mixing
-                MixupAugmenter(),
             ],
             "count": 4,
             "selection": "random",
@@ -425,7 +422,7 @@ Available Augmenters:
   Rotate_Translate, GaussianAdditiveNoise, MultiplicativeNoise,
   LinearBaselineDrift, PolynomialBaselineDrift, WavelengthShift,
   WavelengthStretch, SmoothMagnitudeWarp, Spline_Y_Perturbations,
-  Spline_X_Perturbations, MixupAugmenter, ScatterSimulationMSC, ...
+  Spline_X_Perturbations, ScatterSimulationMSC, ...
 
 Next: U04_signal_conversion.py - Absorbance/Reflectance handling
 """)

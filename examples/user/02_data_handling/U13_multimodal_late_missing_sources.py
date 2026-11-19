@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import zipfile
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, cast
@@ -32,6 +31,7 @@ import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.operators.transforms import SequenceSummary
 from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
+from nirs4all.pipeline.dagml.host_container import open_n4a_source
 from nirs4all.pipeline.dagml.multimodal_tuning import MultimodalTuningStopped
 
 
@@ -159,8 +159,10 @@ def run_demo(output: Path, *, n_trials: int = 3, resume: bool = False, stop_afte
                 assert [trial.params for trial in trials[:count]] == previous["completed_trial_params"]
                 assert not set(new_trials).intersection(previous["completed_trial_numbers"])
             archive = result.export(output / "late-fusion.n4a")
-            with zipfile.ZipFile(archive) as bundle:
-                layout = json.loads(bundle.read("manifest.json"))["multimodal_host"]["source_presence"]
+            with open_n4a_source(archive) as opened:
+                manifest = opened.require_host().bundle_manifest
+                assert manifest is not None
+                layout = manifest["multimodal_host"]["source_presence"]
             assert layout["meta_feature_width"] == 4
             report = {
                 "fixture": "deterministic synthetic data", "nirs4all_version": nirs4all.__version__, "engine": result.execution_engine,
