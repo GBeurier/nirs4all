@@ -20,6 +20,7 @@ from sklearn.model_selection import GroupKFold
 
 # SHA-256 of ``n4m/roles/_multimodal.py`` in the published PyPI wheel and that release's ABI.
 PUBLIC_BINDING = {
+    "1.5.0": ("a0f6c78451a9e6038c278479226eb4b00b7272035d1091627bcf53dce81d504e", (2, 24, 0)),
     "1.3.2": ("bee669e75773c568171ef5ced6c8575a4fead0265b4426856ceba3cb4251ef38", (2, 17, 0)),
     "1.3.4": ("8aad87791d4968ad23dc01813d5a657753ee1e1df0f69439e2dd0611d4282cb9", (2, 17, 0)),
     "1.3.18": ("a0f6c78451a9e6038c278479226eb4b00b7272035d1091627bcf53dce81d504e", (2, 23, 0)),

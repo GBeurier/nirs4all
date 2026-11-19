@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] — 2026-11-19
+
+### Changed
+
+- Adopt the Methods 1.5 series (ABI 2.24) and matching `pls4all` distribution
+  across base/native requirements, installed-package checks and Docker inputs.
+  This explicit native-cohort transition carries the owner's corrected weak
+  Preflight PCA scores, its previously released autoscaling correction and
+  exact zero endpoints for odd Savitzky-Golay derivatives in mirror mode.
+  Existing Methods-backed numerical outputs can consequently change; wide
+  Preflight PCA requests also account for projection work at admission.
+- Qualify the native aggregate with DAG-ML 0.5.0 and Core 0.6.0. The supported
+  dependency ranges remain limited to one tested minor series.
+
 ## [1.5.0] — 2026-11-19
 
 ### Changed

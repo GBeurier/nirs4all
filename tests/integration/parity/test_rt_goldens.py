@@ -190,17 +190,17 @@ def test_parity_environment_dependencies_are_declared() -> None:
     assert "referencing" in project_dep_names
     assert "jsonschema" in project_dep_names
     assert str(project_deps["jsonschema"].specifier) == ">=4.18.0"
-    # Target-missing fold-set declarations require the DAG-ML 0.4.0 family.
+    # Target-missing fold-set declarations use the DAG-ML0.5 series tested with this cohort.
     dagml_specifier = project_deps["dag-ml"].specifier
-    assert "0.4.0" in dagml_specifier
+    assert "0.5.0" in dagml_specifier
     assert "0.3.44" not in dagml_specifier
-    assert "0.5.0" not in dagml_specifier
+    assert "0.4.0" not in dagml_specifier
     assert str(project_deps["dag-ml-data"].specifier) == "<0.3,>=0.2"
-    assert str(native_deps["nirs4all-core"].specifier) == "<0.6,>=0.5"
-    # Cross-repository owners use minor-level ranges; the Methods runtime ABI
-    # check (not the package floor) refuses a library without explain ABI 2.23.
-    assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.3"
-    assert str(project_deps["nirs4all-methods"].specifier) == "<2,>=1.3"
+    assert str(native_deps["nirs4all-core"].specifier) == "<0.7,>=0.6"
+    # Cross-repository owners select one tested minor series. The source/runtime
+    # qualification separately identifies the actual Methods library and ABI.
+    assert str(native_deps["nirs4all-methods"].specifier) == "<1.6,>=1.5.0"
+    assert str(project_deps["nirs4all-methods"].specifier) == "<1.6,>=1.5.0"
     assert "shap" in explain_deps
     assert "shap" in dev_deps
     for filename in ("requirements.txt", "requirements-test.txt", "requirements-examples.txt"):

@@ -6,11 +6,11 @@ name: Installed multimodal package build
       io_ref:
         description: nirs4all-io commit to qualify
         required: true
-        default: v0.3.1
+        default: 284f50609212456e3275567f25dc0234e58333f6
       dag_ref:
         description: DAG-ML commit to qualify
         required: true
-        default: v0.4.0
+        default: d3608565a5fe27875d4b64e54035eb8b4c05b204
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -25,12 +25,12 @@ jobs:
     - uses: actions/checkout@v7
       with:
         repository: GBeurier/nirs4all-io
-        ref: ${{ inputs.io_ref || 'v0.3.1' }}
+        ref: ${{ inputs.io_ref || '284f50609212456e3275567f25dc0234e58333f6' }}
         path: candidate-io
     - uses: actions/checkout@v7
       with:
         repository: GBeurier/dag-ml
-        ref: ${{ inputs.dag_ref || 'v0.4.0' }}
+        ref: ${{ inputs.dag_ref || 'd3608565a5fe27875d4b64e54035eb8b4c05b204' }}
         path: candidate-dag
     - uses: actions/setup-python@v7
       with:
@@ -49,8 +49,8 @@ jobs:
     - name: Install candidate wheels with current native dependencies
       shell: bash
       run: |
-        python -m pip install "dag-ml-data==0.2.16" \
-          "nirs4all-core==0.5.1" "nirs4all-methods==1.3.19" "pls4all==1.3.19" \
+        python -m pip install "dag-ml-data==0.2.17" \
+          "nirs4all-core==0.6.0" "nirs4all-methods==1.5.0" "pls4all==1.5.0" \
           dist/dag_ml*.whl dist/nirs4all_io*.whl dist/nirs4all-*.whl
     - name: Verify installed package imports and versions
       shell: bash
