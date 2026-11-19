@@ -494,16 +494,9 @@ class BundleGenerator:
             if target_artifact_id not in {artifact_id for artifact_id, _ in artifacts}:
                 raise ValueError(f"Cannot export selected model: target artifact {target_artifact_id!r} is unavailable.")
 
-        is_final_meta = str(target.get("fold_id")) == "final" and (
-            target.get("model_classname") == "MetaModel"
-            or (target.get("metadata") or {}).get("stacking_role") == "meta_model"
-        )
-        if is_final_meta and resolved.trace is None:
-            raise NotImplementedError(
-                "Cannot export selected final legacy stacking meta-model: its fitted base-model "
-                "raw-input dependency closure was not captured. Final-meta bundles are unsupported "
-                "without that closure; numerical training and refit predictions remain available."
-            )
+        from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+        require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, target)
 
         if self.verbose > 0:
             logger.info(f"Exporting bundle from {resolved.source_type} source")

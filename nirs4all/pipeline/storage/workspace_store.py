@@ -3045,20 +3045,25 @@ class WorkspaceStore:
     # =====================================================================
 
     def _validate_chain_export(self, chain_id: str) -> None:
-        """Reject final stacking chains without a captured raw-input recipe.
+        """Reject legacy stacking chains without an ordered raw-input closure."""
+        from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
 
-        Chain storage records fitted artifacts but does not capture the ordered
-        base-model dependency closure required to replay final legacy stacking.
-        Inspect persisted prediction roles rather than guessing sibling pipelines.
-        """
-        rows = self.get_chain_predictions(chain_id, fold_id="final")
+        chain = self.get_chain(chain_id)
+        if chain is None:
+            raise KeyError(f"Chain not found: {chain_id}")
+        pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
+        expanded = pipeline.get("expanded_config") or []
+        steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+        rows = self.get_chain_predictions(chain_id)
+        if rows.is_empty():
+            require_legacy_raw_input_closure(steps, chain["model_step_idx"], chain)
         for row in rows.iter_rows(named=True):
-            if row.get("refit_context") == "stacking" or row.get("model_class") == "MetaModel":
-                raise NotImplementedError(
-                    "Cannot export selected final legacy stacking meta-model: its fitted base-model "
-                    "raw-input dependency closure was not captured. Final-meta bundles are unsupported "
-                    "without that closure; numerical training and refit predictions remain available."
-                )
+            target = {**chain, **row}
+            if row.get("refit_context") == "stacking" and str(row.get("fold_id")) == "final":
+                # Persisted legacy refit rows do not carry the ordered closure
+                # or per-model role; retain the existing explicit refusal.
+                target["metadata"] = {"stacking_role": "meta_model"}
+            require_legacy_raw_input_closure(steps, chain["model_step_idx"], target)
 
     def export_chain(
         self,
@@ -4000,9 +4005,9 @@ class WorkspaceStore:
             KeyError: If the chain does not exist.
             RuntimeError: If the chain has no model step.
         """
+        self._validate_chain_export(chain_id)
         chain = self.get_chain(chain_id)
-        if chain is None:
-            raise KeyError(f"Chain not found: {chain_id}")
+        assert chain is not None
 
         steps = chain["steps"]
         model_step_idx = chain["model_step_idx"]

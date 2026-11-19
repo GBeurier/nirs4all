@@ -168,3 +168,74 @@ def test_plain_base_cv_and_refit_exports_remain_replayable(tmp_path):
                     namespace = {}
                     exec(compile(chain_archive.read_text(), str(chain_archive), "exec"), namespace)
                     np.testing.assert_allclose(namespace["predict"](xt).ravel(), expected, rtol=1e-6, atol=1e-6)
+
+
+def test_cv_meta_equal_raw_width_refuses_incomplete_export_and_replay(tmp_path):
+    """Two raw columns must not be mistaken for two fitted base predictions."""
+    from nirs4all.pipeline.resolver import PredictionResolver
+
+    rng = np.random.default_rng(42)
+    x = rng.normal(size=(40, 2))
+    y = x @ np.array([1.5, -.5]) + rng.normal(scale=.05, size=40)
+    data = {"train_x": x[:32], "train_y": y[:32], "test_x": x[32:], "test_y": y[32:]}
+    steps = [KFold(3, shuffle=True, random_state=42),
+             {"branch": {"a": [StandardScaler(), {"model": Ridge(alpha=.5), "name": "BASE_A"}],
+                         "b": [StandardScaler(), {"model": Ridge(alpha=2.), "name": "BASE_B"}]}},
+             {"merge": "predictions"}, {"model": Ridge(alpha=.1), "name": "META"}]
+    workspace = tmp_path / "workspace"
+    with nirs4all.run(steps, data, engine="legacy", refit=False, workspace_path=workspace,
+                      save_charts=False, save_artifacts=True, verbose=0) as result:
+        rows = list(result.predictions.iter_entries())
+        selected = next(row for row in rows if row["model_name"] == "META" and row["partition"] == "test" and str(row["fold_id"]) == "0")
+        assert selected["n_features"] == x.shape[1] == 2
+        assert not (selected.get("metadata") or {}).get("stacking_role")
+        chain_id = selected["chain_id"]
+        store = WorkspaceStore(workspace)
+        resolver = PredictionResolver(workspace, store=store)
+        for fmt in ("n4a", "n4a.py"):
+            output = tmp_path / f"selected.{fmt}"
+            output.write_bytes(b"previous valid destination")
+            with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+                result.export(output, source=selected, format=fmt)
+            assert output.read_bytes() == b"previous valid destination"
+            with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+                result.export(output, chain_id=chain_id, format=fmt)
+            assert output.read_bytes() == b"previous valid destination"
+        with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+            resolver.resolve(selected)
+        with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+            store.replay_chain(chain_id, x[32:])
+        with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+            nirs4all.predict(chain_id=chain_id, data=x[32:], workspace_path=workspace, engine="legacy", verbose=0)
+        # A selected base branch remains a valid model; a later merge does not
+        # retroactively turn it into a meta-model.
+        base = next(row for row in rows if row["model_name"] == "BASE_A" and row["partition"] == "test" and str(row["fold_id"]) == "0")
+        archive = result.export(tmp_path / "base-in-stack.n4a", source=base)
+        assert np.isfinite(BundleLoader(archive).predict(x[32:])).all()
+        store.close()
+
+
+@pytest.mark.parametrize("merge", ["predictions", "all", {"predictions": [0], "include_original": True}, {"predictions": [0], "features": [1]}])
+def test_legacy_closure_guard_uses_active_prefix_and_refuses_ambiguous_branches(merge):
+    from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+    steps = [{"branch": {"first": [{"model": Ridge()}], "second": [{"model": Ridge()}]}},
+             {"merge": merge}, {"model": Ridge()}]
+    require_legacy_raw_input_closure(steps, 1, {"branch_id": 0})
+    # A stale chain branch_path must never move a merged model back inside a base branch.
+    with pytest.raises(NotImplementedError, match="raw-input dependency closure"):
+        require_legacy_raw_input_closure(steps, 3, {"branch_id": None, "branch_path": [1]})
+    successive = [*steps[:2], {"branch": [[{"model": Ridge()}]]}]
+    with pytest.raises(NotImplementedError, match="raw-input dependency closure"):
+        require_legacy_raw_input_closure(successive, 3, {"branch_id": 0})
+    nested = [{"branch": [[{"class": "sklearn.preprocessing.StandardScaler"}, *steps]]}]
+    with pytest.raises(NotImplementedError, match="raw-input dependency closure"):
+        require_legacy_raw_input_closure(nested, 1, {"branch_path": [0]})
+
+
+@pytest.mark.parametrize("value", ["all", {"models": [0, 1], "aggregation": "mean"}])
+def test_prediction_merge_keyword_always_requires_fitted_closure(value):
+    from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+    with pytest.raises(NotImplementedError, match="raw-input dependency closure"):
+        require_legacy_raw_input_closure([{"merge_predictions": value}, {"model": Ridge()}], 2, {})

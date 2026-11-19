@@ -359,10 +359,13 @@ class PredictionResolver:
             ValueError: If source type cannot be determined or resolved
             FileNotFoundError: If referenced files/directories don't exist
         """
+        from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
         from nirs4all.pipeline.bundle import BundleLoader
 
         if isinstance(source, BundleLoader):
-            return source.to_resolved_prediction()
+            resolved = source.to_resolved_prediction()
+            require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, resolved.target_model)
+            return resolved
 
         mode = self.resolution_mode if resolution_mode is None else self._validate_resolution_mode(resolution_mode)
         source_type = self._detect_source_type(source)
@@ -373,7 +376,7 @@ class PredictionResolver:
         if source_type == SourceType.PREDICTION:
             # Type narrowing: we know source is dict at this point
             assert isinstance(source, dict)
-            return self._resolve_from_prediction(source, verbose, mode)
+            resolved = self._resolve_from_prediction(source, verbose, mode)
         elif source_type == SourceType.PREDICTION_ID:
             # String prediction ID — look up the full prediction dict from the store
             assert isinstance(source, str) and self.store is not None
@@ -381,29 +384,29 @@ class PredictionResolver:
             # Map store column names to expected prediction dict keys
             if "pipeline_id" in prediction_dict and "pipeline_uid" not in prediction_dict:
                 prediction_dict["pipeline_uid"] = prediction_dict["pipeline_id"]
-            return self._resolve_from_prediction(prediction_dict, verbose, mode)
+            resolved = self._resolve_from_prediction(prediction_dict, verbose, mode)
         elif source_type == SourceType.FOLDER:
             # Type narrowing: we know source is str or Path at this point
             assert isinstance(source, (str, Path))
-            return self._resolve_from_folder(source, verbose)
+            resolved = self._resolve_from_folder(source, verbose)
         elif source_type == SourceType.RUN:
-            return self._resolve_from_run(source, verbose)
+            resolved = self._resolve_from_run(source, verbose)
         elif source_type == SourceType.ARTIFACT_ID:
             # Type narrowing: artifact_id is always a string
             assert isinstance(source, str)
-            return self._resolve_from_artifact_id(source, verbose)
+            resolved = self._resolve_from_artifact_id(source, verbose)
         elif source_type == SourceType.BUNDLE:
             # Type narrowing: bundle path is str or Path
             assert isinstance(source, (str, Path))
-            return self._resolve_from_bundle(source, verbose)
+            resolved = self._resolve_from_bundle(source, verbose)
         elif source_type == SourceType.TRACE_ID:
             # Type narrowing: trace_id is always a string
             assert isinstance(source, str)
-            return self._resolve_from_trace_id(source, verbose)
+            resolved = self._resolve_from_trace_id(source, verbose)
         elif source_type == SourceType.MODEL_FILE:
             # Type narrowing: model file path is str or Path
             assert isinstance(source, (str, Path))
-            return self._resolve_from_model_file(source, verbose)
+            resolved = self._resolve_from_model_file(source, verbose)
         else:
             raise ValueError(
                 f"Cannot resolve prediction source: {source}\n"
@@ -411,6 +414,9 @@ class PredictionResolver:
                 f"Supported types: prediction dict, folder path, Run object, "
                 f"artifact_id string, bundle path, trace_id string, model file"
             )
+
+        require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, resolved.target_model)
+        return resolved
 
     def _detect_source_type(self, source: Any) -> SourceType:
         """Detect the type of prediction source.
@@ -1396,6 +1402,8 @@ class PredictionResolver:
             The trimmed (or full) list of expanded-config steps.
         """
         expanded_config = pipeline.get("expanded_config", [])
+        if isinstance(expanded_config, dict) and "steps" in expanded_config:
+            expanded_config = expanded_config["steps"]
         if not isinstance(expanded_config, list):
             expanded_config = [expanded_config]
         if model_step_idx and model_step_idx <= len(expanded_config):
