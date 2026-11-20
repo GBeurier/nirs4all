@@ -3079,7 +3079,7 @@ class WorkspaceStore:
         by_model = (chain.get("shared_artifacts") or {}).get("_raw_input_predictor_models")
         if by_model is not None:
             reference = by_model.get(model_id) if isinstance(by_model, dict) else None
-            if reference not in references:
+            if not isinstance(reference, str) or reference not in references:
                 raise ValueError("Raw-input fitted closure is missing the selected model dependency")
         elif len(references) == 1:
             reference = references[0]

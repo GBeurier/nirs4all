@@ -400,7 +400,7 @@ class Predictor:
 
         if self._resolved is not None and self._resolved.raw_input_predictor is not None:
             partition = (self.target_model or {}).get("partition")
-            sample_ids = dataset_obj._indexer.x_indices({"partition": partition}) if partition is not None else []
+            sample_ids: np.ndarray | list[int] = dataset_obj._indexer.x_indices({"partition": partition}) if partition is not None else []
             if len(sample_ids):
                 # Explicit dataset partitions retain their requested sample IDs;
                 # a new raw matrix still represents all rows supplied by its caller.
