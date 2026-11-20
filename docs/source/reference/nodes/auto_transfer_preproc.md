@@ -204,7 +204,8 @@ the entire selection.
 For direct selector use, `results.to_pipeline_spec(resolve_transforms=True)`
 returns executable canonical component recipes where aliases cannot preserve the
 selected parameters. The default conversion retains the existing display-name
-format. The automatic controller and DAG host request the executable form.
+format. The automatic controller and DAG host request the executable form when applying
+recommendations. Analysis-only runs retain the existing display recommendation.
 
 ## Retain two recommendations as views
 
