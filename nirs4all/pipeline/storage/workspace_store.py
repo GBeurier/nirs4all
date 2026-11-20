@@ -3147,7 +3147,7 @@ class WorkspaceStore:
             train_steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
             return write_single_model_bundle(
                 predictor, output_path, model_label="FittedPredictor", pipeline_uid=chain["pipeline_id"],
-                preprocessing_chain=chain.get("preprocessings", ""), train_steps=train_steps,
+                preprocessing_chain=chain.get("preprocessings", ""), train_steps=predictor.training_steps or train_steps,
                 provenance={"execution_profile": predictor.profile, "origin_chain_id": chain_id},
             )
         if format == "n4a.py":

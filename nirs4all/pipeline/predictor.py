@@ -166,6 +166,9 @@ class Predictor:
         # Extract target model metadata
         target_model = {k: v for k, v in prediction_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(prediction_obj, dict) else dict(resolved.target_model) if resolved.target_model else {}
 
+        if resolved.raw_input_predictor is not None:
+            target_model = dict(resolved.target_model)
+
         if not target_model or "model_name" not in target_model:
             raise ValueError(
                 "No model information found in prediction. "
