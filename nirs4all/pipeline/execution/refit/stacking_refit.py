@@ -675,7 +675,7 @@ def _refit_nested_stacking_branch(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
-        capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+        capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
         fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
@@ -721,9 +721,10 @@ def _refit_nested_stacking_branch(
             base_features_list.append(in_sample)
         else:
             base_predictions_list.append(in_sample)
-        selected = next(row for row in nested_predictions.iter_entries()
-                        if row.get("partition") == "train" and (row.get("metadata") or {}).get("stacking_role") == "meta_model")
-        prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
+        if artifact_registry is not None:
+            selected = next(row for row in nested_predictions.iter_entries()
+                            if row.get("partition") == "train" and (row.get("metadata") or {}).get("stacking_role") == "meta_model")
+            prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
 
     if nested_predictions.num_predictions > 0:
         prediction_store.merge_predictions(
@@ -809,7 +810,7 @@ def _refit_base_branch(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
-        capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+        capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
         fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
@@ -841,8 +842,9 @@ def _refit_base_branch(
             base_features_list.append(in_sample_preds)
         else:
             base_predictions_list.append(in_sample_preds)
-        selected = next(row for row in branch_predictions.iter_entries() if row.get("partition") == "train")
-        prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
+        if artifact_registry is not None:
+            selected = next(row for row in branch_predictions.iter_entries() if row.get("partition") == "train")
+            prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
 
     # Merge branch predictions into the main store
     if branch_predictions.num_predictions > 0:
@@ -993,7 +995,7 @@ def _train_stacking_meta_model(
             refit_fold_id="final",
             refit_context_name=REFIT_CONTEXT_STACKING,
             random_state=runtime_context.random_state,
-            capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+            capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
             fitted_training_steps=serialize_component(refit_config.expanded_steps),
         )
         executor.execute(
@@ -1036,7 +1038,8 @@ def _train_stacking_meta_model(
     meta_context = executor.initialize_context(meta_dataset)
     from nirs4all.pipeline.execution.fitted import FittedNode
 
-    meta_context.custom["_fitted_input"] = FittedNode("concat", tuple(fitted_nodes), meta_dataset.x(meta_context.selector, layout="2d").dtype)
+    if artifact_registry is not None:
+        meta_context.custom["_fitted_input"] = FittedNode("concat", tuple(fitted_nodes), meta_dataset.x(meta_context.selector, layout="2d").dtype)
 
     meta_runtime = RuntimeContext(
         store=runtime_context.store,
@@ -1048,7 +1051,7 @@ def _train_stacking_meta_model(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
-        capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+        capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
         fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
@@ -1113,7 +1116,7 @@ def _execute_structured_stacking_refit(
     previous_training = runtime_context.fitted_training_steps
     runtime_context.fitted_training_steps = serialize_component(refit_config.expanded_steps)
     previous_capture = runtime_context.capture_fitted_predictor
-    runtime_context.capture_fitted_predictor = True
+    runtime_context.capture_fitted_predictor = artifact_registry is not None
     previous_selection = runtime_context.refit_selection_predictions
     previous_pipeline = runtime_context.refit_selection_pipeline_id
     runtime_context.refit_selection_predictions = prediction_store

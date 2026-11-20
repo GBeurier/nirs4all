@@ -46,6 +46,15 @@ class FittedNode:
                 shape = result.shape
                 values = result.reshape(-1, 1) if result.ndim == 1 else result
                 result = self.target_transformer.transform(values, self.target_processing, "numeric", {}).reshape(shape)
+        elif self.operation == "source_mean":
+            from nirs4all.controllers.models.stacking.reconstructor import aggregate_test_fold_predictions
+            from nirs4all.operators.models.meta import TestAggregation
+
+            # Reconstructor source names may denote several same-named producers.
+            # Keep its ordered, float64 accumulation/mean contract, including all
+            # exact fitted identities instead of choosing an arbitrary model.
+            values = np.asarray([node.evaluate(X, cache) for node in self.inputs], dtype=float)
+            result = aggregate_test_fold_predictions(values, np.full(len(values), np.nan), TestAggregation.MEAN, "rmse")
         elif self.operation == "concat":
             blocks = [node.evaluate(X, cache) for node in self.inputs]
             result = np.concatenate([block.reshape(len(X), -1) for block in blocks], axis=1)
@@ -98,16 +107,18 @@ def prepare_fitted_input(dataset: Any, context: Any, runtime: Any) -> FittedNode
 def _source_node(predictions: Any, runtime: Any, name: str, branch: int | None, max_step: int,
                  exact_step: int | None = None) -> FittedNode:
     """Resolve the exact fitted producer identity selected during this execution."""
-    ids = {
+    ids = list(dict.fromkeys(
         row["model_artifact_id"] for row in predictions.iter_entries()
-        if row.get("model_name") == name and row.get("branch_id") == branch
+        if row.get("model_name") == name and row.get("branch_id") == branch and row.get("partition") == "train"
         and row.get("step_idx", 0) < max_step
         and (exact_step is None or row.get("step_idx") == exact_step)
         and row.get("model_artifact_id") in runtime.fitted_predictors
-    }
-    if len(ids) != 1:
-        raise ValueError(f"Cannot capture fitted source {name!r} in branch {branch}: expected one exact producer, found {len(ids)}")
-    return cast(FittedNode, runtime.fitted_predictors[next(iter(ids))])
+    ))
+    if not ids:
+        raise ValueError(f"Cannot capture fitted source {name!r} in branch {branch}: no exact fitted producer")
+    nodes = tuple(runtime.fitted_predictors[artifact_id] for artifact_id in ids)
+    return cast(FittedNode, nodes[0]) if len(nodes) == 1 else FittedNode("source_mean", nodes)
+
 
 
 def _register_predictor(record: Any, node: FittedNode, runtime: Any) -> None:
@@ -143,6 +154,8 @@ def capture_fitted_step(
     records: list[ArtifactRecord] = []
     for value in raw_records or []:
         record = value if isinstance(value, ArtifactRecord) else runtime.artifact_registry.resolve(value["artifact_id"]) if isinstance(value, dict) else None
+        if isinstance(value, dict) and record is None:
+            raise ValueError(f"Cannot capture declared fitted artifact {value['artifact_id']!r}: registry entry is missing")
         if record is not None:
             records.append(record)
     node = input_node

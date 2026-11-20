@@ -18,11 +18,12 @@ from nirs4all.pipeline.bundle import BundleGenerator, BundleLoader
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 
-@pytest.mark.parametrize("mixed,branch_meta,scaled_targets,weighted,concat", [
-    (False, False, False, False, False), (True, False, False, False, False),
-    (True, True, False, False, False), (True, False, True, True, False), (True, False, False, False, True),
+@pytest.mark.parametrize("mixed,branch_meta,scaled_targets,weighted,concat,homonyms", [
+    (False, False, False, False, False, False), (True, False, False, False, False, False),
+    (True, True, False, False, False, False), (True, False, True, True, False, False),
+    (True, False, False, False, True, False), (True, False, False, False, False, True),
 ])
-def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_path, mixed, branch_meta, scaled_targets, weighted, concat):
+def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_path, mixed, branch_meta, scaled_targets, weighted, concat, homonyms):
     rng = np.random.default_rng(29)
     x = rng.normal(size=(30, 5)).astype(np.float32)
     y = (x @ np.arange(1., 6.) + rng.normal(scale=.1, size=30)).astype(np.float32)
@@ -30,6 +31,9 @@ def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_pa
     branches = {"second": [StandardScaler(), {"model": Ridge(alpha=.5), "name": "A"}],
                 "first": [{"model": Ridge(alpha=2.), "name": "B"}, PCA(n_components=2),
                           {"model": Ridge(alpha=1.), "name": "C"}]}
+    if homonyms:
+        branches["first"][0]["name"] = "shared"
+        branches["first"][2]["name"] = "shared"
     if concat:
         branches["second"].insert(1, {"concat_transform": [PCA(n_components=2), PCA(n_components=1)]})
     if not mixed:
