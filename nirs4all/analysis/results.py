@@ -320,7 +320,10 @@ class TransferSelectionResults:
                 names[index] = serialize_component(transform)
 
         if top_k == 1:
-            return names[0]
+            # The 1.6.0 controller silently ignores a top-level component dict.
+            # Its existing list path refuses this new recipe instead of replaying
+            # a model on raw features after skipping the selected preprocessing.
+            return [names[0]] if resolve_transforms and isinstance(names[0], dict) else names[0]
 
         if use_augmentation:
             return {"feature_augmentation": names}
