@@ -53,7 +53,7 @@ def assert_source_local_stacking_profile(result: Any, dataset_config: Any) -> No
         for partition, (sample_ids, expected) in predictions.items():
             row = selected(name, branch, fold, partition)
             np.testing.assert_array_equal(row["sample_indices"], sample_ids)
-            np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), np.asarray(expected).ravel(), rtol=1e-5, atol=1e-5)
+            np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), np.asarray(expected).ravel(), rtol=1e-5, atol=1e-8)
 
     oof_sources, test_sources, final_train, final_test, validation_scores = [], [], [], [], []
     for branch, (raw_train, raw_test) in enumerate(zip(sources, tests, strict=True)):
@@ -91,7 +91,9 @@ def assert_source_local_stacking_profile(result: Any, dataset_config: Any) -> No
     validation_scores.append(root_mean_squared_error(y, meta_oof))
     winner = int(np.argmin(validation_scores))
     assert result.cv_best["model_name"] == ("Ridge" if winner == 3 else "PLSRegression")
-    np.testing.assert_allclose(result.cv_best_score, validation_scores[winner], rtol=1e-5, atol=1e-5)
+    if winner != 3:
+        assert result.cv_best["branch_id"] == winner
+    np.testing.assert_allclose(result.cv_best_score, validation_scores[winner], rtol=1e-5, atol=1e-8)
     # Retain the established FINAL algorithm, distinct from CV: full-TRAIN
     # bases followed by META on their in-sample TRAIN predictions.
     final_x = np.column_stack(final_train).astype(np.float32)
