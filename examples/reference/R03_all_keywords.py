@@ -292,12 +292,23 @@ try:
     for idx, pred in enumerate(top_models, 1):
         print(f"{idx:2d}. {Predictions.pred_short_string(pred, metrics=['rmse', 'r2'])}")
 
-    # Separate meta-learner from base models
-    meta_preds = [p for p in predictions.to_dicts() if "Meta" in p.get("model_name", "")]
-    base_preds = [p for p in predictions.to_dicts() if "Meta" not in p.get("model_name", "")]
+    # Compare validation scores within CV only. Final refits have no validation
+    # partition and are evaluated separately on the retained test partition.
+    rows = predictions.to_dicts()
+    cv_validation = [p for p in rows if p.get("partition") == "val"
+                     and p.get("refit_context") is None and p.get("val_score") is not None]
+    meta_preds = [p for p in cv_validation if "Meta" in p.get("model_name", "")]
+    base_preds = [p for p in cv_validation if "Meta" not in p.get("model_name", "")]
+    final_meta = [p for p in rows if p.get("model_name") == "Meta_RF"
+                  and str(p.get("fold_id")) == "final" and p.get("partition") == "test"]
+    assert final_meta, "The declared final mixed stacking refit must execute."
+    cv_meta_widths = {p["n_features"] for p in rows if p.get("model_name") == "Meta_RF"
+                      and p.get("refit_context") is None}
+    assert cv_meta_widths == {p["n_features"] for p in final_meta}
+    print(f"\nFinal mixed meta-model refit: {final_meta[0]['n_features']} features")
 
     if meta_preds and base_preds:
-        print("\n--- Stacking Performance ---")
+        print("\n--- CV Stacking Performance (validation only) ---")
         meta_scores = [p.get("val_score", float("inf")) for p in meta_preds]
         base_scores = [p.get("val_score", float("inf")) for p in base_preds]
 

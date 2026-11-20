@@ -408,3 +408,41 @@ def test_flush_predictions_uses_preindexed_chain_matching():
 
     kwargs = store.save_prediction.call_args.kwargs
     assert kwargs["chain_id"] == "chain-2"
+
+
+def test_chain_builder_uses_real_branch_substep_prefix_for_each_fitted_model():
+    """Models sharing an outer index must not inherit later PCA or siblings."""
+    from nirs4all.pipeline.storage.chain_builder import ChainBuilder
+    from nirs4all.pipeline.trace.execution_trace import ExecutionStep, ExecutionTrace, StepArtifacts
+
+    trace = ExecutionTrace(pipeline_uid="same-outer-index")
+    trace.steps = [
+        ExecutionStep(1, "transform", "StandardScaler", artifacts=StepArtifacts(artifact_ids=["prefix"])),
+        ExecutionStep(2, "transform", "StandardScaler", branch_path=[0], substep_index=0,
+                      artifacts=StepArtifacts(artifact_ids=["scale0"])),
+        ExecutionStep(2, "model", "Ridge", branch_path=[0], substep_index=1,
+                      artifacts=StepArtifacts(artifact_ids=["A0"], fold_artifact_ids={"final": "A0"})),
+        ExecutionStep(2, "model", "Ridge", branch_path=[0], substep_index=2,
+                      artifacts=StepArtifacts(artifact_ids=["B0"], fold_artifact_ids={"final": "B0"})),
+        ExecutionStep(2, "transform", "PCA", branch_path=[0], substep_index=3,
+                      artifacts=StepArtifacts(artifact_ids=["pca0"])),
+        ExecutionStep(2, "model", "Ridge", branch_path=[0], substep_index=4,
+                      artifacts=StepArtifacts(artifact_ids=["C0"], fold_artifact_ids={"final": "C0"})),
+        ExecutionStep(2, "transform", "PolynomialFeatures", branch_path=[1], substep_index=0,
+                      artifacts=StepArtifacts(artifact_ids=["poly1"])),
+        ExecutionStep(2, "model", "Ridge", branch_path=[1], substep_index=1,
+                      artifacts=StepArtifacts(artifact_ids=["D1"], fold_artifact_ids={"final": "D1"})),
+        ExecutionStep(3, "merge", "Merge"),
+        ExecutionStep(4, "model", "Ridge", artifacts=StepArtifacts(artifact_ids=["META"], fold_artifact_ids={"final": "META"})),
+    ]
+    chains = {chain["fold_artifacts"]["fold_final"]: chain for chain in ChainBuilder(trace).build_all()}
+    assert chains["A0"]["shared_artifacts"] == {"1": ["prefix"], "2": ["scale0"]}
+    assert chains["B0"]["shared_artifacts"] == chains["A0"]["shared_artifacts"]
+    assert chains["C0"]["shared_artifacts"] == {"1": ["prefix"], "2": ["scale0", "pca0"]}
+    assert chains["D1"]["shared_artifacts"] == {"1": ["prefix"], "2": ["poly1"]}
+    for name in ("A0", "B0", "C0", "D1"):
+        model_steps = [step for step in chains[name]["steps"] if name in step["artifact_ids"]]
+        assert len(model_steps) == 1
+        assert not any(other in step["artifact_ids"] for step in chains[name]["steps"]
+                       for other in {"A0", "B0", "C0", "D1"} - {name})
+    assert chains["META"]["branch_path"] is None

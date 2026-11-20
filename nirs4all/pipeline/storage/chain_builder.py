@@ -79,6 +79,8 @@ class ChainBuilder:
         """
         # Collect all non-skipped steps
         all_steps: list[dict[str, Any]] = []
+        ordered_steps: list[tuple[ExecutionStep, dict[str, Any]]] = []
+        step_positions = {id(step): index for index, step in enumerate(self._trace.steps)}
         # Collect shared artifacts with their branch context for per-model filtering
         shared_artifact_entries: list[tuple[ExecutionStep, list[str]]] = []
         model_steps: list[ExecutionStep] = []
@@ -96,6 +98,7 @@ class ChainBuilder:
                 "stateless": not bool(step.artifacts.artifact_ids),
             }
             all_steps.append(step_dict)
+            ordered_steps.append((step, step_dict))
 
             if step.branch_path:
                 branch_path = step.branch_path
@@ -129,12 +132,15 @@ class ChainBuilder:
 
             # Earlier model steps are independent predictors, not transformers
             # to apply when replaying this model (PLS exposes transform too).
-            earlier_models = {step.step_index for step in model_steps if step.step_index < model_step.step_index}
-            chain_steps = [s for s in all_steps if s["step_idx"] <= model_step.step_index and s["step_idx"] not in earlier_models]
+            model_position = step_positions[id(model_step)]
+            earlier_models = {id(step) for step in model_steps if step_positions[id(step)] < model_position}
+            chain_steps = [descriptor for step, descriptor in ordered_steps
+                           if step_positions[id(step)] <= model_position and id(step) not in earlier_models
+                           and self._is_branch_compatible(step.branch_path or None, model_step.branch_path)]
 
             # Include only preprocessing already applied when this model fitted.
             shared_artifacts = self._collect_shared_artifacts(
-                [(step, ids) for step, ids in shared_artifact_entries if step.step_index <= model_step.step_index],
+                [(step, ids) for step, ids in shared_artifact_entries if step_positions[id(step)] <= model_position],
                 model_step.branch_path,
             )
 
@@ -146,7 +152,7 @@ class ChainBuilder:
                 "fold_strategy": "per_fold" if has_cv_artifacts else "shared",
                 "fold_artifacts": fold_artifacts,
                 "shared_artifacts": shared_artifacts,
-                "branch_path": model_step.branch_path or branch_path,
+                "branch_path": model_step.branch_path or None,
                 "source_index": None,
             })
 

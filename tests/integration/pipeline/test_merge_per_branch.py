@@ -48,7 +48,7 @@ def create_test_dataset(n_samples: int = 100, n_features: int = 50, seed: int = 
 class TestModelSelectionStrategies:
     """Test model selection strategies (all, best, top_k, explicit)."""
 
-    def test_select_all_models(self):
+    def test_select_all_models(self, tmp_path):
         """Test selecting all models from a branch (default behavior)."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -67,7 +67,7 @@ class TestModelSelectionStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_select_all"),
             dataset
@@ -76,7 +76,7 @@ class TestModelSelectionStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_select_best_model(self):
+    def test_select_best_model(self, tmp_path):
         """Test selecting only the best model per branch."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -102,7 +102,7 @@ class TestModelSelectionStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_select_best"),
             dataset
@@ -111,7 +111,7 @@ class TestModelSelectionStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_select_top_k_models(self):
+    def test_select_top_k_models(self, tmp_path):
         """Test selecting top K models per branch."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -133,7 +133,7 @@ class TestModelSelectionStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_select_top_k"),
             dataset
@@ -142,7 +142,7 @@ class TestModelSelectionStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_select_top_k_exceeds_available(self):
+    def test_select_top_k_exceeds_available(self, tmp_path):
         """Test that top_k > available models returns all available."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -163,7 +163,7 @@ class TestModelSelectionStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_select_top_k_exceeds"),
             dataset
@@ -175,7 +175,7 @@ class TestModelSelectionStrategies:
 class TestAggregationStrategies:
     """Test prediction aggregation strategies (separate, mean, weighted_mean, proba_mean)."""
 
-    def test_aggregate_separate(self):
+    def test_aggregate_separate(self, tmp_path):
         """Test separate aggregation (each model = 1 feature)."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -200,7 +200,7 @@ class TestAggregationStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_aggregate_separate"),
             dataset
@@ -209,7 +209,7 @@ class TestAggregationStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_aggregate_mean(self):
+    def test_aggregate_mean(self, tmp_path):
         """Test mean aggregation (average predictions from multiple models)."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -232,7 +232,7 @@ class TestAggregationStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_aggregate_mean"),
             dataset
@@ -241,7 +241,7 @@ class TestAggregationStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_aggregate_weighted_mean(self):
+    def test_aggregate_weighted_mean(self, tmp_path):
         """Test weighted mean aggregation based on validation scores."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -264,7 +264,7 @@ class TestAggregationStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_aggregate_weighted_mean"),
             dataset
@@ -276,7 +276,7 @@ class TestAggregationStrategies:
 class TestMixedStrategies:
     """Test mixed selection and aggregation strategies across branches."""
 
-    def test_different_strategies_per_branch(self):
+    def test_different_strategies_per_branch(self, tmp_path):
         """Test using different selection and aggregation strategies per branch."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -305,7 +305,7 @@ class TestMixedStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_mixed_strategies"),
             dataset
@@ -314,7 +314,7 @@ class TestMixedStrategies:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_top_k_with_mean_aggregation(self):
+    def test_top_k_with_mean_aggregation(self, tmp_path):
         """Test selecting top-K models then averaging them."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -338,7 +338,7 @@ class TestMixedStrategies:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_top_k_mean"),
             dataset
@@ -350,7 +350,7 @@ class TestMixedStrategies:
 class TestModelRankingMetrics:
     """Test model ranking by different validation metrics."""
 
-    def test_rank_by_rmse(self):
+    def test_rank_by_rmse(self, tmp_path):
         """Test ranking models by RMSE (lower is better)."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -371,7 +371,7 @@ class TestModelRankingMetrics:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_rank_rmse"),
             dataset
@@ -380,7 +380,7 @@ class TestModelRankingMetrics:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_rank_by_mae(self):
+    def test_rank_by_mae(self, tmp_path):
         """Test ranking models by MAE (lower is better)."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -401,7 +401,7 @@ class TestModelRankingMetrics:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_rank_mae"),
             dataset
@@ -410,7 +410,7 @@ class TestModelRankingMetrics:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_rank_by_r2(self):
+    def test_rank_by_r2(self, tmp_path):
         """Test ranking models by R2 (higher is better)."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -431,7 +431,7 @@ class TestModelRankingMetrics:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_rank_r2"),
             dataset
@@ -443,7 +443,7 @@ class TestModelRankingMetrics:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_single_model_selection(self):
+    def test_single_model_selection(self, tmp_path):
         """Test selection strategies with only a single model."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -463,7 +463,7 @@ class TestEdgeCases:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_single_model"),
             dataset
@@ -472,7 +472,7 @@ class TestEdgeCases:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_many_folds_with_aggregation(self):
+    def test_many_folds_with_aggregation(self, tmp_path):
         """Test aggregation with many CV folds."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -493,7 +493,7 @@ class TestEdgeCases:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_many_folds"),
             dataset
@@ -502,7 +502,7 @@ class TestEdgeCases:
         assert predictions is not None
         assert len(predictions) > 0
 
-    def test_legacy_syntax_still_works(self):
+    def test_legacy_syntax_still_works(self, tmp_path):
         """Test that legacy syntax (without per-branch config) still works."""
         dataset = create_test_dataset(n_samples=100, n_features=50)
 
@@ -519,7 +519,7 @@ class TestEdgeCases:
             {"model": LinearRegression()}
         ]
 
-        runner = PipelineRunner(verbose=0, save_artifacts=False)
+        runner = PipelineRunner(workspace_path=tmp_path / "workspace", verbose=0, save_artifacts=False, log_file=False)
         predictions, per_dataset = runner.run(
             PipelineConfigs(pipeline, "test_legacy_syntax"),
             dataset
