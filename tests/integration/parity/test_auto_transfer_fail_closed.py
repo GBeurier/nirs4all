@@ -450,3 +450,280 @@ def test_invalid_serialized_candidate_cannot_be_skipped(transfer_views, tmp_path
     if engine == "legacy":
         assert error.value.candidate_records[0].stage == "specification"
         assert "bogus" in error.value.candidate_records[0].message
+
+
+@pytest.mark.parametrize("pipeline_type", ["single", "stacked", "augmented"])
+def test_generated_recommendation_canonical_recipe_preserves_exact_parameters(transfer_views, pipeline_type: str) -> None:
+    """Names alone cannot distinguish these real same-class generated candidates."""
+    from copy import deepcopy
+
+    from nirs4all.analysis.transfer_utils import resolve_transfer_preprocessing
+    from nirs4all.pipeline.config.component_serialization import serialize_component
+
+    source, target = transfer_views
+    spec = {"_or_": [StandardScaler(with_mean=False), StandardScaler(with_std=False)]}
+    if pipeline_type != "single":
+        spec["arrange" if pipeline_type == "stacked" else "pick"] = 2
+    results = TransferPreprocessingSelector(
+        preset=None, preprocessing_spec=spec, n_components=3, k_neighbors=3, n_jobs=1, verbose=0,
+    ).fit(source, target)
+    candidates = [candidate for candidate in results.ranking if candidate.pipeline_type == pipeline_type]
+    assert candidates
+    identities = set()
+    for candidate in candidates:
+        selected = TransferSelectionResults([candidate], results.raw_metrics, candidate_records=results.candidate_records)
+        # Existing display conversion remains available without changing names.
+        assert selected.to_pipeline_spec() == candidate.name
+        executable = json.loads(json.dumps(selected.to_pipeline_spec(resolve_transforms=True)))
+        assert isinstance(executable, list) and len(executable) == 1
+        recipe = executable[0]
+        name, components = resolve_transfer_preprocessing(recipe)
+        identities.add(name)
+        actual = source.copy()
+        for _, transform in components:
+            actual = transform.fit_transform(actual)
+        expected = source.copy()
+        if pipeline_type == "augmented":
+            expected = np.hstack([deepcopy(transform).fit_transform(source) for transform in candidate.transforms])
+        else:
+            for transform in candidate.transforms:
+                expected = deepcopy(transform).fit_transform(expected)
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-8)
+        assert serialize_component(components[0][1]) == recipe
+    assert len(identities) == len(candidates)
+
+
+@pytest.mark.parametrize("use_augmentation", [False, True])
+def test_same_class_selected_recipes_fit_all_channels_without_losing_parameters(transfer_views, use_augmentation: bool) -> None:
+    """The source-local DAG fit consumes a JSON selection made on the joint view."""
+    from nirs4all.pipeline.config.component_serialization import serialize_component
+
+    source, target = transfer_views
+    config = {"preset": "fast", "top_k": 2, "use_augmentation": use_augmentation, "verbose": 0,
+              "preprocessing_spec": {"_or_": [StandardScaler(with_mean=False), StandardScaler(with_std=False)]}}
+    shared = DagMLAutoTransferPreprocessor(config).select_with_views({"train": (source, None), "test": (target, None)})
+    recommendation = json.loads(json.dumps(shared.recommendation_))
+    specs = recommendation["pipeline_spec"]["feature_augmentation"] if use_augmentation else recommendation["pipeline_spec"]
+    assert len(specs) == 2 and specs[0] != specs[1]
+    train_x, predict_x = source[:, :7], target[:, :7]
+    local = DagMLAutoTransferPreprocessor(config)
+    local.set_input_channels((3, 4))
+    local.fit_selected(recommendation, train_x)
+    expected_parts = [predict_x[:, :3], predict_x[:, 3:]] if use_augmentation else []
+    for channel in ([0] if use_augmentation else [0, 1]):
+        train = train_x[:, :3] if channel == 0 else train_x[:, 3:]
+        predict = predict_x[:, :3] if channel == 0 else predict_x[:, 3:]
+        for recipe in specs:
+            params = recipe.get("params", {})
+            transform = StandardScaler(**params).fit(train)
+            transformed = transform.transform(predict)
+            if use_augmentation:
+                expected_parts.append(transformed)
+            else:
+                train, predict = transform.transform(train), transformed
+        if not use_augmentation:
+            expected_parts.append(predict)
+    np.testing.assert_allclose(local.transform(predict_x), np.hstack(expected_parts), rtol=1e-5, atol=1e-8)
+    chains = local._chains if use_augmentation else local._channel_chains[0]
+    assert [serialize_component(chain[0]) for chain in chains] == specs
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
+@pytest.mark.parametrize("use_augmentation", [False, True])
+@pytest.mark.parametrize("top_k", [1, 2])
+def test_real_generated_selection_pipeline_and_archive_preserve_recipes(transfer_views, tmp_path, monkeypatch, engine: str, use_augmentation: bool, top_k: int) -> None:
+    """A successful generated search must be executable, archived and replayable."""
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    dataset = _candidate_failure_dataset(transfer_views)
+    config = {"preset": "fast", "top_k": top_k, "use_augmentation": use_augmentation, "verbose": 0,
+              "preprocessing_spec": {"_or_": [StandardScaler(with_mean=False), StandardScaler(with_std=False)]}}
+    with nirs4all.run(
+        [{"auto_transfer_preproc": config}, PLSRegression(3)], dataset, engine=engine,
+        workspace_path=tmp_path / "workspace", save_artifacts=True, save_charts=False, refit=False, verbose=0,
+    ) as result:
+        rows = result.predictions.filter_predictions(partition="test", load_arrays=True)
+        assert len(rows) == 1
+        expected = np.asarray(rows[0]["y_pred"]).ravel()
+        assert np.isfinite(expected).all()
+        archive = result.export(tmp_path / "generated.n4a")
+
+    def forbidden_fit(*args, **kwargs):
+        raise AssertionError("replay must not repeat selection or fit a preprocessing")
+
+    monkeypatch.setattr(TransferPreprocessingSelector, "fit", forbidden_fit)
+    monkeypatch.setattr(StandardScaler, "fit", forbidden_fit)
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}), engine=engine, verbose=0)
+    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-5, atol=1e-8)
+
+
+def test_outer_generator_preserves_controller_owned_candidate_search() -> None:
+    """Outer alternatives vary pipelines, not the candidates within a search."""
+    from nirs4all.pipeline.config.generator import count_combinations, expand_spec, expand_spec_with_choices
+
+    search = {"_or_": [StandardScaler(with_mean=False), PCA(n_components=3)]}
+    spec = [{"auto_transfer_preproc": {"top_k": {"_or_": [1, 2]}, "preprocessing_spec": search}}]
+    assert count_combinations(spec) == 2
+    plain = expand_spec(spec)
+    tracked = expand_spec_with_choices(spec)
+    assert [variant for variant, _ in tracked] == plain
+    assert [variant[0]["auto_transfer_preproc"]["top_k"] for variant in plain] == [1, 2]
+    assert all(variant[0]["auto_transfer_preproc"]["preprocessing_spec"] == search for variant in plain)
+    assert all(len(choices) == 1 for _, choices in tracked)
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
+def test_analysis_only_preserves_display_recommendation_and_features(transfer_views, engine: str) -> None:
+    """Do not change a valid 1.6.0 analysis-only recommendation into an executable recipe."""
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+
+    source, target = transfer_views
+    config = {"preset": "fast", "apply_recommendation": False, "verbose": 0,
+              "preprocessing_spec": {"_or_": [StandardScaler(with_mean=False)]}}
+    if engine == "legacy":
+        dataset = _candidate_failure_dataset(transfer_views)
+        before = dataset.x({}).copy()
+        controller = AutoTransferPreprocessingController()
+        context, artifacts = controller._execute_train_mode(controller._parse_config(config), dataset, ExecutionContext(), RuntimeContext())
+        recommendation = context.custom["transfer_preprocessing_recommendation"]
+        assert len(artifacts) == 1 and artifacts[0][0] == recommendation
+        np.testing.assert_array_equal(dataset.x({}), before)
+    else:
+        preprocessor = DagMLAutoTransferPreprocessor(config).fit_with_views({"train": (source, None), "test": (target, None)})
+        recommendation = preprocessor.recommendation_
+        np.testing.assert_array_equal(preprocessor.transform(target), target)
+    # The published 1.6.0 analysis-only path returned this display string;
+    # canonical executable conversion is only needed when applying the choice.
+    assert recommendation["pipeline_spec"] == recommendation["best_name"] == "StandardScaler"
+    assert recommendation["complete"] is True
+    assert len(recommendation["candidate_records"]) == 1
+    assert recommendation["candidate_records"][0]["status"] == "completed"
+
+
+def test_evaluated_augmented_candidate_isolates_inplace_branches(transfer_views) -> None:
+    """A real candidate keeps each branch's original input and feature names."""
+    from sklearn.pipeline import make_union
+
+    from nirs4all.analysis.transfer_utils import resolve_transfer_preprocessing
+    from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
+
+    source, target = transfer_views
+    params = [{"with_mean": False, "copy": False}, {"with_std": False, "copy": False}]
+    results = TransferPreprocessingSelector(
+        preset="fast", preprocessing_spec={"_or_": [StandardScaler(**p) for p in params], "pick": 2}, verbose=0,
+    ).fit(source, target)
+    candidate = next(result for result in results.ranking if result.pipeline_type == "augmented")
+    selected = TransferSelectionResults([candidate], results.raw_metrics, candidate_records=results.candidate_records)
+    [recipe] = json.loads(json.dumps(selected.to_pipeline_spec(resolve_transforms=True)))
+    _, components = resolve_transfer_preprocessing(recipe)
+    union = components[0][1]
+    source_before, target_before = source.copy(), target.copy()
+    union.fit(source)
+    actual = union.transform(target)
+    expected = np.hstack([StandardScaler(**p).fit(source_before.copy()).transform(target_before.copy()) for p in params])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-8)
+    np.testing.assert_array_equal(source, source_before)
+    np.testing.assert_array_equal(target, target_before)
+    assert not np.array_equal(actual[:, :source.shape[1]], actual[:, source.shape[1]:])
+    reference = make_union(*[StandardScaler(**p) for p in params]).fit(source.copy())
+    np.testing.assert_array_equal(union.get_feature_names_out(), reference.get_feature_names_out())
+    for (_, branch), expected_params in zip(union.transformer_list, params, strict=True):
+        assert branch.steps[0][1].func is np.copy
+        assert branch.steps[0][1].kw_args == {"order": "C"}
+        assert branch.steps[0][1].feature_names_out == "one-to-one"
+        assert branch.steps[-1][1].get_params() == StandardScaler(**expected_params).get_params()
+    assert serialize_component(np.copy) == {"function": "numpy.copy"}
+    assert deserialize_component(serialize_component(np.copy), strict_imports=True) is np.copy
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
+def test_real_inplace_augmentation_selects_trains_and_replays_without_mutation(transfer_views, tmp_path, monkeypatch, engine: str) -> None:
+    """A declared centroid-only search really selects and archives the augmented candidate."""
+    from sklearn.linear_model import Ridge
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    dataset = _candidate_failure_dataset(transfer_views)
+    raw_train = dataset.x({"partition": "train"}).copy()
+    raw_test = dataset.x({"partition": "test"}).copy()
+    y_train = dataset.y({"partition": "train"}).copy()
+    params = [{"copy": False}, {"with_std": False, "copy": False}]
+    config = {"preset": "fast", "verbose": 0,
+              "preprocessing_spec": {"_or_": [StandardScaler(**p) for p in params], "pick": 2},
+              "metric_weights": {"centroid": 1., "cka": 0., "spread": 0., "evr": 0.}}
+    selection = TransferPreprocessingSelector(
+        preset="fast", preprocessing_spec=config["preprocessing_spec"], metric_weights=config["metric_weights"], verbose=0,
+    ).fit(raw_train.copy(), raw_test.copy())
+    assert selection.best.pipeline_type == "augmented"
+    train_parts, test_parts = [], []
+    for p in params:
+        scaler = StandardScaler(**p).fit(raw_train.copy())
+        train_parts.append(scaler.transform(raw_train.copy()))
+        test_parts.append(scaler.transform(raw_test.copy()))
+    expected = Ridge(alpha=1.7).fit(np.hstack(train_parts), y_train).predict(np.hstack(test_parts)).ravel()
+    with nirs4all.run(
+        [{"auto_transfer_preproc": config}, Ridge(alpha=1.7)], dataset, engine=engine,
+        workspace_path=tmp_path / "workspace", save_artifacts=True, save_charts=False, refit=False, verbose=0,
+    ) as result:
+        rows = result.predictions.filter_predictions(partition="test", load_arrays=True)
+        assert len(rows) == 1
+        np.testing.assert_allclose(np.asarray(rows[0]["y_pred"]).ravel(), expected, rtol=1e-5, atol=1e-8)
+        archive = result.export(tmp_path / "inplace_augmentation.n4a")
+
+    def forbidden_fit(*args, **kwargs):
+        raise AssertionError("archive replay must not select or fit a branch again")
+
+    monkeypatch.setattr(TransferPreprocessingSelector, "fit", forbidden_fit)
+    monkeypatch.setattr(StandardScaler, "fit", forbidden_fit)
+    heldout = raw_test.copy()
+    actual = np.asarray(nirs4all.predict(archive, heldout, engine=engine, verbose=0).y_pred).ravel()
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-8)
+    np.testing.assert_array_equal(heldout, raw_test)
+
+    # A fresh interpreter receives only the archive and raw inputs. It cannot
+    # reopen the producing workspace or fit/reselect to repair missing state.
+    import os
+    import subprocess
+    import sys
+
+    inputs = tmp_path / "cold_inputs.npz"
+    np.savez(inputs, x=raw_test, expected=expected)
+    child = r"""
+import os,sys
+from pathlib import Path
+import numpy as np
+import nirs4all
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Ridge
+from nirs4all.analysis import TransferPreprocessingSelector
+from nirs4all.pipeline.storage import WorkspaceStore
+workspace=Path(sys.argv[3]).resolve()
+accesses=[]
+def audit(event,args):
+    if event=='open' and args and isinstance(args[0],(str,bytes,os.PathLike)):
+        name=Path(os.fsdecode(args[0])).resolve()
+        if name==workspace or name.is_relative_to(workspace):
+            accesses.append(str(name))
+            raise AssertionError('cold replay cannot access the producer workspace')
+sys.addaudithook(audit)
+def forbidden(*args,**kwargs):
+    raise AssertionError('cold replay cannot fit/select/create a workspace')
+StandardScaler.fit=forbidden
+Ridge.fit=forbidden
+TransferPreprocessingSelector.fit=forbidden
+WorkspaceStore.__init__=forbidden
+inputs=np.load(sys.argv[2]);raw=inputs['x'];before=raw.copy()
+if sys.argv[4]=='legacy':
+    from nirs4all.pipeline.bundle.loader import BundleLoader
+    actual=np.asarray(BundleLoader(sys.argv[1]).predict(raw)).ravel()
+else:
+    actual=np.asarray(nirs4all.predict(sys.argv[1],raw,engine=sys.argv[4],verbose=0).y_pred).ravel()
+np.testing.assert_allclose(actual,inputs['expected'],rtol=1e-5,atol=1e-8)
+np.testing.assert_array_equal(raw,before)
+assert not accesses
+print('COLD_REPLAY_PASS',nirs4all.__file__)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", child, str(archive), str(inputs), str(tmp_path / "workspace"), engine],
+        cwd=tmp_path, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "COLD_REPLAY_PASS" in result.stdout

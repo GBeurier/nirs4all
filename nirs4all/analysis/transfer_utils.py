@@ -63,6 +63,29 @@ def get_transform_name(obj: Any) -> str:
         return ">".join(get_transform_name(t) for t in obj)
     return type(obj).__name__
 
+def resolve_transfer_preprocessing(spec: Any) -> tuple[str, list[tuple[str, Any]]]:
+    """Resolve an alias chain or canonical selected recipe without dropping params.
+
+    Canonical recipe identities distinguish parameterized candidates with the
+    same display name. Existing alias identities and fitted artifact keys stay
+    unchanged, including during replay of previously saved recommendations.
+    """
+    import hashlib
+    import json
+
+    from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+    base = get_base_preprocessings()
+    if isinstance(spec, str) and all(name in base for name in spec.split(">")):
+        return spec, [(name, deepcopy(base[name])) for name in spec.split(">")]
+    transform = deserialize_component(spec, strict_imports=True)
+    if not callable(getattr(transform, "fit", None)) or not callable(getattr(transform, "transform", None)):
+        raise ValueError(f"unknown transfer preprocessing {spec!r}")
+    digest = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:12]
+    name = f"{get_transform_name(transform)}_{digest}"
+    return name, [(name, transform)]
+
+
 def get_transform_signature(obj: Any) -> str:
     """
     Get a unique signature for a transformer (for deduplication).

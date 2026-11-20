@@ -283,6 +283,7 @@ class AutoTransferPreprocessingController(OperatorController):
             pipeline_spec = results.to_pipeline_spec(
                 top_k=top_k,
                 use_augmentation=use_augmentation,
+                resolve_transforms=config["apply_recommendation"],
             )
 
             if verbose >= 1:
@@ -520,21 +521,16 @@ class AutoTransferPreprocessingController(OperatorController):
         Returns:
             Tuple of (updated_context, artifacts).
         """
-        from nirs4all.analysis import get_base_preprocessings
-
         artifacts = []
         verbose = getattr(context.metadata, "verbose", 1) if hasattr(context.metadata, "verbose") else 1
 
-        # Get preprocessing transforms
-        preprocessings = get_base_preprocessings()
-
-        if isinstance(pipeline_spec, str):
+        if isinstance(pipeline_spec, str) or (isinstance(pipeline_spec, dict) and "class" in pipeline_spec):
             # Single preprocessing or stacked (e.g., "snv" or "snv>d1")
             if verbose >= 1:
                 logger.info(f"    Applying preprocessing: {pipeline_spec}")
 
             context, apply_artifacts = self._apply_stacked_preprocessing(
-                pipeline_spec, preprocessings, dataset, context, runtime_context, source, mode
+                pipeline_spec, dataset, context, runtime_context, source, mode
             )
             artifacts.extend(apply_artifacts)
 
@@ -545,7 +541,7 @@ class AutoTransferPreprocessingController(OperatorController):
                     logger.debug(f"    Applying preprocessing: {pp_name}")
 
                 context, apply_artifacts = self._apply_stacked_preprocessing(
-                    pp_name, preprocessings, dataset, context, runtime_context, source, mode
+                    pp_name, dataset, context, runtime_context, source, mode
                 )
                 artifacts.extend(apply_artifacts)
 
@@ -557,7 +553,6 @@ class AutoTransferPreprocessingController(OperatorController):
 
             context, apply_artifacts = self._apply_feature_augmentation(
                 pipeline_spec["feature_augmentation"],
-                preprocessings,
                 dataset,
                 context,
                 runtime_context,
@@ -565,13 +560,14 @@ class AutoTransferPreprocessingController(OperatorController):
                 mode,
             )
             artifacts.extend(apply_artifacts)
+        else:
+            raise ValueError(f"unsupported transfer preprocessing recommendation {pipeline_spec!r}")
 
         return context, artifacts
 
     def _apply_stacked_preprocessing(
         self,
-        pp_name: str,
-        preprocessings: dict[str, Any],
+        pp_spec: Any,
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
@@ -582,8 +578,7 @@ class AutoTransferPreprocessingController(OperatorController):
         Apply a stacked preprocessing (e.g., "snv>d1") to the dataset.
 
         Args:
-            pp_name: Preprocessing name (may include ">" for stacking).
-            preprocessings: Dictionary of available transforms.
+            pp_spec: Alias chain or canonical selected transformer recipe.
             dataset: SpectroDataset to operate on.
             context: Execution context.
             runtime_context: Runtime infrastructure.
@@ -593,8 +588,10 @@ class AutoTransferPreprocessingController(OperatorController):
         Returns:
             Tuple of (updated_context, artifacts).
         """
+        from nirs4all.analysis.transfer_utils import resolve_transfer_preprocessing
+
         artifacts = []
-        components = pp_name.split(">")
+        pp_name, components = resolve_transfer_preprocessing(pp_spec)
 
         # Get all source indices to process
         n_sources = dataset.features_sources()
@@ -626,17 +623,14 @@ class AutoTransferPreprocessingController(OperatorController):
                 current_train = train_2d
                 current_all = all_2d
 
-                for comp_idx, comp_name in enumerate(components):
-                    if comp_name not in preprocessings:
-                        raise ValueError(f"Unknown preprocessing: {comp_name}")
-
+                for comp_idx, (comp_name, selected_transform) in enumerate(components):
                     binary_key = f"transfer_pp_{sd_idx}_{proc_name}_{comp_idx}_{comp_name}"
                     if mode in ("predict", "explain"):
                         assert runtime_context.artifact_provider is not None
                         transform = dict(runtime_context.artifact_provider.get_artifacts_for_step(
                             runtime_context.step_number, branch_path=context.selector.branch_path))[binary_key]
                     else:
-                        transform = deepcopy(preprocessings[comp_name])
+                        transform = deepcopy(selected_transform)
                         transform.fit(current_train)
                         current_train = transform.transform(current_train)
                     current_all = transform.transform(current_all)
@@ -667,8 +661,7 @@ class AutoTransferPreprocessingController(OperatorController):
 
     def _apply_feature_augmentation(
         self,
-        pp_list: list[str],
-        preprocessings: dict[str, Any],
+        pp_list: list[Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
@@ -682,8 +675,7 @@ class AutoTransferPreprocessingController(OperatorController):
         and concatenating the results horizontally.
 
         Args:
-            pp_list: List of preprocessing names to apply and concatenate.
-            preprocessings: Dictionary of available transforms.
+            pp_list: Alias chains or canonical selected recipes to concatenate.
             dataset: SpectroDataset to operate on.
             context: Execution context.
             runtime_context: Runtime infrastructure.
@@ -693,6 +685,8 @@ class AutoTransferPreprocessingController(OperatorController):
         Returns:
             Tuple of (updated_context, artifacts).
         """
+        from nirs4all.analysis.transfer_utils import resolve_transfer_preprocessing
+
         artifacts = []
 
         # Set add_feature mode in context
@@ -720,23 +714,20 @@ class AutoTransferPreprocessingController(OperatorController):
             base_all_2d = all_data[:, 0, :]
 
             # Apply each preprocessing and add as new feature processing
-            for pp_name in pp_list:
-                components = pp_name.split(">")
+            for pp_spec in pp_list:
+                pp_name, components = resolve_transfer_preprocessing(pp_spec)
 
                 current_train = base_train_2d
                 current_all = base_all_2d
 
-                for comp_idx, comp_name in enumerate(components):
-                    if comp_name not in preprocessings:
-                        raise ValueError(f"Unknown preprocessing: {comp_name}")
-
+                for comp_idx, (comp_name, selected_transform) in enumerate(components):
                     binary_key = f"transfer_aug_{sd_idx}_{pp_name}_{comp_idx}_{comp_name}"
                     if mode in ("predict", "explain"):
                         assert runtime_context.artifact_provider is not None
                         transform = dict(runtime_context.artifact_provider.get_artifacts_for_step(
                             runtime_context.step_number, branch_path=context.selector.branch_path))[binary_key]
                     else:
-                        transform = deepcopy(preprocessings[comp_name])
+                        transform = deepcopy(selected_transform)
                         transform.fit(current_train)
                         current_train = transform.transform(current_train)
                     current_all = transform.transform(current_all)

@@ -1122,10 +1122,12 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                 raise TypeError("auto_transfer_preproc configuration must be a mapping")
             if config.get("source_partition", "train") not in {"train", "test"} or config.get("target_partition", "test") not in {"train", "test"}:
                 raise NotImplementedError("DAG-ML auto_transfer_preproc currently supports train/test source and target partitions")
+            from nirs4all.pipeline.config.component_serialization import serialize_component
+
             return {
                 "preprocessing": {
                     "class": "nirs4all.pipeline.dagml.auto_transfer.DagMLAutoTransferPreprocessor",
-                    "params": {"config": config},
+                    "params": {"config": serialize_component(config)},
                 },
                 "metadata": {"nirs4all_fit_on_all": True, "nirs4all_auto_transfer_preproc": True},
                 "shape": {"fit_rows": "all_observations"},

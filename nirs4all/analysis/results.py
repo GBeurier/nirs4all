@@ -264,14 +264,17 @@ class TransferSelectionResults:
         return result_list
 
     def to_pipeline_spec(
-        self, top_k: int = 1, use_augmentation: bool = False
-    ) -> str | list[str] | dict[str, list[str]]:
+        self, top_k: int = 1, use_augmentation: bool = False, *, resolve_transforms: bool = False
+    ) -> Any:
         """
         Convert results to nirs4all pipeline specification.
 
         Args:
             top_k: Number of top recommendations to include.
             use_augmentation: If True and top_k > 1, return augmentation spec.
+            resolve_transforms: Preserve exact transformer recipes for execution.
+                Alias-only specifications remain unchanged; generated or custom
+                candidates use canonical component serialization.
 
         Returns:
             Pipeline specification usable in nirs4all:
@@ -293,10 +296,44 @@ class TransferSelectionResults:
 
         top_results = self.ranking[:top_k]
 
-        if top_k == 1:
-            return top_results[0].name
+        names: list[Any] = [r.name for r in top_results]
+        if resolve_transforms:
+            from sklearn.pipeline import make_pipeline, make_union
+            from sklearn.preprocessing import FunctionTransformer
 
-        names = [r.name for r in top_results]
+            from nirs4all.pipeline.config.component_serialization import serialize_component
+
+            base = get_base_preprocessings()
+            for index, result in enumerate(top_results):
+                transforms = result.get_transforms(base)
+                components = result.name.split(">")
+                # A display name is executable only if it resolves to exactly
+                # the selected objects, including every constructor parameter.
+                if (result.pipeline_type != "augmented" and all(name in base for name in components)
+                        and serialize_component(transforms) == serialize_component([base[name] for name in components])):
+                    continue
+                if not transforms:
+                    raise ValueError(f"Cannot resolve selected preprocessing {result.name!r}")
+                if result.pipeline_type == "augmented":
+                    transform = make_union(*transforms)
+                    # Selection evaluates each augmentation from its own X.copy().
+                    # Keep the same boundary at fit and replay, including for
+                    # transformers explicitly configured to mutate their input.
+                    transform.transformer_list = [
+                        (name, make_pipeline(FunctionTransformer(
+                            np.copy, kw_args={"order": "C"}, feature_names_out="one-to-one",
+                        ), branch))
+                        for name, branch in transform.transformer_list
+                    ]
+                else:
+                    transform = transforms[0] if len(transforms) == 1 else make_pipeline(*transforms)
+                names[index] = serialize_component(transform)
+
+        if top_k == 1:
+            # The 1.6.0 controller silently ignores a top-level component dict.
+            # Its existing list path refuses this new recipe instead of replaying
+            # a model on raw features after skipping the selected preprocessing.
+            return [names[0]] if resolve_transforms and isinstance(names[0], dict) else names[0]
 
         if use_augmentation:
             return {"feature_augmentation": names}
