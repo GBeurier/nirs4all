@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apply selected augmented preprocessing candidates as replacing feature unions;
   this closes previously unresolvable stage-3 recommendations, without adding
   raw-input features to the selected candidate's declared representation.
+  Preserve independent branch inputs even for in-place transformers; keep their
+  original parameters, branch names and feature names through JSON and replay.
 
 ## [1.6.0] — 2026-11-19
 

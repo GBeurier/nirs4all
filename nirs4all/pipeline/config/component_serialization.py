@@ -366,7 +366,16 @@ def _serialize(obj: Any, scope: _Scope) -> Any:
         token = N4M_ROLE_PREFIX + method_id
         return {"class": token, "params": _serialize(params, _Scope.ARGUMENT)} if params else token
 
-    if inspect.isfunction(obj) or inspect.isbuiltin(obj):
+    is_function = inspect.isfunction(obj) or inspect.isbuiltin(obj)
+    if (not is_function and callable(obj)
+            and not any(hasattr(obj, name) for name in ("get_params", "fit", "transform", "predict"))
+            and inspect.isfunction(inspect.unwrap(obj))):
+        # Function decorators may expose a callable proxy rather than a Python
+        # function (e.g. an array-function dispatcher). Preserve a function
+        # reference only when its public module resolves this exact wrapper.
+        with contextlib.suppress(ImportError, AttributeError):
+            is_function = getattr(importlib.import_module(obj.__module__), obj.__name__) is obj
+    if is_function:
         func_serialized = {
             "function": f"{obj.__module__}.{obj.__name__}"
         }
