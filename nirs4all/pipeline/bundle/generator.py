@@ -485,6 +485,9 @@ class BundleGenerator:
         resolved = self.resolver.resolve(source, verbose=self.verbose)
 
         if resolved.raw_input_predictor is not None:
+            selected_id = resolved.target_model.get("model_artifact_id")
+            if selected_id and selected_id != resolved.raw_input_predictor.root.artifact_id:
+                raise ValueError(f"Selected fitted artifact {selected_id!r} does not match the FINAL raw-input closure")
             if format != BundleFormat.N4A:
                 raise NotImplementedError("Captured FINAL Python-host dependency closures export as n4a bundles")
             return write_single_model_bundle(

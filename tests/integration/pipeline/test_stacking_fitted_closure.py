@@ -18,11 +18,11 @@ from nirs4all.pipeline.bundle import BundleGenerator, BundleLoader
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 
-@pytest.mark.parametrize("mixed,branch_meta,scaled_targets,weighted", [
-    (False, False, False, False), (True, False, False, False),
-    (True, True, False, False), (True, False, True, True),
+@pytest.mark.parametrize("mixed,branch_meta,scaled_targets,weighted,concat", [
+    (False, False, False, False, False), (True, False, False, False, False),
+    (True, True, False, False, False), (True, False, True, True, False), (True, False, False, False, True),
 ])
-def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_path, mixed, branch_meta, scaled_targets, weighted):
+def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_path, mixed, branch_meta, scaled_targets, weighted, concat):
     rng = np.random.default_rng(29)
     x = rng.normal(size=(30, 5)).astype(np.float32)
     y = (x @ np.arange(1., 6.) + rng.normal(scale=.1, size=30)).astype(np.float32)
@@ -30,6 +30,8 @@ def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_pa
     branches = {"second": [StandardScaler(), {"model": Ridge(alpha=.5), "name": "A"}],
                 "first": [{"model": Ridge(alpha=2.), "name": "B"}, PCA(n_components=2),
                           {"model": Ridge(alpha=1.), "name": "C"}]}
+    if concat:
+        branches["second"].insert(1, {"concat_transform": [PCA(n_components=2), PCA(n_components=1)]})
     if not mixed:
         branches["first"] = [{"model": Ridge(alpha=2.), "name": "B"}]
     merge = {"predictions": [{"branch": 1, "select": "best", "metric": "rmse"}, {"branch": 0}],
@@ -63,6 +65,14 @@ def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_pa
         np.testing.assert_allclose(store.replay_chain(chain_id, raw_x), expected, rtol=1e-5, atol=1e-5)
         bundle = store.export_chain(chain_id, tmp_path / "final.n4a")
         via_dict = BundleGenerator(workspace, store=store).export(train, tmp_path / "dict.n4a")
+        wrong_identity = {**train, "chain_id": chain_id, "model_artifact_id": "different-explicit-fitted-model"}
+        destination = tmp_path / "preserved.n4a"
+        destination.write_bytes(b"previous valid destination")
+        with pytest.raises(ValueError, match="does not match the FINAL raw-input closure"):
+            BundleGenerator(workspace, store=store).export(wrong_identity, destination)
+        assert destination.read_bytes() == b"previous valid destination"
+    with pytest.raises(ValueError, match="does not match the FINAL raw-input closure"):
+        nirs4all.predict(wrong_identity, raw_x, engine="legacy", workspace_path=workspace, verbose=0)
     for source in (train, bundle, via_dict):
         predicted = nirs4all.predict(model=source, data=raw_x, engine="legacy", workspace_path=workspace, verbose=0)
         np.testing.assert_allclose(np.asarray(predicted.y_pred).ravel(), expected, rtol=1e-5, atol=1e-5)

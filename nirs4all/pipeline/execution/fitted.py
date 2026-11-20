@@ -140,7 +140,11 @@ def capture_fitted_step(
     from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 
     raw_records = output.artifacts if isinstance(output, StepOutput) else output
-    records: list[ArtifactRecord] = [record for record in raw_records or [] if isinstance(record, ArtifactRecord)]
+    records: list[ArtifactRecord] = []
+    for value in raw_records or []:
+        record = value if isinstance(value, ArtifactRecord) else runtime.artifact_registry.resolve(value["artifact_id"]) if isinstance(value, dict) else None
+        if record is not None:
+            records.append(record)
     node = input_node
     if replay is not None:
         values = []
