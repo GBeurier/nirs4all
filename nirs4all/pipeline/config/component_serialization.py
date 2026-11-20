@@ -367,7 +367,7 @@ def _serialize(obj: Any, scope: _Scope) -> Any:
         return {"class": token, "params": _serialize(params, _Scope.ARGUMENT)} if params else token
 
     is_function = inspect.isfunction(obj) or inspect.isbuiltin(obj)
-    if (not is_function and callable(obj)
+    if (not is_function and not params and callable(obj)
             and not any(hasattr(obj, name) for name in ("get_params", "fit", "transform", "predict"))
             and inspect.isfunction(inspect.unwrap(obj))):
         # Function decorators may expose a callable proxy rather than a Python
