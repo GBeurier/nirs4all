@@ -78,7 +78,7 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
         results = selector.fit(source[0], target[0], source[1], target[1])
         self.recommendation_: dict[str, Any] = {
             "pipeline_spec": results.to_pipeline_spec(
-                top_k=config["top_k"], use_augmentation=config["use_augmentation"],
+                top_k=config["top_k"], use_augmentation=config["use_augmentation"], resolve_transforms=True,
             ),
             "best_name": results.best.name,
             "transfer_score": results.best.transfer_score,
@@ -104,13 +104,11 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
             self._channel_chains: list[list[list[Any]]] = []
             self._augment = False
             if config["apply_recommendation"]:
-                from nirs4all.analysis import get_base_preprocessings
-
-                preprocessings = get_base_preprocessings()
+                from nirs4all.analysis.transfer_utils import resolve_transfer_preprocessing
                 spec = self.recommendation_["pipeline_spec"]
-                if isinstance(spec, str):
+                if isinstance(spec, str) or (isinstance(spec, dict) and "class" in spec):
                     names = [spec]
-                elif isinstance(spec, list) and all(isinstance(name, str) for name in spec):
+                elif isinstance(spec, list):
                     names = spec
                 elif isinstance(spec, dict) and isinstance(spec.get("feature_augmentation"), list):
                     names = spec["feature_augmentation"]
@@ -118,13 +116,11 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
                 else:
                     raise ValueError(f"unsupported transfer preprocessing recommendation {spec!r}")
 
-                def fit_chain(name: str, X: np.ndarray) -> tuple[list[Any], np.ndarray]:
+                def fit_chain(spec: Any, X: np.ndarray) -> tuple[list[Any], np.ndarray]:
                     chain: list[Any] = []
                     branch = X
-                    for component in name.split(">"):
-                        if component not in preprocessings:
-                            raise ValueError(f"unknown transfer preprocessing {component!r}")
-                        transform = deepcopy(preprocessings[component])
+                    _, components = resolve_transfer_preprocessing(spec)
+                    for _, transform in components:
                         transform.fit(branch)
                         branch = np.asarray(transform.transform(branch))
                         chain.append(transform)

@@ -450,3 +450,77 @@ def test_invalid_serialized_candidate_cannot_be_skipped(transfer_views, tmp_path
     if engine == "legacy":
         assert error.value.candidate_records[0].stage == "specification"
         assert "bogus" in error.value.candidate_records[0].message
+
+
+@pytest.mark.parametrize("pipeline_type", ["single", "stacked", "augmented"])
+def test_generated_recommendation_canonical_recipe_preserves_exact_parameters(transfer_views, pipeline_type: str) -> None:
+    """Names alone cannot distinguish these real same-class generated candidates."""
+    from copy import deepcopy
+
+    from nirs4all.analysis.transfer_utils import resolve_transfer_preprocessing
+    from nirs4all.pipeline.config.component_serialization import serialize_component
+
+    source, target = transfer_views
+    spec = {"_or_": [StandardScaler(with_mean=False), StandardScaler(with_std=False)]}
+    if pipeline_type != "single":
+        spec["arrange" if pipeline_type == "stacked" else "pick"] = 2
+    results = TransferPreprocessingSelector(
+        preset=None, preprocessing_spec=spec, n_components=3, k_neighbors=3, n_jobs=1, verbose=0,
+    ).fit(source, target)
+    candidates = [candidate for candidate in results.ranking if candidate.pipeline_type == pipeline_type]
+    assert candidates
+    identities = set()
+    for candidate in candidates:
+        selected = TransferSelectionResults([candidate], results.raw_metrics, candidate_records=results.candidate_records)
+        # Existing display conversion remains available without changing names.
+        assert selected.to_pipeline_spec() == candidate.name
+        recipe = json.loads(json.dumps(selected.to_pipeline_spec(resolve_transforms=True)))
+        name, components = resolve_transfer_preprocessing(recipe)
+        identities.add(name)
+        actual = source.copy()
+        for _, transform in components:
+            actual = transform.fit_transform(actual)
+        expected = source.copy()
+        if pipeline_type == "augmented":
+            expected = np.hstack([deepcopy(transform).fit_transform(source) for transform in candidate.transforms])
+        else:
+            for transform in candidate.transforms:
+                expected = deepcopy(transform).fit_transform(expected)
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-8)
+        assert serialize_component(components[0][1]) == recipe
+    assert len(identities) == len(candidates)
+
+
+@pytest.mark.parametrize("use_augmentation", [False, True])
+def test_same_class_selected_recipes_fit_all_channels_without_losing_parameters(transfer_views, use_augmentation: bool) -> None:
+    """The source-local DAG fit consumes a JSON selection made on the joint view."""
+    from nirs4all.pipeline.config.component_serialization import serialize_component
+
+    source, target = transfer_views
+    config = {"preset": "fast", "top_k": 2, "use_augmentation": use_augmentation, "verbose": 0,
+              "preprocessing_spec": {"_or_": [StandardScaler(with_mean=False), StandardScaler(with_std=False)]}}
+    shared = DagMLAutoTransferPreprocessor(config).select_with_views({"train": (source, None), "test": (target, None)})
+    recommendation = json.loads(json.dumps(shared.recommendation_))
+    specs = recommendation["pipeline_spec"]["feature_augmentation"] if use_augmentation else recommendation["pipeline_spec"]
+    assert len(specs) == 2 and specs[0] != specs[1]
+    train_x, predict_x = source[:, :7], target[:, :7]
+    local = DagMLAutoTransferPreprocessor(config)
+    local.set_input_channels((3, 4))
+    local.fit_selected(recommendation, train_x)
+    expected_parts = [predict_x[:, :3], predict_x[:, 3:]] if use_augmentation else []
+    for channel in ([0] if use_augmentation else [0, 1]):
+        train = train_x[:, :3] if channel == 0 else train_x[:, 3:]
+        predict = predict_x[:, :3] if channel == 0 else predict_x[:, 3:]
+        for recipe in specs:
+            params = recipe.get("params", {})
+            transform = StandardScaler(**params).fit(train)
+            transformed = transform.transform(predict)
+            if use_augmentation:
+                expected_parts.append(transformed)
+            else:
+                train, predict = transform.transform(train), transformed
+        if not use_augmentation:
+            expected_parts.append(predict)
+    np.testing.assert_allclose(local.transform(predict_x), np.hstack(expected_parts), rtol=1e-5, atol=1e-8)
+    chains = local._chains if use_augmentation else local._channel_chains[0]
+    assert [serialize_component(chain[0]) for chain in chains] == specs
