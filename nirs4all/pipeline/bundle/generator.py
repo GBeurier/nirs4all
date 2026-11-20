@@ -377,6 +377,7 @@ class BundleGenerator:
         pipeline = self.store.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") or []
         configs = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+        self._require_portable_script_pipeline(configs)
         target_steps = {idx + 1 for idx, config in enumerate(configs) if isinstance(config, dict) and "y_processing" in config}
 
         # Shared (preprocessing) artifacts
@@ -911,6 +912,17 @@ class BundleGenerator:
         else:
             return f"step_{step_idx}_{class_name}.joblib"
 
+    @staticmethod
+    def _require_portable_script_pipeline(steps: list[Any]) -> None:
+        """Enforce the documented script-format refusal of branching pipelines."""
+        pending = list(steps)
+        while pending:
+            step = pending.pop()
+            if isinstance(step, list):
+                pending.extend(step)
+            elif isinstance(step, dict) and "branch" in step:
+                raise NotImplementedError("Portable .n4a.py scripts do not support branching pipelines; export n4a instead")
+
     def _generate_portable_script(
         self,
         resolved: ResolvedPrediction,
@@ -926,6 +938,8 @@ class BundleGenerator:
             Python script content
         """
         import nirs4all
+
+        self._require_portable_script_pipeline(resolved.minimal_pipeline)
 
         # Collect artifacts
         artifacts_data = {}

@@ -15,6 +15,7 @@ import nirs4all
 from nirs4all.controllers.models.sklearn_model import SklearnModelController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.models.residual import ResidualModel
+from nirs4all.pipeline.bundle import BundleGenerator
 from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
@@ -85,6 +86,16 @@ def test_by_source_fitted_chains_keep_source_prefixes_and_sample_identity(tmp_pa
             ], axis=0)
             np.testing.assert_allclose(store.replay_chain(chain["chain_id"], sources[branch]), expected_all, rtol=1e-5, atol=1e-5)
             archive = store.export_chain(chain["chain_id"], tmp_path / f"source-{branch}.n4a")
+            script = tmp_path / f"source-{branch}.n4a.py"
+            script.write_bytes(b"previous valid script")
+            selected = next(row for row in rows if row["branch_id"] == branch)
+            for export in (
+                lambda: store.export_chain(chain["chain_id"], script, format="n4a.py"),
+                lambda: BundleGenerator(workspace, store=store).export(selected, script, format="n4a.py"),
+            ):
+                with pytest.raises(NotImplementedError, match="scripts do not support branching"):
+                    export()
+                assert script.read_bytes() == b"previous valid script"
             inputs = tmp_path / f"source-{branch}.npz"
             np.savez(inputs, raw_x=sources[branch], expected=expected_all, branch=branch)
             probe = r'''
