@@ -193,6 +193,19 @@ Overrides `run_stage2`, `stage2_top_k`, `run_stage3` and `run_stage4` control st
 Inspect the stage's label requirements before enabling it. A metric measuring
 closer distributions is not the same as error on concentration prediction.
 
+`preprocessing_spec` belongs to the transfer selector: its generator describes
+candidates within one search, not separate outer pipeline runs. Generated
+recommendations retain the exact transformer classes, constructor parameters and
+order through application and archived replay. Parameter-distinct candidates
+with the same display name keep separate fitted states. Replay uses those states
+without selecting or fitting again; unexpected candidate failures still refuse
+the entire selection.
+
+For direct selector use, `results.to_pipeline_spec(resolve_transforms=True)`
+returns executable canonical component recipes where aliases cannot preserve the
+selected parameters. The default conversion retains the existing display-name
+format. The automatic controller and DAG host request the executable form.
+
 ## Retain two recommendations as views
 
 This changes the output feature representation; a matrix learner sees a wider

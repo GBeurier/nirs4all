@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.1] — 2026-11-20
+
+### Fixed
+
+- Apply generated automatic-transfer preprocessing recommendations from their
+  canonical transformer recipes, preserving constructor parameters and order
+  instead of treating display names as aliases. Keep parameter-distinct
+  candidates separate in saved fitted states and replay without selection or fit.
+- Preserve the controller-owned `preprocessing_spec` search through outer
+  pipeline generation and DAG host lowering. Candidate exceptions and non-finite
+  scores still fail closed; incomplete searches cannot produce a predictor.
+
 ## [1.6.0] — 2026-11-19
 
 ### Changed
