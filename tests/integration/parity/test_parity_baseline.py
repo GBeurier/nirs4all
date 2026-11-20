@@ -18,6 +18,8 @@ the backend that produces the observation changes.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import nirs4all
@@ -46,7 +48,7 @@ def test_every_runnable_case_has_committed_baseline() -> None:
 
 @pytest.mark.slow
 @pytest.mark.parametrize("case", all_cases(), ids=lambda c: c.name)
-def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest) -> None:
+def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest, tmp_path: Path) -> None:
     """Capture or enforce the legacy gold baseline for one parity case."""
     if case.skip_reason:
         pytest.skip(f"[{case.skip_kind or 'unknown'}] {case.skip_reason}")
@@ -86,6 +88,46 @@ def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest
     # test_conformance_dual_engine; this is the legacy-only alarm.
     result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, engine="legacy")
     observed = _oracle.observe(result, case.task)
+    if case.name in {"branch_dup_named_with_metamodel", "branch_dup_three_way_merge_predictions"}:
+        from ._legacy_final_profile import assert_final_replay, observe_cv
+
+        # The gold remains the original CV observation, with all of its active
+        # numerical tolerances. Genuine new FINALs have separate fitted IDs and
+        # are replayed from their raw-input bundles rather than relabeled CV.
+        cv_observed = observe_cv(result, case.task)
+        violations = _oracle.compare(gold, cv_observed, case.metric_tolerances)
+        assert not violations, f"{case.name}: CV parity violations:\n  " + "\n  ".join(violations)
+        final_count = 10 if case.name == "branch_dup_named_with_metamodel" else 7
+        finals = assert_final_replay(result, dataset, tmp_path / "final-replay", final_count)
+        assert result.num_predictions == cv_observed["num_predictions"] + len(finals)
+        assert {row["dataset_name"] for row in result.predictions.iter_entries() if str(row["fold_id"]) != "final"} == set(gold["datasets"])
+        if case.name == "branch_dup_three_way_merge_predictions":
+            assert {row["dataset_name"] for row in finals} == {"regression", "regression_meta"}
+        return
+    if case.name in {"multi_source_by_source_branch_shared_preproc", "multi_source_by_source_branch_distinct_preproc"}:
+        from ._legacy_final_profile import assert_final_replay
+
+        # The historical 51 contains three executions of the same global model.
+        # The corrected merged dataset executes it once: three physical folds,
+        # two aggregate views, and two real FINAL measurements. Keep the old
+        # JSON and enforce every declared numerical tolerance on the actual run.
+        assert gold["num_predictions"] == 3 * 17
+        gold_without_count = {key: value for key, value in gold.items() if key != "num_predictions"}
+        actual_without_count = {key: value for key, value in observed.items() if key != "num_predictions"}
+        violations = _oracle.compare(gold_without_count, actual_without_count, case.metric_tolerances)
+        assert not violations, f"{case.name}: parity violations:\n  " + "\n  ".join(violations)
+        rows = result.predictions.filter_predictions(load_arrays=True)
+        cv = [row for row in rows if str(row["fold_id"]) != "final"]
+        assert len(cv) == (3 + 2) * 3 == 15
+        for fold in ("0", "1", "2", "avg", "w_avg"):
+            matches = [row for row in cv if str(row["fold_id"]) == fold]
+            assert len(matches) == 3
+            assert {row["partition"] for row in matches} == {"train", "val", "test"}
+            assert {row["model_name"] for row in matches} == {"PLSRegression"}
+            assert {row["branch_id"] for row in matches} == {None}
+        assert result.num_predictions == 17
+        assert_final_replay(result, dataset, tmp_path / "final-replay", 2)
+        return
     if case.name == "multi_source_per_source_models_stacking":
         from ._source_local_profile import assert_source_local_stacking_profile
 
