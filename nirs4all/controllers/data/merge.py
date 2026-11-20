@@ -1136,7 +1136,7 @@ class MergeController(OperatorController):
         in_source_branch_mode = context.custom.get("in_source_branch_mode", False)
         source_branch_contexts = context.custom.get("source_branch_contexts", [])
 
-        if in_source_branch_mode:
+        if in_source_branch_mode and not config.collect_predictions:
             return self._execute_source_branch_merge(
                 step_info=step_info,
                 dataset=dataset,
@@ -1684,24 +1684,13 @@ class MergeController(OperatorController):
                 processing_name=processing_name,
                 source=0
             )
+            if dataset.features_sources() > 1:
+                dataset.keep_sources(0)
             logger.info(f"  Concatenated to shape {merged_features.shape}")
 
         self._attach_relation_meta_feature_plan(dataset, config.meta_feature_plan)
 
-        # Exit source branch mode
-        result_context = context.copy()
-        result_context.custom["in_source_branch_mode"] = False
-        result_context.custom["source_branch_contexts"] = []
-
-        # Update context processing to match the new dataset processing names
-        # This is critical for subsequent transformers to correctly identify which
-        # processings to operate on
-        n_sources = dataset.features_sources()
-        new_processing = []
-        for sd_idx in range(n_sources):
-            src_processings = list(dataset.features_processings(sd_idx))
-            new_processing.append(src_processings)
-        result_context = result_context.with_processing(new_processing)
+        result_context = self._finalize_branch_merge_context(context, dataset)
 
         metadata = {
             "source_branch_merge": True,

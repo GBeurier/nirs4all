@@ -38,6 +38,14 @@ class FittedNode:
                 raise ValueError(f"Fitted predictor expects a two-dimensional raw input with {self.state} features")
             if self.input_dtype is not None:
                 result = result.astype(self.input_dtype, copy=False)
+        elif self.operation == "source":
+            values = self.inputs[0].evaluate(X, cache)
+            widths = self.state["widths"]
+            if values.ndim != 2 or values.shape[1] != sum(widths):
+                raise ValueError(f"Fitted source {self.state['source_id']!r} does not match its captured source schema")
+            index = self.state["index"]
+            offset = sum(widths[:index])
+            result = values[:, offset:offset + widths[index]]
         elif self.operation == "transform":
             result = self.state.transform(self.inputs[0].evaluate(X, cache))
         elif self.operation == "model":
@@ -250,6 +258,16 @@ def capture_fitted_step(
             records.append(record)
     node = input_node
     if replay is not None:
+        source_index = before.custom.get("_current_source_idx")
+        if source_index is not None:
+            # The branch input is already the explicitly selected source. Keep
+            # its owner replay schema and fitted state local to that source,
+            # independent of changes to other sources' feature widths.
+            replay.shapes = [replay.shapes[source_index]]
+            replay.processings = [replay.processings[source_index]]
+            replay.headers = [replay.headers[source_index]]
+            replay.units = [replay.units[source_index]]
+            replay.context.selector.processing = [replay.context.selector.processing[source_index]]
         values = []
         for record in records:
             value = runtime.artifact_registry.load_artifact(record)
@@ -258,7 +276,8 @@ def capture_fitted_step(
                 name, value = value.name, value.value
             pair = (name, value)
             values.append(pair)
-            replay.source_artifacts.setdefault((runtime.step_number, record.source_index or 0), []).append(pair)
+            replay_source = 0 if source_index is not None else (record.source_index or 0)
+            replay.source_artifacts.setdefault((runtime.step_number, replay_source), []).append(pair)
         replay.artifacts[runtime.step_number] = values
         node = FittedNode("transform", (input_node,), replay)
     if isinstance(step, dict) and "branch" in step:

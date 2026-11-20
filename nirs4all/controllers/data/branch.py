@@ -832,6 +832,12 @@ class BranchController(OperatorController):
         initial_context = context.copy()
         initial_processing = copy.deepcopy(context.selector.processing)
 
+        if initial_context.custom.get("_fitted_input") is not None:
+            sources = dataset.x(initial_context.selector, layout="2d", concat_source=False)
+            if not isinstance(sources, list):
+                sources = [sources]
+            initial_context.custom["_fitted_source_widths"] = tuple(values.shape[1] for values in sources)
+
         # Get current processing chains for all sources
         current_processing = list(context.selector.processing) if context.selector.processing else []
         while len(current_processing) < n_sources:
@@ -994,6 +1000,12 @@ class BranchController(OperatorController):
         source_context = source_context.with_processing(source_specific_processing)
         source_context.custom["_current_source_idx"] = src_idx
         source_context.custom["_current_source_name"] = src_name
+        if source_context.custom.get("_fitted_input") is not None:
+            from nirs4all.pipeline.execution.fitted import FittedNode
+
+            source_context.custom["_fitted_input"] = FittedNode("source", (source_context.custom["_fitted_input"],), {
+                "index": src_idx, "source_id": src_name, "widths": initial_context.custom["_fitted_source_widths"],
+            })
 
         # Set branch info
         parent_branch_path = context.selector.branch_path or []

@@ -524,9 +524,14 @@ def _prepare_stacking_refit(
     from nirs4all.pipeline.steps.parser import StepParser
 
     controller = BranchController()
-    if controller._detect_branch_mode(branch_value) != "duplication":
+    source_branches = isinstance(branch_value, dict) and "by_source" in branch_value
+    if source_branches:
+        _, source_names, source_steps = controller._parse_by_source_steps(branch_value.get("steps", {}), refit_dataset)
+        branches = [{"name": name, "steps": source_steps.get(name, [])} for name in source_names]
+    elif controller._detect_branch_mode(branch_value) != "duplication":
         raise NotImplementedError("Stacking refit requires duplication branches; separation refit uses its declared routing contract.")
-    branches = controller._parse_branch_definitions(StepParser().parse(branch_step))
+    else:
+        branches = controller._parse_branch_definitions(StepParser().parse(branch_step))
     branch_value = [branch["steps"] for branch in branches]
     branch_names = [branch["name"] for branch in branches]
 
@@ -546,7 +551,7 @@ def _prepare_stacking_refit(
             merge_value["predictions"] = list(range(len(branches)))
     else:
         supported = merge_value == "predictions"
-    supported = supported and all(
+    supported = supported and not source_branches and all(
         sum(_extract_model_from_steps([step]) is not None for step in (branch if isinstance(branch, list) else [branch])) <= 1
         for branch in branch_value
     )
