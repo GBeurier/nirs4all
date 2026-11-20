@@ -377,6 +377,10 @@ class Predictor:
                     config_predictions,
                 )
 
+            if self._resolved is not None and self._resolved.raw_input_predictor is not None:
+                # This single inference model already identifies its exact
+                # trained CV/refit fold; no CV loop runs during raw replay.
+                config_predictions.mutate_entries({"fold_id": (self.target_model or {}).get("fold_id")})
             run_predictions.merge_predictions(config_predictions)
 
         return self._process_prediction_results(run_predictions, all_predictions)
@@ -478,6 +482,9 @@ class Predictor:
             "model_name": tm.get("model_name"),
             "step_idx": tm.get("step_idx"),
         }
+
+        if self._resolved is not None and self._resolved.raw_input_predictor is not None and tm.get("partition") is not None:
+            filter_kwargs["partition"] = tm["partition"]
 
         if not is_aggregated_fold and not is_refit_fold:
             filter_kwargs["fold_id"] = target_fold_id

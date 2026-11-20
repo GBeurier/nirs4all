@@ -284,11 +284,11 @@ def capture_fitted_step(
             candidates = after.custom.get("_fitted_source_models")
             if not candidates:
                 raise ValueError("Final MetaModel capture requires its actual ordered source candidates")
-            _names, mapping = build_unique_source_names(candidates)
-            sources = tuple(_source_node(predictions, runtime, original_name, branch, runtime.step_number,
+            names, mapping = build_unique_source_names(candidates)
+            sources = tuple(_source_node(predictions, runtime, *mapping.get(name, (name, None)), runtime.step_number,
                                          use_proba=after.custom["meta_operator"].use_proba and dataset.is_classification,
                                          test_aggregation=after.custom["meta_operator"].stacking_config.test_aggregation)
-                            for original_name, branch in mapping.values())
+                            for name in names)
             model_input = FittedNode("concat", sources, after.custom["_reconstruction_result"].X_train_meta.dtype)
         model = runtime.artifact_registry.load_artifact(record)
         processing = after.state.y_processing

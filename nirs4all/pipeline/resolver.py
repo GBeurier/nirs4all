@@ -1255,9 +1255,11 @@ class PredictionResolver:
         result.pipeline_uid = pipeline_uid
         result.model_step_index = chain["model_step_idx"]
         assert self.store is not None and chain_id is not None
-        predictor = (self.store.get_raw_input_predictor(chain_id)
+        predictor = (self.store.get_raw_input_predictor(
+                         chain_id, model_artifact_id=prediction.get("model_artifact_id"), fold_id=prediction.get("fold_id"),
+                     )
                      if (chain.get("shared_artifacts") or {}).get("_raw_input_predictor") else None)
-        if predictor is not None and str(prediction.get("fold_id")) == "final":
+        if predictor is not None:
             selected_id = prediction.get("model_artifact_id")
             if selected_id and selected_id != predictor.root.artifact_id:
                 raise ValueError(f"Selected fitted artifact {selected_id!r} does not match the FINAL raw-input closure")

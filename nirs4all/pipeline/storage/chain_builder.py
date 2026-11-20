@@ -159,7 +159,8 @@ class ChainBuilder:
                     if len(closures) > 1:
                         raise ValueError(f"Multiple raw-input closures for fitted model {model_id!r}")
                     if closures:
-                        shared_artifacts["_raw_input_predictor"] = closures
+                        shared_artifacts.setdefault("_raw_input_predictor", []).extend(closures)
+                        shared_artifacts.setdefault("_raw_input_predictor_models", {})[model_id] = closures[0]
 
             chains.append({
                 "steps": chain_steps,

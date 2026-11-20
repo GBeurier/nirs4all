@@ -3044,8 +3044,10 @@ class WorkspaceStore:
     # Export operations (produce files on demand)
     # =====================================================================
 
-    def get_raw_input_predictor(self, chain_id: str) -> Any | None:
-        """Load an exact, persisted FINAL Python-host dependency closure.
+    def get_raw_input_predictor(
+        self, chain_id: str, *, model_artifact_id: str | None = None, fold_id: str | int | None = None,
+    ) -> Any | None:
+        """Load an exact, persisted model/fold Python-host dependency closure.
 
         A metadata claim is insufficient: the referenced artifact must contain
         the actual fitted predictor and identify this chain's numerical model.
@@ -3059,12 +3061,33 @@ class WorkspaceStore:
         if not references:
             return None
         folds = chain.get("fold_artifacts") or {}
-        model_id = folds.get("fold_final") or folds.get("final")
-        if not model_id or not isinstance(references, list) or len(references) != 1:
-            raise ValueError("Raw-input fitted closure requires one exact FINAL model and predictor")
-        predictor = self.load_artifact(references[0])
+        if fold_id is not None:
+            model_id = folds.get("fold_" + str(fold_id).removeprefix("fold_"))
+            if model_id is None:
+                return None  # An averaged CV row does not identify one fitted model.
+        else:
+            model_id = model_artifact_id or folds.get("fold_final") or folds.get("final")
+            if model_id is None and len(folds) == 1:
+                model_id = next(iter(folds.values()))
+        if model_id is None:
+            return None  # Multiple CV folds require an explicit fitted identity.
+        if model_id not in folds.values() or (model_artifact_id is not None and model_id != model_artifact_id):
+            label = "FINAL" if str(fold_id) == "final" else "selected"
+            raise ValueError(f"Selected fitted artifact {model_artifact_id!r} does not match the {label} raw-input closure")
+        if not isinstance(references, list):
+            raise ValueError("Raw-input fitted closure requires declared predictor references")
+        by_model = (chain.get("shared_artifacts") or {}).get("_raw_input_predictor_models")
+        if by_model is not None:
+            reference = by_model.get(model_id) if isinstance(by_model, dict) else None
+            if reference not in references:
+                raise ValueError("Raw-input fitted closure is missing the selected model dependency")
+        elif len(references) == 1:
+            reference = references[0]
+        else:
+            raise ValueError("Raw-input fitted closure requires one exact model and predictor")
+        predictor = self.load_artifact(reference)
         if not isinstance(predictor, FittedPredictor) or predictor.root.artifact_id != model_id:
-            raise ValueError("Raw-input fitted closure does not match the selected FINAL model")
+            raise ValueError("Raw-input fitted closure does not match the selected fitted model")
         return predictor
 
     def _validate_chain_export(self, chain_id: str) -> None:
