@@ -435,6 +435,7 @@ class MetaModelController(SklearnModelController):
 
         # Get source model names
         source_models = self._get_source_models(meta_operator, context, prediction_store)
+        context.custom["_fitted_source_models"] = source_models
         if not source_models:
             return None
 

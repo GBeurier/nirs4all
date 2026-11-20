@@ -3753,7 +3753,7 @@ class MergeController(OperatorController):
             "branches_used": branches_used,
             "oof_reconstruction": not config.unsafe and not is_refit,
             "refit_reconstruction": is_refit,
-            "selection_source_pipeline_id": runtime.refit_selection_pipeline_id if is_refit else None,
+            "selection_source_pipeline_id": runtime.refit_selection_pipeline_id if is_refit and runtime is not None else None,
             "n_features": predictions.shape[1],
             "selection_info": selection_info,
         }
@@ -3866,6 +3866,7 @@ class MergeController(OperatorController):
 
         # Phase 5: Apply aggregation strategy
         aggregation_strategy = branch_config.get_aggregation_strategy()
+        model_scores = None
 
         if aggregation_strategy != AggregationStrategy.SEPARATE:
             # Get model scores for weighted aggregation
@@ -3907,6 +3908,9 @@ class MergeController(OperatorController):
             "selected_models": selected_models,
             "selection_strategy": branch_config.get_selection_strategy().value,
             "aggregation_strategy": aggregation_strategy.value,
+            "model_scores": model_scores,
+            "metric": branch_config.weight_metric or branch_config.metric,
+            "proba": branch_config.proba,
         }
 
         return branch_prediction, actual_idx, selected_models, selection_entry

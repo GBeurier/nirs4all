@@ -1256,6 +1256,9 @@ class RuntimeContext:
     refit_context_name: str | None = None  # Persisted refit context override
     refit_selection_predictions: Any = None  # Read-only CV evidence for structured refit selection
     refit_selection_pipeline_id: str | None = None  # Winning CV variant; never the new refit pipeline
+    capture_fitted_predictor: bool = False  # Capture only the requested final stacking closure
+    fitted_predictors: dict[str, Any] = field(default_factory=dict)  # Exact fitted artifact ID -> raw-input node
+    fitted_feature_output: Any = None  # Final feature node of the current refit sub-pipeline
     cache_config: Any = None  # CacheConfig for step-level caching settings
     step_cache: Any = None  # StepCache instance (set when cache_config.step_cache_enabled)
     best_refit_chains: dict[str, "BestChainEntry"] | None = None  # Accumulator: best chain per model during CV
