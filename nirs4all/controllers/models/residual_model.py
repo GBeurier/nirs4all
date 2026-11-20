@@ -57,7 +57,7 @@ class ResidualModelController(OperatorController):
                          f"(keyword={keyword!r}, operator={type(operator).__name__}).")
 
     def _fit_submodel(self, model_op, dataset, context, runtime_context, source, mode,
-                      prediction_store, train_params=None, finetune_space=None):
+                      prediction_store, train_params=None, finetune_space=None, substep_index=0):
         """Fit one sub-model by routing a synthetic ``{"model": ...}`` step through its framework controller.
 
         Returns the model_name under which its predictions were stored.
@@ -75,8 +75,25 @@ class ResidualModelController(OperatorController):
         if isinstance(controller, type):
             controller = controller()
         before = set(self._all_model_names(prediction_store))
-        controller.execute(parsed, dataset, context, runtime_context,
-                            source=source, mode=mode, prediction_store=prediction_store)
+        recorder = runtime_context.trace_recorder
+        original_substep = runtime_context.substep_number
+        original_chain = recorder.current_chain() if recorder is not None else None
+        runtime_context.substep_number = substep_index
+        if recorder is not None:
+            recorder.start_step(
+                step_index=runtime_context.step_number,
+                operator_type="model",
+                operator_class=type(model_op).__name__,
+                substep_index=substep_index,
+            )
+        try:
+            controller.execute(parsed, dataset, context, runtime_context,
+                               source=source, mode=mode, prediction_store=prediction_store)
+        finally:
+            if recorder is not None:
+                recorder.end_step(is_model=True)
+                recorder.reset_chain_to(original_chain)
+            runtime_context.substep_number = original_substep
         after = self._all_model_names(prediction_store)
         new = [n for n in after if n not in before]
         return new[-1] if new else (after[-1] if after else None)
@@ -188,7 +205,7 @@ class ResidualModelController(OperatorController):
 
         # 3) Fit LEARNER on residuals via the router (ANY framework: sklearn/nicon/tabpfn/xgb...).
         learner_name = self._fit_submodel(op.learner, dataset, residual_context, runtime_context, source, mode,
-                                           prediction_store, op.train_params, op.finetune_space)
+                                           prediction_store, op.train_params, op.finetune_space, substep_index=1)
         _, learner_oof, _ = self._vec(prediction_store, learner_name, "val")
         _, learner_test, _ = self._vec(prediction_store, learner_name, "test")
 
