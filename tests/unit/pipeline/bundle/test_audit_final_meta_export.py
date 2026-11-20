@@ -223,9 +223,11 @@ def test_cv_meta_equal_raw_width_refuses_incomplete_export_and_replay(tmp_path):
         with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
             nirs4all.predict(chain_id=chain_id, data=x[32:], workspace_path=workspace, engine="legacy", verbose=0)
         # Reconstruct an old producer's incomplete archive from the genuine
-        # fitted CV artifacts. Only the private writer bypasses admission here;
-        # no numerical operation, estimator, or prediction is mocked.
-        unsafe_resolved = resolver._resolve_from_store(selected)
+        # fitted CV artifacts. Admission is bypassed only while building this
+        # deliberately incomplete historical fixture; no numerical operation,
+        # estimator, or prediction is mocked.
+        with patch("nirs4all.pipeline.analysis.topology.require_legacy_raw_input_closure"):
+            unsafe_resolved = resolver._resolve_from_store(selected)
         assert unsafe_resolved is not None
         old_archive = BundleGenerator(workspace, store=store)._export_n4a(unsafe_resolved, tmp_path / "old-partial.n4a", True)
         with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):

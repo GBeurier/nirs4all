@@ -151,6 +151,7 @@ class Predictor:
             prediction_obj: Prediction dict or string identifier.
             verbose: Verbosity level.
         """
+        from nirs4all.pipeline.analysis.topology import _InvalidBranchSelectionError
         from nirs4all.pipeline.resolver import PredictionResolver
 
         resolver = PredictionResolver(
@@ -158,7 +159,10 @@ class Predictor:
             runs_dir=self.runner.workspace_path,
             store=self.runner.store,
         )
-        resolved = resolver.resolve(prediction_obj, verbose=verbose)
+        try:
+            resolved = resolver.resolve(prediction_obj, verbose=verbose)
+        except _InvalidBranchSelectionError as error:
+            raise RuntimeError(str(error)) from error
         if self._resolved is not None:
             self._resolved.close()
         self._resolved = resolved

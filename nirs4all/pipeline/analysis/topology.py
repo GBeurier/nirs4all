@@ -69,6 +69,11 @@ _SPLITTER_CLASS_FRAGMENTS = frozenset({
     "LeaveP",
 })
 
+
+class _InvalidBranchSelectionError(ValueError):
+    """A declared branch does not exist in the selected recipe."""
+
+
 @dataclass
 class ModelNodeInfo:
     """Describes a single model node found in the pipeline.
@@ -184,7 +189,10 @@ def require_legacy_raw_input_closure(
                 branches = value
             else:
                 break
-            selected = branches[int(branch_index)]
+            try:
+                selected = branches[int(branch_index)]
+            except (IndexError, TypeError, ValueError) as error:
+                raise _InvalidBranchSelectionError(f"Branch {branch_index!r} does not exist in the selected pipeline") from error
             if isinstance(selected, dict) and "steps" in selected:
                 selected = selected["steps"]
             active = selected if isinstance(selected, list) else [selected]

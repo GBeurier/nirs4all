@@ -1255,6 +1255,12 @@ class PredictionResolver:
         result.pipeline_uid = pipeline_uid
         result.model_step_index = chain["model_step_idx"]
         assert self.store is not None and chain_id is not None
+        if not (chain.get("shared_artifacts") or {}).get("_raw_input_predictor"):
+            from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+            expanded = pipeline.get("expanded_config") or []
+            steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+            require_legacy_raw_input_closure(steps, chain["model_step_idx"], prediction)
         predictor = (self.store.get_raw_input_predictor(
                          chain_id, model_artifact_id=prediction.get("model_artifact_id"), fold_id=prediction.get("fold_id"),
                      )
