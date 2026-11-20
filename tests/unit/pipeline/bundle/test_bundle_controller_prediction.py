@@ -29,6 +29,7 @@ def _bare_loader(provider: _ArtifactProvider | None = None) -> BundleLoader:
     loader.artifact_provider = provider
     loader.fold_weights = {}
     loader.trace = None
+    loader._chain_data = {}
     return loader
 
 

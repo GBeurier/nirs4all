@@ -1,6 +1,7 @@
 """Parallel workers retain isolated runtimes, strict traces and replayable models."""
 
 import copy
+import json
 import threading
 
 import numpy as np
@@ -175,6 +176,17 @@ def test_parallel_supervised_models_match_fold_oracles_and_archive(tmp_path, par
         archive = result.export(tmp_path / "parallel.n4a")
         replay = nirs4all.predict(archive, X[24:], engine="legacy", verbose=0)
         np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-5, atol=1e-6)
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        with WorkspaceStore(tmp_path / "workspace") as store:
+            chains = store.get_chains_for_pipeline(result.best["pipeline_uid"]).to_dicts()
+            if refit:
+                assert len(chains) == 1  # Standalone refit flattens only the selected branch.
+                chain = chains[0]
+                assert result.best["model_artifact_id"] in json.loads(chain["fold_artifacts"]).values()
+            else:
+                chain = next(item for item in chains if item["branch_path"] == f"[{best_branch}]")
+            np.testing.assert_allclose(store.replay_chain(chain["chain_id"], X[24:]), expected, rtol=1e-5, atol=1e-6)
 
 
 @pytest.mark.parametrize("parallel", [False, True])

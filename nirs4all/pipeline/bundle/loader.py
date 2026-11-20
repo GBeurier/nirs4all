@@ -867,7 +867,7 @@ class BundleLoader:
                 y_processing_step_idx = step_idx
                 continue
 
-            elif cv_start is not None and model_step is not None and cv_start <= step_idx < model_step:
+            elif cv_start is not None and model_step is not None and cv_start <= step_idx <= model_step:
                 continue
             elif op_type == "feature_augmentation":
                 # Feature augmentation: apply each transformer and concatenate with original
@@ -1241,6 +1241,10 @@ class BundleLoader:
                 # fitted preprocessing. The chain writer preserves those
                 # exact shared IDs in step_<idx>_sub<ordinal> order.
                 shared = self._chain_data.get("shared_artifacts", {}).get(str(step_idx), [])
+                if cv_start is not None and cv_start <= step_idx:
+                    # The fold model already owns this exact preprocessing
+                    # range, including substeps at its outer model index.
+                    shared = []
                 if isinstance(shared, str):
                     shared = [shared]
                 for sub_index, artifact_id in enumerate(shared):

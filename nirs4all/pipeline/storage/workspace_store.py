@@ -4148,7 +4148,7 @@ class WorkspaceStore:
                     return _restore_targets(EnsembleUtils.compute_hard_voting(fold_preds))
                 return _restore_targets(np.mean(fold_preds, axis=0))
 
-            if cv_start is not None and cv_start <= idx < model_step_idx and idx not in target_steps:
+            if cv_start is not None and cv_start <= idx <= model_step_idx and idx not in target_steps:
                 # The fitted fold model owns these stages and expects their raw input.
                 continue
 
