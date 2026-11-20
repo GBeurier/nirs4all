@@ -299,6 +299,7 @@ class TransferSelectionResults:
         names: list[Any] = [r.name for r in top_results]
         if resolve_transforms:
             from sklearn.pipeline import make_pipeline, make_union
+            from sklearn.preprocessing import FunctionTransformer
 
             from nirs4all.pipeline.config.component_serialization import serialize_component
 
@@ -313,10 +314,19 @@ class TransferSelectionResults:
                     continue
                 if not transforms:
                     raise ValueError(f"Cannot resolve selected preprocessing {result.name!r}")
-                transform = (
-                    make_union(*transforms) if result.pipeline_type == "augmented"
-                    else transforms[0] if len(transforms) == 1 else make_pipeline(*transforms)
-                )
+                if result.pipeline_type == "augmented":
+                    transform = make_union(*transforms)
+                    # Selection evaluates each augmentation from its own X.copy().
+                    # Keep the same boundary at fit and replay, including for
+                    # transformers explicitly configured to mutate their input.
+                    transform.transformer_list = [
+                        (name, make_pipeline(FunctionTransformer(
+                            np.copy, kw_args={"order": "C"}, feature_names_out="one-to-one",
+                        ), branch))
+                        for name, branch in transform.transformer_list
+                    ]
+                else:
+                    transform = transforms[0] if len(transforms) == 1 else make_pipeline(*transforms)
                 names[index] = serialize_component(transform)
 
         if top_k == 1:
