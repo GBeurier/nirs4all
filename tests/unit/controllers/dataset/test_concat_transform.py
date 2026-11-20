@@ -432,8 +432,10 @@ def test_full_replace_preserves_each_processing_input(multi_processing_dataset, 
     result = dataset.x({}, layout="3d")
     assert result.shape == (10, 3, 55)
     for processing in range(3):
-        values = original[:, processing, :]
-        expected = np.hstack([PCA(n_components=5, svd_solver="full").fit_transform(values), StandardScaler().fit_transform(values)])
+        # Direct sklearn reference: double fit/inference, then float32 storage.
+        values = original[:, processing, :].astype(np.float64)
+        expected = np.hstack([PCA(n_components=5, svd_solver="full").fit(values).transform(values),
+                              StandardScaler().fit(values).transform(values)]).astype(np.float32)
         np.testing.assert_allclose(result[:, processing, :], expected, atol=1e-5)
 
 
