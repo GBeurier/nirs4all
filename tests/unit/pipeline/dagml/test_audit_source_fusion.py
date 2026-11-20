@@ -216,3 +216,44 @@ def test_historical_source_concat_requires_its_raw_input_closure(tmp_path):
         with pytest.raises(NotImplementedError, match="source-local raw-input dependency closure was not captured"):
             BundleLoader(archive)
         assert load.call_count == 0
+
+
+def test_source_concat_before_model_branches_refuses_partial_cv_and_final(tmp_path):
+    """A selected nested model still depends on its outer source-local prefix."""
+    from unittest.mock import patch
+
+    import pytest
+
+    from nirs4all.pipeline.bundle import BundleLoader
+
+    rng = np.random.default_rng(4217)
+    left = rng.normal(size=(32, 5)).astype(np.float32) + 5
+    right = rng.normal(size=(32, 3)).astype(np.float32) - 4
+    dataset = SpectroDataset("source-concat-before-model-branches")
+    dataset.add_samples([left[:24], right[:24]], {"partition": "train"})
+    dataset.add_samples([left[24:], right[24:]], {"partition": "test"})
+    dataset.add_targets(2 * left[:, 0] - right[:, 0])
+    steps = [KFold(2), {"branch": {"by_source": True, "steps": {
+        "source_0": [StandardNormalVariate()], "source_1": [MultiplicativeScatterCorrection()],
+    }}}, {"merge": "concat"}, {"branch": [[Ridge(.2)], [Ridge(3.0)]]}]
+    with nirs4all.run(steps, dataset, engine="legacy", workspace_path=tmp_path / "workspace", save_charts=False, verbose=0) as result:
+        selected = [row for row in result.predictions.iter_entries()
+                    if row["partition"] == "test" and str(row["fold_id"]) in {"0", "final"}]
+        assert {(row["branch_id"], str(row["fold_id"])) for row in selected} == {(0, "0"), (1, "0"), (0, "final"), (1, "final")}
+        assert len(selected) == 4
+        for index, row in enumerate(selected):
+            output = tmp_path / f"selected-{index}.n4a"
+            output.write_bytes(b"previous valid destination")
+            with patch("nirs4all.pipeline.bundle.loader.load_host_joblib", side_effect=AssertionError("loaded partial state")) as load:
+                with pytest.raises(NotImplementedError, match="source-local raw-input dependency closure was not captured"):
+                    result.export(output, source=row)
+                assert load.call_count == 0
+            assert output.read_bytes() == b"previous valid destination"
+        # Reconstruct the prior archive, bypassing admission alone. The new
+        # reader must refuse its missing outer closure before deserializing.
+        with patch("nirs4all.pipeline.analysis.topology.require_legacy_raw_input_closure"):
+            archive = result.export(tmp_path / "historical-nested-partial.n4a", source=selected[0])
+        with patch("nirs4all.pipeline.bundle.loader.load_host_joblib", side_effect=AssertionError("loaded partial state")) as load:
+            with pytest.raises(NotImplementedError, match="source-local raw-input dependency closure was not captured"):
+                BundleLoader(archive)
+            assert load.call_count == 0

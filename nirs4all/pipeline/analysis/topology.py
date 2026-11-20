@@ -201,9 +201,9 @@ def require_legacy_raw_input_closure(
     # the branch's local recipe: a branch containing a prediction merge has
     # no unambiguous captured raw-input closure for an individual component.
     prefix = active if branch_path else (active[:model_step_index] if model_step_index else active)
-    if not branch_path:
+    if model_step_index is not None:
         source_branch = False
-        for step in prefix:
+        for step in steps[:model_step_index]:
             if not isinstance(step, dict):
                 continue
             branch = step.get("branch")
