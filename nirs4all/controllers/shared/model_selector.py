@@ -37,6 +37,7 @@ from nirs4all.operators.data.merge import (
     BranchPredictionConfig,
     SelectionStrategy,
 )
+from nirs4all.pipeline.config.context import ExecutionPhase
 
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
@@ -70,6 +71,13 @@ class ModelSelector:
             context: Execution context.
         """
         self.prediction_store = prediction_store
+        runtime = context.custom.get("_runtime_context")
+        self._selection_pipeline_id = None
+        if runtime is not None and runtime.phase == ExecutionPhase.REFIT and runtime.refit_selection_predictions is not None:
+            # REFIT changes fitted states, not the selection evidence. Reuse
+            # exactly the winning variant's designated validation scores.
+            self.prediction_store = runtime.refit_selection_predictions
+            self._selection_pipeline_id = runtime.refit_selection_pipeline_id
         self.context = context
         self._score_cache: dict[str, dict[str, float]] = {}
 
@@ -273,6 +281,7 @@ class ModelSelector:
 
         predictions = self.prediction_store.filter_predictions(
             model_name=model_name, branch_id=branch_id, partition='val', load_arrays=False,
+            **({'pipeline_uid': self._selection_pipeline_id} if self._selection_pipeline_id else {}),
         )
 
         # Filter by step
@@ -285,6 +294,7 @@ class ModelSelector:
             # Try without branch_id for pre-branch models
             predictions = self.prediction_store.filter_predictions(
                 model_name=model_name, partition='val', load_arrays=False,
+                **({'pipeline_uid': self._selection_pipeline_id} if self._selection_pipeline_id else {}),
             )
             predictions = [
                 p for p in predictions

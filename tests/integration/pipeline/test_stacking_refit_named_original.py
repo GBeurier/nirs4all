@@ -10,6 +10,15 @@ import nirs4all
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 
+class _RecordedRidge(Ridge):
+    """Record the actual fit boundary while retaining unchanged Ridge numerics."""
+
+    def fit(self, X, y, sample_weight=None):
+        self.fit_features_ = np.asarray(X).copy()
+        self.fit_targets_ = np.asarray(y).copy()
+        return super().fit(X, y, sample_weight=sample_weight)
+
+
 @pytest.mark.parametrize("direct_models", [False, True])
 @pytest.mark.parametrize("named", [False, True])
 @pytest.mark.parametrize("include_original", [False, True])
@@ -80,10 +89,8 @@ def test_direct_unfitted_forest_branch_refits_without_truth_value_inspection(tmp
         assert any(row["model_name"] == "RandomForestRegressor" and row.get("branch_name") == "forest" for row in final)
 
 
-@pytest.mark.parametrize("refs,reason", [([1, 0], "cannot preserve declared merge configuration"),
-                                        ([1], "cannot preserve declared merge configuration"),
-                                        (["right"], "Prediction branch indices must be integers")])
-def test_stacking_refit_refuses_merge_selection_it_cannot_preserve(tmp_path, refs, reason):
+@pytest.mark.parametrize("refs", [[1, 0], [1], ["right"]])
+def test_stacking_refit_preserves_declared_selection_order(tmp_path, refs):
     rng = np.random.default_rng(8)
     x = rng.normal(size=(24, 3))
     y = x @ np.arange(1., 4.)
@@ -91,8 +98,114 @@ def test_stacking_refit_refuses_merge_selection_it_cannot_preserve(tmp_path, ref
              {"branch": {"left": [Ridge(alpha=.5)], "right": [Ridge(alpha=2.)]}},
              {"merge": {"predictions": refs}}, Ridge(alpha=.1)]
     workspace = tmp_path / "workspace"
-    with pytest.raises((NotImplementedError, RuntimeError), match=reason):
-        nirs4all.run(steps, {"train_x": x[:18], "train_y": y[:18], "test_x": x[18:], "test_y": y[18:]},
-                      engine="legacy", refit=True, workspace_path=workspace, save_charts=False, verbose=0)
-    with WorkspaceStore(workspace) as store:
-        assert store.query_predictions(fold_id="final").is_empty()
+    data = {"train_x": x[:18], "train_y": y[:18], "test_x": x[18:], "test_y": y[18:]}
+    if refs == ["right"]:
+        with pytest.raises(RuntimeError, match="Prediction branch indices must be integers"):
+            nirs4all.run(steps, data, engine="legacy", refit=True, workspace_path=workspace, save_charts=False, verbose=0)
+        with WorkspaceStore(workspace) as store:
+            assert store.query_predictions(fold_id="final").is_empty()
+        return
+    with nirs4all.run(steps, data, engine="legacy", refit=True, workspace_path=workspace, save_charts=False, verbose=0) as result:
+        rows = [row for row in result.predictions.iter_entries() if str(row["fold_id"]) == "final" and row.get("branch_id") is None]
+        assert rows and {row["n_features"] for row in rows} == {len(refs)}
+        train_x = x[:18].astype(np.float32)
+        train_y = y[:18].astype(np.float32)
+        predictions = [Ridge(alpha=alpha).fit(train_x, train_y).predict(train_x) for alpha in (.5, 2.)]
+        features = np.column_stack([predictions[index] for index in refs])
+        expected = Ridge(alpha=.1).fit(features, train_y)
+        with WorkspaceStore(workspace) as store:
+            model = store.load_artifact(rows[0]["model_artifact_id"])
+            np.testing.assert_allclose(model.coef_, expected.coef_, rtol=1e-5, atol=1e-5)
+            np.testing.assert_allclose(model.predict(features), expected.predict(features), rtol=1e-5, atol=1e-5)
+
+
+@pytest.mark.parametrize("branch_meta", [False, True])
+def test_mixed_selected_refit_preserves_cv_choice_feature_paths_and_training_scope(tmp_path, branch_meta):
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import PolynomialFeatures
+
+    from nirs4all.operators.models import MetaModel
+
+    rng = np.random.default_rng(92)
+    x = rng.normal(size=(44, 6))
+    x[36:] += 1000
+    y = x @ np.arange(1., 7.) + x[:, 0] ** 2 + rng.normal(scale=3., size=44)
+    branches = {
+        "late_features": [StandardScaler(), {"model": _RecordedRidge(alpha=.1), "name": "A0"},
+                          {"model": _RecordedRidge(alpha=20.), "name": "B0"}, PCA(n_components=2),
+                          {"model": _RecordedRidge(alpha=1.), "name": "C0"}],
+        "polynomial": [PolynomialFeatures(degree=2, include_bias=False), {"model": _RecordedRidge(alpha=.1), "name": "A1"},
+                       {"model": _RecordedRidge(alpha=50.), "name": "B1"}],
+        "feature_only": [PCA(n_components=3), {"model": _RecordedRidge(alpha=1.), "name": "A2"}],
+    }
+    configs = [{"branch": 1, "select": "best", "metric": "rmse"},
+               {"branch": 0, "select": {"top_k": 2}, "metric": "r2"}]
+    steps = [StandardScaler(), KFold(3, shuffle=True, random_state=42), {"branch": branches}]
+    if branch_meta:
+        steps.append({"model": MetaModel(_RecordedRidge(alpha=.3)), "name": "BranchMeta"})
+    steps += [{"merge": {"features": [2], "predictions": configs, "include_original": True}},
+              {"model": _RecordedRidge(alpha=.7), "name": "FINAL"}]
+    train_x = x[:36].astype(np.float32)
+    train_y = y[:36].astype(np.float32)
+    original = StandardScaler().fit_transform(train_x)
+    path0 = StandardScaler().fit_transform(original)
+    path0_late = PCA(n_components=2).fit_transform(path0)
+    path1 = PolynomialFeatures(degree=2, include_bias=False).fit_transform(original)
+    feature_path = PCA(n_components=3).fit_transform(original)
+    expected_inputs = {"A0": path0, "B0": path0, "C0": path0_late, "A1": path1, "B1": path1, "A2": feature_path}
+    expected_alphas = {"A0": .1, "B0": 20., "C0": 1., "A1": .1, "B1": 50., "A2": 1.}
+    observed = []
+    for run_index, test_target_shift in enumerate((0., 100000.)):
+        workspace = tmp_path / f"run-{run_index}"
+        data = {"train_x": x[:36], "train_y": y[:36], "test_x": x[36:], "test_y": y[36:] + test_target_shift}
+        with nirs4all.run(steps, data, engine="legacy", refit=True, workspace_path=workspace,
+                          save_charts=False, save_artifacts=True, verbose=0) as result:
+            rows = list(result.predictions.iter_entries())
+            cv = [row for row in rows if row.get("partition") == "val" and str(row["fold_id"]) not in ("final", "avg", "w_avg")]
+            selected = []
+            for branch_id, metric, count in ((1, "rmse", 1), (0, "r2", 2)):
+                scores = {}
+                for row in cv:
+                    if row.get("branch_id") == branch_id:
+                        scores.setdefault(row["model_name"], row["scores"]["val"][metric])
+                names = sorted(scores)
+                names.sort(key=scores.__getitem__, reverse=metric == "r2")
+                selected.extend((branch_id, name) for name in names[:count])
+            assert len(selected) == 3
+            finals = [row for row in rows if str(row["fold_id"]) == "final" and row["model_name"] == "FINAL"]
+            assert finals and {row["n_features"] for row in finals} == {12}
+            assert all((row.get("metadata") or {}).get("stacking_role") == "meta_model" for row in finals)
+            with WorkspaceStore(workspace) as store:
+                # Host integration tests the fitted feature/identity boundary;
+                # numerical prediction remains delegated to the fitted owner.
+                fitted_predictions = {}
+                for name, values in expected_inputs.items():
+                    row = next(row for row in rows if row["model_name"] == name and str(row["fold_id"]) == "final")
+                    fitted = store.load_artifact(row["model_artifact_id"])
+                    assert fitted.alpha == expected_alphas[name]
+                    np.testing.assert_allclose(fitted.fit_features_, values, rtol=1e-5, atol=1e-5)
+                    np.testing.assert_array_equal(fitted.fit_targets_, train_y)
+                    expected_fit = Ridge(alpha=expected_alphas[name]).fit(fitted.fit_features_, train_y)
+                    np.testing.assert_allclose(fitted.coef_, expected_fit.coef_, rtol=1e-5, atol=1e-5)
+                    fitted_predictions[name] = fitted.predict(fitted.fit_features_)
+                if branch_meta:
+                    for branch_id, names in ((0, ["A0", "B0", "C0"]), (1, ["A1", "B1"])):
+                        row = next(row for row in rows if row["model_name"] == "BranchMeta"
+                                   and str(row["fold_id"]) == "final" and row.get("branch_id") == branch_id)
+                        fitted = store.load_artifact(row["model_artifact_id"])
+                        expected_columns = np.column_stack([fitted_predictions[name] for name in names])
+                        np.testing.assert_allclose(fitted.fit_features_, expected_columns, rtol=1e-5, atol=1e-5)
+                        np.testing.assert_array_equal(fitted.fit_targets_, train_y)
+                        fitted_predictions[f"BranchMeta:{branch_id}"] = fitted.predict(fitted.fit_features_)
+                columns = [fitted_predictions[f"BranchMeta:{branch_id}" if name == "BranchMeta" else name]
+                           for branch_id, name in selected]
+                features = np.column_stack([original, feature_path, *columns])
+                model = store.load_artifact(finals[0]["model_artifact_id"])
+                np.testing.assert_allclose(model.fit_features_, features, rtol=1e-5, atol=1e-5)
+                np.testing.assert_array_equal(model.fit_targets_, train_y)
+                expected_final = Ridge(alpha=.7).fit(model.fit_features_, train_y)
+                np.testing.assert_allclose(model.coef_, expected_final.coef_, rtol=1e-5, atol=1e-5)
+                np.testing.assert_allclose(model.predict(features), expected_final.predict(features), rtol=1e-5, atol=1e-5)
+                observed.append((selected, model.coef_.copy()))
+    assert observed[0][0] == observed[1][0]
+    np.testing.assert_array_equal(observed[0][1], observed[1][1])

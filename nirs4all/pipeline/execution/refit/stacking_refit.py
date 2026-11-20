@@ -12,10 +12,10 @@ into a feature matrix, train the meta-model on that matrix, evaluate on
 the test set (if available), and persist the result with
 ``fold_id="final"`` and ``refit_context="stacking"``.
 
-The qualified refit profile uses every branch prediction in declared order,
-with optional original pre-branch features. Other merge contracts are refused
-before fitting. GPU-aware serialization (Task 3.5) avoids OOM when multiple GPU
-models are refit concurrently.
+Simple stacks use the two-step strategy. Mixed and selected merges replay the
+complete declared recipe through the existing executor, with model ranking
+frozen to the original CV validation evidence. GPU-aware serialization avoids
+OOM when multiple GPU models are refit concurrently.
 """
 
 from __future__ import annotations
@@ -466,6 +466,7 @@ class _StackingPrep:
     post_merge_steps: list[Any]
     meta_model_config: Any
     meta_model_step: dict[str, Any] | None
+    structured_merge: bool
     prev_refit_fold_id: Any
     prev_refit_context_name: Any
     refit_pipeline_name: str
@@ -528,9 +529,9 @@ def _prepare_stacking_refit(
     branch_value = [branch["steps"] for branch in branches]
     branch_names = [branch["name"] for branch in branches]
 
-    # The current refit collects one prediction per branch in declared order.
-    # Refuse other merge contracts before fitting, rather than silently train
-    # the final meta-model on different columns from its CV declaration.
+    # Simple stacks retain their established two-step refit. Other merge
+    # contracts replay the complete recipe, preserving all feature paths and
+    # selected prediction columns through the existing controllers.
     merge_value = merge_step.get("merge") if merge_step else None
     if isinstance(merge_value, dict):
         refs = merge_value.get("predictions")
@@ -544,13 +545,14 @@ def _prepare_stacking_refit(
             merge_value["predictions"] = list(range(len(branches)))
     else:
         supported = merge_value == "predictions"
-    if not supported:
-        raise NotImplementedError(
-            f"Stacking refit cannot preserve declared merge configuration {merge_value!r}. "
-            "The supported refit profile uses every branch's prediction in declared branch order, "
-            "with optional include_original=True; selected, reordered, filtered, or mixed merge refit is unsupported."
-        )
-
+    supported = supported and all(
+        sum(_extract_model_from_steps([step]) is not None for step in (branch if isinstance(branch, list) else [branch])) <= 1
+        for branch in branch_value
+    )
+    merge_index = next((index for index, step in enumerate(steps) if step is merge_step), branch_idx)
+    supported = supported and not any(
+        _extract_model_from_steps([step]) is not None for step in steps[branch_idx + 1:merge_index]
+    )
     # Extract structural components
     pre_branch_steps = _extract_pre_branch_steps(steps, branch_idx)
     post_merge_steps = _extract_post_merge_steps(steps, branch_idx)
@@ -579,6 +581,7 @@ def _prepare_stacking_refit(
         post_merge_steps=post_merge_steps,
         meta_model_config=meta_model_config,
         meta_model_step=next((copy.deepcopy(step) for step in post_merge_steps if isinstance(step, dict) and "model" in step), None),
+        structured_merge=not supported,
         prev_refit_fold_id=prev_refit_fold_id,
         prev_refit_context_name=prev_refit_context_name,
         refit_pipeline_name=refit_pipeline_name,
@@ -1064,6 +1067,70 @@ def _train_stacking_meta_model(
     return None
 
 
+def _execute_structured_stacking_refit(
+    prep: _StackingPrep,
+    refit_config: RefitConfig,
+    runtime_context: RuntimeContext,
+    artifact_registry: Any,
+    executor: Any,
+    prediction_store: Any,
+) -> RefitResult:
+    """Replay the complete mixed/selected recipe with frozen CV ranking evidence.
+
+    The normal executor preserves branch feature paths, all model steps and
+    MetaModel controllers. Its reconstructor already uses identity-aligned
+    full-training predictions in REFIT, instead of CV validation predictions.
+    Selection still reads only the original variant's validation evidence.
+    """
+    from nirs4all.data.predictions import Predictions
+
+    if not refit_config.pipeline_id:
+        raise ValueError("Structured stacking refit requires the original CV pipeline identity for model selection.")
+    refit_dataset = prep.refit_dataset
+    steps = copy.deepcopy(refit_config.expanded_steps)
+    _inject_best_params(steps, refit_config.best_params)
+    steps = _replace_splitter(steps, refit_dataset)
+    predictions = Predictions()
+    previous_selection = runtime_context.refit_selection_predictions
+    previous_pipeline = runtime_context.refit_selection_pipeline_id
+    runtime_context.refit_selection_predictions = prediction_store
+    runtime_context.refit_selection_pipeline_id = refit_config.pipeline_id
+    try:
+        executor.execute(
+            steps=steps,
+            config_name=prep.refit_pipeline_name,
+            dataset=refit_dataset,
+            context=executor.initialize_context(refit_dataset),
+            runtime_context=runtime_context,
+            prediction_store=predictions,
+            generator_choices=refit_config.generator_choices,
+        )
+        merge_index = next(index + 1 for index, step in enumerate(steps) if isinstance(step, dict) and "merge" in step)
+        meta_entries = [entry for entry in predictions.iter_entries()
+                        if entry.get("branch_id") is None and entry.get("step_idx", 0) > merge_index]
+        if not meta_entries:
+            raise ValueError("Structured stacking refit did not produce the declared merged model.")
+        for entry in predictions.iter_entries():
+            metadata = entry.get("metadata") or {}
+            metadata["stacking_role"] = "meta_model" if entry.get("branch_id") is None and entry.get("step_idx", 0) > merge_index else "base_model"
+            entry["metadata"] = metadata
+        predictions.mutate_entries({"fold_id": "final", "refit_context": REFIT_CONTEXT_STACKING})
+        prediction_store.merge_predictions(predictions)
+        meta_test = next((entry for entry in meta_entries if entry.get("partition") == "test"), None)
+        logger.success("Structured stacking refit pass completed successfully")
+        return RefitResult(
+            success=True, refit_context=REFIT_CONTEXT_STACKING, metric=refit_config.metric,
+            predictions_count=predictions.num_predictions,
+            test_score=meta_test.get("test_score") if meta_test else None,
+        )
+    finally:
+        runtime_context.refit_selection_predictions = previous_selection
+        runtime_context.refit_selection_pipeline_id = previous_pipeline
+        runtime_context.phase = ExecutionPhase.CV
+        runtime_context.refit_fold_id = prep.prev_refit_fold_id
+        runtime_context.refit_context_name = prep.prev_refit_context_name
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -1091,9 +1158,8 @@ def execute_stacking_refit(
     train the meta-model, and persist with ``fold_id="final"`` and
     ``refit_context="stacking"``.
 
-    Selected, reordered, filtered, and mixed feature/prediction merge
-    contracts are refused before fitting because this refit profile cannot
-    preserve their declared meta-feature matrix.
+    Selected, reordered, filtered, and mixed feature/prediction merges use
+    the complete recipe executor and retain the original CV ranking evidence.
 
     GPU-backed models (Task 3.5) are detected and refit sequentially
     with memory cleanup between each, while CPU models can be refit
@@ -1130,6 +1196,11 @@ def execute_stacking_refit(
     if prep is None:
         result.success = False
         return result
+
+    if prep.structured_merge:
+        return _execute_structured_stacking_refit(
+            prep, refit_config, runtime_context, artifact_registry, executor, prediction_store,
+        )
 
     logger.info("Starting stacking refit pass")
 

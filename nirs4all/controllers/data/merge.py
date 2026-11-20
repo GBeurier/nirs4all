@@ -112,6 +112,7 @@ from nirs4all.operators.data.merge import (
     SourceMergeStrategy,
     StackingFitContract,
 )
+from nirs4all.pipeline.config.context import ExecutionPhase
 from nirs4all.pipeline.execution.result import StepOutput
 
 if TYPE_CHECKING:
@@ -1101,6 +1102,7 @@ class MergeController(OperatorController):
         Returns:
             Tuple of (updated_context, StepOutput)
         """
+        context.custom["_runtime_context"] = runtime_context
         # Parse configuration (with auto-detection for "auto", True, {"branch": ...})
         raw_config = step_info.original_step.get("merge")
         raw_config = self._resolve_auto_merge(raw_config, context)
@@ -1345,6 +1347,10 @@ class MergeController(OperatorController):
                 merge_info["prediction_models_used"] = pred_info.get("models_used", [])
                 merge_info["prediction_branches_used"] = pred_info.get("branches_used", [])
                 merge_info["oof_reconstruction"] = pred_info.get("oof_reconstruction", True)
+                merge_info["prediction_selection"] = pred_info.get("selection_info", [])
+                if pred_info.get("refit_reconstruction"):
+                    merge_info["refit_reconstruction"] = True
+                    merge_info["selection_source_pipeline_id"] = pred_info["selection_source_pipeline_id"]
                 logger.info(
                     f"  Collected predictions: shape={predictions_array.shape}, "
                     f"models={pred_info.get('models_used', [])}"
@@ -3740,10 +3746,14 @@ class MergeController(OperatorController):
         # Concatenate all branch predictions horizontally
         predictions = np.concatenate(all_branch_predictions, axis=1)
 
+        runtime = context.custom.get("_runtime_context")
+        is_refit = runtime is not None and runtime.phase == ExecutionPhase.REFIT
         info = {
             "models_used": all_models_used,
             "branches_used": branches_used,
-            "oof_reconstruction": not config.unsafe,
+            "oof_reconstruction": not config.unsafe and not is_refit,
+            "refit_reconstruction": is_refit,
+            "selection_source_pipeline_id": runtime.refit_selection_pipeline_id if is_refit else None,
             "n_features": predictions.shape[1],
             "selection_info": selection_info,
         }
@@ -4330,11 +4340,13 @@ class MergeController(OperatorController):
             List of model names with predictions in the branch.
         """
         current_step = getattr(context.state, 'step_number', float('inf'))
+        runtime = context.custom.get("_runtime_context")
+        partition = "train" if runtime is not None and runtime.phase == ExecutionPhase.REFIT else "val"
 
         # Query prediction store for validation predictions in this branch
         branch_filter_kwargs: dict[str, Any] = {
             'branch_id': branch_id,
-            'partition': 'val',
+            'partition': partition,
             'load_arrays': False,
         }
 
@@ -4350,7 +4362,7 @@ class MergeController(OperatorController):
         # (models trained before branch was created have branch_id=None)
         if not predictions:
             no_branch_filter_kwargs: dict[str, Any] = {
-                'partition': 'val',
+                'partition': partition,
                 'load_arrays': False,
             }
             predictions = prediction_store.filter_predictions(**no_branch_filter_kwargs)
