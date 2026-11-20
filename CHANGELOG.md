@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fit and evaluate concatenated transforms with at least float64 working
+  precision before the existing feature-storage conversion. This prevents
+  float32 PCA/SVD batch-size and serialized-array-layout rounding from changing
+  saved PLS/META predictions when held-out samples are replayed separately;
+  constructor parameters and data partitions retain their declared contracts.
+- Capture complete sequential MetaModel CV and standalone FINAL raw-input
+  dependencies with exact fitted fold identities, declared TEST aggregation,
+  probabilities and sample IDs. Probability TEST reconstruction now uses the
+  declared probability features instead of a precomputed hard-label average.
+  Incomplete branch/merge CV bundles continue to refuse explicitly.
 - Refuse incomplete cross-validation meta-model bundles before export or prediction.
   Supported final stacking refits now capture their complete Python-host raw-input
   dependency graph: fitted feature paths and inverse target scaling, original
