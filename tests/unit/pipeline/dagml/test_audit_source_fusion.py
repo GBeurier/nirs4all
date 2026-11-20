@@ -9,6 +9,7 @@ from sklearn.pipeline import make_pipeline
 
 import nirs4all
 from nirs4all.data import SpectroDataset
+from nirs4all.operators.transforms import FirstDerivative, MultiplicativeScatterCorrection
 from nirs4all.operators.transforms.scalers import StandardNormalVariate
 
 
@@ -63,3 +64,45 @@ def test_explicit_source_concat_uses_each_transformed_source_once():
     historical = RandomForestRegressor(**model_params).fit(duplicated[:36], stored_target[:36])
     wrong = root_mean_squared_error(stored_target[36:], historical.predict(duplicated[36:]))
     assert abs(expected - wrong) > 0.001, "witness must detect the duplicated-source layout"
+
+
+def test_distinct_source_concat_lowering_assembles_three_sources_once(tmp_path):
+    """New distinct-source runs use three blocks; old fitted layouts remain replayable."""
+    import joblib
+    from sklearn.base import clone
+
+    from nirs4all.pipeline.dagml.node_runner import _SourceConcatEstimator
+    from nirs4all.pipeline.dagml.run_paths import _source_preprocessing_metadata
+
+    rng = np.random.default_rng(1192)
+    blocks = [rng.normal(size=(48, width)).astype(np.float32) + index * 4 for index, width in enumerate((7, 5, 6))]
+    target = blocks[0][:, 0] - 3 * blocks[1][:, 1] + 2 * blocks[2][:, 2]
+    source_steps = {"source_2": [FirstDerivative()], "source_0": [StandardNormalVariate()], "source_1": [MultiplicativeScatterCorrection()]}
+    names = ["source_0", "source_1", "source_2"]
+    metadata = _source_preprocessing_metadata(source_steps, {"source_order": names, "source_ids": ["src0", "src1", "src2"]})
+    assert [source["source_name"] for source in metadata["sources"]] == names
+    assert [source["source_index"] for source in metadata["sources"]] == [0, 1, 2]
+    templates = [source_steps[name] for name in names]
+    train, test = [block[:36] for block in blocks], [block[36:] for block in blocks]
+    fitted = _SourceConcatEstimator(Ridge(5.0), templates,
+                                    preserve_legacy_sources_after_merge=metadata["preserve_legacy_sources_after_merge"]).fit(train, target[:36])
+    transforms = [clone(steps[0]).fit(block) for steps, block in zip(templates, train, strict=True)]
+    processed_train = [transform.transform(block) for transform, block in zip(transforms, train, strict=True)]
+    processed_test = [transform.transform(block) for transform, block in zip(transforms, test, strict=True)]
+    expected_train, expected_test = np.hstack(processed_train), np.hstack(processed_test)
+    assert fitted._model.n_features_in_ == expected_train.shape[1] == sum(block.shape[1] for block in processed_train)
+    reference = Ridge(5.0).fit(expected_train, target[:36])
+    np.testing.assert_allclose(fitted.predict(test), reference.predict(expected_test), rtol=1e-6, atol=1e-7)
+
+    # Preserve the declared historical layout rather than silently reinterpreting
+    # already fitted model coefficients with a different feature matrix.
+    historical = _SourceConcatEstimator(Ridge(5.0), templates, preserve_legacy_sources_after_merge=True).fit(train, target[:36])
+    duplicated_train = np.hstack([expected_train, *processed_train[1:]])
+    duplicated_test = np.hstack([expected_test, *processed_test[1:]])
+    assert historical._model.n_features_in_ == duplicated_train.shape[1] > expected_train.shape[1]
+    old_reference = Ridge(5.0).fit(duplicated_train, target[:36])
+    archive = tmp_path / "historical-source-layout.joblib"
+    joblib.dump(historical, archive)
+    restored = joblib.load(archive)
+    np.testing.assert_allclose(restored.predict(test), old_reference.predict(duplicated_test), rtol=1e-6, atol=1e-7)
+    assert np.max(np.abs(fitted.predict(test) - restored.predict(test))) > 0.01, "witness must expose duplicated-source predictions"
