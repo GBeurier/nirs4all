@@ -1,6 +1,8 @@
 """Nested producers retain their exact fitted identity and preprocessing prefix."""
 
 import json
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -77,6 +79,39 @@ def test_by_source_fitted_chains_keep_source_prefixes_and_sample_identity(tmp_pa
                 indices = np.asarray(row["sample_indices"], dtype=int)
                 expected = reference.predict(reference_scaler.transform(sources[branch][indices]))
                 np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), expected, rtol=1e-5, atol=1e-5)
+            expected_all = np.mean([
+                Ridge(alpha=.5).fit(reference_scaler.transform(sources[branch][train]), y[train]).predict(reference_scaler.transform(sources[branch]))
+                for train, _ in KFold(2).split(sources[branch][:20])
+            ], axis=0)
+            np.testing.assert_allclose(store.replay_chain(chain["chain_id"], sources[branch]), expected_all, rtol=1e-5, atol=1e-5)
+            archive = store.export_chain(chain["chain_id"], tmp_path / f"source-{branch}.n4a")
+            inputs = tmp_path / f"source-{branch}.npz"
+            np.savez(inputs, raw_x=sources[branch], expected=expected_all, branch=branch)
+            probe = r'''
+import pathlib, sys
+import numpy as np
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
+from nirs4all.pipeline.bundle import BundleLoader
+from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+archive, inputs, workspace = sys.argv[1:]
+data = np.load(inputs)
+blocked = pathlib.Path(workspace).resolve()
+def audit(event, args):
+    if event == 'open' and isinstance(args[0], (str, bytes)):
+        path = pathlib.Path(args[0]).resolve()
+        if path == blocked or blocked in path.parents:
+            raise AssertionError('Source-local cold replay accessed its workspace')
+sys.addaudithook(audit)
+def no_fit(*args, **kwargs):
+    raise AssertionError('Source-local cold replay attempted FIT or opened a Store')
+WorkspaceStore.__init__ = no_fit
+Ridge.fit = StandardScaler.fit = no_fit
+with BundleLoader(archive) as loader:
+    assert loader._chain_data['branch_path'] == [int(data['branch'])]
+    np.testing.assert_allclose(loader.predict(data['raw_x']), data['expected'], rtol=1e-5, atol=1e-5)
+'''
+            subprocess.run([sys.executable, "-B", "-c", probe, str(archive), str(inputs), str(workspace)], check=True)
 
 
 def test_residual_submodels_keep_distinct_fitted_chains_and_shared_prefix(tmp_path):

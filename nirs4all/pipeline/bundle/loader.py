@@ -1232,6 +1232,22 @@ class BundleLoader:
             artifacts = self.artifact_provider.get_artifacts_for_step(step_idx)
 
             if is_model:
+                # A nested source model can share its outer step index with
+                # fitted preprocessing. The chain writer preserves those
+                # exact shared IDs in step_<idx>_sub<ordinal> order.
+                shared = self._chain_data.get("shared_artifacts", {}).get(str(step_idx), [])
+                if isinstance(shared, str):
+                    shared = [shared]
+                for sub_index, artifact_id in enumerate(shared):
+                    key = f"step_{step_idx}_sub{sub_index}"
+                    transformer = self.artifact_provider._load_artifact(key)
+                    if transformer is None:
+                        raise ValueError(f"Bundle is missing fitted preprocessing {artifact_id!r}")
+                    from nirs4all.pipeline.execution.executor import _StepArtifactValue
+                    if isinstance(transformer, _StepArtifactValue) and transformer.replay is not None:
+                        X_current = np.asarray(transformer.replay.transform(X_current))
+                        break
+                    X_current = np.asarray(normalize_transform_output(transformer.transform(X_current), type(transformer).__name__))
                 y_pred = self._predict_model_step(X_current, step_idx)
                 return self._apply_y_inverse_transform(y_pred, y_processing_step_idx)
             elif cv_start is not None and model_step is not None and cv_start <= step_idx < model_step:

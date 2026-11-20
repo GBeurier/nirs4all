@@ -3203,6 +3203,7 @@ class WorkspaceStore:
         relation_manifest_payload = _relation_replay_manifest_payload(relation_replay_manifest)
         manifest = {
             "chain_id": chain_id,
+            "branch_path": chain.get("branch_path") or [],
             "model_class": chain["model_class"],
             "model_step_index": chain["model_step_idx"],
             "preprocessings": chain["preprocessings"],
@@ -3244,6 +3245,7 @@ class WorkspaceStore:
                 "chain.json",
                 {
                     "steps": chain["steps"],
+                    "branch_path": chain.get("branch_path") or [],
                     "model_step_idx": chain["model_step_idx"],
                     "fold_artifacts": export_fold_artifacts,
                     "shared_artifacts": shared_artifacts,
@@ -4094,6 +4096,16 @@ class WorkspaceStore:
         from nirs4all.pipeline.execution.preprocessing import FoldPreprocessedModel
 
         models = {key: self.load_artifact(artifact_id) for key, artifact_id in fold_artifacts.items()}
+        model_ids = set(fold_artifacts.values())
+        model_positions = [position for position, step in enumerate(steps)
+                           if model_ids.intersection(step.get("artifact_ids") or [step.get("artifact_id")])]
+        if not model_positions:
+            # Direct save_chain callers may declare a simple step index without
+            # per-step artifact IDs. That declaration must be unambiguous.
+            model_positions = [position for position, step in enumerate(steps) if step["step_idx"] == model_step_idx]
+        if len(model_positions) != 1:
+            raise RuntimeError("Chain must identify exactly one fitted model step")
+        model_position = model_positions[0]
         cv_start = next((model.preprocessing.start_step for model in models.values()
                          if isinstance(model, FoldPreprocessedModel)), None)
 
@@ -4126,10 +4138,10 @@ class WorkspaceStore:
 
             return normalize(transformer.transform(X_in))
 
-        for step in steps:
+        for position, step in enumerate(steps):
             idx = step["step_idx"]
 
-            if idx == model_step_idx:
+            if position == model_position:
                 # Refit model: single canonical refit artifact, direct prediction
                 refit_artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 if refit_artifact_id:
@@ -4157,6 +4169,10 @@ class WorkspaceStore:
                 # shared_artifacts values are lists of artifact IDs
                 if isinstance(artifact_ids, str):
                     artifact_ids = [artifact_ids]
+                if "artifact_ids" in step:
+                    artifact_ids = [artifact_id for artifact_id in step["artifact_ids"] if artifact_id in artifact_ids]
+                elif step.get("artifact_id"):
+                    artifact_ids = [artifact_id for artifact_id in artifact_ids if artifact_id == step["artifact_id"]]
                 for artifact_id in artifact_ids:
                     transformer = self.load_artifact(artifact_id)
                     if idx in target_steps:
