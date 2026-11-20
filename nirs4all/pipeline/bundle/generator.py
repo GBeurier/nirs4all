@@ -336,6 +336,8 @@ class BundleGenerator:
             return Path(self.store.export_chain(chain_id, output_path, format="n4a"))
 
         if fmt == BundleFormat.N4A_PY:
+            if self.store.get_raw_input_predictor(chain_id) is not None:
+                raise NotImplementedError("Captured FINAL Python-host dependency closures export as n4a bundles")
             return self._export_chain_as_py(chain_id, output_path)
 
         raise ValueError(f"Unsupported bundle format: {fmt}")

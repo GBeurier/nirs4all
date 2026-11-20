@@ -31,6 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unresolved generator combinations and recommendation application failures
   refuse explicitly, including with generic continuation or refit policies.
 
+### Fixed
+
+- Refuse incomplete cross-validation meta-model bundles before export or prediction.
+  Supported final stacking refits now capture their complete Python-host raw-input
+  dependency graph: fitted feature paths and inverse target scaling, original
+  columns, named branches, ordered models and validation-selected models/weights.
+  Persist and reload this closure without fitting or accessing the source workspace;
+  associate every prediction with its exact fitted model chain. These trusted
+  Python-host bundles do not imply native or Web portability; captured closures
+  export as `.n4a`, with unsupported standalone Python-script export refused.
+
 ## [1.5.0] — 2026-11-19
 
 ### Changed

@@ -21,6 +21,7 @@ class FittedNode:
     artifact_id: str = ""
     target_transformer: Any = None
     target_processing: str = "numeric"
+    input_dtype: Any = None
 
     def __deepcopy__(self, memo: dict[int, Any]) -> FittedNode:
         """Contexts may share already captured, read-only fitted dependencies."""
@@ -35,12 +36,16 @@ class FittedNode:
             result = np.asarray(X)
             if result.ndim != 2 or result.shape[1] != self.state:
                 raise ValueError(f"Fitted predictor expects a two-dimensional raw input with {self.state} features")
+            if self.input_dtype is not None:
+                result = result.astype(self.input_dtype, copy=False)
         elif self.operation == "transform":
             result = self.state.transform(self.inputs[0].evaluate(X, cache))
         elif self.operation == "model":
             result = np.asarray(self.state.predict(self.inputs[0].evaluate(X, cache)))
             if self.target_transformer is not None and self.target_processing != "numeric":
-                result = self.target_transformer.transform(result, self.target_processing, "numeric", {})
+                shape = result.shape
+                values = result.reshape(-1, 1) if result.ndim == 1 else result
+                result = self.target_transformer.transform(values, self.target_processing, "numeric", {}).reshape(shape)
         elif self.operation == "concat":
             blocks = [node.evaluate(X, cache) for node in self.inputs]
             result = np.concatenate([block.reshape(len(X), -1) for block in blocks], axis=1)
@@ -85,7 +90,7 @@ def prepare_fitted_input(dataset: Any, context: Any, runtime: Any) -> FittedNode
     node = context.custom.get("_fitted_input")
     if node is None:
         values = np.asarray(dataset.x(context.selector, layout="2d"))
-        node = FittedNode("input", state=values.shape[1])
+        node = FittedNode("input", state=values.shape[1], input_dtype=values.dtype)
         context.custom["_fitted_input"] = node
     return cast(FittedNode, node)
 

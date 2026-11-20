@@ -70,10 +70,19 @@ def test_final_meta_refit_artifact_survives_close_and_incomplete_export_refuses(
                 output = tmp_path / f"selected-{existing}.{fmt}"
                 if existing:
                     output.write_bytes(b"previous valid destination")
-                with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+                if shape == "merged" and fmt == "n4a":
+                    result.export(output, source=source, format=fmt)
+                    with BundleLoader(output) as loader:
+                        np.testing.assert_allclose(loader.predict(xt), expected, rtol=1e-6, atol=1e-6)
+                    result.export(output, chain_id=chain_id, format=fmt)
+                    with BundleLoader(output) as loader:
+                        np.testing.assert_allclose(loader.predict(xt), expected, rtol=1e-6, atol=1e-6)
+                    continue
+                refusal = "export as n4a bundles" if shape == "merged" else "raw-input dependency closure was not captured"
+                with pytest.raises(NotImplementedError, match=refusal):
                     result.export(output, source=source, format=fmt)
                 assert output.read_bytes() == b"previous valid destination" if existing else not output.exists()
-                with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+                with pytest.raises(NotImplementedError, match=refusal):
                     result.export(output, chain_id=chain_id, format=fmt)
                 assert output.read_bytes() == b"previous valid destination" if existing else not output.exists()
 
@@ -88,7 +97,13 @@ def test_final_meta_refit_artifact_survives_close_and_incomplete_export_refuses(
         chain = store.get_chain(chain_id)
         assert chain is not None and chain["fold_artifacts"]["fold_final"] == artifact_id
         for fmt in ("n4a", "n4a.py"):
-            with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+            if shape == "merged" and fmt == "n4a":
+                archive = BundleGenerator(workspace, store=store).export_from_chain(chain_id, tmp_path / f"chain.{fmt}", fmt=fmt)
+                with BundleLoader(archive) as loader:
+                    np.testing.assert_allclose(loader.predict(xt), expected, rtol=1e-6, atol=1e-6)
+                continue
+            refusal = "export as n4a bundles" if shape == "merged" else "raw-input dependency closure was not captured"
+            with pytest.raises(NotImplementedError, match=refusal):
                 BundleGenerator(workspace, store=store).export_from_chain(chain_id, tmp_path / f"chain.{fmt}", fmt=fmt)
             assert not (tmp_path / f"chain.{fmt}").exists()
         artifact_path = store.get_artifact_path(artifact_id)

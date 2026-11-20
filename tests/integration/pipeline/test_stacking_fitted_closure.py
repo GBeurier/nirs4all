@@ -13,12 +13,16 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
 import nirs4all
-from nirs4all.pipeline.bundle import BundleLoader
+from nirs4all.operators.models import MetaModel
+from nirs4all.pipeline.bundle import BundleGenerator, BundleLoader
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 
-@pytest.mark.parametrize("mixed", [False, True])
-def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_path, mixed):
+@pytest.mark.parametrize("mixed,branch_meta,scaled_targets,weighted", [
+    (False, False, False, False), (True, False, False, False),
+    (True, True, False, False), (True, False, True, True),
+])
+def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_path, mixed, branch_meta, scaled_targets, weighted):
     rng = np.random.default_rng(29)
     x = rng.normal(size=(30, 5)).astype(np.float32)
     y = (x @ np.arange(1., 6.) + rng.normal(scale=.1, size=30)).astype(np.float32)
@@ -30,8 +34,14 @@ def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_pa
         branches["first"] = [{"model": Ridge(alpha=2.), "name": "B"}]
     merge = {"predictions": [{"branch": 1, "select": "best", "metric": "rmse"}, {"branch": 0}],
              "features": [1], "include_original": True} if mixed else {"predictions": [0, 1], "include_original": True}
-    steps = [StandardScaler(), KFold(3, shuffle=True, random_state=42), {"branch": branches},
-             {"merge": merge}, {"model": Ridge(alpha=.1), "name": "FINAL"}]
+    if weighted:
+        merge["predictions"][0].update(select="all", aggregate="weighted_mean", weight_metric="rmse")
+    steps = [StandardScaler(), KFold(3, shuffle=True, random_state=42), {"branch": branches}]
+    if scaled_targets:
+        steps.insert(0, {"y_processing": StandardScaler()})
+    if branch_meta:
+        steps.append({"model": MetaModel(Ridge(alpha=.3)), "name": "BranchMeta"})
+    steps += [{"merge": merge}, {"model": Ridge(alpha=.1), "name": "FINAL"}]
     workspace = tmp_path / "workspace"
     with nirs4all.run(steps, data, engine="legacy", refit=True, workspace_path=workspace,
                       save_charts=False, save_artifacts=True, verbose=0) as result:
@@ -52,8 +62,24 @@ def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_pa
                         if model_id in json.loads(row["fold_artifacts"]).values())
         np.testing.assert_allclose(store.replay_chain(chain_id, raw_x), expected, rtol=1e-5, atol=1e-5)
         bundle = store.export_chain(chain_id, tmp_path / "final.n4a")
+        via_dict = BundleGenerator(workspace, store=store).export(train, tmp_path / "dict.n4a")
+    for source in (train, bundle, via_dict):
+        predicted = nirs4all.predict(model=source, data=raw_x, engine="legacy", workspace_path=workspace, verbose=0)
+        np.testing.assert_allclose(np.asarray(predicted.y_pred).ravel(), expected, rtol=1e-5, atol=1e-5)
+    predicted = nirs4all.predict(chain_id=chain_id, data=raw_x, workspace_path=workspace, engine="legacy", verbose=0)
+    np.testing.assert_allclose(np.asarray(predicted.y_pred).ravel(), expected, rtol=1e-5, atol=1e-5)
     with BundleLoader(bundle) as loader:
         np.testing.assert_allclose(loader.predict(raw_x), expected, rtol=1e-5, atol=1e-5)
+        assert len(loader.train_pipeline_config["steps"]) == len(steps)
+        assert any("branch" in step for step in loader.train_pipeline_config["steps"] if isinstance(step, dict))
+    if mixed and not branch_meta and not scaled_targets:
+        # Real Kernel SHAP must explain the complete raw-input function.
+        with nirs4all.session(engine="legacy", workspace_path=workspace, verbose=0) as session:
+            for source in (train, bundle):
+                explanation = nirs4all.explain(source, raw_x[:4], session=session, engine="legacy", verbose=0,
+                                               plots_visible=False, explainer_type="kernel", n_samples=4, visualizations=[])
+                assert explanation.values.shape == (4, raw_x.shape[1])
+                np.testing.assert_allclose(explanation.values.sum(axis=1) + explanation.base_value, expected[:4], rtol=1e-5, atol=1e-5)
     np.save(tmp_path / "raw.npy", raw_x)
     np.save(tmp_path / "expected.npy", expected)
     probe = r'''
