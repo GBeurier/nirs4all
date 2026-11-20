@@ -474,7 +474,9 @@ def test_generated_recommendation_canonical_recipe_preserves_exact_parameters(tr
         selected = TransferSelectionResults([candidate], results.raw_metrics, candidate_records=results.candidate_records)
         # Existing display conversion remains available without changing names.
         assert selected.to_pipeline_spec() == candidate.name
-        recipe = json.loads(json.dumps(selected.to_pipeline_spec(resolve_transforms=True)))
+        executable = json.loads(json.dumps(selected.to_pipeline_spec(resolve_transforms=True)))
+        assert isinstance(executable, list) and len(executable) == 1
+        recipe = executable[0]
         name, components = resolve_transfer_preprocessing(recipe)
         identities.add(name)
         actual = source.copy()
@@ -528,11 +530,12 @@ def test_same_class_selected_recipes_fit_all_channels_without_losing_parameters(
 
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
 @pytest.mark.parametrize("use_augmentation", [False, True])
-def test_real_generated_selection_pipeline_and_archive_preserve_recipes(transfer_views, tmp_path, monkeypatch, engine: str, use_augmentation: bool) -> None:
+@pytest.mark.parametrize("top_k", [1, 2])
+def test_real_generated_selection_pipeline_and_archive_preserve_recipes(transfer_views, tmp_path, monkeypatch, engine: str, use_augmentation: bool, top_k: int) -> None:
     """A successful generated search must be executable, archived and replayable."""
     monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
     dataset = _candidate_failure_dataset(transfer_views)
-    config = {"preset": "fast", "top_k": 2, "use_augmentation": use_augmentation, "verbose": 0,
+    config = {"preset": "fast", "top_k": top_k, "use_augmentation": use_augmentation, "verbose": 0,
               "preprocessing_spec": {"_or_": [StandardScaler(with_mean=False), StandardScaler(with_std=False)]}}
     with nirs4all.run(
         [{"auto_transfer_preproc": config}, PLSRegression(3)], dataset, engine=engine,
@@ -566,3 +569,31 @@ def test_outer_generator_preserves_controller_owned_candidate_search() -> None:
     assert [variant[0]["auto_transfer_preproc"]["top_k"] for variant in plain] == [1, 2]
     assert all(variant[0]["auto_transfer_preproc"]["preprocessing_spec"] == search for variant in plain)
     assert all(len(choices) == 1 for _, choices in tracked)
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
+def test_analysis_only_preserves_display_recommendation_and_features(transfer_views, engine: str) -> None:
+    """Do not change a valid 1.6.0 analysis-only recommendation into an executable recipe."""
+    from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+
+    source, target = transfer_views
+    config = {"preset": "fast", "apply_recommendation": False, "verbose": 0,
+              "preprocessing_spec": {"_or_": [StandardScaler(with_mean=False)]}}
+    if engine == "legacy":
+        dataset = _candidate_failure_dataset(transfer_views)
+        before = dataset.x({}).copy()
+        controller = AutoTransferPreprocessingController()
+        context, artifacts = controller._execute_train_mode(controller._parse_config(config), dataset, ExecutionContext(), RuntimeContext())
+        recommendation = context.custom["transfer_preprocessing_recommendation"]
+        assert len(artifacts) == 1 and artifacts[0][0] == recommendation
+        np.testing.assert_array_equal(dataset.x({}), before)
+    else:
+        preprocessor = DagMLAutoTransferPreprocessor(config).fit_with_views({"train": (source, None), "test": (target, None)})
+        recommendation = preprocessor.recommendation_
+        np.testing.assert_array_equal(preprocessor.transform(target), target)
+    # The published 1.6.0 analysis-only path returned this display string;
+    # canonical executable conversion is only needed when applying the choice.
+    assert recommendation["pipeline_spec"] == recommendation["best_name"] == "StandardScaler"
+    assert recommendation["complete"] is True
+    assert len(recommendation["candidate_records"]) == 1
+    assert recommendation["candidate_records"][0]["status"] == "completed"

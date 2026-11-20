@@ -283,7 +283,7 @@ class AutoTransferPreprocessingController(OperatorController):
             pipeline_spec = results.to_pipeline_spec(
                 top_k=top_k,
                 use_augmentation=use_augmentation,
-                resolve_transforms=True,
+                resolve_transforms=config["apply_recommendation"],
             )
 
             if verbose >= 1:

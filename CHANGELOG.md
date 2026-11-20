@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve the controller-owned `preprocessing_spec` search through outer
   pipeline generation and DAG host lowering. Candidate exceptions and non-finite
   scores still fail closed; incomplete searches cannot produce a predictor.
+- Keep the existing display recommendation for analysis-only runs. Executable
+  single recipes use the existing list form so older readers refuse unsupported
+  recipes instead of silently skipping preprocessing.
+- Apply selected augmented preprocessing candidates as replacing feature unions;
+  this closes previously unresolvable stage-3 recommendations, without adding
+  raw-input features to the selected candidate's declared representation.
 
 ## [1.6.0] — 2026-11-19
 

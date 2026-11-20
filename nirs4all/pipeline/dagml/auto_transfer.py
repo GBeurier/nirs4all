@@ -78,7 +78,7 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
         results = selector.fit(source[0], target[0], source[1], target[1])
         self.recommendation_: dict[str, Any] = {
             "pipeline_spec": results.to_pipeline_spec(
-                top_k=config["top_k"], use_augmentation=config["use_augmentation"], resolve_transforms=True,
+                top_k=config["top_k"], use_augmentation=config["use_augmentation"], resolve_transforms=config["apply_recommendation"],
             ),
             "best_name": results.best.name,
             "transfer_score": results.best.transfer_score,
