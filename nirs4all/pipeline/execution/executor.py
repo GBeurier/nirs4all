@@ -178,6 +178,11 @@ class PipelineExecutor:
         self.operation_count = 0
         self._shape_metadata_cache.clear()
 
+        if self.mode == "train" and self.save_artifacts and runtime_context is not None and runtime_context.artifact_registry is not None:
+            from nirs4all.pipeline.execution.fitted import prepare_sequential_fitted_capture
+
+            prepare_sequential_fitted_capture(steps, runtime_context)
+
         logger.starting(f"Starting pipeline {config_name} on dataset {dataset.name}")
 
         # Compute pipeline hash for identification

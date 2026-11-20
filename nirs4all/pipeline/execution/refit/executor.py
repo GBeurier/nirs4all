@@ -98,6 +98,11 @@ def execute_simple_refit(
     original_steps = refit_config.expanded_steps
     steps = copy.deepcopy(original_steps)
 
+    if artifact_registry is not None and getattr(executor, "save_artifacts", False):
+        from nirs4all.pipeline.execution.fitted import prepare_sequential_fitted_capture
+
+        prepare_sequential_fitted_capture(original_steps, runtime_context)
+
     # Detect and handle the splitter step
     has_splitter = False
     for idx, step in enumerate(steps):
@@ -174,6 +179,8 @@ def execute_simple_refit(
         from nirs4all.analysis.results import TransferSelectionError
 
         TransferSelectionError.reraise_if_present(e)
+        if runtime_context.capture_fitted_predictor:
+            raise
         return result
 
     # Mark refit prediction entries with fold_id="final", refit_context, and metadata

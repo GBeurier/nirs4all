@@ -59,6 +59,14 @@ class FittedNode:
             # exact fitted identities instead of choosing an arbitrary model.
             values = np.asarray([node.evaluate(X, cache) for node in self.inputs], dtype=float)
             result = aggregate_test_fold_predictions(values, np.full(len(values), np.nan), TestAggregation.MEAN, "rmse")
+        elif self.operation == "source_folds":
+            from nirs4all.controllers.models.stacking.reconstructor import aggregate_test_fold_predictions
+            from nirs4all.operators.models.meta import TestAggregation
+
+            values = np.asarray([node.evaluate(X, cache) for node in self.inputs], dtype=float)
+            result = aggregate_test_fold_predictions(
+                values, np.asarray(self.state["scores"]), TestAggregation(self.state["aggregation"]), self.state["metric"],
+            )
         elif self.operation == "concat":
             blocks = [node.evaluate(X, cache) for node in self.inputs]
             result = np.concatenate([block.reshape(len(X), -1) for block in blocks], axis=1)
@@ -113,9 +121,25 @@ class FittedPredictor:
         return cast(np.ndarray, self.root.target_transformer.transform(classes.reshape(-1, 1), "numeric", "raw", {}).reshape(-1))
 
 
+def prepare_sequential_fitted_capture(steps: list[Any], runtime: Any) -> None:
+    """Capture the declared sequential MetaModel inference path, independently of CV fitting."""
+    from nirs4all.pipeline.analysis.topology import analyze_topology
+    from nirs4all.pipeline.config.component_serialization import serialize_component
+
+    if runtime.capture_fitted_predictor:
+        return
+    if any(isinstance(step, dict) and step.keys() & {"branch", "merge", "merge_sources", "merge_predictions"} for step in steps):
+        return
+    if not any(node.model_class.rsplit(".", 1)[-1] == "MetaModel" for node in analyze_topology(steps).model_nodes):
+        return
+    runtime.capture_fitted_predictor = True
+    if runtime.fitted_training_steps is None:
+        runtime.fitted_training_steps = serialize_component(steps)
+
+
 def prepare_fitted_input(dataset: Any, context: Any, runtime: Any) -> FittedNode | None:
-    """Start capture only for explicitly requested final stacking refits."""
-    if runtime is None or not runtime.capture_fitted_predictor or runtime.phase != ExecutionPhase.REFIT:
+    """Start the explicitly captured CV or refit inference dependency graph."""
+    if runtime is None or not runtime.capture_fitted_predictor or runtime.phase not in (ExecutionPhase.CV, ExecutionPhase.REFIT):
         return None
     node = context.custom.get("_fitted_input")
     if node is None:
@@ -126,13 +150,28 @@ def prepare_fitted_input(dataset: Any, context: Any, runtime: Any) -> FittedNode
 
 
 def _source_node(predictions: Any, runtime: Any, name: str, branch: int | None, max_step: int,
-                 exact_step: int | None = None, *, use_proba: bool = False) -> FittedNode:
+                 exact_step: int | None = None, *, use_proba: bool = False, test_aggregation: Any = None) -> FittedNode:
     """Resolve the exact fitted producer identity selected during this execution."""
-    ids = list(dict.fromkeys(
-        row["model_artifact_id"] for row in predictions.iter_entries()
-        if row.get("model_name") == name and row.get("branch_id") == branch and row.get("partition") == "train"
-        and row.get("step_idx", 0) < max_step
+    rows = [
+        row for row in predictions.iter_entries()
+        if row.get("model_name") == name and row.get("branch_id") == branch and row.get("step_idx", 0) < max_step
         and (exact_step is None or row.get("step_idx") == exact_step)
+    ]
+    if runtime.phase == ExecutionPhase.CV and test_aggregation is not None:
+        from nirs4all.operators.models.meta import TestAggregation
+
+        # The reconstructor's scalar MEAN path consumes the first precomputed
+        # average for this source name. Preserve that exact producing step.
+        if test_aggregation == TestAggregation.MEAN and (not use_proba or not any(
+            np.asarray(row.get("y_proba")).ndim == 2 and np.asarray(row["y_proba"]).shape[1] > 2
+            for row in rows if row.get("y_proba") is not None
+        )):
+            average = next((row for row in rows if row.get("partition") == "test" and row.get("fold_id") == "avg"), None)
+            producer_step = average["step_idx"] if average is not None else rows[0]["step_idx"] if rows else None
+            rows = [row for row in rows if row.get("step_idx") == producer_step]
+    ids = list(dict.fromkeys(
+        row["model_artifact_id"] for row in rows
+        if row.get("partition") == "train"
         and row.get("model_artifact_id") in runtime.fitted_predictors
     ))
     if not ids:
@@ -150,6 +189,15 @@ def _source_node(predictions: Any, runtime: Any, name: str, branch: int | None, 
             )
             probability_nodes.append(FittedNode("probability_features", (node,), ClassificationFeatureExtractor(info, use_proba=True)))
         nodes = tuple(probability_nodes)
+    if runtime.phase == ExecutionPhase.CV and test_aggregation is not None:
+        source_rows = {row["model_artifact_id"]: row for row in rows if row.get("partition") == "train"
+                       and row.get("model_artifact_id") in ids}
+        metric = next((row["metric"] for row in source_rows.values() if row.get("metric")), "rmse")
+        return FittedNode("source_folds", nodes, {
+            "aggregation": test_aggregation.value, "metric": metric,
+            "scores": tuple(source_rows[artifact_id].get("val_score") if source_rows[artifact_id].get("val_score") is not None else np.nan
+                            for artifact_id in ids),
+        })
     return cast(FittedNode, nodes[0]) if len(nodes) == 1 else FittedNode("source_mean", nodes)
 
 
@@ -237,7 +285,9 @@ def capture_fitted_step(
             if not candidates:
                 raise ValueError("Final MetaModel capture requires its actual ordered source candidates")
             _names, mapping = build_unique_source_names(candidates)
-            sources = tuple(_source_node(predictions, runtime, original_name, branch, runtime.step_number, use_proba=after.custom["meta_operator"].use_proba and dataset.is_classification)
+            sources = tuple(_source_node(predictions, runtime, original_name, branch, runtime.step_number,
+                                         use_proba=after.custom["meta_operator"].use_proba and dataset.is_classification,
+                                         test_aggregation=after.custom["meta_operator"].stacking_config.test_aggregation)
                             for original_name, branch in mapping.values())
             model_input = FittedNode("concat", sources, after.custom["_reconstruction_result"].X_train_meta.dtype)
         model = runtime.artifact_registry.load_artifact(record)

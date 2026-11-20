@@ -1832,6 +1832,7 @@ class PipelineOrchestrator:
             A :class:`RefitResult` summarizing the outcome.
         """
         topology = analyze_topology(refit_config.expanded_steps)
+        from nirs4all.pipeline.config.component_serialization import serialize_component
 
         runtime_context = RuntimeContext(
             store=self.store,
@@ -1843,6 +1844,7 @@ class PipelineOrchestrator:
             run_id=run_id,
             cache_config=self.cache_config,
             random_state=self.random_state,
+            fitted_training_steps=serialize_component(refit_config.expanded_steps),
         )
 
         # Fast path: use accumulated best chains when available and topology
