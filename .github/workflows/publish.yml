@@ -1,20 +1,22 @@
-# Scientific qualification is separately scoped; exact source and artifact guards remain.
-name: Build & Publish
+# Registry publication is independent of GitHub Releases, docs, Docker and installers.
+name: Publish Python package
 'on':
-  release:
-    types:
-    - published
+  push:
+    tags:
+    - '[0-9]*'
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing immutable release tag to republish after a failed gate
+        description: Existing immutable SDK tag for manual registry publication
         required: false
         type: string
       publish_release:
-        description: Publish the existing tag after all gates pass (main only)
+        description: Publish the registry package from an existing tag (manual main only; legacy input name)
         required: false
         default: false
         type: boolean
+permissions:
+  contents: read
 jobs:
   release-preflight:
     runs-on: ubuntu-latest
@@ -23,82 +25,58 @@ jobs:
     outputs:
       release_tag: ${{ steps.target.outputs.release_tag }}
       tag_sha: ${{ steps.target.outputs.tag_sha }}
-      docker_version: ${{ steps.target.outputs.docker_version }}
-      prerelease: ${{ steps.target.outputs.prerelease }}
+      publish_package: ${{ steps.target.outputs.publish_package }}
     steps:
     - uses: actions/checkout@v6
       with:
         fetch-depth: 0
-    - name: Verify manual publication target
+    - name: Verify independent registry publication target
       id: target
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
         EVENT_NAME: ${{ github.event_name }}
-        RELEASE_TAG: ${{ github.event.release.tag_name }}
-        RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        EVENT_REF_TYPE: ${{ github.ref_type }}
+        EVENT_TAG: ${{ github.ref_name }}
         INPUT_TAG: ${{ inputs.release_tag }}
         PUBLISH_RELEASE: ${{ inputs.publish_release }}
-      run: "set -euo pipefail\nif [[ \"$EVENT_NAME\" == 'release' ]]; then\n  git fetch --no-tags origin \"refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG\"\
-        \n  tag_sha=$(git rev-parse \"$RELEASE_TAG^{commit}\")\n  if [[ \"$GITHUB_SHA\" != \"$tag_sha\" ]]; then\n    echo\
-        \ '::error::Release event commit does not match its tag.'\n    exit 1\n  fi\n  echo \"release_tag=$RELEASE_TAG\" >>\
-        \ \"$GITHUB_OUTPUT\"\n  echo \"tag_sha=$tag_sha\" >> \"$GITHUB_OUTPUT\"\n  echo \"docker_version=${RELEASE_TAG#v}\"\
-        \ >> \"$GITHUB_OUTPUT\"\n  echo \"prerelease=$RELEASE_PRERELEASE\" >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\nif [[ \"$PUBLISH_RELEASE\"\
-        \ != 'true' ]]; then\n  echo 'Manual dry-run: publication disabled.'\n  exit 0\nfi\nif [[ \"$GITHUB_REF\" != 'refs/heads/main'\
-        \ ]]; then\n  echo '::error::Manual publication must run from main.'\n  exit 1\nfi\nif [[ ! \"$INPUT_TAG\" =~ ^[0-9]+\\\
-        .[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$ ]]; then\n  echo '::error::release_tag must be an existing SemVer release tag.'\n\
-        \  exit 1\nfi\nrelease_json=$(gh api \"repos/$GITHUB_REPOSITORY/releases/tags/$INPUT_TAG\")\nif ! jq -e --arg tag\
-        \ \"$INPUT_TAG\" \\\n  '.tag_name == $tag and .draft == false and .published_at != null' \\\n  <<< \"$release_json\"\
-        \ >/dev/null; then\n  echo '::error::The matching GitHub Release must already be published.'\n  exit 1\nfi\npackage_version=\"\
-        ${INPUT_TAG//-rc./rc}\"\npypi_status=$(curl --retry 2 --retry-delay 2 -sS -o /dev/null \\\n  -w '%{http_code}' \"\
-        https://pypi.org/pypi/nirs4all/$package_version/json\")\nif [[ \"$pypi_status\" != '404' ]]; then\n  echo \"::error::PyPI\
-        \ returned HTTP $pypi_status for nirs4all==$package_version; publication requires absence.\"\n  exit 1\nfi\ngit fetch\
-        \ --no-tags origin \"refs/tags/$INPUT_TAG:refs/tags/$INPUT_TAG\"\ntag_sha=$(git rev-parse \"$INPUT_TAG^{commit}\"\
-        )\nprerelease=$(jq -r '.prerelease' <<< \"$release_json\")\necho \"release_tag=$INPUT_TAG\" >> \"$GITHUB_OUTPUT\"\n\
-        echo \"tag_sha=$tag_sha\" >> \"$GITHUB_OUTPUT\"\necho \"docker_version=$INPUT_TAG\" >> \"$GITHUB_OUTPUT\"\necho \"\
-        prerelease=$prerelease\" >> \"$GITHUB_OUTPUT\"\necho \"Verified published Release $INPUT_TAG at $tag_sha; PyPI version\
-        \ is absent.\"\n"
-  build-docs:
-    needs: release-preflight
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag)
-          || github.ref }}
-    - name: Verify documented commit matches preflight
-      if: github.event_name == 'release' || inputs.publish_release
-      env:
-        EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
-      run: test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"
-    - name: Free disk space
-      uses: ./.github/actions/free-disk-space
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.11'
-        cache: pip
-    - name: Install documentation dependencies
-      run: 'python -m pip install --upgrade pip setuptools wheel
-
-        python -m pip install -r docs/readthedocs.requirements.txt
-
-        '
-    - name: Install nirs4all package
-      run: python -m pip install -e .
-    - name: Build documentation
-      run: 'cd docs
-
-        sphinx-build -b html source _build/html --keep-going
-
-        '
-    - name: Upload documentation artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: documentation-html
-        path: docs/_build/html/
-        retention-days: 7
+      run: |
+        set -euo pipefail
+        if [[ "$EVENT_NAME" == 'workflow_dispatch' && "$PUBLISH_RELEASE" != 'true' ]]; then
+          echo 'Manual dry-run: registry publication disabled.'
+          echo 'publish_package=false' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [[ "$EVENT_NAME" == 'push' && "$EVENT_REF_TYPE" == 'tag' ]]; then
+          tag="$EVENT_TAG"
+        elif [[ "$EVENT_NAME" == 'workflow_dispatch' && "$GITHUB_REF" == 'refs/heads/main' ]]; then
+          tag="$INPUT_TAG"
+        else
+          echo '::error::Manual registry publication must run from main; automatic publication requires a tag push.'
+          exit 1
+        fi
+        if [[ ! "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+          echo '::error::An existing immutable SemVer tag is required.'
+          exit 1
+        fi
+        git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+        tag_sha=$(git rev-parse "$tag^{commit}")
+        if [[ "$EVENT_NAME" == 'push' ]]; then
+          event_sha=$(git rev-parse "$GITHUB_SHA^{commit}")
+          if [[ "$event_sha" != "$tag_sha" ]]; then
+            echo '::error::Tag event does not match the immutable source.'
+            exit 1
+          fi
+        else
+          git merge-base --is-ancestor "$tag_sha" "$GITHUB_SHA"
+        fi
+        package_version="${tag//-rc./rc}"
+        pypi_status=$(curl --retry 2 --retry-delay 2 -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/nirs4all/$package_version/json")
+        if [[ "$pypi_status" != '404' ]]; then
+          echo "::error::PyPI returned HTTP $pypi_status; a new registry publication requires absence. Retry Docker independently after a successful package publication."
+          exit 1
+        fi
+        printf 'publish_package=true\nrelease_tag=%s\ntag_sha=%s\n' "$tag" "$tag_sha" >> "$GITHUB_OUTPUT"
+        echo "Verified immutable SDK tag $tag at $tag_sha; no GitHub Release or delivery artifact is required."
   build:
     needs: release-preflight
     runs-on: ubuntu-latest
@@ -108,8 +86,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         fetch-depth: 0
-        ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag)
-          || github.ref }}
+        ref: ${{ needs.release-preflight.outputs.tag_sha || github.sha }}
     - name: Free disk space
       uses: ./.github/actions/free-disk-space
     - uses: actions/setup-python@v7
@@ -117,19 +94,30 @@ jobs:
         python-version: '3.11'
         cache: pip
     - name: Verify version consistency
-      if: github.event_name == 'release' || inputs.publish_release
+      if: needs.release-preflight.outputs.publish_package == 'true'
       shell: bash
       env:
         RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
         EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
-      run: "set -euo pipefail\n# Version is single-sourced from nirs4all/__init__.py (pyproject declares it\n# dynamically\
-        \ via attr:), so read __version__ directly rather than pyproject.\nPKG_VERSION=$(grep -E '^__version__' nirs4all/__init__.py\
-        \ | cut -d'\"' -f2)\nTAG_VERSION=\"$RELEASE_TAG\"\nTAG_VERSION=\"${TAG_VERSION#v}\"\n# Product RC tags use SemVer\
-        \ spelling (1.0.0-rc.1), while Python\n# package metadata uses the equivalent PEP 440 spelling (1.0.0rc1).\nTAG_VERSION=\"\
-        ${TAG_VERSION//-rc./rc}\"\nif [[ \"$PKG_VERSION\" != \"$TAG_VERSION\" ]]; then\n  echo \"::error::Version mismatch:\
-        \ nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION\"\n  exit 1\nfi\nif [[ -n \"$EXPECTED_TAG_SHA\" && \"$(git rev-parse\
-        \ HEAD)\" != \"$EXPECTED_TAG_SHA\" ]]; then\n  echo '::error::Release tag changed after preflight.'\n  exit 1\nfi\n\
-        echo \"Version verified: $PKG_VERSION\"\n"
+      run: |
+        set -euo pipefail
+        # Version is single-sourced from nirs4all/__init__.py (pyproject declares it
+        # dynamically via attr:), so read __version__ directly rather than pyproject.
+        PKG_VERSION=$(grep -E '^__version__' nirs4all/__init__.py | cut -d'"' -f2)
+        TAG_VERSION="$RELEASE_TAG"
+        TAG_VERSION="${TAG_VERSION#v}"
+        # Product RC tags use SemVer spelling (1.0.0-rc.1), while Python
+        # package metadata uses the equivalent PEP 440 spelling (1.0.0rc1).
+        TAG_VERSION="${TAG_VERSION//-rc./rc}"
+        if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
+          echo "::error::Version mismatch: nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION"
+          exit 1
+        fi
+        if [[ -n "$EXPECTED_TAG_SHA" && "$(git rev-parse HEAD)" != "$EXPECTED_TAG_SHA" ]]; then
+          echo '::error::Release tag changed after preflight.'
+          exit 1
+        fi
+        echo "Version verified: $PKG_VERSION"
     - name: Build the qualified distributions
       shell: bash
       run: |
@@ -162,10 +150,10 @@ jobs:
         path: dist
   publish-pypi:
     needs:
+    - release-preflight
     - build
-    - build-docs
     - package-smoke
-    if: github.event_name == 'release' || inputs.publish_release
+    if: needs.release-preflight.outputs.publish_package == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -182,7 +170,7 @@ jobs:
     needs:
     - release-preflight
     - publish-pypi
-    if: github.event_name == 'release' || inputs.publish_release
+    if: needs.release-preflight.outputs.publish_package == 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -199,112 +187,37 @@ jobs:
       shell: bash
       env:
         RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
-      run: "set -euo pipefail\npackage_version=\"${RELEASE_TAG#v}\"\npackage_version=\"${package_version//-rc./rc}\"\npython\
-        \ -m pip install --upgrade pip\nfor attempt in 1 2 3 4 5 6; do\n  if python -m pip install --no-cache-dir \\\n   \
-        \ --index-url https://pypi.org/simple/ \"nirs4all==${package_version}\"; then\n    break\n  fi\n  if [ \"${attempt}\"\
-        \ -eq 6 ]; then\n    echo \"::error::PyPI did not serve nirs4all==${package_version} after 6 attempts\"\n    exit\
-        \ 1\n  fi\n  sleep 10\ndone\n"
-    - name: Verify public installed package metadata, origins and native ABI
-      shell: bash
-      run: 'set -euo pipefail
-
-        python -m pip install nirs4all-methods==1.5.1
-
-        source_root="$PWD"
-
-        cd "$RUNNER_TEMP"
-
-        python "$source_root/scripts/smoke_installed_package.py" --source-root "$source_root"
-
-        python -m pip check
-
-        '
-  publish-docker:
-    needs:
-    - release-preflight
-    - build
-    - publish-pypi
-    if: github.event_name == 'release' || inputs.publish_release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        ref: ${{ needs.release-preflight.outputs.release_tag }}
-    - name: Verify Docker source tag
-      shell: bash
-      env:
-        EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
-      run: "set -euo pipefail\nif [[ -n \"$EXPECTED_TAG_SHA\" && \"$(git rev-parse HEAD)\" != \"$EXPECTED_TAG_SHA\" ]]; then\n\
-        \  echo '::error::Release tag changed after preflight.'\n  exit 1\nfi\n"
-    - uses: docker/setup-buildx-action@v4
-    - uses: docker/login-action@v4.8.0
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Extract version tag
-      id: meta
-      uses: docker/metadata-action@v6
-      with:
-        images: ghcr.io/${{ github.repository }}
-        flavor: latest=false
-        tags: 'type=raw,value=${{ needs.release-preflight.outputs.docker_version }}
-
-          type=raw,value=latest,enable=${{ needs.release-preflight.outputs.prerelease == ''false'' }}
-
-          '
-    - uses: docker/build-push-action@v7
-      id: docker
-      with:
-        context: .
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-    - name: Verify published image native cohort
-      shell: bash
-      env:
-        IMAGE_DIGEST: ${{ steps.docker.outputs.digest }}
-        DOCKER_VERSION: ${{ needs.release-preflight.outputs.docker_version }}
       run: |
         set -euo pipefail
-        image="ghcr.io/${GITHUB_REPOSITORY,,}@$IMAGE_DIGEST"
-        sdk_version="${DOCKER_VERSION//-rc./rc}"
-        docker run --rm -i -e EXPECTED_SDK_VERSION="$sdk_version" "$image" -I -B - <<'PY'
-        import importlib.metadata as metadata
-        import json
-        import os
-        import n4m
-        from pls4all import Context
-
-        expected = {
-            "nirs4all": os.environ["EXPECTED_SDK_VERSION"],
-            "dag-ml": "0.5.0", "dag-ml-data": "0.2.17",
-            "nirs4all-core": "0.6.1", "nirs4all-io": "0.3.8",
-            "nirs4all-formats": "0.2.19",
-            "nirs4all-methods": "1.5.1", "pls4all": "1.5.1",
-        }
-        actual = {name: metadata.version(name) for name in expected}
-        assert actual == expected, actual
-        assert n4m.abi_version() == (2, 24, 0)
-        assert n4m.version().split("+abi.")[0] == actual["nirs4all-methods"]
-        with Context():
-            pass
-        print(json.dumps({"schema": "nirs4all.image-native-cohort.v1",
-                          "distributions": actual, "methods_abi": n4m.abi_version(),
-                          "native_context_opened": True}, sort_keys=True))
-        PY
-        docker run --rm "$image" -I -B -m pip check
+        package_version="${RELEASE_TAG#v}"
+        package_version="${package_version//-rc./rc}"
+        python -m pip install --upgrade pip
+        for attempt in 1 2 3 4 5 6; do
+          if python -m pip install --no-cache-dir \
+            --index-url https://pypi.org/simple/ "nirs4all==${package_version}"; then
+            break
+          fi
+          if [ "${attempt}" -eq 6 ]; then
+            echo "::error::PyPI did not serve nirs4all==${package_version} after 6 attempts"
+            exit 1
+          fi
+          sleep 10
+        done
+    - name: Verify public installed package metadata, origins and native ABI
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m pip install nirs4all-methods==1.5.1
+        source_root="$PWD"
+        cd "$RUNNER_TEMP"
+        python "$source_root/scripts/smoke_installed_package.py" --source-root "$source_root"
+        python -m pip check
   notify-conda-forge:
     needs:
     - release-preflight
     - publish-pypi
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' || inputs.publish_release
+    if: needs.release-preflight.outputs.publish_package == 'true'
     steps:
     - uses: actions/checkout@v6
     - uses: actions/setup-python@v7
@@ -314,21 +227,44 @@ jobs:
       shell: bash
       env:
         RELEASE_TAG: ${{ needs.release-preflight.outputs.release_tag }}
-      run: "VERSION=\"$RELEASE_TAG\"\nVERSION=\"${VERSION#v}\"\n\n# Wait for PyPI to index the new version (up to 5 minutes)\n\
-        SHA256=\"\"\nfor i in $(seq 1 10); do\n  SHA256=$(curl -sL \"https://pypi.org/pypi/nirs4all/$VERSION/json\" | \\\n\
-        \    python3 -c \"import sys,json; d=json.load(sys.stdin); \\\n    print([u['digests']['sha256'] for u in d['urls']\
-        \ if u['filename'].endswith('.tar.gz')][0])\" 2>/dev/null) && break\n  echo \"Waiting for PyPI to index version $VERSION\
-        \ (attempt $i/10)...\"\n  sleep 30\ndone\n\necho \"## Conda-forge Update\" >> $GITHUB_STEP_SUMMARY\necho \"\" >> $GITHUB_STEP_SUMMARY\n\
-        \nif [[ -z \"$SHA256\" ]]; then\n  echo \"::warning::Could not fetch SHA256 from PyPI for version $VERSION\"\n  echo\
-        \ \"Could not fetch SHA256 automatically. Update manually:\" >> $GITHUB_STEP_SUMMARY\n  echo \"\\`\\`\\`bash\" >>\
-        \ $GITHUB_STEP_SUMMARY\n  echo \"python scripts/sync_conda_recipe.py --sha $VERSION\" >> $GITHUB_STEP_SUMMARY\n  echo\
-        \ \"\\`\\`\\`\" >> $GITHUB_STEP_SUMMARY\nelse\n  echo \"The regro-cf-autotick-bot should automatically create a PR\
-        \ to the feedstock.\" >> $GITHUB_STEP_SUMMARY\n  echo \"If it doesn't within 24h, manually update:\" >> $GITHUB_STEP_SUMMARY\n\
-        \  echo \"\" >> $GITHUB_STEP_SUMMARY\n  echo \"- **Version**: \\`$VERSION\\`\" >> $GITHUB_STEP_SUMMARY\n  echo \"\
-        - **SHA256**: \\`$SHA256\\`\" >> $GITHUB_STEP_SUMMARY\n  echo \"\" >> $GITHUB_STEP_SUMMARY\n  echo \"Or run:\" >>\
-        \ $GITHUB_STEP_SUMMARY\n  echo \"\\`\\`\\`bash\" >> $GITHUB_STEP_SUMMARY\n  echo \"python scripts/sync_conda_recipe.py\
-        \ --sha $VERSION\" >> $GITHUB_STEP_SUMMARY\n  echo \"\\`\\`\\`\" >> $GITHUB_STEP_SUMMARY\n\n  # Also update meta.yaml\
-        \ in the repo for reference\n  python scripts/sync_conda_recipe.py --sha \"$VERSION\" || true\nfi\n"
+      run: |
+        VERSION="$RELEASE_TAG"
+        VERSION="${VERSION#v}"
+
+        # Wait for PyPI to index the new version (up to 5 minutes)
+        SHA256=""
+        for i in $(seq 1 10); do
+          SHA256=$(curl -sL "https://pypi.org/pypi/nirs4all/$VERSION/json" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); \
+            print([u['digests']['sha256'] for u in d['urls'] if u['filename'].endswith('.tar.gz')][0])" 2>/dev/null) && break
+          echo "Waiting for PyPI to index version $VERSION (attempt $i/10)..."
+          sleep 30
+        done
+
+        echo "## Conda-forge Update" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ -z "$SHA256" ]]; then
+          echo "::warning::Could not fetch SHA256 from PyPI for version $VERSION"
+          echo "Could not fetch SHA256 automatically. Update manually:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "python scripts/sync_conda_recipe.py --sha $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "The regro-cf-autotick-bot should automatically create a PR to the feedstock." >> $GITHUB_STEP_SUMMARY
+          echo "If it doesn't within 24h, manually update:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA256**: \`$SHA256\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Or run:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "python scripts/sync_conda_recipe.py --sha $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          # Also update meta.yaml in the repo for reference
+          python scripts/sync_conda_recipe.py --sha "$VERSION" || true
+        fi
   package-smoke:
     needs:
     - release-preflight
@@ -337,10 +273,9 @@ jobs:
     steps:
     - uses: actions/checkout@v6
       with:
-        ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_release && needs.release-preflight.outputs.release_tag)
-          || github.ref }}
+        ref: ${{ needs.release-preflight.outputs.tag_sha || github.sha }}
     - name: Verify checked out commit matches publication target
-      if: github.event_name == 'release' || inputs.publish_release
+      if: needs.release-preflight.outputs.publish_package == 'true'
       env:
         EXPECTED_TAG_SHA: ${{ needs.release-preflight.outputs.tag_sha }}
       run: test "$(git rev-parse HEAD)" = "$EXPECTED_TAG_SHA"
@@ -356,12 +291,8 @@ jobs:
       run: python -m pip install dist/*.whl nirs4all-methods==1.5.1
     - name: Verify installed package metadata, origins and native ABI
       shell: bash
-      run: 'source_root="$PWD"
-
+      run: |
+        source_root="$PWD"
         cd "$RUNNER_TEMP"
-
         python "$source_root/scripts/smoke_installed_package.py" --source-root "$source_root"
-
         python -m pip check
-
-        '

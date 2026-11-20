@@ -24,13 +24,13 @@ def _load_named_workflow(name: str) -> dict[str, Any]:
     return cast(dict[str, Any], yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
 
 
-def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> None:
+def test_manual_dispatch_is_guarded_and_registry_publication_is_verified() -> None:
     workflow = _load_workflow()
-    assert set(workflow["on"]) == {"release", "workflow_dispatch"}
+    assert set(workflow["on"]) == {"push", "workflow_dispatch"}
     assert "qualification_ref" not in workflow["on"]["workflow_dispatch"]["inputs"]
 
     jobs = workflow["jobs"]
-    assert set(jobs["publish-pypi"]["needs"]) == {"build", "build-docs", "package-smoke"}
+    assert set(jobs["publish-pypi"]["needs"]) == {"release-preflight", "build", "package-smoke"}
     assert jobs["publish-pypi"]["permissions"] == {"id-token": "write", "contents": "read"}
     assert jobs["publish-pypi"]["environment"] == "pypi"
 
@@ -41,19 +41,20 @@ def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> Non
     ]
     assert len(verification_steps) == 1
     verification = verification_steps[0]
-    assert verification["if"] == "github.event_name == 'release' || inputs.publish_release"
+    assert verification["if"] == "needs.release-preflight.outputs.publish_package == 'true'"
     assert "needs.release-preflight.outputs.release_tag" in verification["env"]["RELEASE_TAG"]
     assert 'TAG_VERSION="${TAG_VERSION//-rc./rc}"' in verification["run"]
     assert 'if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]' in verification["run"]
 
-    for job_name in ("publish-pypi", "publish-docker"):
-        job = jobs[job_name]
-        assert job["if"] == "github.event_name == 'release' || inputs.publish_release"
-        needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
-        assert "build" in needs
+    package = jobs["publish-pypi"]
+    assert package["if"] == "needs.release-preflight.outputs.publish_package == 'true'"
+    assert "build" in package["needs"]
+    image_jobs = _load_named_workflow("publish-docker.yml")["jobs"]
+    assert image_jobs["publish-docker"]["needs"] == ["release-preflight"]
+    assert "publish-pypi" not in image_jobs
 
     public_smoke = jobs["post-publish-smoke"]
-    assert public_smoke["if"] == "github.event_name == 'release' || inputs.publish_release"
+    assert public_smoke["if"] == "needs.release-preflight.outputs.publish_package == 'true'"
     assert "publish-pypi" in public_smoke["needs"]
     smoke_steps = {step.get("name"): step for step in public_smoke["steps"]}
     install_script = smoke_steps["Install the exact PyPI release"]["run"]
@@ -67,7 +68,7 @@ def test_manual_dispatch_is_guarded_and_release_publication_is_verified() -> Non
 
     metadata_steps = [
         step
-        for step in jobs["publish-docker"]["steps"]
+        for step in image_jobs["publish-docker"]["steps"]
         if step.get("uses") == "docker/metadata-action@v6"
     ]
     assert len(metadata_steps) == 1
@@ -231,7 +232,7 @@ def test_publication_refuses_checkout_that_differs_from_immutable_tag(tmp_path: 
     for name in ("package-smoke",):
         steps = workflow["jobs"][name]["steps"]
         checkout = next(step for step in steps if step.get("uses") == "actions/checkout@v6")
-        assert "needs.release-preflight.outputs.release_tag" in checkout["with"]["ref"]
+        assert "needs.release-preflight.outputs.tag_sha" in checkout["with"]["ref"]
         guard = next(step for step in steps if step.get("name") == "Verify checked out commit matches publication target")
         result = subprocess.run(
             ["bash", "-e", "-c", guard["run"]], cwd=root,
