@@ -162,10 +162,7 @@ def _source_node(predictions: Any, runtime: Any, name: str, branch: int | None, 
 
         # The reconstructor's scalar MEAN path consumes the first precomputed
         # average for this source name. Preserve that exact producing step.
-        if test_aggregation == TestAggregation.MEAN and (not use_proba or not any(
-            np.asarray(row.get("y_proba")).ndim == 2 and np.asarray(row["y_proba"]).shape[1] > 2
-            for row in rows if row.get("y_proba") is not None
-        )):
+        if test_aggregation == TestAggregation.MEAN and not use_proba:
             average = next((row for row in rows if row.get("partition") == "test" and row.get("fold_id") == "avg"), None)
             producer_step = average["step_idx"] if average is not None else rows[0]["step_idx"] if rows else None
             rows = [row for row in rows if row.get("step_idx") == producer_step]

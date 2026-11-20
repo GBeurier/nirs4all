@@ -394,6 +394,15 @@ class Predictor:
             concat_source=True,
         )
 
+        if self._resolved is not None and self._resolved.raw_input_predictor is not None:
+            partition = (self.target_model or {}).get("partition")
+            sample_ids = dataset_obj._indexer.x_indices({"partition": partition}) if partition is not None else []
+            if len(sample_ids):
+                # Explicit dataset partitions retain their requested sample IDs;
+                # a new raw matrix still represents all rows supplied by its caller.
+                selector = selector.with_partition(partition)
+                selector["sample"] = list(sample_ids)
+
         target_branch_id = self.target_model.get("branch_id") if self.target_model else None
         target_branch_name = self.target_model.get("branch_name") if self.target_model else None
         target_branch_path = self.target_model.get("branch_path") if self.target_model else None
