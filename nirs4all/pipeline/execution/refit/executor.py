@@ -98,11 +98,6 @@ def execute_simple_refit(
     original_steps = refit_config.expanded_steps
     steps = copy.deepcopy(original_steps)
 
-    if artifact_registry is not None and getattr(executor, "save_artifacts", False):
-        from nirs4all.pipeline.execution.fitted import prepare_sequential_fitted_capture
-
-        prepare_sequential_fitted_capture(original_steps, runtime_context)
-
     # Detect and handle the splitter step
     has_splitter = False
     for idx, step in enumerate(steps):
@@ -121,6 +116,15 @@ def execute_simple_refit(
         )
         result.success = True
         return result
+
+    from nirs4all.pipeline.execution.fitted import is_sequential_meta_pipeline
+
+    capture_required = artifact_registry is not None and getattr(executor, "save_artifacts", False) and is_sequential_meta_pipeline(original_steps)
+    previous_training = runtime_context.fitted_training_steps
+    if capture_required:
+        from nirs4all.pipeline.config.component_serialization import serialize_component
+
+        runtime_context.fitted_training_steps = serialize_component(original_steps)
 
     # Inject best_params into the model step
     _inject_best_params(steps, refit_config.best_params)
@@ -176,10 +180,11 @@ def execute_simple_refit(
         runtime_context.phase = ExecutionPhase.CV
         runtime_context.refit_fold_id = prev_refit_fold_id
         runtime_context.refit_context_name = prev_refit_context_name
+        runtime_context.fitted_training_steps = previous_training
         from nirs4all.analysis.results import TransferSelectionError
 
         TransferSelectionError.reraise_if_present(e)
-        if runtime_context.capture_fitted_predictor:
+        if capture_required:
             raise
         return result
 
@@ -206,6 +211,7 @@ def execute_simple_refit(
     runtime_context.phase = ExecutionPhase.CV
     runtime_context.refit_fold_id = prev_refit_fold_id
     runtime_context.refit_context_name = prev_refit_context_name
+    runtime_context.fitted_training_steps = previous_training
 
     logger.success("Refit pass completed successfully")
     return result

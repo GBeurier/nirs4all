@@ -178,11 +178,6 @@ class PipelineExecutor:
         self.operation_count = 0
         self._shape_metadata_cache.clear()
 
-        if self.mode == "train" and self.save_artifacts and runtime_context is not None and runtime_context.artifact_registry is not None:
-            from nirs4all.pipeline.execution.fitted import prepare_sequential_fitted_capture
-
-            prepare_sequential_fitted_capture(steps, runtime_context)
-
         logger.starting(f"Starting pipeline {config_name} on dataset {dataset.name}")
 
         # Compute pipeline hash for identification
@@ -216,7 +211,18 @@ class PipelineExecutor:
         # Execute all steps
         all_artifacts: list[Any] = []
         steps_completed = False
+        capture_started = False
         try:
+            if self.mode == "train" and self.save_artifacts and runtime_context is not None and runtime_context.artifact_registry is not None:
+                from nirs4all.pipeline.execution.fitted import prepare_sequential_fitted_capture
+
+                previous_training = runtime_context.fitted_training_steps
+                previous_predictors = runtime_context.fitted_predictors
+                previous_output = runtime_context.fitted_feature_output
+                capture_started = prepare_sequential_fitted_capture(steps, runtime_context)
+                if capture_started:
+                    runtime_context.fitted_predictors = {}
+                    context.custom.pop("_fitted_input", None)
             context, dataset = self._execute_steps(
                 steps,
                 dataset,
@@ -267,6 +273,13 @@ class PipelineExecutor:
             import traceback
             traceback.print_exc()
             raise
+        finally:
+            if capture_started:
+                runtime_context.capture_fitted_predictor = False
+                runtime_context.fitted_training_steps = previous_training
+                runtime_context.fitted_predictors = previous_predictors
+                runtime_context.fitted_feature_output = previous_output
+                context.custom.pop("_fitted_input", None)
 
     def _begin_pipeline(
         self,

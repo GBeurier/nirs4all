@@ -121,20 +121,32 @@ class FittedPredictor:
         return cast(np.ndarray, self.root.target_transformer.transform(classes.reshape(-1, 1), "numeric", "raw", {}).reshape(-1))
 
 
-def prepare_sequential_fitted_capture(steps: list[Any], runtime: Any) -> None:
-    """Capture the declared sequential MetaModel inference path, independently of CV fitting."""
-    from nirs4all.pipeline.analysis.topology import analyze_topology
+def is_sequential_meta_pipeline(steps: list[Any]) -> bool:
+    """Identify the declared sequential MetaModel profile without admitting branches."""
+    from nirs4all.operators.models.meta import MetaModel
+
+    if any(isinstance(step, dict) and step.keys() & {"branch", "merge", "merge_sources", "merge_predictions"} for step in steps):
+        return False
+    for step in steps:
+        candidate = step.get("model", step.get("meta_model")) if isinstance(step, dict) else step
+        if isinstance(candidate, MetaModel):
+            return True
+        class_name = candidate.get("class") if isinstance(candidate, dict) else candidate
+        if isinstance(class_name, str) and class_name in ("nirs4all.operators.models.meta.MetaModel", "nirs4all.operators.models.MetaModel"):
+            return True
+    return False
+
+
+def prepare_sequential_fitted_capture(steps: list[Any], runtime: Any) -> bool:
+    """Start a pipeline-local inference capture, independently of CV fitting."""
     from nirs4all.pipeline.config.component_serialization import serialize_component
 
-    if runtime.capture_fitted_predictor:
-        return
-    if any(isinstance(step, dict) and step.keys() & {"branch", "merge", "merge_sources", "merge_predictions"} for step in steps):
-        return
-    if not any(node.model_class.rsplit(".", 1)[-1] == "MetaModel" for node in analyze_topology(steps).model_nodes):
-        return
-    runtime.capture_fitted_predictor = True
+    if runtime.capture_fitted_predictor or not is_sequential_meta_pipeline(steps):
+        return False
     if runtime.fitted_training_steps is None:
         runtime.fitted_training_steps = serialize_component(steps)
+    runtime.capture_fitted_predictor = True
+    return True
 
 
 def prepare_fitted_input(dataset: Any, context: Any, runtime: Any) -> FittedNode | None:
