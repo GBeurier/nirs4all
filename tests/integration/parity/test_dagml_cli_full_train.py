@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -264,17 +266,23 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
 
 
 @pytest.mark.parity
-def test_legacy_by_source_auto_archive_has_no_replayable_model(tmp_path) -> None:
-    """Independent source outputs fail export before creating or replacing an archive."""
+@pytest.mark.parametrize("with_preprocessing", [False, True])
+def test_legacy_by_source_auto_exports_selected_fitted_model_cold(tmp_path, with_preprocessing: bool) -> None:
+    """Default-best and explicit-source exports retain real source-local fitted state."""
     import nirs4all
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
     from .test_dagml_cli_runner import _two_source_distinct_dataset
 
     dataset = _two_source_distinct_dataset()
+    train_sources = [values.copy() for values in dataset.x({"partition": "train"}, "2d", concat_source=False)]
+    test_sources = [values.copy() for values in dataset.x({"partition": "test"}, "2d", concat_source=False)]
+    targets = np.asarray(dataset.y({"partition": "train"})).ravel()
+    prefix = [StandardScaler()] if with_preprocessing else []
     pipeline = [
         {"branch": {"by_source": True, "steps": {
-            "source_0": [{"model": Ridge(alpha=1.0)}],
-            "source_1": [{"model": Ridge(alpha=1.0)}],
+            "source_0": [*prefix, {"model": Ridge(alpha=1.0)}],
+            "source_1": [*prefix, {"model": Ridge(alpha=1.0)}],
         }}},
         {"merge": "auto"},
     ]
@@ -283,20 +291,56 @@ def test_legacy_by_source_auto_archive_has_no_replayable_model(tmp_path) -> None
         save_charts=False, verbose=0,
     )
     try:
-        for suffix, archive_format in ((".n4a", "n4a"), (".n4a.py", "n4a.py")):
-            destination = tmp_path / f"independent_sources{suffix}"
-            error = r"Cannot export selected model: target artifact .+ is unavailable\."
-            with pytest.raises(ValueError, match=error):
-                legacy.export(destination, format=archive_format)
-            assert not destination.exists()
-
-            previous_bytes = b"previous archive bytes must survive a refused export"
-            destination.write_bytes(previous_bytes)
-            with pytest.raises(ValueError, match=error):
-                legacy.export(destination, format=archive_format)
-            assert destination.read_bytes() == previous_bytes
+        selected_best = legacy.final or legacy.best
+        explicit = next(row for row in legacy.predictions.iter_entries()
+                        if row.get("model_artifact_id") and row["branch_id"] != selected_best["branch_id"])
+        selections = [("best", selected_best), ("explicit", explicit)]
+        archives = [(name, legacy.export(tmp_path / f"{name}.n4a", **({"source": selected} if name == "explicit" else {})))
+                    for name, selected in selections]
+        for name, selected in selections:
+            destination = tmp_path / f"{name}.n4a.py"
+            destination.write_bytes(b"previous valid portable script")
+            with pytest.raises(NotImplementedError, match="scripts do not support branching"):
+                legacy.export(destination, format="n4a.py", **({"source": selected} if name == "explicit" else {}))
+            assert destination.read_bytes() == b"previous valid portable script"
     finally:
         legacy.close()
+    with WorkspaceStore(tmp_path / "workspace") as store:
+        for (name, selected), (_, archive) in zip(selections, archives, strict=True):
+            branch = selected["branch_id"]
+            oracle = make_pipeline(StandardScaler(), Ridge(alpha=1.0)) if with_preprocessing else Ridge(alpha=1.0)
+            oracle.fit(train_sources[branch], targets)
+            expected = oracle.predict(test_sources[branch]).ravel()
+            fitted = store.load_artifact(selected["model_artifact_id"])
+            assert fitted.n_features_in_ == train_sources[branch].shape[1]
+            model_x = oracle[0].transform(test_sources[branch]) if with_preprocessing else test_sources[branch]
+            np.testing.assert_allclose(np.asarray(fitted.predict(model_x)).ravel(), expected, rtol=1e-5, atol=1e-5)
+            inputs = tmp_path / f"{name}.npz"
+            np.savez(inputs, raw_x=test_sources[branch], expected=expected)
+            probe = r'''
+import pathlib, sys
+import numpy as np
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
+from nirs4all.pipeline.bundle import BundleLoader
+from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+archive, inputs, workspace = sys.argv[1:]
+data = np.load(inputs)
+blocked = pathlib.Path(workspace).resolve()
+def audit(event, args):
+    if event == 'open' and isinstance(args[0], (str, bytes)):
+        path = pathlib.Path(args[0]).resolve()
+        if path == blocked or blocked in path.parents:
+            raise AssertionError('Selected-source export read its workspace')
+sys.addaudithook(audit)
+def no_fit(*args, **kwargs):
+    raise AssertionError('Selected-source export attempted FIT or opened a Store')
+WorkspaceStore.__init__ = no_fit
+Ridge.fit = StandardScaler.fit = no_fit
+with BundleLoader(archive) as loader:
+    np.testing.assert_allclose(loader.predict(data['raw_x']), data['expected'], rtol=1e-5, atol=1e-5)
+'''
+            subprocess.run([sys.executable, "-B", "-c", probe, str(archive), str(inputs), str(tmp_path / "workspace")], check=True)
 
 
 @pytest.mark.parity

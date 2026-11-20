@@ -1002,6 +1002,11 @@ class BundleLoader:
             return self._predict_legacy_model_artifact(refit_model, X)
 
         assert self.artifact_provider is not None
+        if self._chain_data.get("fold_artifacts", {}).get("fold_all"):
+            model = self.artifact_provider._load_artifact(f"step_{step_idx}_foldall")
+            if model is None:
+                raise ValueError("Bundle is missing its declared training-only fitted model")
+            return self._predict_legacy_model_artifact(model, X)
         fold_artifacts = self.artifact_provider.get_fold_artifacts(step_idx, branch_path)
 
         if fold_artifacts:
