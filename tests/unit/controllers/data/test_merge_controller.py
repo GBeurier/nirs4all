@@ -101,6 +101,21 @@ class TestMergeConfigParsing:
         assert config.collect_predictions is True
         assert config.prediction_branches == [1]
 
+    @pytest.mark.parametrize("requested", [False, True])
+    def test_refuses_undeclared_top_level_probability_key(self, requested):
+        """Do not silently discard a probability mode at the configuration boundary."""
+        with pytest.raises(ValueError, match=r"merge.use_proba is not a pipeline option"):
+            MergeConfigParser.parse({"predictions": [0, 1], "use_proba": requested})
+
+    def test_preserves_declared_global_and_branch_probability_modes(self):
+        """The documented global and per-branch forms retain their meaning."""
+        config = MergeConfigParser.parse({"predictions": {"branches": [0, 1], "proba": True}})
+        assert config.use_proba is True
+        assert config.prediction_branches == [0, 1]
+        config = MergeConfigParser.parse({"predictions": [{"branch": 1, "proba": True}]})
+        assert config.prediction_configs[0].branch == 1
+        assert config.prediction_configs[0].proba is True
+
     def test_parse_mixed_mode(self):
         """Test parsing mixed features + predictions."""
         config = MergeConfigParser.parse({

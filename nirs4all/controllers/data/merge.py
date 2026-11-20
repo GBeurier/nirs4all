@@ -631,6 +631,11 @@ class MergeConfigParser:
         Returns:
             MergeConfig for the specified configuration.
         """
+        if "use_proba" in config_dict:
+            raise ValueError(
+                "merge.use_proba is not a pipeline option; declare predictions={branches: ..., proba: true} "
+                "or proba in each branch prediction configuration"
+            )
         config = MergeConfig()
 
         # Phase 5: Check for source merge configuration
