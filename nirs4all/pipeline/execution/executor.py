@@ -202,9 +202,12 @@ class PipelineExecutor:
         # Initialize trace recorder for execution trace recording
         trace_recorder = None
         if self.mode == "train" and runtime_context:
+            from nirs4all.pipeline.config.context import ExecutionPhase
+
             trace_recorder = TraceRecorder(
                 pipeline_uid=pipeline_uid or "",
-                metadata={"dataset": dataset.name, "config_name": config_name}
+                metadata={"dataset": dataset.name, "config_name": config_name,
+                          "refit": getattr(runtime_context, "phase", None) == ExecutionPhase.REFIT},
             )
             runtime_context.trace_recorder = trace_recorder
 

@@ -2058,17 +2058,11 @@ class MetaModelController(SklearnModelController):
             custom_name=artifact_name,
         )
 
-        # Refit predictions use the final fold identity. Cleanup must protect
-        # their actual fitted meta-model, just as it protects base models.
-        trace_fold_id: int | str | None = fold_id
-        if runtime_context.phase == ExecutionPhase.REFIT and fold_id is not None:
-            trace_fold_id = runtime_context.refit_fold_id or "final"
-
         # Record artifact in execution trace (Phase 2) with V3 chain info
         runtime_context.record_step_artifact(
             artifact_id=artifact_id,
             is_primary=(fold_id is None),
-            fold_id=trace_fold_id,
+            fold_id=fold_id,
             chain_path=chain_path,
             branch_path=bp,
             metadata={

@@ -124,6 +124,12 @@ class ChainBuilder:
             for fold_id, artifact_id in model_step.artifacts.fold_artifact_ids.items():
                 fold_artifacts[normalize_fold_key(fold_id)] = artifact_id
 
+            # A REFIT execution can still contain another declared splitter.
+            # Keep all physical fitted states distinct; only a single state is
+            # represented by the conventional final artifact slot.
+            if self._trace.metadata.get("refit") and len(fold_artifacts) == 1:
+                fold_artifacts = {"fold_final": next(iter(fold_artifacts.values()))}
+
             has_cv_artifacts = bool(fold_artifacts)
             if not fold_artifacts and model_step.artifacts.primary_artifact_id:
                 # "all" is a model fitted once on the training partition; it is

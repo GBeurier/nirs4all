@@ -2859,10 +2859,6 @@ class BaseModelController(OperatorController, ABC):
             # Generate V3 artifact ID using chain
             artifact_id = registry.generate_id(chain_path, fold_id, pipeline_id)
 
-            trace_fold_id: int | str | None = fold_id
-            if runtime_context.phase == ExecutionPhase.REFIT and fold_id is not None:
-                trace_fold_id = runtime_context.refit_fold_id or "final"
-
             # Register artifact with V3 chain tracking
             record = registry.register(
                 obj=model,
@@ -2879,7 +2875,7 @@ class BaseModelController(OperatorController, ABC):
             runtime_context.record_step_artifact(
                 artifact_id=artifact_id,
                 is_primary=(fold_id is None),  # Primary if not fold-specific
-                fold_id=trace_fold_id,
+                fold_id=fold_id,
                 chain_path=chain_path,
                 branch_path=bp,
                 metadata={"class_name": model.__class__.__name__, "custom_name": custom_name}
