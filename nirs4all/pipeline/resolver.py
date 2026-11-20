@@ -234,6 +234,7 @@ class ResolvedPrediction:
         pipeline_uid: Pipeline unique identifier
         run_dir: Path to run directory
         manifest: Full manifest dictionary (for metadata access)
+        chain: Exact stored chain, when resolved from a WorkspaceStore.
     """
 
     source_type: SourceType = SourceType.UNKNOWN
@@ -248,6 +249,7 @@ class ResolvedPrediction:
     pipeline_uid: str = ""
     run_dir: Path | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
+    chain: dict[str, Any] | None = None
 
     raw_input_predictor: Any = None  # Actual validated FINAL closure, never a metadata claim
     bundle_loader: BundleLoader | None = None
@@ -1254,6 +1256,7 @@ class PredictionResolver:
         result = ResolvedPrediction(source_type=SourceType.PREDICTION)
         result.pipeline_uid = pipeline_uid
         result.model_step_index = chain["model_step_idx"]
+        result.chain = chain
         assert self.store is not None and chain_id is not None
         if not (chain.get("shared_artifacts") or {}).get("_raw_input_predictor"):
             from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure

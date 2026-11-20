@@ -57,6 +57,23 @@ logger = logging.getLogger(__name__)
 BUNDLE_FORMAT_VERSION = "1.0"
 
 
+def chain_artifact_names(model_step_index: int, shared_artifacts: dict[str, Any], fold_artifacts: dict[str, str]) -> dict[str, str]:
+    """Map an exact stored chain to the canonical bundle replay member names."""
+    names = {}
+    for step_index, values in shared_artifacts.items():
+        if str(step_index).startswith("_"):
+            continue
+        artifacts = values if isinstance(values, list) else [values]
+        for sub_index, artifact_id in enumerate(artifacts):
+            if artifact_id:
+                names[f"step_{step_index}_sub{sub_index}"] = artifact_id
+    for fold_id, artifact_id in fold_artifacts.items():
+        if artifact_id:
+            fold = str(fold_id).removeprefix("fold_")
+            names[f"step_{model_step_index}_fold{fold}"] = artifact_id
+    return names
+
+
 @contextlib.contextmanager
 def _atomic_output_path(output_path: Path) -> Generator[Path, None, None]:
     """Stage an export beside its destination and replace it only on success."""
@@ -565,11 +582,17 @@ class BundleGenerator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         manifest = self._create_bundle_manifest(resolved, include_metadata)
+        if resolved.chain is not None:
+            manifest["branch_path"] = resolved.chain.get("branch_path") or []
         members = [bundle_manifest_member(manifest)]
         relation_replay_manifest = self._relation_replay_manifest_payload(resolved)
         if relation_replay_manifest is not None:
             members.append(json_member('relation_replay_manifest.json', relation_replay_manifest, 'provenance', sort_keys=True))
         members.append(json_member('pipeline.json', self._extract_pipeline_config(resolved), 'recipe'))
+        if resolved.chain is not None:
+            chain_payload = {key: resolved.chain[key] for key in ("steps", "model_step_idx", "fold_artifacts", "shared_artifacts")}
+            chain_payload["branch_path"] = resolved.chain.get("branch_path") or []
+            members.append(json_member('chain.json', chain_payload, 'provenance'))
         if resolved.trace:
             members.append(json_member('trace.json', resolved.trace.to_dict(), 'provenance'))
         if resolved.fold_weights:
@@ -804,6 +827,20 @@ class BundleGenerator:
         members: list[Any] = []
 
         if not resolved.artifact_provider:
+            return members
+
+        if resolved.chain is not None:
+            chain = resolved.chain
+            names = chain_artifact_names(chain["model_step_idx"], chain.get("shared_artifacts") or {}, chain.get("fold_artifacts") or {})
+            step_indices = {int(name.split("_")[1]) for name in names}
+            objects = {artifact_id: value for index in step_indices
+                       for artifact_id, value in resolved.artifact_provider.get_artifacts_for_step(index)}
+            for name, artifact_id in names.items():
+                if artifact_id not in objects:
+                    raise ValueError(f"Cannot export fitted chain: artifact {artifact_id!r} is unavailable")
+                staged = stage / f"artifact_{len(members)}.joblib"
+                joblib.dump(objects[artifact_id], staged)
+                members.append(model_artifact_member(f"artifacts/{name}.joblib", staged))
             return members
 
         # For each step, write artifacts

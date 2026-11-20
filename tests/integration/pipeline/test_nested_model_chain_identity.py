@@ -86,9 +86,12 @@ def test_by_source_fitted_chains_keep_source_prefixes_and_sample_identity(tmp_pa
             ], axis=0)
             np.testing.assert_allclose(store.replay_chain(chain["chain_id"], sources[branch]), expected_all, rtol=1e-5, atol=1e-5)
             archive = store.export_chain(chain["chain_id"], tmp_path / f"source-{branch}.n4a")
+            selected = next(row for row in rows if row["branch_id"] == branch)
+            dictionary_archive = BundleGenerator(workspace, store=store).export(selected, tmp_path / f"source-{branch}-dict.n4a")
+            weighted_archive = BundleGenerator(workspace, store=store).export(
+                {**selected, "fold_weights": {0: 1., 1: 3.}}, tmp_path / f"source-{branch}-weighted.n4a")
             script = tmp_path / f"source-{branch}.n4a.py"
             script.write_bytes(b"previous valid script")
-            selected = next(row for row in rows if row["branch_id"] == branch)
             for export in (
                 lambda: store.export_chain(chain["chain_id"], script, format="n4a.py"),
                 lambda: BundleGenerator(workspace, store=store).export(selected, script, format="n4a.py"),
@@ -98,6 +101,12 @@ def test_by_source_fitted_chains_keep_source_prefixes_and_sample_identity(tmp_pa
                 assert script.read_bytes() == b"previous valid script"
             inputs = tmp_path / f"source-{branch}.npz"
             np.savez(inputs, raw_x=sources[branch], expected=expected_all, branch=branch)
+            weighted_inputs = tmp_path / f"source-{branch}-weighted.npz"
+            weighted_expected = np.average([
+                Ridge(alpha=.5).fit(reference_scaler.transform(sources[branch][train]), y[train]).predict(reference_scaler.transform(sources[branch]))
+                for train, _ in KFold(2).split(sources[branch][:20])
+            ], axis=0, weights=[1., 3.])
+            np.savez(weighted_inputs, raw_x=sources[branch], expected=weighted_expected, branch=branch)
             probe = r'''
 import pathlib, sys
 import numpy as np
@@ -123,6 +132,8 @@ with BundleLoader(archive) as loader:
     np.testing.assert_allclose(loader.predict(data['raw_x']), data['expected'], rtol=1e-5, atol=1e-5)
 '''
             subprocess.run([sys.executable, "-B", "-c", probe, str(archive), str(inputs), str(workspace)], check=True)
+            subprocess.run([sys.executable, "-B", "-c", probe, str(dictionary_archive), str(inputs), str(workspace)], check=True)
+            subprocess.run([sys.executable, "-B", "-c", probe, str(weighted_archive), str(weighted_inputs), str(workspace)], check=True)
 
 
 def test_residual_submodels_keep_distinct_fitted_chains_and_shared_prefix(tmp_path):

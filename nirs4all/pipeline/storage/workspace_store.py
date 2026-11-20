@@ -3151,7 +3151,7 @@ class WorkspaceStore:
             KeyError: If the chain does not exist.
             FileNotFoundError: If any referenced artifact file is missing.
         """
-        from nirs4all.pipeline.bundle.generator import BundleGenerator, bundle_manifest_member, json_member, model_artifact_member
+        from nirs4all.pipeline.bundle.generator import BundleGenerator, bundle_manifest_member, chain_artifact_names, json_member, model_artifact_member
         from nirs4all.pipeline.dagml.host_container import write_host_container
 
         self._validate_chain_export(chain_id)
@@ -3220,18 +3220,7 @@ class WorkspaceStore:
 
         # Bundle replay addresses fitted state by step/fold, not by its content
         # filename. Preserve that mapping using the canonical bundle names.
-        artifact_names: dict[str, str] = {}
-        for step_idx, values in shared_artifacts.items():
-            if str(step_idx).startswith("_"):
-                continue
-            aids = values if isinstance(values, list) else [values]
-            for sub_idx, aid in enumerate(aids):
-                if aid:
-                    artifact_names[f"step_{step_idx}_sub{sub_idx}"] = aid
-        for fold_id, aid in export_fold_artifacts.items():
-            if aid:
-                fold = str(fold_id).removeprefix("fold_")
-                artifact_names[f"step_{chain['model_step_idx']}_fold{fold}"] = aid
+        artifact_names = chain_artifact_names(chain["model_step_idx"], shared_artifacts, export_fold_artifacts)
 
         pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") if pipeline else None
