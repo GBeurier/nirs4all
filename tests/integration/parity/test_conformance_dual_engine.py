@@ -446,7 +446,16 @@ def _assert_stacking_semantic_contract(
     legacy_final = [row for row in legacy_rows if str(row.get("fold_id")) == "final"]
     # Preserve the historical CV cardinality oracle. The supported structured
     # refit now additionally exposes genuine final fits, qualified separately.
-    assert len(legacy_cv) == expected["legacy"]
+    if expected.get("source_layout"):
+        from ._source_local_profile import assert_source_local_stacking_profile
+
+        # 90 describes the historical spectral-concatenation bug, not the
+        # declared source-local OOF merge. Keep that provenance unchanged and
+        # qualify the corrected source_local_v160 algorithm independently.
+        assert expected["legacy"] == 90
+        assert_source_local_stacking_profile(legacy, dataset)
+    else:
+        assert len(legacy_cv) == expected["legacy"]
     assert legacy.num_predictions == len(legacy_cv) + len(legacy_final)
     assert legacy_final
     assert all(row.get("refit_context") == "stacking" for row in legacy_final)

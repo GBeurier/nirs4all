@@ -86,6 +86,17 @@ def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest
     # test_conformance_dual_engine; this is the legacy-only alarm.
     result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, engine="legacy")
     observed = _oracle.observe(result, case.task)
+    if case.name == "multi_source_per_source_models_stacking":
+        from ._source_local_profile import assert_source_local_stacking_profile
+
+        # Preserve the original file and every numeric literal as provenance
+        # of the former spectral-concatenation/omitted-refit algorithm. The
+        # corrected source_local_v160 profile has its own independent oracle.
+        assert gold["num_predictions"] == 90
+        assert observed["models"] == gold["models"]
+        assert observed["datasets"] == gold["datasets"]
+        assert_source_local_stacking_profile(result, DatasetConfigs(dataset_path(case.dataset_key), **case.dataset_kwargs))
+        return
     if "nondeterministic" in case.tags:
         # Unseeded generator cases have no stable numeric observation by
         # construction. Their seeded twin owns strict numeric parity; this
