@@ -285,6 +285,28 @@ views to the downstream learner. Their dimensions depend on the selected
 operators. The saved recommendation is reused on new observations; inference
 does not rerun the selection for every batch.
 
+## Candidate failures and applicability
+
+Selection fails closed: an unexpected candidate exception or a non-finite
+transfer or supervised-validation score raises `TransferSelectionError`. Its
+`candidate_records` and the selector's `candidate_records_` retain the completed,
+failed and non-finite outcomes collected before the failure. No automatic
+pipeline is built from that incomplete search.
+
+Successful `TransferSelectionResults.candidate_records` also lists exclusions.
+An exclusion must come from an explicitly declared `applicability_checks` entry,
+keyed by candidate display name. This Python callable runs before computation
+and returns `None` when applicable or a nonempty reason when unsupported for
+the supplied source/target arrays. Exceptions in a check are failures, never
+implicit exclusions. Arbitrary callables are Python-host configuration, not a
+portable JSON/YAML contract.
+
+The recommendation artifact and fitted host chain retain `complete` and all
+`candidate_records`. Native run manifests and exported Python-host bundle
+manifests additionally retain `transfer_preprocessing_selection`, indexed by
+captured artifact and fitted-chain path. Replay reuses the recorded selection
+without evaluating candidates again.
+
 ## Common mistakes
 
 - Calling target-adaptation rows an untouched test set after using them to choose

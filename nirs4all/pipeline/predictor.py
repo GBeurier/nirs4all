@@ -151,6 +151,7 @@ class Predictor:
             prediction_obj: Prediction dict or string identifier.
             verbose: Verbosity level.
         """
+        from nirs4all.pipeline.analysis.topology import _InvalidBranchSelectionError
         from nirs4all.pipeline.resolver import PredictionResolver
 
         resolver = PredictionResolver(
@@ -158,13 +159,19 @@ class Predictor:
             runs_dir=self.runner.workspace_path,
             store=self.runner.store,
         )
-        resolved = resolver.resolve(prediction_obj, verbose=verbose)
+        try:
+            resolved = resolver.resolve(prediction_obj, verbose=verbose)
+        except _InvalidBranchSelectionError as error:
+            raise RuntimeError(str(error)) from error
         if self._resolved is not None:
             self._resolved.close()
         self._resolved = resolved
 
         # Extract target model metadata
         target_model = {k: v for k, v in prediction_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(prediction_obj, dict) else dict(resolved.target_model) if resolved.target_model else {}
+
+        if resolved.raw_input_predictor is not None:
+            target_model = dict(resolved.target_model)
 
         if not target_model or "model_name" not in target_model:
             raise ValueError(
@@ -374,6 +381,10 @@ class Predictor:
                     config_predictions,
                 )
 
+            if self._resolved is not None and self._resolved.raw_input_predictor is not None:
+                # This single inference model already identifies its exact
+                # trained CV/refit fold; no CV loop runs during raw replay.
+                config_predictions.mutate_entries({"fold_id": (self.target_model or {}).get("fold_id")})
             run_predictions.merge_predictions(config_predictions)
 
         return self._process_prediction_results(run_predictions, all_predictions)
@@ -386,6 +397,15 @@ class Predictor:
             layout="2d",
             concat_source=True,
         )
+
+        if self._resolved is not None and self._resolved.raw_input_predictor is not None:
+            partition = (self.target_model or {}).get("partition")
+            sample_ids: np.ndarray | list[int] = dataset_obj._indexer.x_indices({"partition": partition}) if partition is not None else []
+            if len(sample_ids):
+                # Explicit dataset partitions retain their requested sample IDs;
+                # a new raw matrix still represents all rows supplied by its caller.
+                selector = selector.with_partition(partition)
+                selector["sample"] = list(sample_ids)
 
         target_branch_id = self.target_model.get("branch_id") if self.target_model else None
         target_branch_name = self.target_model.get("branch_name") if self.target_model else None
@@ -476,6 +496,9 @@ class Predictor:
             "step_idx": tm.get("step_idx"),
         }
 
+        # Captured replay already selects explicit dataset partition sample IDs.
+        # A new raw matrix has no inherited training partition and predicts all
+        # supplied rows; its result must not be filtered by the source record.
         if not is_aggregated_fold and not is_refit_fold:
             filter_kwargs["fold_id"] = target_fold_id
 

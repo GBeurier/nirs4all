@@ -33,6 +33,7 @@ Slow: each case runs twice (legacy + dag-ml). Gated by the ``slow`` marker.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any, TypedDict
 
 import numpy as np
@@ -434,9 +435,43 @@ def _assert_stacking_semantic_contract(
     dagml: Any,
     case: PipelineCase,
     expected: dict[str, Any],
+    dataset: Any,
+    tmp_path: Path,
 ) -> None:
     """Pin scientifically correct fold-local stacking instead of legacy scores."""
-    assert legacy.num_predictions == expected["legacy"]
+    from nirs4all.pipeline.bundle import BundleLoader
+
+    legacy_rows = legacy.predictions.filter_predictions(load_arrays=True)
+    legacy_cv = [row for row in legacy_rows if str(row.get("fold_id")) != "final"]
+    legacy_final = [row for row in legacy_rows if str(row.get("fold_id")) == "final"]
+    # Preserve the historical CV cardinality oracle. The supported structured
+    # refit now additionally exposes genuine final fits, qualified separately.
+    if expected.get("source_layout"):
+        from ._source_local_profile import assert_source_local_stacking_profile
+
+        # 90 describes the historical spectral-concatenation bug, not the
+        # declared source-local OOF merge. Keep that provenance unchanged and
+        # qualify the corrected source_local_v160 algorithm independently.
+        assert expected["legacy"] == 90
+        assert_source_local_stacking_profile(legacy, dataset)
+    else:
+        assert len(legacy_cv) == expected["legacy"]
+    assert legacy.num_predictions == len(legacy_cv) + len(legacy_final)
+    assert legacy_final
+    assert all(row.get("refit_context") == "stacking" for row in legacy_final)
+    assert not {row["pipeline_uid"] for row in legacy_cv} & {row["pipeline_uid"] for row in legacy_final}
+    assert not {row["model_artifact_id"] for row in legacy_cv} & {row["model_artifact_id"] for row in legacy_final}
+    raw_dataset = dataset.get_dataset_at(0)
+    for chain_id in dict.fromkeys(row["chain_id"] for row in legacy_final):
+        chain_rows = [row for row in legacy_final if row["chain_id"] == chain_id]
+        selected_final = next((row for row in chain_rows if row["partition"] == "test"), chain_rows[0])
+        selector = {"sample": selected_final["sample_indices"], "processing": [["raw"]]}
+        raw_x = raw_dataset.x(selector, layout="2d")
+        np.testing.assert_array_equal(raw_dataset._indexer.x_indices(selector), selected_final["sample_indices"])
+        archive = legacy.export(tmp_path / f"{chain_id}.n4a", source=selected_final)
+        with BundleLoader(archive) as loader:
+            np.testing.assert_allclose(np.asarray(loader.predict(raw_x)).ravel(),
+                                       np.asarray(selected_final["y_pred"]).ravel(), rtol=1e-5, atol=1e-8)
     H.assert_native_score_evidence(dagml)
     rows = dagml.predictions.filter_predictions(load_arrays=True)
 
@@ -576,7 +611,7 @@ def test_native_refusal_boundary(case: PipelineCase) -> None:
 
 
 @pytest.mark.parametrize("case", _params())
-def test_dual_engine_conformance(case: PipelineCase) -> None:
+def test_dual_engine_conformance(case: PipelineCase, tmp_path: Path) -> None:
     """Run ``case`` on both engines and assert PARITY for its disposition.
 
     The native/fallback BOUNDARY is owned by the never-xfailed
@@ -609,7 +644,7 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
 
     if case.name in STACKING_SEMANTIC_DIVERGENCE:
         _assert_stacking_semantic_contract(
-            legacy, dagml, case, STACKING_SEMANTIC_DIVERGENCE[case.name]
+            legacy, dagml, case, STACKING_SEMANTIC_DIVERGENCE[case.name], dataset, tmp_path
         )
         return
 

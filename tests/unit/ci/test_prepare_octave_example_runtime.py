@@ -175,7 +175,9 @@ def test_action_uses_the_separate_pinned_helper_without_replacing_candidate_runt
     candidate = yaml.load((root / ".github/actions/candidate-native/action.yml").read_text(), Loader=yaml.BaseLoader)
     runtime_checkout = next(step for step in candidate["runs"]["steps"]
                             if step.get("with", {}).get("repository") == "GBeurier/dag-ml")
-    assert runtime_checkout["with"]["ref"] == helper.DAG_COMMIT
+    # The historical U15 helper keeps its frozen source cohort independently.
+    assert runtime_checkout["with"]["ref"] == "d3608565a5fe27875d4b64e54035eb8b4c05b204"
+    assert runtime_checkout["with"]["ref"] != helper.DAG_HELPER_COMMIT
     assert runtime_checkout["with"]["path"] == "dag-ml-cli-src"
 
 

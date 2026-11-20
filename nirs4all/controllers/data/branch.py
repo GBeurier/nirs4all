@@ -832,6 +832,12 @@ class BranchController(OperatorController):
         initial_context = context.copy()
         initial_processing = copy.deepcopy(context.selector.processing)
 
+        if initial_context.custom.get("_fitted_input") is not None:
+            sources = dataset.x(initial_context.selector, layout="2d", concat_source=False)
+            if not isinstance(sources, list):
+                sources = [sources]
+            initial_context.custom["_fitted_source_widths"] = tuple(values.shape[1] for values in sources)
+
         # Get current processing chains for all sources
         current_processing = list(context.selector.processing) if context.selector.processing else []
         while len(current_processing) < n_sources:
@@ -844,6 +850,7 @@ class BranchController(OperatorController):
         # Execute per-source pipelines
         source_contexts: list[dict[str, Any]] = []
         all_artifacts = []
+        initial_chain = recorder.current_chain() if recorder is not None else None
 
         for src_idx, src_name in enumerate(source_names):
             source_entry, source_artifacts, updated_processing = self._execute_single_source(
@@ -855,6 +862,7 @@ class BranchController(OperatorController):
                 initial_context=initial_context,
                 context=context,
                 recorder=recorder,
+                initial_chain=initial_chain,
                 dataset=dataset,
                 runtime_context=runtime_context,
                 mode=mode,
@@ -940,6 +948,7 @@ class BranchController(OperatorController):
         initial_context: "ExecutionContext",
         context: "ExecutionContext",
         recorder: Any,
+        initial_chain: Any,
         dataset: "SpectroDataset",
         runtime_context: "RuntimeContext",
         mode: str,
@@ -957,6 +966,7 @@ class BranchController(OperatorController):
             initial_context: Snapshot of the context before any source ran.
             context: Original execution context (for branch path lookup).
             recorder: Trace recorder (may be ``None``).
+            initial_chain: Common prefix before any source sub-pipeline ran.
             dataset: Target dataset.
             runtime_context: Active runtime context.
             mode: Execution mode ("train"/"predict"/"explain").
@@ -975,6 +985,8 @@ class BranchController(OperatorController):
         # V3: Enter source context in trace recorder
         if recorder is not None:
             recorder.enter_branch(src_idx)
+            if initial_chain is not None:
+                recorder.reset_chain_to(initial_chain)
 
         # Create context with processing for only this source
         source_specific_processing = []
@@ -988,6 +1000,12 @@ class BranchController(OperatorController):
         source_context = source_context.with_processing(source_specific_processing)
         source_context.custom["_current_source_idx"] = src_idx
         source_context.custom["_current_source_name"] = src_name
+        if source_context.custom.get("_fitted_input") is not None:
+            from nirs4all.pipeline.execution.fitted import FittedNode
+
+            source_context.custom["_fitted_input"] = FittedNode("source", (source_context.custom["_fitted_input"],), {
+                "index": src_idx, "source_id": src_name, "widths": initial_context.custom["_fitted_source_widths"],
+            })
 
         # Set branch info
         parent_branch_path = context.selector.branch_path or []
@@ -1012,6 +1030,16 @@ class BranchController(OperatorController):
         for substep_idx, substep in enumerate(branch_steps):
             if runtime_context.step_runner:
                 runtime_context.substep_number = substep_idx
+                if recorder is not None:
+                    op_type, op_class = self._extract_substep_info(substep)
+                    recorder.start_branch_substep(
+                        parent_step_index=runtime_context.step_number,
+                        branch_id=src_idx,
+                        operator_type=op_type,
+                        operator_class=op_class,
+                        substep_index=substep_idx,
+                        branch_name=src_name,
+                    )
                 result = runtime_context.step_runner.execute(
                     step=substep,
                     dataset=dataset,
@@ -1020,6 +1048,8 @@ class BranchController(OperatorController):
                     loaded_binaries=source_binaries,
                     prediction_store=prediction_store
                 )
+                if recorder is not None:
+                    recorder.end_step(is_model=op_type in ("model", "meta_model"))
                 source_context = result.updated_context
                 source_artifacts.extend(result.artifacts)
 

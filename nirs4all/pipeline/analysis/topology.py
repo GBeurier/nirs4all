@@ -69,6 +69,11 @@ _SPLITTER_CLASS_FRAGMENTS = frozenset({
     "LeaveP",
 })
 
+
+class _InvalidBranchSelectionError(ValueError):
+    """A declared branch does not exist in the selected recipe."""
+
+
 @dataclass
 class ModelNodeInfo:
     """Describes a single model node found in the pipeline.
@@ -140,6 +145,100 @@ def analyze_topology(steps: list[Any]) -> PipelineTopology:
     topo = PipelineTopology()
     _walk_steps(steps, topo, branch_path=[], stacking_depth=0, pending_merge_type=None)
     return topo
+
+
+def require_legacy_raw_input_closure(
+    steps: list[Any],
+    model_step_index: int | None,
+    target: dict[str, Any],
+) -> None:
+    """Refuse dependency-sensitive legacy replay without its fitted raw closure.
+
+    A trace or a collection of sibling artifacts does not establish that
+    closure. Inspect only the selected model's active branch and prefix, so
+    ordinary base models before a prediction merge remain usable.
+    """
+    is_meta = (
+        target.get("model_classname", target.get("model_class")) == "MetaModel"
+        or (target.get("metadata") or {}).get("stacking_role") == "meta_model"
+    )
+    active = steps
+    branch_path = target.get("branch_path") or []
+    if "branch_id" in target and target["branch_id"] is None:
+        branch_path = []  # A merged model is outside the last traversed branch.
+    elif not branch_path and target.get("branch_id") is not None:
+        branch_path = [target["branch_id"]]
+    for branch_index in branch_path:
+        branch_steps = [step for step in active if isinstance(step, dict) and "branch" in step]
+        if len(branch_steps) > 1 and _prefix_uses_predictions(active):
+            # Branch indices alone do not identify which successive branch
+            # owns the selected model, so no raw-input closure is established.
+            is_meta = True
+            break
+        for index, step in enumerate(active):
+            if not isinstance(step, dict) or "branch" not in step:
+                continue
+            is_meta = is_meta or _prefix_uses_predictions(active[:index])
+            value = step["branch"]
+            if isinstance(value, dict):
+                if value.keys() & _SEPARATION_KEYWORDS:
+                    # Separation replay has its own declared routing contract.
+                    break
+                branches = [v for k, v in value.items() if not k.startswith("_") and k not in {"parallel", "n_jobs"}]
+            elif isinstance(value, list):
+                branches = value
+            else:
+                break
+            try:
+                selected = branches[int(branch_index)]
+            except (IndexError, TypeError, ValueError) as error:
+                raise _InvalidBranchSelectionError(f"Branch {branch_index!r} does not exist in the selected pipeline") from error
+            if isinstance(selected, dict) and "steps" in selected:
+                selected = selected["steps"]
+            active = selected if isinstance(selected, list) else [selected]
+            break
+    # Branch operators share their outer step index. It cannot safely trim
+    # the branch's local recipe: a branch containing a prediction merge has
+    # no unambiguous captured raw-input closure for an individual component.
+    prefix = active if branch_path else (active[:model_step_index] if model_step_index else active)
+    if model_step_index is not None:
+        source_branch = False
+        for step in steps[:model_step_index]:
+            if not isinstance(step, dict):
+                continue
+            branch = step.get("branch")
+            source_branch = source_branch or (isinstance(branch, dict) and "by_source" in branch)
+            if source_branch and (step.get("merge") == "concat" or step.get("merge") == {"sources": "concat"}):
+                raise NotImplementedError(
+                    "Cannot export or replay selected legacy source-concat model: its source-local "
+                    "raw-input dependency closure was not captured."
+                )
+    if is_meta or _prefix_uses_predictions(prefix):
+        raise NotImplementedError(
+            "Cannot export or replay selected legacy stacking meta-model: its fitted base-model "
+            "raw-input dependency closure was not captured. CV and final meta-model bundles are "
+            "unsupported without that closure; numerical training and refit predictions remain available."
+        )
+
+
+def _prefix_uses_predictions(steps: list[Any]) -> bool:
+    """Identify prediction-dependent steps at this active pipeline level."""
+    for step in steps:
+        if not isinstance(step, dict):
+            if type(step).__name__ == "MetaModel":
+                return True
+            continue
+        if "meta_model" in step or "merge_predictions" in step:
+            return True
+        model = step.get("model", step)
+        if isinstance(model, dict) and str(model.get("class", "")).rsplit(".", 1)[-1] == "MetaModel":
+            return True
+        if type(model).__name__ == "MetaModel":
+            return True
+        for keyword in _MERGE_KEYWORDS:
+            if keyword in step and _classify_merge_value(step[keyword]) in {"predictions", "mixed", "all"}:
+                return True
+    return False
 
 # ---------------------------------------------------------------------------
 # Internal helpers

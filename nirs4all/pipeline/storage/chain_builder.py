@@ -79,6 +79,8 @@ class ChainBuilder:
         """
         # Collect all non-skipped steps
         all_steps: list[dict[str, Any]] = []
+        ordered_steps: list[tuple[ExecutionStep, dict[str, Any]]] = []
+        step_positions = {id(step): index for index, step in enumerate(self._trace.steps)}
         # Collect shared artifacts with their branch context for per-model filtering
         shared_artifact_entries: list[tuple[ExecutionStep, list[str]]] = []
         model_steps: list[ExecutionStep] = []
@@ -96,6 +98,7 @@ class ChainBuilder:
                 "stateless": not bool(step.artifacts.artifact_ids),
             }
             all_steps.append(step_dict)
+            ordered_steps.append((step, step_dict))
 
             if step.branch_path:
                 branch_path = step.branch_path
@@ -121,6 +124,12 @@ class ChainBuilder:
             for fold_id, artifact_id in model_step.artifacts.fold_artifact_ids.items():
                 fold_artifacts[normalize_fold_key(fold_id)] = artifact_id
 
+            # A REFIT execution can still contain another declared splitter.
+            # Keep all physical fitted states distinct; only a single state is
+            # represented by the conventional final artifact slot.
+            if self._trace.metadata.get("refit") and len(fold_artifacts) == 1:
+                fold_artifacts = {"fold_final": next(iter(fold_artifacts.values()))}
+
             has_cv_artifacts = bool(fold_artifacts)
             if not fold_artifacts and model_step.artifacts.primary_artifact_id:
                 # "all" is a model fitted once on the training partition; it is
@@ -129,14 +138,35 @@ class ChainBuilder:
 
             # Earlier model steps are independent predictors, not transformers
             # to apply when replaying this model (PLS exposes transform too).
-            earlier_models = {step.step_index for step in model_steps if step.step_index < model_step.step_index}
-            chain_steps = [s for s in all_steps if s["step_idx"] <= model_step.step_index and s["step_idx"] not in earlier_models]
+            model_position = step_positions[id(model_step)]
+            earlier_models = {id(step) for step in model_steps if step_positions[id(step)] < model_position}
+            chain_steps = [descriptor for step, descriptor in ordered_steps
+                           if step_positions[id(step)] <= model_position and id(step) not in earlier_models
+                           and self._is_branch_compatible(step.branch_path or None, model_step.branch_path)]
 
             # Include only preprocessing already applied when this model fitted.
             shared_artifacts = self._collect_shared_artifacts(
-                [(step, ids) for step, ids in shared_artifact_entries if step.step_index <= model_step.step_index],
+                [(step, ids) for step, ids in shared_artifact_entries if step_positions[id(step)] <= model_position],
                 model_step.branch_path,
             )
+
+            # The raw-input closure is an independently persisted fitted object,
+            # linked by the exact numerical model ID, never by a model name.
+            if self._artifact_registry is not None:
+                for model_id in fold_artifacts.values():
+                    original = self._artifact_registry.resolve(model_id)
+                    if original is None:
+                        continue
+                    candidates = self._artifact_registry.get_artifacts_for_step(
+                        original.pipeline_id, original.step_index, original.branch_path,
+                    )
+                    closures = [record.artifact_id for record in candidates
+                                if record.params.get("raw_input_closure_for") == model_id]
+                    if len(closures) > 1:
+                        raise ValueError(f"Multiple raw-input closures for fitted model {model_id!r}")
+                    if closures:
+                        shared_artifacts.setdefault("_raw_input_predictor", []).extend(closures)
+                        shared_artifacts.setdefault("_raw_input_predictor_models", {})[model_id] = closures[0]
 
             chains.append({
                 "steps": chain_steps,
@@ -146,7 +176,7 @@ class ChainBuilder:
                 "fold_strategy": "per_fold" if has_cv_artifacts else "shared",
                 "fold_artifacts": fold_artifacts,
                 "shared_artifacts": shared_artifacts,
-                "branch_path": model_step.branch_path or branch_path,
+                "branch_path": model_step.branch_path or None,
                 "source_index": None,
             })
 

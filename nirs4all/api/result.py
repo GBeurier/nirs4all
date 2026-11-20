@@ -1562,6 +1562,7 @@ def _dagml_native_bundle_provenance(
         "source_stacking",
         "stacking_evaluation",
         "host_hpo",
+        "transfer_preprocessing_selection",
         "residual_replay",
     ):
         if isinstance(native_manifest.get(key), Mapping):

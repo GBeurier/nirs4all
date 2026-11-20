@@ -265,6 +265,16 @@ class BaseModelController(OperatorController, ABC):
         import joblib
         return joblib.load(filepath)
 
+    @staticmethod
+    def _get_model_features(dataset: 'SpectroDataset', context: 'ExecutionContext', layout: 'Layout') -> np.ndarray:
+        """Read the declared source of a source-local model, or the ordinary joined features."""
+        source_index = context.custom.get("_current_source_idx")
+        features = dataset.x(context.selector, layout=layout, concat_source=source_index is None)
+        if source_index is not None and isinstance(features, list):
+            features = features[source_index]
+        assert isinstance(features, np.ndarray)
+        return features
+
     def _get_xy_from_materialized_sample_partition(
         self,
         dataset: 'SpectroDataset',
@@ -297,7 +307,7 @@ class BaseModelController(OperatorController, ABC):
 
         feature_context = context.with_partition(None)
         feature_context.selector["sample"] = list(range(len(branch_sample_ids)))
-        X_all_raw = dataset.x(feature_context.selector, layout=layout)
+        X_all_raw = self._get_model_features(dataset, feature_context, layout)
         assert isinstance(X_all_raw, np.ndarray)
         X_all = X_all_raw
         X_train = X_all[train_positions]
@@ -356,7 +366,7 @@ class BaseModelController(OperatorController, ABC):
             # In prediction mode, use all available data (no partition split)
             pred_context = context.with_partition(None)
 
-            X_all_raw = dataset.x(pred_context.selector, layout=layout)
+            X_all_raw = self._get_model_features(dataset, pred_context, layout)
             assert isinstance(X_all_raw, np.ndarray)
             X_all = X_all_raw
 
@@ -402,8 +412,8 @@ class BaseModelController(OperatorController, ABC):
                 [int(sid) for sid in sample_partition.get("sample_indices", [])],
             )
 
-        X_train_raw = dataset.x(train_context.selector, layout=layout)
-        X_test_raw = dataset.x(test_context.selector, layout=layout)
+        X_train_raw = self._get_model_features(dataset, train_context, layout)
+        X_test_raw = self._get_model_features(dataset, test_context, layout)
         assert isinstance(X_train_raw, np.ndarray) and isinstance(X_test_raw, np.ndarray)
         X_train = X_train_raw
         X_test = X_test_raw
@@ -1909,6 +1919,7 @@ class BaseModelController(OperatorController, ABC):
             best_params=best_params,
             context=context
         )
+        prediction_data['branch_path'] = context.selector.branch_path or None
         if train_sample_ids is not None:
             prediction_data['partition_metadata'] = self._metadata_for_sample_ids(dataset, indices)
 
@@ -2859,10 +2870,6 @@ class BaseModelController(OperatorController, ABC):
             # Generate V3 artifact ID using chain
             artifact_id = registry.generate_id(chain_path, fold_id, pipeline_id)
 
-            trace_fold_id: int | str | None = fold_id
-            if runtime_context.phase == ExecutionPhase.REFIT and fold_id is not None:
-                trace_fold_id = runtime_context.refit_fold_id or "final"
-
             # Register artifact with V3 chain tracking
             record = registry.register(
                 obj=model,
@@ -2879,7 +2886,7 @@ class BaseModelController(OperatorController, ABC):
             runtime_context.record_step_artifact(
                 artifact_id=artifact_id,
                 is_primary=(fold_id is None),  # Primary if not fold-specific
-                fold_id=trace_fold_id,
+                fold_id=fold_id,
                 chain_path=chain_path,
                 branch_path=bp,
                 metadata={"class_name": model.__class__.__name__, "custom_name": custom_name}

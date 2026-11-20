@@ -9,6 +9,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.models.residual import ResidualModel
+from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 from ._datasets import dataset_path
 
@@ -55,7 +56,11 @@ def test_legacy_residual_multi_target_flattens_residual_rows(tmp_path):
 
 @pytest.mark.parity
 def test_legacy_nested_residual_base_has_no_finite_outer_predictions(tmp_path):
-    """A successful run can select an inner Ridge while its outer residual is empty."""
+    """Invalid legacy nesting fails closed instead of returning an inner winner.
+
+    Historically this witness returned empty outer predictions and NaN scores
+    while selecting an inner Ridge. That was not a valid completed outer run.
+    """
     rng = np.random.default_rng(917)
     features = rng.normal(size=(28, 7))
     targets = 2 * features[:, 0] - features[:, 1] + 0.1 * rng.normal(size=28)
@@ -66,18 +71,19 @@ def test_legacy_nested_residual_base_has_no_finite_outer_predictions(tmp_path):
 
     inner = ResidualModel(base=Ridge(alpha=1), learner=Ridge(alpha=1), gate=False)
     outer = ResidualModel(base=inner, learner=Ridge(alpha=1), gate=False)
-    result = nirs4all.run(
-        [KFold(2, shuffle=True, random_state=1), {"model": outer}],
-        dataset, engine="legacy", refit=True,
-        workspace_path=tmp_path / "nested_residual", save_artifacts=False,
-        save_charts=False, verbose=0,
-    )
-    try:
-        outer_rows = result.predictions.filter_predictions(model_name=outer.name, load_arrays=True)
-        assert {row["partition"] for row in outer_rows} == {"val", "test"}
-        assert all(row["fold_id"] == "final" for row in outer_rows)
-        assert all(np.asarray(row["y_pred"]).size == 0 for row in outer_rows)
-        assert any(np.isnan(row["val_score"]) for row in outer_rows)
-        assert result.cv_best.model_name == "Ridge"
-    finally:
-        result.close()
+    workspace = tmp_path / "nested_residual"
+    with pytest.raises(ValueError, match=(
+        r"Cannot persist fitted prediction 'Ridge': artifact '.+' "
+        r"must identify exactly one chain at its producing step/branch; found 2\."
+    )) as failure:
+        nirs4all.run(
+            [KFold(2, shuffle=True, random_state=1), {"model": outer}],
+            dataset, engine="legacy", refit=True,
+            workspace_path=workspace, save_artifacts=False,
+            save_charts=False, verbose=0,
+        )
+    with WorkspaceStore(workspace, read_only=True) as store:
+        assert store.list_runs(status="completed").is_empty()
+        failed = store.list_runs(status="failed").to_dicts()
+        assert len(failed) == 1
+        assert failed[0]["error"] == str(failure.value)

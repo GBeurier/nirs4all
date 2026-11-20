@@ -161,9 +161,20 @@ class StepParser:
             # If no priority keyword found, pick the first candidate
             key = matched_key if matched_key is not None else candidates[0]
 
-            operator = self._deserialize_operator(
-                step[key], strict_imports=key in self.WORKFLOW_KEYWORDS
-            )
+            try:
+                operator = self._deserialize_operator(
+                    step[key], strict_imports=key in self.WORKFLOW_KEYWORDS
+                )
+            except Exception as error:
+                if key != "auto_transfer_preproc":
+                    raise
+                from nirs4all.analysis import TransferCandidateRecord, TransferSelectionError
+
+                record = TransferCandidateRecord(
+                    "preprocessing_spec", "selection", "failed", stage="specification",
+                    exception_type=type(error).__name__, message=str(error),
+                )
+                raise TransferSelectionError("Transfer preprocessing specification could not be constructed", [record]) from error
             return ParsedStep(
                 operator=operator,
                 keyword=key,

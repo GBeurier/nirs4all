@@ -234,6 +234,7 @@ class ResolvedPrediction:
         pipeline_uid: Pipeline unique identifier
         run_dir: Path to run directory
         manifest: Full manifest dictionary (for metadata access)
+        chain: Exact stored chain, when resolved from a WorkspaceStore.
     """
 
     source_type: SourceType = SourceType.UNKNOWN
@@ -248,7 +249,9 @@ class ResolvedPrediction:
     pipeline_uid: str = ""
     run_dir: Path | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
+    chain: dict[str, Any] | None = None
 
+    raw_input_predictor: Any = None  # Actual validated FINAL closure, never a metadata claim
     bundle_loader: BundleLoader | None = None
 
     def close(self) -> None:
@@ -359,10 +362,13 @@ class PredictionResolver:
             ValueError: If source type cannot be determined or resolved
             FileNotFoundError: If referenced files/directories don't exist
         """
+        from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
         from nirs4all.pipeline.bundle import BundleLoader
 
         if isinstance(source, BundleLoader):
-            return source.to_resolved_prediction()
+            resolved = source.to_resolved_prediction()
+            require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, resolved.target_model)
+            return resolved
 
         mode = self.resolution_mode if resolution_mode is None else self._validate_resolution_mode(resolution_mode)
         source_type = self._detect_source_type(source)
@@ -373,7 +379,7 @@ class PredictionResolver:
         if source_type == SourceType.PREDICTION:
             # Type narrowing: we know source is dict at this point
             assert isinstance(source, dict)
-            return self._resolve_from_prediction(source, verbose, mode)
+            resolved = self._resolve_from_prediction(source, verbose, mode)
         elif source_type == SourceType.PREDICTION_ID:
             # String prediction ID — look up the full prediction dict from the store
             assert isinstance(source, str) and self.store is not None
@@ -381,29 +387,29 @@ class PredictionResolver:
             # Map store column names to expected prediction dict keys
             if "pipeline_id" in prediction_dict and "pipeline_uid" not in prediction_dict:
                 prediction_dict["pipeline_uid"] = prediction_dict["pipeline_id"]
-            return self._resolve_from_prediction(prediction_dict, verbose, mode)
+            resolved = self._resolve_from_prediction(prediction_dict, verbose, mode)
         elif source_type == SourceType.FOLDER:
             # Type narrowing: we know source is str or Path at this point
             assert isinstance(source, (str, Path))
-            return self._resolve_from_folder(source, verbose)
+            resolved = self._resolve_from_folder(source, verbose)
         elif source_type == SourceType.RUN:
-            return self._resolve_from_run(source, verbose)
+            resolved = self._resolve_from_run(source, verbose)
         elif source_type == SourceType.ARTIFACT_ID:
             # Type narrowing: artifact_id is always a string
             assert isinstance(source, str)
-            return self._resolve_from_artifact_id(source, verbose)
+            resolved = self._resolve_from_artifact_id(source, verbose)
         elif source_type == SourceType.BUNDLE:
             # Type narrowing: bundle path is str or Path
             assert isinstance(source, (str, Path))
-            return self._resolve_from_bundle(source, verbose)
+            resolved = self._resolve_from_bundle(source, verbose)
         elif source_type == SourceType.TRACE_ID:
             # Type narrowing: trace_id is always a string
             assert isinstance(source, str)
-            return self._resolve_from_trace_id(source, verbose)
+            resolved = self._resolve_from_trace_id(source, verbose)
         elif source_type == SourceType.MODEL_FILE:
             # Type narrowing: model file path is str or Path
             assert isinstance(source, (str, Path))
-            return self._resolve_from_model_file(source, verbose)
+            resolved = self._resolve_from_model_file(source, verbose)
         else:
             raise ValueError(
                 f"Cannot resolve prediction source: {source}\n"
@@ -411,6 +417,10 @@ class PredictionResolver:
                 f"Supported types: prediction dict, folder path, Run object, "
                 f"artifact_id string, bundle path, trace_id string, model file"
             )
+
+        if resolved.raw_input_predictor is None:
+            require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, resolved.target_model)
+        return resolved
 
     def _detect_source_type(self, source: Any) -> SourceType:
         """Detect the type of prediction source.
@@ -1246,6 +1256,32 @@ class PredictionResolver:
         result = ResolvedPrediction(source_type=SourceType.PREDICTION)
         result.pipeline_uid = pipeline_uid
         result.model_step_index = chain["model_step_idx"]
+        result.chain = chain
+        assert self.store is not None and chain_id is not None
+        if not (chain.get("shared_artifacts") or {}).get("_raw_input_predictor"):
+            from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+            expanded = pipeline.get("expanded_config") or []
+            steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+            require_legacy_raw_input_closure(steps, chain["model_step_idx"], prediction)
+        predictor = (self.store.get_raw_input_predictor(
+                         chain_id, model_artifact_id=prediction.get("model_artifact_id"), fold_id=prediction.get("fold_id"),
+                     )
+                     if (chain.get("shared_artifacts") or {}).get("_raw_input_predictor") else None)
+        if predictor is not None:
+            selected_id = prediction.get("model_artifact_id")
+            if selected_id and selected_id != predictor.root.artifact_id:
+                raise ValueError(f"Selected fitted artifact {selected_id!r} does not match the FINAL raw-input closure")
+            result.raw_input_predictor = predictor
+            result.train_pipeline = predictor.training_steps
+            result.minimal_pipeline = [{"model": predictor, "name": prediction.get("model_name", "FittedPredictor")}]
+            model_id = predictor.root.artifact_id
+            result.artifact_provider = MapArtifactProvider({1: [(model_id, predictor)]})
+            result.model_step_index = 1
+            result.fold_strategy = FoldStrategy.SINGLE
+            result.target_model = {key: value for key, value in prediction.items() if key not in ("y_pred", "y_true", "X")}
+            result.target_model.update(step_idx=1, branch_id=None, branch_name=None, branch_path=[])
+            return result
 
         # Build artifact map from the target chain, plus source model chains
         # (chains with a lower model_step_idx) needed for meta-model stacking.
@@ -1396,6 +1432,8 @@ class PredictionResolver:
             The trimmed (or full) list of expanded-config steps.
         """
         expanded_config = pipeline.get("expanded_config", [])
+        if isinstance(expanded_config, dict) and "steps" in expanded_config:
+            expanded_config = expanded_config["steps"]
         if not isinstance(expanded_config, list):
             expanded_config = [expanded_config]
         if model_step_idx and model_step_idx <= len(expanded_config):

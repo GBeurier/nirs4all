@@ -12,17 +12,17 @@ into a feature matrix, train the meta-model on that matrix, evaluate on
 the test set (if available), and persist the result with
 ``fold_id="final"`` and ``refit_context="stacking"``.
 
-This module also handles *mixed merge* pipelines (Task 3.4) where some
-branches contribute features and others contribute predictions, as well
-as GPU-aware serialization (Task 3.5) to avoid OOM when multiple GPU
-models are refit concurrently.
+Simple stacks use the two-step strategy. Mixed and selected merges replay the
+complete declared recipe through the existing executor, with model ranking
+frozen to the original CV validation evidence. GPU-aware serialization avoids
+OOM when multiple GPU models are refit concurrently.
 """
 
 from __future__ import annotations
 
 import contextlib
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -30,6 +30,7 @@ import numpy as np
 from nirs4all.core.logging import get_logger
 from nirs4all.core.metrics import infer_ascending as _infer_ascending_for_metric
 from nirs4all.pipeline.analysis.topology import PipelineTopology
+from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
 from nirs4all.pipeline.execution.refit.executor import (
@@ -258,8 +259,9 @@ def _extract_model_from_steps(steps: list[Any]) -> Any:
     for step in steps:
         if isinstance(step, dict) and "model" in step:
             return step["model"]
-        if not isinstance(step, dict) and hasattr(step, "fit") and hasattr(step, "predict") and not _step_is_splitter(step):
-            return step
+        component = deserialize_component(step) if isinstance(step, str) or (isinstance(step, dict) and "class" in step) else step
+        if not isinstance(component, dict) and hasattr(component, "fit") and hasattr(component, "predict") and not _step_is_splitter(component):
+            return component
     return None
 
 def _extract_preprocessing_from_branch(branch_steps: list[Any]) -> list[Any]:
@@ -278,7 +280,8 @@ def _extract_preprocessing_from_branch(branch_steps: list[Any]) -> list[Any]:
     for step in branch_steps:
         if isinstance(step, dict) and "model" in step:
             continue
-        if not isinstance(step, dict) and hasattr(step, "fit") and hasattr(step, "predict") and not _step_is_splitter(step):
+        component = deserialize_component(step) if isinstance(step, str) or (isinstance(step, dict) and "class" in step) else step
+        if not isinstance(component, dict) and hasattr(component, "fit") and hasattr(component, "predict") and not _step_is_splitter(component):
             continue
         result.append(step)
     return result
@@ -457,13 +460,17 @@ class _StackingPrep:
 
     refit_dataset: Any
     branch_value: list[Any]
+    branch_names: list[str]
     merge_step: dict[str, Any] | None
     pre_branch_steps: list[Any]
     post_merge_steps: list[Any]
     meta_model_config: Any
+    meta_model_step: dict[str, Any] | None
+    structured_merge: bool
     prev_refit_fold_id: Any
     prev_refit_context_name: Any
     refit_pipeline_name: str
+    fitted_branch_nodes: dict[int, Any] = field(default_factory=dict)
 
 
 def _prepare_stacking_refit(
@@ -513,10 +520,45 @@ def _prepare_stacking_refit(
     branch_value = branch_step.get("branch", [])
     merge_step = _find_merge_step(steps, branch_idx)
 
-    if not isinstance(branch_value, list):
-        logger.warning("Stacking refit expects duplication branches (list). Skipping.")
-        return None
+    from nirs4all.controllers.data.branch import BranchController
+    from nirs4all.pipeline.steps.parser import StepParser
 
+    controller = BranchController()
+    source_branches = isinstance(branch_value, dict) and "by_source" in branch_value
+    if source_branches:
+        _, source_names, source_steps = controller._parse_by_source_steps(branch_value.get("steps", {}), refit_dataset)
+        branches = [{"name": name, "steps": source_steps.get(name, [])} for name in source_names]
+    elif controller._detect_branch_mode(branch_value) != "duplication":
+        raise NotImplementedError("Stacking refit requires duplication branches; separation refit uses its declared routing contract.")
+    else:
+        branches = controller._parse_branch_definitions(StepParser().parse(branch_step))
+    branch_value = [branch["steps"] for branch in branches]
+    branch_names = [branch["name"] for branch in branches]
+
+    # Simple stacks retain their established two-step refit. Other merge
+    # contracts replay the complete recipe, preserving all feature paths and
+    # selected prediction columns through the existing controllers.
+    merge_value = merge_step.get("merge") if merge_step else None
+    if isinstance(merge_value, dict):
+        refs = merge_value.get("predictions")
+        supported_refs = refs == "all" or refs == list(range(len(branches)))
+        supported = (
+            supported_refs
+            and set(merge_value) <= {"predictions", "include_original"}
+            and isinstance(merge_value.get("include_original", False), bool)
+        )
+        if supported:
+            merge_value["predictions"] = list(range(len(branches)))
+    else:
+        supported = merge_value == "predictions"
+    supported = supported and not source_branches and all(
+        sum(_extract_model_from_steps([step]) is not None for step in (branch if isinstance(branch, list) else [branch])) <= 1
+        for branch in branch_value
+    )
+    merge_index = next((index for index, step in enumerate(steps) if step is merge_step), branch_idx)
+    supported = supported and not any(
+        _extract_model_from_steps([step]) is not None for step in steps[branch_idx + 1:merge_index]
+    )
     # Extract structural components
     pre_branch_steps = _extract_pre_branch_steps(steps, branch_idx)
     post_merge_steps = _extract_post_merge_steps(steps, branch_idx)
@@ -539,10 +581,13 @@ def _prepare_stacking_refit(
     return _StackingPrep(
         refit_dataset=refit_dataset,
         branch_value=branch_value,
+        branch_names=branch_names,
         merge_step=merge_step,
         pre_branch_steps=pre_branch_steps,
         post_merge_steps=post_merge_steps,
         meta_model_config=meta_model_config,
+        meta_model_step=next((copy.deepcopy(step) for step in post_merge_steps if isinstance(step, dict) and "model" in step), None),
+        structured_merge=not supported,
         prev_refit_fold_id=prev_refit_fold_id,
         prev_refit_context_name=prev_refit_context_name,
         refit_pipeline_name=refit_pipeline_name,
@@ -635,6 +680,8 @@ def _refit_nested_stacking_branch(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
+        capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
+        fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
     try:
@@ -651,6 +698,9 @@ def _refit_nested_stacking_branch(
             _current_depth=current_depth + 1,
         )
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         logger.error(
             f"Nested stacking refit failed for "
             f"branch {branch_i}: {e}"
@@ -676,6 +726,10 @@ def _refit_nested_stacking_branch(
             base_features_list.append(in_sample)
         else:
             base_predictions_list.append(in_sample)
+        if artifact_registry is not None:
+            selected = next(row for row in nested_predictions.iter_entries()
+                            if row.get("partition") == "train" and (row.get("metadata") or {}).get("stacking_role") == "meta_model")
+            prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
 
     if nested_predictions.num_predictions > 0:
         prediction_store.merge_predictions(
@@ -742,11 +796,14 @@ def _refit_base_branch(
 
     # Add the model step back
     if model_config is not None:
-        sub_steps.append({"model": copy.deepcopy(model_config)})
+        model_step = next((step for step in branch_steps if isinstance(step, dict) and "model" in step), {"model": model_config})
+        sub_steps.append(copy.deepcopy(model_step))
 
     # Execute the sub-pipeline
     branch_predictions = Predictions()
-    branch_context = executor.initialize_context(copy.deepcopy(prep.refit_dataset))
+    branch_context = executor.initialize_context(copy.deepcopy(prep.refit_dataset)).with_branch(
+        branch_i, prep.branch_names[branch_i],
+    )
 
     branch_runtime = RuntimeContext(
         store=runtime_context.store,
@@ -758,6 +815,8 @@ def _refit_base_branch(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
+        capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
+        fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
     try:
@@ -771,11 +830,15 @@ def _refit_base_branch(
             generator_choices=refit_config.generator_choices,
         )
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         logger.error(f"Stacking refit: base model branch {branch_i} failed: {e}")
         return _ABORT_STACKING_REFIT
 
     # Relabel branch predictions
     _relabel_stacking_predictions(branch_predictions, branch_i)
+    branch_predictions.mutate_entries({"branch_id": branch_i, "branch_name": prep.branch_names[branch_i]})
 
     # Collect in-sample predictions as meta-features
     in_sample_preds = _extract_in_sample_predictions(branch_predictions)
@@ -784,6 +847,9 @@ def _refit_base_branch(
             base_features_list.append(in_sample_preds)
         else:
             base_predictions_list.append(in_sample_preds)
+        if artifact_registry is not None:
+            selected = next(row for row in branch_predictions.iter_entries() if row.get("partition") == "train")
+            prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
 
     # Merge branch predictions into the main store
     if branch_predictions.num_predictions > 0:
@@ -832,7 +898,7 @@ def _refit_stacking_base_models(
 
         logger.info(
             f"Stacking refit: branch {branch_i} "
-            f"(type={branch_type}, gpu={_is_gpu_model(model_config) if model_config else False})"
+            f"(type={branch_type}, gpu={_is_gpu_model(model_config) if model_config is not None else False})"
         )
 
         # Task 4.1: Check if this branch contains nested stacking
@@ -918,6 +984,36 @@ def _train_stacking_meta_model(
 
     # Build meta-feature matrix (Task 3.4: combine features + predictions)
     all_meta_features = base_predictions_list + base_features_list
+    fitted_nodes = [prep.fitted_branch_nodes[index] for index in sorted(prep.fitted_branch_nodes)]
+    merge_config = prep.merge_step.get("merge") if prep.merge_step else None
+    if isinstance(merge_config, dict) and merge_config.get("include_original", False):
+        # Match CV: originals are the train-only features at the branch entry,
+        # after fitting the declared prefix on all training rows. They precede
+        # every branch prediction, not the other way around.
+        original_dataset = copy.deepcopy(prep.refit_dataset)
+        original_runtime = RuntimeContext(
+            store=runtime_context.store,
+            artifact_registry=artifact_registry,
+            step_runner=executor.step_runner,
+            run_id=runtime_context.run_id,
+            phase=ExecutionPhase.REFIT,
+            refit_fold_id="final",
+            refit_context_name=REFIT_CONTEXT_STACKING,
+            random_state=runtime_context.random_state,
+            capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
+            fitted_training_steps=serialize_component(refit_config.expanded_steps),
+        )
+        executor.execute(
+            steps=_replace_splitter(copy.deepcopy(prep.pre_branch_steps), original_dataset),
+            config_name=f"{prep.refit_pipeline_name}_original_features",
+            dataset=original_dataset,
+            context=executor.initialize_context(original_dataset),
+            runtime_context=original_runtime,
+            prediction_store=Predictions(),
+            generator_choices=refit_config.generator_choices,
+        )
+        all_meta_features.insert(0, np.asarray(original_dataset.x({"partition": "train"}, layout="2d")))
+        fitted_nodes.insert(0, original_runtime.fitted_feature_output)
     if not all_meta_features:
         logger.warning("No base model predictions collected. Cannot train meta-model.")
         result.success = False
@@ -933,7 +1029,7 @@ def _train_stacking_meta_model(
 
     # Add the meta-model
     if prep.meta_model_config is not None:
-        meta_steps.append({"model": copy.deepcopy(prep.meta_model_config)})
+        meta_steps.append(copy.deepcopy(prep.meta_model_step or {"model": prep.meta_model_config}))
     else:
         logger.warning("No meta-model found in post-merge steps.")
         result.success = False
@@ -945,6 +1041,10 @@ def _train_stacking_meta_model(
     # Create a synthetic dataset with meta-features
     meta_dataset = _create_meta_dataset(meta_X, prep.refit_dataset)
     meta_context = executor.initialize_context(meta_dataset)
+    from nirs4all.pipeline.execution.fitted import FittedNode
+
+    if artifact_registry is not None:
+        meta_context.custom["_fitted_input"] = FittedNode("concat", tuple(fitted_nodes), meta_dataset.x(meta_context.selector, layout="2d").dtype)
 
     meta_runtime = RuntimeContext(
         store=runtime_context.store,
@@ -956,6 +1056,8 @@ def _train_stacking_meta_model(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
+        capture_fitted_predictor=artifact_registry is not None, fitted_predictors=runtime_context.fitted_predictors,
+        fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
     try:
@@ -992,6 +1094,76 @@ def _train_stacking_meta_model(
     return None
 
 
+def _execute_structured_stacking_refit(
+    prep: _StackingPrep,
+    refit_config: RefitConfig,
+    runtime_context: RuntimeContext,
+    artifact_registry: Any,
+    executor: Any,
+    prediction_store: Any,
+) -> RefitResult:
+    """Replay the complete mixed/selected recipe with frozen CV ranking evidence.
+
+    The normal executor preserves branch feature paths, all model steps and
+    MetaModel controllers. Its reconstructor already uses identity-aligned
+    full-training predictions in REFIT, instead of CV validation predictions.
+    Selection still reads only the original variant's validation evidence.
+    """
+    from nirs4all.data.predictions import Predictions
+
+    if not refit_config.pipeline_id:
+        raise ValueError("Structured stacking refit requires the original CV pipeline identity for model selection.")
+    refit_dataset = prep.refit_dataset
+    steps = copy.deepcopy(refit_config.expanded_steps)
+    _inject_best_params(steps, refit_config.best_params)
+    steps = _replace_splitter(steps, refit_dataset)
+    predictions = Predictions()
+    previous_training = runtime_context.fitted_training_steps
+    runtime_context.fitted_training_steps = serialize_component(refit_config.expanded_steps)
+    previous_capture = runtime_context.capture_fitted_predictor
+    runtime_context.capture_fitted_predictor = artifact_registry is not None
+    previous_selection = runtime_context.refit_selection_predictions
+    previous_pipeline = runtime_context.refit_selection_pipeline_id
+    runtime_context.refit_selection_predictions = prediction_store
+    runtime_context.refit_selection_pipeline_id = refit_config.pipeline_id
+    try:
+        executor.execute(
+            steps=steps,
+            config_name=prep.refit_pipeline_name,
+            dataset=refit_dataset,
+            context=executor.initialize_context(refit_dataset),
+            runtime_context=runtime_context,
+            prediction_store=predictions,
+            generator_choices=refit_config.generator_choices,
+        )
+        merge_index = next(index + 1 for index, step in enumerate(steps) if isinstance(step, dict) and "merge" in step)
+        meta_entries = [entry for entry in predictions.iter_entries()
+                        if entry.get("branch_id") is None and entry.get("step_idx", 0) > merge_index]
+        if not meta_entries:
+            raise ValueError("Structured stacking refit did not produce the declared merged model.")
+        for entry in predictions.iter_entries():
+            metadata = entry.get("metadata") or {}
+            metadata["stacking_role"] = "meta_model" if entry.get("branch_id") is None and entry.get("step_idx", 0) > merge_index else "base_model"
+            entry["metadata"] = metadata
+        predictions.mutate_entries({"fold_id": "final", "refit_context": REFIT_CONTEXT_STACKING})
+        prediction_store.merge_predictions(predictions)
+        meta_test = next((entry for entry in meta_entries if entry.get("partition") == "test"), None)
+        logger.success("Structured stacking refit pass completed successfully")
+        return RefitResult(
+            success=True, refit_context=REFIT_CONTEXT_STACKING, metric=refit_config.metric,
+            predictions_count=predictions.num_predictions,
+            test_score=meta_test.get("test_score") if meta_test else None,
+        )
+    finally:
+        runtime_context.fitted_training_steps = previous_training
+        runtime_context.capture_fitted_predictor = previous_capture
+        runtime_context.refit_selection_predictions = previous_selection
+        runtime_context.refit_selection_pipeline_id = previous_pipeline
+        runtime_context.phase = ExecutionPhase.CV
+        runtime_context.refit_fold_id = prep.prev_refit_fold_id
+        runtime_context.refit_context_name = prep.prev_refit_context_name
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -1019,9 +1191,8 @@ def execute_stacking_refit(
     train the meta-model, and persist with ``fold_id="final"`` and
     ``refit_context="stacking"``.
 
-    For mixed merge pipelines (Task 3.4), feature branches use simple
-    refit (transform only), while prediction branches use the full
-    stacking refit flow.
+    Selected, reordered, filtered, and mixed feature/prediction merges use
+    the complete recipe executor and retain the original CV ranking evidence.
 
     GPU-backed models (Task 3.5) are detected and refit sequentially
     with memory cleanup between each, while CPU models can be refit
@@ -1058,6 +1229,11 @@ def execute_stacking_refit(
     if prep is None:
         result.success = False
         return result
+
+    if prep.structured_merge:
+        return _execute_structured_stacking_refit(
+            prep, refit_config, runtime_context, artifact_registry, executor, prediction_store,
+        )
 
     logger.info("Starting stacking refit pass")
 
@@ -1104,6 +1280,9 @@ def execute_stacking_refit(
             return result
 
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         logger.error(f"Stacking refit failed: {e}")
         result.success = False
     finally:

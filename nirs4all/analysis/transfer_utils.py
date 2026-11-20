@@ -343,12 +343,8 @@ def generate_top_k_stacked_pipelines(
     for depth in range(2, max_depth + 1):  # Start at depth 2 (depth 1 already evaluated)
         for combo in permutations(top_k_names, depth):
             name = ">".join(combo)
-            try:
-                transforms = [preprocessings[n] for n in combo]
-                pipelines.append((name, list(combo), transforms))
-            except KeyError:
-                # Skip if any transform not found
-                continue
+            transforms = [preprocessings[n] for n in combo]
+            pipelines.append((name, list(combo), transforms))
 
     return pipelines
 

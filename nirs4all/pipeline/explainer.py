@@ -327,6 +327,9 @@ class Explainer:
         # Extract target model metadata
         target_model = {k: v for k, v in selection_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(selection_obj, dict) else dict(resolved.target_model) if resolved.target_model else {}
 
+        if resolved.raw_input_predictor is not None:
+            target_model = dict(resolved.target_model)
+
         # Bundle/store sources expose the model step on the resolved prediction
         # but may not carry it inside target_model. Surface it so the model
         # controller can identify which step to capture for SHAP.

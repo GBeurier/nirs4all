@@ -112,6 +112,7 @@ from nirs4all.operators.data.merge import (
     SourceMergeStrategy,
     StackingFitContract,
 )
+from nirs4all.pipeline.config.context import ExecutionPhase
 from nirs4all.pipeline.execution.result import StepOutput
 
 if TYPE_CHECKING:
@@ -630,6 +631,11 @@ class MergeConfigParser:
         Returns:
             MergeConfig for the specified configuration.
         """
+        if "use_proba" in config_dict:
+            raise ValueError(
+                "merge.use_proba is not a pipeline option; declare predictions={branches: ..., proba: true} "
+                "or proba in each branch prediction configuration"
+            )
         config = MergeConfig()
 
         # Phase 5: Check for source merge configuration
@@ -1108,6 +1114,7 @@ class MergeController(OperatorController):
 
         if config.collect_predictions:
             validate_scalar_prediction_targets(dataset)
+        context.custom["_runtime_context"] = runtime_context
 
         # Phase 5: Handle source merge within merge keyword
         # {"merge": {"sources": "concat"|"stack"|"dict"}}
@@ -1129,7 +1136,7 @@ class MergeController(OperatorController):
         in_source_branch_mode = context.custom.get("in_source_branch_mode", False)
         source_branch_contexts = context.custom.get("source_branch_contexts", [])
 
-        if in_source_branch_mode:
+        if in_source_branch_mode and not config.collect_predictions:
             return self._execute_source_branch_merge(
                 step_info=step_info,
                 dataset=dataset,
@@ -1345,6 +1352,10 @@ class MergeController(OperatorController):
                 merge_info["prediction_models_used"] = pred_info.get("models_used", [])
                 merge_info["prediction_branches_used"] = pred_info.get("branches_used", [])
                 merge_info["oof_reconstruction"] = pred_info.get("oof_reconstruction", True)
+                merge_info["prediction_selection"] = pred_info.get("selection_info", [])
+                if pred_info.get("refit_reconstruction"):
+                    merge_info["refit_reconstruction"] = True
+                    merge_info["selection_source_pipeline_id"] = pred_info["selection_source_pipeline_id"]
                 logger.info(
                     f"  Collected predictions: shape={predictions_array.shape}, "
                     f"models={pred_info.get('models_used', [])}"
@@ -1584,6 +1595,7 @@ class MergeController(OperatorController):
         merged_parts = []
         source_shapes = []
         source_names = []
+        source_indices = []
 
         # When output_as="sources", preserve the preprocessing dimension (3D layout)
         # Otherwise flatten to 2D for horizontal concatenation
@@ -1612,6 +1624,7 @@ class MergeController(OperatorController):
 
                 merged_parts.append(features)
                 source_shapes.append(features.shape)
+                source_indices.append(src_idx)
 
                 # Get source name from contexts or generate default
                 name = source_contexts[src_idx].get("source_name", f"source_{src_idx}") if src_idx < len(source_contexts) else f"source_{src_idx}"
@@ -1673,27 +1686,17 @@ class MergeController(OperatorController):
                 processing_name=processing_name,
                 source=0
             )
+            if dataset.features_sources() > 1:
+                dataset.keep_sources(0)
             logger.info(f"  Concatenated to shape {merged_features.shape}")
 
         self._attach_relation_meta_feature_plan(dataset, config.meta_feature_plan)
 
-        # Exit source branch mode
-        result_context = context.copy()
-        result_context.custom["in_source_branch_mode"] = False
-        result_context.custom["source_branch_contexts"] = []
-
-        # Update context processing to match the new dataset processing names
-        # This is critical for subsequent transformers to correctly identify which
-        # processings to operate on
-        n_sources = dataset.features_sources()
-        new_processing = []
-        for sd_idx in range(n_sources):
-            src_processings = list(dataset.features_processings(sd_idx))
-            new_processing.append(src_processings)
-        result_context = result_context.with_processing(new_processing)
+        result_context = self._finalize_branch_merge_context(context, dataset)
 
         metadata = {
             "source_branch_merge": True,
+            "feature_branches_used": source_indices,
             "output_as": config.output_as,
             "merge_config": config.to_dict(),
             **merge_info,
@@ -3740,10 +3743,14 @@ class MergeController(OperatorController):
         # Concatenate all branch predictions horizontally
         predictions = np.concatenate(all_branch_predictions, axis=1)
 
+        runtime = context.custom.get("_runtime_context")
+        is_refit = runtime is not None and runtime.phase == ExecutionPhase.REFIT
         info = {
             "models_used": all_models_used,
             "branches_used": branches_used,
-            "oof_reconstruction": not config.unsafe,
+            "oof_reconstruction": not config.unsafe and not is_refit,
+            "refit_reconstruction": is_refit,
+            "selection_source_pipeline_id": runtime.refit_selection_pipeline_id if is_refit and runtime is not None else None,
             "n_features": predictions.shape[1],
             "selection_info": selection_info,
         }
@@ -3839,6 +3846,11 @@ class MergeController(OperatorController):
             f"using strategy '{branch_config.get_selection_strategy().value}'"
         )
 
+        # The per-branch declaration selects the actual reconstructed value
+        # block; it must not merely label aggregation of hard predictions.
+        from dataclasses import replace
+
+        prediction_config = replace(config, use_proba=config.use_proba or branch_config.proba)
         # Collect OOF predictions for selected models
         branch_predictions = self._collect_branch_predictions(
             dataset=dataset,
@@ -3846,7 +3858,7 @@ class MergeController(OperatorController):
             prediction_store=prediction_store,
             model_names=selected_models,
             branch_id=branch_id,
-            config=config,
+            config=prediction_config,
             mode=mode,
         )
 
@@ -3856,6 +3868,7 @@ class MergeController(OperatorController):
 
         # Phase 5: Apply aggregation strategy
         aggregation_strategy = branch_config.get_aggregation_strategy()
+        model_scores = None
 
         if aggregation_strategy != AggregationStrategy.SEPARATE:
             # Get model scores for weighted aggregation
@@ -3873,7 +3886,7 @@ class MergeController(OperatorController):
                 predictions=branch_predictions,
                 strategy=aggregation_strategy,
                 model_scores=model_scores,
-                proba=branch_config.proba,
+                proba=prediction_config.use_proba,
                 metric=branch_config.weight_metric or branch_config.metric,
             )
 
@@ -3897,6 +3910,10 @@ class MergeController(OperatorController):
             "selected_models": selected_models,
             "selection_strategy": branch_config.get_selection_strategy().value,
             "aggregation_strategy": aggregation_strategy.value,
+            "model_scores": model_scores,
+            "metric": branch_config.weight_metric or branch_config.metric,
+            "proba": prediction_config.use_proba,
+            "use_proba": prediction_config.use_proba and dataset.is_classification and not prediction_config.unsafe,
         }
 
         return branch_prediction, actual_idx, selected_models, selection_entry
@@ -4101,7 +4118,8 @@ class MergeController(OperatorController):
 
                 # Combine train (OOF) and test predictions
                 n_total = dataset.num_samples
-                combined = np.full(n_total, np.nan)
+                n_columns = result.X_train_meta.shape[1] if result.X_train_meta.ndim > 1 else 1
+                combined = np.full(n_total, np.nan) if n_columns == 1 else np.full((n_total, n_columns), np.nan)
 
                 # Get train and test sample indices
                 # IMPORTANT: Use include_augmented=False for train because OOF predictions
@@ -4122,14 +4140,14 @@ class MergeController(OperatorController):
 
                 # Fill train (OOF) predictions
                 if result.X_train_meta.size > 0:
-                    train_preds = result.X_train_meta[:, 0] if result.X_train_meta.ndim > 1 else result.X_train_meta
+                    train_preds = result.X_train_meta[:, 0] if n_columns == 1 and result.X_train_meta.ndim > 1 else result.X_train_meta
                     if len(train_preds) == len(train_ids):
                         for i, sample_id in enumerate(train_ids):
                             combined[sample_id] = train_preds[i]
 
                 # Fill test predictions
                 if result.X_test_meta.size > 0:
-                    test_preds = result.X_test_meta[:, 0] if result.X_test_meta.ndim > 1 else result.X_test_meta
+                    test_preds = result.X_test_meta[:, 0] if n_columns == 1 and result.X_test_meta.ndim > 1 else result.X_test_meta
                     if len(test_preds) == len(test_ids):
                         for i, sample_id in enumerate(test_ids):
                             combined[sample_id] = test_preds[i]
@@ -4143,7 +4161,7 @@ class MergeController(OperatorController):
                     )
                     for aug_id in augmented_ids:
                         origin_id = dataset._indexer._augmentation_tracker.get_origin_for_sample(aug_id)
-                        if origin_id is not None and not np.isnan(combined[origin_id]):
+                        if origin_id is not None and not np.any(np.isnan(combined[origin_id])):
                             combined[aug_id] = combined[origin_id]
 
                 model_predictions[model_name] = combined
@@ -4330,11 +4348,13 @@ class MergeController(OperatorController):
             List of model names with predictions in the branch.
         """
         current_step = getattr(context.state, 'step_number', float('inf'))
+        runtime = context.custom.get("_runtime_context")
+        partition = "train" if runtime is not None and runtime.phase == ExecutionPhase.REFIT else "val"
 
         # Query prediction store for validation predictions in this branch
         branch_filter_kwargs: dict[str, Any] = {
             'branch_id': branch_id,
-            'partition': 'val',
+            'partition': partition,
             'load_arrays': False,
         }
 
@@ -4350,7 +4370,7 @@ class MergeController(OperatorController):
         # (models trained before branch was created have branch_id=None)
         if not predictions:
             no_branch_filter_kwargs: dict[str, Any] = {
-                'partition': 'val',
+                'partition': partition,
                 'load_arrays': False,
             }
             predictions = prediction_store.filter_predictions(**no_branch_filter_kwargs)

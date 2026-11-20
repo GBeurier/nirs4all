@@ -274,50 +274,66 @@ class AutoTransferPreprocessingController(OperatorController):
         selector = TransferPreprocessingSelector(**selector_kwargs)
         results = selector.fit(X_source, X_target, y_source, y_target)
 
-        # Get recommendation
-        top_k = config["top_k"]
-        use_augmentation = config["use_augmentation"]
-        pipeline_spec = results.to_pipeline_spec(
-            top_k=top_k,
-            use_augmentation=use_augmentation,
-        )
+        from nirs4all.analysis import TransferCandidateRecord, TransferSelectionError
 
-        if verbose >= 1:
-            best = results.best
-            logger.success(f"Best recommendation: {best.name}")
-            logger.info(f"    Transfer score: {best.transfer_score:.4f}")
-            logger.info(f"    Improvement: {best.improvement_pct:.1f}%")
-            if top_k > 1:
-                logger.info(f"    Pipeline spec (top {top_k}): {pipeline_spec}")
-
-        # Store recommendation as artifact
-        recommendation_data = {
-            "pipeline_spec": pipeline_spec,
-            "best_name": results.best.name,
-            "transfer_score": results.best.transfer_score,
-            "improvement_pct": results.best.improvement_pct,
-            "top_k": top_k,
-            "use_augmentation": use_augmentation,
-            "ranking": [r.to_dict() for r in results.top_k(min(5, len(results.ranking)))],
-        }
-
-        artifact = (recommendation_data, "transfer_preprocessing_recommendation", "json")
-        artifacts.append(artifact)
-
-        # StepMetadata only holds coordination flags. Controller-specific
-        # recommendations belong in the context's custom state.
-        context = context.copy()
-        context.custom["transfer_preprocessing_results"] = results
-        context.custom["transfer_preprocessing_recommendation"] = recommendation_data
-
-        # Apply recommendation if configured
-        if config["apply_recommendation"]:
-            context, apply_artifacts = self._apply_recommendation(
-                pipeline_spec, dataset, context, runtime_context, source
+        try:
+            # Get recommendation
+            top_k = config["top_k"]
+            use_augmentation = config["use_augmentation"]
+            pipeline_spec = results.to_pipeline_spec(
+                top_k=top_k,
+                use_augmentation=use_augmentation,
             )
-            artifacts.extend(apply_artifacts)
 
-        return context, artifacts
+            if verbose >= 1:
+                best = results.best
+                logger.success(f"Best recommendation: {best.name}")
+                logger.info(f"    Transfer score: {best.transfer_score:.4f}")
+                logger.info(f"    Improvement: {best.improvement_pct:.1f}%")
+                if top_k > 1:
+                    logger.info(f"    Pipeline spec (top {top_k}): {pipeline_spec}")
+
+            # Store recommendation as artifact
+            recommendation_data = {
+                "pipeline_spec": pipeline_spec,
+                "best_name": results.best.name,
+                "transfer_score": results.best.transfer_score,
+                "improvement_pct": results.best.improvement_pct,
+                "top_k": top_k,
+                "use_augmentation": use_augmentation,
+                "ranking": [r.to_dict() for r in results.top_k(min(5, len(results.ranking)))],
+                "complete": results.complete,
+                "candidate_records": [record.to_dict() for record in results.candidate_records],
+            }
+
+            artifact = (recommendation_data, "transfer_preprocessing_recommendation", "json")
+            artifacts.append(artifact)
+
+            # StepMetadata only holds coordination flags. Controller-specific
+            # recommendations belong in the context's custom state.
+            context = context.copy()
+            context.custom["transfer_preprocessing_results"] = results
+            context.custom["transfer_preprocessing_recommendation"] = recommendation_data
+
+            # Apply recommendation if configured
+            if config["apply_recommendation"]:
+                context, apply_artifacts = self._apply_recommendation(
+                    pipeline_spec, dataset, context, runtime_context, source
+                )
+                artifacts.extend(apply_artifacts)
+
+            return context, artifacts
+        except TransferSelectionError:
+            raise
+        except Exception as error:
+            record = TransferCandidateRecord(
+                results.best.name, results.best.pipeline_type, "failed", stage="recommendation",
+                exception_type=type(error).__name__, message=str(error),
+            )
+            raise TransferSelectionError(
+                "Automatic transfer preprocessing recommendation failed", [*results.candidate_records, record],
+            ) from error
+
 
     def _execute_predict_mode(
         self,
@@ -414,7 +430,19 @@ class AutoTransferPreprocessingController(OperatorController):
 
         # Add generator spec if specified
         if config.get("preprocessing_spec") is not None:
-            kwargs["preprocessing_spec"] = config["preprocessing_spec"]
+            from nirs4all.analysis import TransferCandidateRecord, TransferSelectionError
+            from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+            try:
+                kwargs["preprocessing_spec"] = deserialize_component(config["preprocessing_spec"])
+            except Exception as error:
+                record = TransferCandidateRecord(
+                    "preprocessing_spec", "selection", "failed", stage="specification",
+                    exception_type=type(error).__name__, message=str(error),
+                )
+                raise TransferSelectionError("Transfer preprocessing specification could not be constructed", [record]) from error
+        if config.get("applicability_checks") is not None:
+            kwargs["applicability_checks"] = config["applicability_checks"]
 
         return kwargs
 

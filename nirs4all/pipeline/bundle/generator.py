@@ -57,6 +57,23 @@ logger = logging.getLogger(__name__)
 BUNDLE_FORMAT_VERSION = "1.0"
 
 
+def chain_artifact_names(model_step_index: int, shared_artifacts: dict[str, Any], fold_artifacts: dict[str, str]) -> dict[str, str]:
+    """Map an exact stored chain to the canonical bundle replay member names."""
+    names = {}
+    for step_index, values in shared_artifacts.items():
+        if str(step_index).startswith("_"):
+            continue
+        artifacts = values if isinstance(values, list) else [values]
+        for sub_index, artifact_id in enumerate(artifacts):
+            if artifact_id:
+                names[f"step_{step_index}_sub{sub_index}"] = artifact_id
+    for fold_id, artifact_id in fold_artifacts.items():
+        if artifact_id:
+            fold = str(fold_id).removeprefix("fold_")
+            names[f"step_{model_step_index}_fold{fold}"] = artifact_id
+    return names
+
+
 @contextlib.contextmanager
 def _atomic_output_path(output_path: Path) -> Generator[Path, None, None]:
     """Stage an export beside its destination and replace it only on success."""
@@ -336,6 +353,8 @@ class BundleGenerator:
             return Path(self.store.export_chain(chain_id, output_path, format="n4a"))
 
         if fmt == BundleFormat.N4A_PY:
+            if self.store.get_raw_input_predictor(chain_id) is not None:
+                raise NotImplementedError("Captured FINAL Python-host dependency closures export as n4a bundles")
             return self._export_chain_as_py(chain_id, output_path)
 
         raise ValueError(f"Unsupported bundle format: {fmt}")
@@ -375,6 +394,7 @@ class BundleGenerator:
         pipeline = self.store.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") or []
         configs = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+        self._require_portable_script_pipeline(configs)
         target_steps = {idx + 1 for idx, config in enumerate(configs) if isinstance(config, dict) and "y_processing" in config}
 
         # Shared (preprocessing) artifacts
@@ -482,6 +502,19 @@ class BundleGenerator:
         # Resolve the prediction source
         resolved = self.resolver.resolve(source, verbose=self.verbose)
 
+        if resolved.raw_input_predictor is not None:
+            selected_id = resolved.target_model.get("model_artifact_id")
+            if selected_id and selected_id != resolved.raw_input_predictor.root.artifact_id:
+                raise ValueError(f"Selected fitted artifact {selected_id!r} does not match the FINAL raw-input closure")
+            if format != BundleFormat.N4A:
+                raise NotImplementedError("Captured FINAL Python-host dependency closures export as n4a bundles")
+            return write_single_model_bundle(
+                resolved.raw_input_predictor, output_path, model_label="FittedPredictor", pipeline_uid=resolved.pipeline_uid,
+                train_steps=resolved.train_pipeline,
+                provenance={"execution_profile": resolved.raw_input_predictor.profile,
+                            "source_model_artifact_id": resolved.raw_input_predictor.root.artifact_id},
+            )
+
         # A selected prediction must export its own fitted model, never an
         # earlier base model left behind by incomplete artifact resolution.
         target = resolved.target_model
@@ -494,16 +527,9 @@ class BundleGenerator:
             if target_artifact_id not in {artifact_id for artifact_id, _ in artifacts}:
                 raise ValueError(f"Cannot export selected model: target artifact {target_artifact_id!r} is unavailable.")
 
-        is_final_meta = str(target.get("fold_id")) == "final" and (
-            target.get("model_classname") == "MetaModel"
-            or (target.get("metadata") or {}).get("stacking_role") == "meta_model"
-        )
-        if is_final_meta and resolved.trace is None:
-            raise NotImplementedError(
-                "Cannot export selected final legacy stacking meta-model: its fitted base-model "
-                "raw-input dependency closure was not captured. Final-meta bundles are unsupported "
-                "without that closure; numerical training and refit predictions remain available."
-            )
+        from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+        require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, target)
 
         if self.verbose > 0:
             logger.info(f"Exporting bundle from {resolved.source_type} source")
@@ -556,11 +582,17 @@ class BundleGenerator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         manifest = self._create_bundle_manifest(resolved, include_metadata)
+        if resolved.chain is not None:
+            manifest["branch_path"] = resolved.chain.get("branch_path") or []
         members = [bundle_manifest_member(manifest)]
         relation_replay_manifest = self._relation_replay_manifest_payload(resolved)
         if relation_replay_manifest is not None:
             members.append(json_member('relation_replay_manifest.json', relation_replay_manifest, 'provenance', sort_keys=True))
         members.append(json_member('pipeline.json', self._extract_pipeline_config(resolved), 'recipe'))
+        if resolved.chain is not None:
+            chain_payload = {key: resolved.chain[key] for key in ("steps", "model_step_idx", "fold_artifacts", "shared_artifacts")}
+            chain_payload["branch_path"] = resolved.chain.get("branch_path") or []
+            members.append(json_member('chain.json', chain_payload, 'provenance'))
         if resolved.trace:
             members.append(json_member('trace.json', resolved.trace.to_dict(), 'provenance'))
         if resolved.fold_weights:
@@ -797,6 +829,20 @@ class BundleGenerator:
         if not resolved.artifact_provider:
             return members
 
+        if resolved.chain is not None:
+            chain = resolved.chain
+            names = chain_artifact_names(chain["model_step_idx"], chain.get("shared_artifacts") or {}, chain.get("fold_artifacts") or {})
+            step_indices = {int(name.split("_")[1]) for name in names}
+            objects = {artifact_id: value for index in step_indices
+                       for artifact_id, value in resolved.artifact_provider.get_artifacts_for_step(index)}
+            for name, artifact_id in names.items():
+                if artifact_id not in objects:
+                    raise ValueError(f"Cannot export fitted chain: artifact {artifact_id!r} is unavailable")
+                staged = stage / f"artifact_{len(members)}.joblib"
+                joblib.dump(objects[artifact_id], staged)
+                members.append(model_artifact_member(f"artifacts/{name}.joblib", staged))
+            return members
+
         # For each step, write artifacts
         step_indices = set()
         if resolved.trace:
@@ -903,6 +949,17 @@ class BundleGenerator:
         else:
             return f"step_{step_idx}_{class_name}.joblib"
 
+    @staticmethod
+    def _require_portable_script_pipeline(steps: list[Any]) -> None:
+        """Enforce the documented script-format refusal of branching pipelines."""
+        pending = list(steps)
+        while pending:
+            step = pending.pop()
+            if isinstance(step, list):
+                pending.extend(step)
+            elif isinstance(step, dict) and "branch" in step:
+                raise NotImplementedError("Portable .n4a.py scripts do not support branching pipelines; export n4a instead")
+
     def _generate_portable_script(
         self,
         resolved: ResolvedPrediction,
@@ -918,6 +975,8 @@ class BundleGenerator:
             Python script content
         """
         import nirs4all
+
+        self._require_portable_script_pipeline(resolved.minimal_pipeline)
 
         # Collect artifacts
         artifacts_data = {}

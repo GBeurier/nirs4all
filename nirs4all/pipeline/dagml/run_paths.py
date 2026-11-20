@@ -2788,9 +2788,9 @@ def _source_preprocessing_metadata(source_steps: dict[str, list[Any]], source_la
         )
     return {
         "mode": "by_source_distinct_preproc_concat",
-        # Legacy by_source merge writes the concatenated block into source 0 but
-        # leaves non-primary sources present for the downstream multi-source fit.
-        "preserve_legacy_sources_after_merge": True,
+        # New runs concatenate each declared source once. Historical archives
+        # retain their captured flag in _SourceConcatEstimator during replay.
+        "preserve_legacy_sources_after_merge": False,
         "sources": sources,
     }
 

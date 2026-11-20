@@ -202,16 +202,30 @@ class PipelineExecutor:
         # Initialize trace recorder for execution trace recording
         trace_recorder = None
         if self.mode == "train" and runtime_context:
+            from nirs4all.pipeline.config.context import ExecutionPhase
+
             trace_recorder = TraceRecorder(
                 pipeline_uid=pipeline_uid or "",
-                metadata={"dataset": dataset.name, "config_name": config_name}
+                metadata={"dataset": dataset.name, "config_name": config_name,
+                          "refit": getattr(runtime_context, "phase", None) == ExecutionPhase.REFIT},
             )
             runtime_context.trace_recorder = trace_recorder
 
         # Execute all steps
         all_artifacts: list[Any] = []
         steps_completed = False
+        capture_started = False
         try:
+            if self.mode == "train" and self.save_artifacts and runtime_context is not None and runtime_context.artifact_registry is not None:
+                from nirs4all.pipeline.execution.fitted import prepare_sequential_fitted_capture
+
+                previous_training = runtime_context.fitted_training_steps
+                previous_predictors = runtime_context.fitted_predictors
+                previous_output = runtime_context.fitted_feature_output
+                capture_started = prepare_sequential_fitted_capture(steps, runtime_context)
+                if capture_started:
+                    runtime_context.fitted_predictors = {}
+                    context.custom.pop("_fitted_input", None)
             context, dataset = self._execute_steps(
                 steps,
                 dataset,
@@ -262,6 +276,13 @@ class PipelineExecutor:
             import traceback
             traceback.print_exc()
             raise
+        finally:
+            if capture_started:
+                runtime_context.capture_fitted_predictor = False
+                runtime_context.fitted_training_steps = previous_training
+                runtime_context.fitted_predictors = previous_predictors
+                runtime_context.fitted_feature_output = previous_output
+                context.custom.pop("_fitted_input", None)
 
     def _begin_pipeline(
         self,
@@ -590,8 +611,32 @@ class PipelineExecutor:
                         chain_id,
                     )
 
+        chains_by_artifact: dict[str, list[dict[str, Any]]] = {}
+        for row in chain_rows:
+            fold_artifacts = row.get("fold_artifacts") or {}
+            if isinstance(fold_artifacts, str):
+                fold_artifacts = json.loads(fold_artifacts)
+            for artifact_id in set(fold_artifacts.values()):
+                chains_by_artifact.setdefault(artifact_id, []).append(row)
+
         def _select_chain_id(pred: dict[str, Any]) -> str:
-            """Select the best matching chain for a persisted prediction entry."""
+            """Match an exact fitted artifact before metadata-only summaries."""
+            artifact_id = pred.get("model_artifact_id")
+            if artifact_id:
+                candidates = chains_by_artifact.get(artifact_id, [])
+                branch_path = pred.get("branch_path")
+                if branch_path:
+                    candidates = [row for row in candidates if _parse_branch_path(row.get("branch_path")) == branch_path]
+                elif pred.get("branch_id") is not None:
+                    candidates = [row for row in candidates
+                                  if _parse_branch_path(row.get("branch_path"))[:1] == [int(pred["branch_id"])]]
+                candidates = [row for row in candidates if row.get("model_step_idx") == pred.get("step_idx")]
+                if len(candidates) != 1:
+                    raise ValueError(
+                        f"Cannot persist fitted prediction {pred.get('model_name')!r}: artifact {artifact_id!r} "
+                        f"must identify exactly one chain at its producing step/branch; found {len(candidates)}."
+                    )
+                return str(candidates[0]["chain_id"])
             step_idx = int(pred.get("step_idx", 0) or 0)
             scope = step_idx if step_idx in step_rows_present else None
             selected_chain_id = first_by_scope.get(scope) or first_by_scope.get(None)
@@ -1059,6 +1104,9 @@ class PipelineExecutor:
             # Record step end even on failure
             if runtime_context:
                 runtime_context.record_step_end(skip_trace=True)
+            from nirs4all.analysis.results import TransferSelectionError
+
+            TransferSelectionError.reraise_if_present(e)
             if self.continue_on_error:
                 logger.warning(f"Branch {branch_id} step {self.step_number} failed: {str(e)}")
                 # Keep original context on failure
@@ -1260,6 +1308,9 @@ class PipelineExecutor:
             # Record step end even on failure
             if runtime_context:
                 runtime_context.record_step_end(skip_trace=True)
+            from nirs4all.analysis.results import TransferSelectionError
+
+            TransferSelectionError.reraise_if_present(e)
             if self.continue_on_error:
                 logger.warning(f"Step {self.step_number} failed but continuing: {str(e)}")
             else:

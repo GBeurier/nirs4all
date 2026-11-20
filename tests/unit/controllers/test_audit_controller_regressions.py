@@ -199,10 +199,13 @@ def test_tuple_preprocessing_artifacts_predict_and_export(tmp_path, preprocessin
     elif preprocessing.startswith("transfer"):
         from types import SimpleNamespace
 
-        from nirs4all.analysis import TransferPreprocessingSelector
+        from nirs4all.analysis import TransferCandidateRecord, TransferPreprocessingSelector
         spec = {"feature_augmentation": ["snv", "msc"]} if preprocessing == "transfer_augmentation" else "msc"
-        recommendation = SimpleNamespace(name="msc", transfer_score=1.0, improvement_pct=0.0)
-        selection = SimpleNamespace(best=recommendation, ranking=[], top_k=lambda n: [], to_pipeline_spec=lambda **kw: spec)
+        recommendation = SimpleNamespace(name="msc", pipeline_type="single", transfer_score=1.0, improvement_pct=0.0)
+        selection = SimpleNamespace(
+            best=recommendation, ranking=[], top_k=lambda n: [], to_pipeline_spec=lambda **kw: spec,
+            complete=True, candidate_records=[TransferCandidateRecord("msc", "single", "completed", score=1.0)],
+        )
         monkeypatch.setattr(TransferPreprocessingSelector, "fit", lambda *args, **kw: selection)
         step = {"auto_transfer_preproc": {"verbose": 0}}
     else:

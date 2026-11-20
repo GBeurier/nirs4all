@@ -161,8 +161,12 @@ class TaskTypeDetector:
         Returns:
             ClassificationInfo with detected task type and metadata.
         """
+        from nirs4all.pipeline.config.context import ExecutionPhase
+
         branch_id = getattr(context.selector, 'branch_id', None)
         current_step = context.state.step_number
+        runtime = context.custom.get("_runtime_context")
+        partition = "train" if runtime is not None and runtime.phase == ExecutionPhase.REFIT else "val"
 
         # Check each source model for task type info
         task_types_found = []
@@ -172,7 +176,7 @@ class TaskTypeDetector:
 
         for model_name in source_model_names:
             info = self._get_model_task_info(
-                model_name, branch_id, current_step
+                model_name, branch_id, current_step, partition=partition
             )
             if info:
                 task_types_found.append(info['task_type'])
@@ -203,7 +207,8 @@ class TaskTypeDetector:
         self,
         model_name: str,
         branch_id: int | None,
-        max_step: int
+        max_step: int,
+        partition: str = "val",
     ) -> dict[str, Any] | None:
         """Get task type info for a single model.
 
@@ -217,7 +222,7 @@ class TaskTypeDetector:
             or None if no predictions found.
         """
         predictions = self.prediction_store.filter_predictions(
-            model_name=model_name, partition='val', load_arrays=True,
+            model_name=model_name, partition=partition, load_arrays=True,
             branch_id=branch_id if branch_id is not None else None,
         )
 

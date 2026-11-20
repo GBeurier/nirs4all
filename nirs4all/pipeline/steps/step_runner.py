@@ -166,6 +166,9 @@ class StepRunner:
             )
             return StepResult(updated_context=context, artifacts=[])
 
+        from nirs4all.pipeline.execution.fitted import prepare_fitted_input
+
+        fitted_input = prepare_fitted_input(dataset, context, runtime_context)
         from nirs4all.pipeline.execution.preprocessing import observe_feature_step
 
         if observe_feature_step(step, dataset, context, runtime_context):
@@ -218,6 +221,17 @@ class StepRunner:
                 executor.step_number = runtime_context.step_number
                 output_data = executor._process_step_artifacts(output_data, runtime_context=runtime_context,
                                                               context=updated_context, replay=replay)
+
+            if fitted_input is not None:
+                from nirs4all.controllers.models.base_model import BaseModelController
+                from nirs4all.controllers.models.meta_model import MetaModelController
+                from nirs4all.pipeline.execution.fitted import capture_fitted_step
+
+                capture_fitted_step(
+                    step, dataset, context, updated_context, runtime_context,
+                    prediction_store, output_data, fitted_input, replay,
+                    is_model=isinstance(controller, BaseModelController), is_meta=isinstance(controller, MetaModelController),
+                )
 
             # Log shape changes
             shape_after = (dataset.num_samples, dataset.num_features)

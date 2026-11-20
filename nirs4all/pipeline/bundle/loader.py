@@ -573,6 +573,15 @@ class BundleLoader:
         names = container.namelist()
         if "pipeline.json" in names:
             self.pipeline_config = container.read_json("pipeline.json")
+        # Refuse old partial legacy meta bundles before loading any fitted
+        # artifacts. Native host models use the separately verified general
+        # archive contract in BundleArtifactProvider._load_artifact.
+        if manifest_data.get("source_type") != "dagml_native":
+            from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+            require_legacy_raw_input_closure(
+                self.pipeline_config.get("steps", []), self.metadata.model_step_index, manifest_data,
+            )
         # The captured training declaration is distinct from the prediction label.
         if "train_pipeline.json" in names:
             self.train_pipeline_config = container.read_json("train_pipeline.json")
@@ -858,7 +867,7 @@ class BundleLoader:
                 y_processing_step_idx = step_idx
                 continue
 
-            elif cv_start is not None and model_step is not None and cv_start <= step_idx < model_step:
+            elif cv_start is not None and model_step is not None and cv_start <= step_idx <= model_step:
                 continue
             elif op_type == "feature_augmentation":
                 # Feature augmentation: apply each transformer and concatenate with original
@@ -993,6 +1002,11 @@ class BundleLoader:
             return self._predict_legacy_model_artifact(refit_model, X)
 
         assert self.artifact_provider is not None
+        if self._chain_data.get("fold_artifacts", {}).get("fold_all"):
+            model = self.artifact_provider._load_artifact(f"step_{step_idx}_foldall")
+            if model is None:
+                raise ValueError("Bundle is missing its declared training-only fitted model")
+            return self._predict_legacy_model_artifact(model, X)
         fold_artifacts = self.artifact_provider.get_fold_artifacts(step_idx, branch_path)
 
         if fold_artifacts:
@@ -1223,6 +1237,26 @@ class BundleLoader:
             artifacts = self.artifact_provider.get_artifacts_for_step(step_idx)
 
             if is_model:
+                # A nested source model can share its outer step index with
+                # fitted preprocessing. The chain writer preserves those
+                # exact shared IDs in step_<idx>_sub<ordinal> order.
+                shared = self._chain_data.get("shared_artifacts", {}).get(str(step_idx), [])
+                if cv_start is not None and cv_start <= step_idx:
+                    # The fold model already owns this exact preprocessing
+                    # range, including substeps at its outer model index.
+                    shared = []
+                if isinstance(shared, str):
+                    shared = [shared]
+                for sub_index, artifact_id in enumerate(shared):
+                    key = f"step_{step_idx}_sub{sub_index}"
+                    transformer = self.artifact_provider._load_artifact(key)
+                    if transformer is None:
+                        raise ValueError(f"Bundle is missing fitted preprocessing {artifact_id!r}")
+                    from nirs4all.pipeline.execution.executor import _StepArtifactValue
+                    if isinstance(transformer, _StepArtifactValue) and transformer.replay is not None:
+                        X_current = np.asarray(transformer.replay.transform(X_current))
+                        break
+                    X_current = np.asarray(normalize_transform_output(transformer.transform(X_current), type(transformer).__name__))
                 y_pred = self._predict_model_step(X_current, step_idx)
                 return self._apply_y_inverse_transform(y_pred, y_processing_step_idx)
             elif cv_start is not None and model_step is not None and cv_start <= step_idx < model_step:

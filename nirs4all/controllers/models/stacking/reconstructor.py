@@ -1429,7 +1429,7 @@ class TrainingSetReconstructor:
         aggregation = self.stacking_config.test_aggregation
 
         # Handle pre-computed averages (only for single-feature case)
-        if n_features == 1 and aggregation in (TestAggregation.MEAN, TestAggregation.WEIGHTED_MEAN):
+        if not use_proba and n_features == 1 and aggregation in (TestAggregation.MEAN, TestAggregation.WEIGHTED_MEAN):
             avg_preds = [p for p in test_predictions if p.get('fold_id') == 'avg']
             if avg_preds and aggregation == TestAggregation.MEAN:
                 y_vals = avg_preds[0].get('y_pred', np.zeros(n_samples))

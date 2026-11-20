@@ -216,12 +216,22 @@ else
   unset DISABLE_EMOJI 2>/dev/null || true
 fi
 
-# Track failed examples
+# Track every completed or refused example.
 failedExamples=()
 passedExamples=()
 
 for example in "${selectedExamples[@]}"; do
   if [ -f "$example" ]; then
+    if [ "$example" = "user/02_data_handling/U15_octave_multimodal_archive.py" ] && \
+       { [ -z "${NIRS4ALL_CI_U15_DAG_ROOT:-}" ] || \
+         [ -z "${NIRS4ALL_CI_U15_OCTAVE:-}" ] || \
+         [ -z "${NIRS4ALL_CI_U15_NODE_CAPTURE:-}" ]; }; then
+      reason="requires NIRS4ALL_CI_U15_DAG_ROOT, NIRS4ALL_CI_U15_OCTAVE and NIRS4ALL_CI_U15_NODE_CAPTURE"
+      failedExamples+=("$example (exit code: 2; $reason)")
+      echo "Error: $example $reason" >&2
+      echo "FAILED: $example with exit code 2"
+      continue
+    fi
     startTime=$(date +%s)
     echo ""
     echo "########################################"
@@ -230,6 +240,13 @@ for example in "${selectedExamples[@]}"; do
 
     args=()
     case "$example" in
+      */U15_octave_multimodal_archive.py)
+        # Reuse the CI runner's explicit Octave train/replay profile.
+        artifact_dir=$(mktemp -d "${TMPDIR:-/tmp}/nirs4all-octave.XXXXXX")
+        args=(--dag-ml-root "$NIRS4ALL_CI_U15_DAG_ROOT" --octave "$NIRS4ALL_CI_U15_OCTAVE"
+              --workdir "$artifact_dir/train" train --node-capture "$NIRS4ALL_CI_U15_NODE_CAPTURE")
+        echo "Artifacts: $artifact_dir"
+        ;;
       */U07_multimodal.py|*/U08_multimodal_targets.py|*/U09_multimodal_missing_sources.py|*/U10_multimodal_late_tuning.py|*/U11_multimodal_data_provider.py|*/U12_multimodal_ragged_series.py|*/U13_multimodal_late_missing_sources.py|*/U14_multimodal_fold_provider.py)
         # These demonstrations emit JSON and archives, with durable search state.
         # A fresh directory keeps repeated runner invocations independent.
@@ -251,9 +268,25 @@ for example in "${selectedExamples[@]}"; do
 
       python "$example" "${args[@]}" 2>&1 | tee -a "$logFile" || exitCode=$?
 
-      printf "Finished: %s at %s (exit code: %d)\n\n" "$example" "$(date)" "$exitCode" >> "$logFile"
     else
       python "$example" "${args[@]}" || exitCode=$?
+    fi
+
+    if [ "$exitCode" -eq 0 ] && [ "$example" = "user/02_data_handling/U15_octave_multimodal_archive.py" ]; then
+      # A fresh interpreter replays without retaining the training worker.
+      replay_args=(--dag-ml-root "$NIRS4ALL_CI_U15_DAG_ROOT" --octave "$NIRS4ALL_CI_U15_OCTAVE"
+                   --workdir "$artifact_dir/predict" predict
+                   --archive "$artifact_dir/train/five-octave-models.n4a"
+                   --replay-inputs "$artifact_dir/train/heldout-replay.json")
+      if [ -n "$logFile" ]; then
+        python "$example" "${replay_args[@]}" 2>&1 | tee -a "$logFile" || exitCode=$?
+      else
+        python "$example" "${replay_args[@]}" || exitCode=$?
+      fi
+    fi
+
+    if [ -n "$logFile" ]; then
+      printf "Finished: %s at %s (exit code: %d)\n\n" "$example" "$(date)" "$exitCode" >> "$logFile"
     fi
 
     endTime=$(date +%s)
@@ -285,7 +318,8 @@ echo "========================================"
 echo "EXECUTION SUMMARY"
 echo "========================================"
 echo "Category: $CATEGORY"
-echo "Total examples run: ${#selectedExamples[@]}"
+echo "Total examples selected: ${#selectedExamples[@]}"
+echo "Total examples run: $((${#passedExamples[@]} + ${#failedExamples[@]}))"
 echo "Passed: ${#passedExamples[@]}"
 echo "Failed: ${#failedExamples[@]}"
 

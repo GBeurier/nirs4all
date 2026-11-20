@@ -14,7 +14,7 @@ Classes:
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 
@@ -28,6 +28,59 @@ from nirs4all.analysis.transfer_utils import (
 # =============================================================================
 # Result Dataclasses
 # =============================================================================
+
+@dataclass(frozen=True)
+class TransferCandidateRecord:
+    """Outcome of one declared transfer or supervised-validation candidate.
+
+    Only an applicability check performed before computation may exclude a
+    candidate. Non-finite scores use ``score=None`` and retain their value in
+    ``message``, so candidate records remain JSON-safe.
+    """
+
+    name: str
+    pipeline_type: str
+    status: Literal["completed", "excluded", "failed", "non_finite"]
+    stage: str = "transfer"
+    score: float | None = None
+    exception_type: str | None = None
+    message: str | None = None
+    reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the complete candidate outcome for run metadata."""
+        from dataclasses import asdict
+
+        return asdict(self)
+
+
+class TransferSelectionError(RuntimeError):
+    """Refuse an incomplete search while retaining every evaluated outcome."""
+
+    def __init__(self, message: str, candidate_records: list[TransferCandidateRecord]) -> None:
+        self._message = message
+        self.candidate_records = list(candidate_records)
+        causes = [
+            f"{record.name} [{record.stage}]: {record.exception_type or record.status}: {record.message}"
+            for record in candidate_records if record.status in ("failed", "non_finite")
+        ]
+        super().__init__(message + ("; " + "; ".join(causes) if causes else ""))
+
+    def __reduce__(self) -> tuple[Any, tuple[str, list[TransferCandidateRecord]]]:
+        """Keep structured outcomes when a parallel host returns an exception."""
+        return type(self), (self._message, self.candidate_records)
+
+    @staticmethod
+    def reraise_if_present(error: BaseException) -> None:
+        """Preserve fail-closed policy across generic host error handlers."""
+        current: BaseException | None = error
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, TransferSelectionError):
+                raise current from current.__cause__
+            current = current.__cause__ or current.__context__
+
 
 @dataclass
 class TransferResult:
@@ -120,6 +173,16 @@ class TransferSelectionResults:
     ranking: list[TransferResult]
     raw_metrics: dict[str, float]
     timing: dict[str, float] = field(default_factory=dict)
+    candidate_records: list[TransferCandidateRecord] = field(default_factory=list)
+    complete: bool = True
+
+    def require_complete(self) -> None:
+        """Refuse recommendations from an incomplete or non-finite search."""
+        if not self.complete or any(record.status in ("failed", "non_finite") for record in self.candidate_records):
+            raise TransferSelectionError("Transfer preprocessing selection is incomplete", self.candidate_records)
+        invalid = [result.name for result in self.ranking if not np.isfinite(result.transfer_score)]
+        if invalid:
+            raise TransferSelectionError(f"Non-finite transfer scores: {', '.join(invalid)}", self.candidate_records)
 
     @property
     def best(self) -> TransferResult:
@@ -132,6 +195,7 @@ class TransferSelectionResults:
         Raises:
             ValueError: If no results are available.
         """
+        self.require_complete()
         if not self.ranking:
             raise ValueError("No results available")
         return self.ranking[0]
@@ -146,6 +210,7 @@ class TransferSelectionResults:
         Returns:
             List of top-K TransferResult objects.
         """
+        self.require_complete()
         return self.ranking[:k]
 
     def to_preprocessing_list(
@@ -181,6 +246,9 @@ class TransferSelectionResults:
             ...     {"model": PLSRegression()},
             ... ]
         """
+        self.require_complete()
+        if not self.ranking:
+            raise ValueError("No completed transfer preprocessing candidates available")
         if preprocessings is None:
             preprocessings = get_base_preprocessings()
 
@@ -188,14 +256,10 @@ class TransferSelectionResults:
         top_results = self.ranking[:top_k]
 
         for r in top_results:
-            try:
-                # Use the result's get_transforms method
-                pipeline_transforms = r.get_transforms(preprocessings)
-                if pipeline_transforms:
-                    result_list.append(pipeline_transforms)
-            except (KeyError, ValueError):
-                # Skip if transforms can't be resolved
-                continue
+            pipeline_transforms = r.get_transforms(preprocessings)
+            if not pipeline_transforms:
+                raise ValueError(f"Cannot resolve selected preprocessing {r.name!r}")
+            result_list.append(pipeline_transforms)
 
         return result_list
 
@@ -221,8 +285,11 @@ class TransferSelectionResults:
             >>> results.to_pipeline_spec(top_k=3, use_augmentation=True)
             {'feature_augmentation': ['snv', 'd1', 'msc']}
         """
+        self.require_complete()
         if not self.ranking:
-            return "identity"
+            raise ValueError("No completed transfer preprocessing candidates available")
+        if top_k < 1:
+            raise ValueError("top_k must be positive")
 
         top_results = self.ranking[:top_k]
 

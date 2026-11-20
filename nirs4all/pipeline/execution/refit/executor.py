@@ -117,6 +117,17 @@ def execute_simple_refit(
         result.success = True
         return result
 
+    from nirs4all.pipeline.execution.fitted import is_sequential_meta_pipeline, is_source_concat_pipeline
+
+    capture_required = artifact_registry is not None and getattr(executor, "save_artifacts", False) and (
+        is_sequential_meta_pipeline(original_steps) or is_source_concat_pipeline(original_steps)
+    )
+    previous_training = runtime_context.fitted_training_steps
+    if capture_required:
+        from nirs4all.pipeline.config.component_serialization import serialize_component
+
+        runtime_context.fitted_training_steps = serialize_component(original_steps)
+
     # Inject best_params into the model step
     _inject_best_params(steps, refit_config.best_params)
 
@@ -171,6 +182,12 @@ def execute_simple_refit(
         runtime_context.phase = ExecutionPhase.CV
         runtime_context.refit_fold_id = prev_refit_fold_id
         runtime_context.refit_context_name = prev_refit_context_name
+        runtime_context.fitted_training_steps = previous_training
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
+        if capture_required:
+            raise
         return result
 
     # Mark refit prediction entries with fold_id="final", refit_context, and metadata
@@ -196,6 +213,7 @@ def execute_simple_refit(
     runtime_context.phase = ExecutionPhase.CV
     runtime_context.refit_fold_id = prev_refit_fold_id
     runtime_context.refit_context_name = prev_refit_context_name
+    runtime_context.fitted_training_steps = previous_training
 
     logger.success("Refit pass completed successfully")
     return result

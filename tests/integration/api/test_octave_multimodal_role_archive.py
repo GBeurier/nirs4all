@@ -158,19 +158,33 @@ def test_public_octave_hpo_five_raw_models_and_installed_replay_without_fit(camp
         assert saved["steps"] == expected_saved[record["node_id"]]["steps"] == [{"class": "n4m:models.regularized.ridge", "params": {"alpha": 0.05}}]
         assert saved["feature_names"] == expected_saved[record["node_id"]]["feature_names"]
         assert len(saved["states"]) == 1 and bytes(saved["states"][0]).startswith(b"N4ME")
+    import nirs4all_core
+
+    inventory = nirs4all_core.read_archive_v2_payloads(campaign["archive"])
+    manifest, members, view = inventory["manifest"], inventory["members"], inventory["view"]
+    assert manifest["schema"] == "nirs4all.n4a.container.v1" and manifest["schema_version"] == 1
+    assert view["profile"] == "native-methods-package" and view["package_schema_version"] == 2
+    assert inventory["package"] == campaign["package"].json().encode("utf-8")
+    assert inventory["training_outcome"] == campaign["outcome"].json().encode("utf-8")
+    selected_model = next(artifact for artifact in manifest["artifacts"] if artifact["id"] == view["root_artifact"])
+    assert selected_model["owner"] == "dag-ml"
+    assert selected_model["content_type"] == {"id": "dagml.portable_predictor_package", "version": 2}
+    state_paths = set(selected_model["storage"]["member_paths"]) - {view["package_member"]}
+    assert len(state_paths) == 5
+    declared = {member["path"]: member for member in manifest["members"]}
+    assert set(declared) == set(members) and len(members) == 12
+    for record in records:
+        expected_payload = bytes(raw[record["artifact"]["id"]])
+        matching = [path for path in state_paths if declared[path]["sha256"] == record["artifact"]["content_fingerprint"]]
+        assert len(matching) == 1
+        assert members[matching[0]] == expected_payload
     with ZipFile(campaign["archive"]) as archive:
-        expected_members = {
-            "manifest.json", "dagml/portable_predictor_package.json", "dagml/graph.json",
-            "dagml/execution_bundle.json", "dagml/training_outcome.json",
-            "dagml/prediction_cache_payload_set.json", "dagml/score_set.json",
-            *(f"artifacts/{record['artifact']['content_fingerprint']}.json" for record in records),
-        }
-        assert len(archive.namelist()) == len(expected_members) == 12
-        assert set(archive.namelist()) == expected_members
-        manifest = json.loads(archive.read("manifest.json"))
-        assert {member["path"] for member in manifest["member_inventory"]} == expected_members - {"manifest.json"}
-        assert manifest["payloads"]["methods"]["n4mm"] == []
-        assert len(manifest["payloads"]["methods"]["role_pipelines"]) == 5
+        assert len(archive.namelist()) == 13
+        assert set(archive.namelist()) == {"manifest.json", *declared}
+        for path, payload in members.items():
+            assert archive.read(path) == payload
+            assert len(payload) == declared[path]["byte_length"]
+            assert hashlib.sha256(payload).hexdigest() == declared[path]["sha256"]
     source_root = Path(nirs4all.__file__).resolve().parent
     context = {
         "dag_root": str(campaign["runtime"]["dag_root"]), "octave": str(campaign["runtime"]["octave"]),
@@ -214,9 +228,13 @@ def test_public_octave_archive_refuses_invalid_authority_before_callbacks(campai
         request["phase"] = "REFIT"
     else:
         archive = tmp_path / "invalid.n4a"
+        import nirs4all_core
+
+        inventory = nirs4all_core.read_archive_v2_payloads(campaign["archive"])
+        view = inventory["view"]
+        selected_model = next(artifact for artifact in inventory["manifest"]["artifacts"] if artifact["id"] == view["root_artifact"])
+        member_path = next(path for path in selected_model["storage"]["member_paths"] if path != view["package_member"])
         with ZipFile(campaign["archive"]) as source, ZipFile(archive, "w") as destination:
-            manifest = json.loads(source.read("manifest.json"))
-            member_path = manifest["payloads"]["methods"]["role_pipelines"][0]["member_path"]
             for member in source.infolist():
                 payload, name = source.read(member.filename), member.filename
                 if name == member_path:

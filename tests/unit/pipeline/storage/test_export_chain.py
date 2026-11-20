@@ -72,7 +72,7 @@ def _chain_store(tmp_path, *, stale: str | None = None):
         "steps": [{"step_idx": 1}], "fold_artifacts": {"fold_0": "model-fold0", "fold_final": "model-final"}, "shared_artifacts": {"1": shared},
     }
     store = SimpleNamespace(
-        _validate_chain_export=lambda chain_id: None, get_chain=lambda chain_id: chain, get_pipeline=lambda pipeline_id: {"expanded_config": {"steps": ["snv"]}},
+        _validate_chain_export=lambda chain_id: None, get_raw_input_predictor=lambda chain_id: None, get_chain=lambda chain_id: chain, get_pipeline=lambda pipeline_id: {"expanded_config": {"steps": ["snv"]}},
         get_artifact_path=lambda artifact_id: paths[artifact_id], _artifact_declared_fingerprint=lambda artifact_id: declared[artifact_id],
     )
     return store, shared, payloads, paths

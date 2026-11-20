@@ -287,6 +287,9 @@ class PipelineOrchestrator:
               except RunCancelledError:
                 raise
               except Exception as e:
+                from nirs4all.analysis.results import TransferSelectionError
+
+                TransferSelectionError.reraise_if_present(e)
                 logger.error(f"Dataset '{name}' failed: {e}")
                 failed_datasets.append(name)
                 # For single-dataset runs, propagate the exception immediately
@@ -1829,6 +1832,7 @@ class PipelineOrchestrator:
             A :class:`RefitResult` summarizing the outcome.
         """
         topology = analyze_topology(refit_config.expanded_steps)
+        from nirs4all.pipeline.config.component_serialization import serialize_component
 
         runtime_context = RuntimeContext(
             store=self.store,
@@ -1840,6 +1844,7 @@ class PipelineOrchestrator:
             run_id=run_id,
             cache_config=self.cache_config,
             random_state=self.random_state,
+            fitted_training_steps=serialize_component(refit_config.expanded_steps),
         )
 
         # Fast path: use accumulated best chains when available and topology
@@ -2764,6 +2769,9 @@ def _execute_single_variant(variant_data: dict[str, Any]) -> dict[str, Any]:
             f"{config_predictions.num_predictions} predictions generated"
         )
     except Exception as e:
+        from nirs4all.analysis.results import TransferSelectionError
+
+        TransferSelectionError.reraise_if_present(e)
         error_msg = str(e)
         # Check if this is a recoverable error (invalid hyperparameters for this dataset)
         if 'n_components' in error_msg or 'upper bound' in error_msg or 'Invalid hyperparameters' in error_msg:

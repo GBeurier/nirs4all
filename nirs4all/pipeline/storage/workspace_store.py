@@ -3044,21 +3044,74 @@ class WorkspaceStore:
     # Export operations (produce files on demand)
     # =====================================================================
 
-    def _validate_chain_export(self, chain_id: str) -> None:
-        """Reject final stacking chains without a captured raw-input recipe.
+    def get_raw_input_predictor(
+        self, chain_id: str, *, model_artifact_id: str | None = None, fold_id: str | int | None = None,
+    ) -> Any | None:
+        """Load an exact, persisted model/fold Python-host dependency closure.
 
-        Chain storage records fitted artifacts but does not capture the ordered
-        base-model dependency closure required to replay final legacy stacking.
-        Inspect persisted prediction roles rather than guessing sibling pipelines.
+        A metadata claim is insufficient: the referenced artifact must contain
+        the actual fitted predictor and identify this chain's numerical model.
         """
-        rows = self.get_chain_predictions(chain_id, fold_id="final")
+        from nirs4all.pipeline.execution.fitted import FittedPredictor
+
+        chain = self.get_chain(chain_id)
+        if chain is None:
+            raise KeyError(f"Chain not found: {chain_id}")
+        references = (chain.get("shared_artifacts") or {}).get("_raw_input_predictor")
+        if not references:
+            return None
+        folds = chain.get("fold_artifacts") or {}
+        if fold_id is not None:
+            model_id = folds.get("fold_" + str(fold_id).removeprefix("fold_"))
+            if model_id is None:
+                return None  # An averaged CV row does not identify one fitted model.
+        else:
+            model_id = model_artifact_id or folds.get("fold_final") or folds.get("final")
+            if model_id is None and len(folds) == 1:
+                model_id = next(iter(folds.values()))
+        if model_id is None:
+            return None  # Multiple CV folds require an explicit fitted identity.
+        if model_id not in folds.values() or (model_artifact_id is not None and model_id != model_artifact_id):
+            label = "FINAL" if str(fold_id) == "final" else "selected"
+            raise ValueError(f"Selected fitted artifact {model_artifact_id!r} does not match the {label} raw-input closure")
+        if not isinstance(references, list):
+            raise ValueError("Raw-input fitted closure requires declared predictor references")
+        by_model = (chain.get("shared_artifacts") or {}).get("_raw_input_predictor_models")
+        if by_model is not None:
+            reference = by_model.get(model_id) if isinstance(by_model, dict) else None
+            if not isinstance(reference, str) or reference not in references:
+                raise ValueError("Raw-input fitted closure is missing the selected model dependency")
+        elif len(references) == 1:
+            reference = references[0]
+        else:
+            raise ValueError("Raw-input fitted closure requires one exact model and predictor")
+        predictor = self.load_artifact(reference)
+        if not isinstance(predictor, FittedPredictor) or predictor.root.artifact_id != model_id:
+            raise ValueError("Raw-input fitted closure does not match the selected fitted model")
+        return predictor
+
+    def _validate_chain_export(self, chain_id: str) -> None:
+        """Reject legacy stacking chains without an ordered raw-input closure."""
+        from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+        chain = self.get_chain(chain_id)
+        if chain is None:
+            raise KeyError(f"Chain not found: {chain_id}")
+        if self.get_raw_input_predictor(chain_id) is not None:
+            return
+        pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
+        expanded = pipeline.get("expanded_config") or []
+        steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+        rows = self.get_chain_predictions(chain_id)
+        if rows.is_empty():
+            require_legacy_raw_input_closure(steps, chain["model_step_idx"], chain)
         for row in rows.iter_rows(named=True):
-            if row.get("refit_context") == "stacking" or row.get("model_class") == "MetaModel":
-                raise NotImplementedError(
-                    "Cannot export selected final legacy stacking meta-model: its fitted base-model "
-                    "raw-input dependency closure was not captured. Final-meta bundles are unsupported "
-                    "without that closure; numerical training and refit predictions remain available."
-                )
+            target = {**chain, **row}
+            if row.get("refit_context") == "stacking" and str(row.get("fold_id")) == "final":
+                # Persisted legacy refit rows do not carry the ordered closure
+                # or per-model role; retain the existing explicit refusal.
+                target["metadata"] = {"stacking_role": "meta_model"}
+            require_legacy_raw_input_closure(steps, chain["model_step_idx"], target)
 
     def export_chain(
         self,
@@ -3098,10 +3151,28 @@ class WorkspaceStore:
             KeyError: If the chain does not exist.
             FileNotFoundError: If any referenced artifact file is missing.
         """
-        from nirs4all.pipeline.bundle.generator import BundleGenerator, bundle_manifest_member, json_member, model_artifact_member
+        from nirs4all.pipeline.bundle.generator import BundleGenerator, bundle_manifest_member, chain_artifact_names, json_member, model_artifact_member
         from nirs4all.pipeline.dagml.host_container import write_host_container
 
         self._validate_chain_export(chain_id)
+        predictor = self.get_raw_input_predictor(chain_id)
+        if predictor is not None:
+            if format != "n4a":
+                raise NotImplementedError("Captured FINAL Python-host dependency closures export as n4a bundles")
+            if relation_replay_manifest is not None:
+                raise NotImplementedError("Captured FINAL Python-host dependency closures do not support relational replay")
+            from nirs4all.pipeline.bundle.generator import write_single_model_bundle
+
+            chain = self.get_chain(chain_id)
+            assert chain is not None
+            pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
+            expanded = pipeline.get("expanded_config") or []
+            train_steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+            return write_single_model_bundle(
+                predictor, output_path, model_label="FittedPredictor", pipeline_uid=chain["pipeline_id"],
+                preprocessing_chain=chain.get("preprocessings", ""), train_steps=predictor.training_steps or train_steps,
+                provenance={"execution_profile": predictor.profile, "origin_chain_id": chain_id},
+            )
         if format == "n4a.py":
             if relation_replay_manifest is not None:
                 raise ValueError("Relational replay manifests require the n4a archive format")
@@ -3132,6 +3203,7 @@ class WorkspaceStore:
         relation_manifest_payload = _relation_replay_manifest_payload(relation_replay_manifest)
         manifest = {
             "chain_id": chain_id,
+            "branch_path": chain.get("branch_path") or [],
             "model_class": chain["model_class"],
             "model_step_index": chain["model_step_idx"],
             "preprocessings": chain["preprocessings"],
@@ -3148,20 +3220,9 @@ class WorkspaceStore:
 
         # Bundle replay addresses fitted state by step/fold, not by its content
         # filename. Preserve that mapping using the canonical bundle names.
-        artifact_names: dict[str, str] = {}
-        for step_idx, values in shared_artifacts.items():
-            if str(step_idx).startswith("_"):
-                continue
-            aids = values if isinstance(values, list) else [values]
-            for sub_idx, aid in enumerate(aids):
-                if aid:
-                    artifact_names[f"step_{step_idx}_sub{sub_idx}"] = aid
-        for fold_id, aid in export_fold_artifacts.items():
-            if aid:
-                fold = str(fold_id).removeprefix("fold_")
-                artifact_names[f"step_{chain['model_step_idx']}_fold{fold}"] = aid
+        artifact_names = chain_artifact_names(chain["model_step_idx"], shared_artifacts, export_fold_artifacts)
 
-        pipeline = self.get_pipeline(chain["pipeline_id"])
+        pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") if pipeline else None
         pipeline_config = expanded if isinstance(expanded, dict) else {"steps": expanded or []}
 
@@ -3173,6 +3234,7 @@ class WorkspaceStore:
                 "chain.json",
                 {
                     "steps": chain["steps"],
+                    "branch_path": chain.get("branch_path") or [],
                     "model_step_idx": chain["model_step_idx"],
                     "fold_artifacts": export_fold_artifacts,
                     "shared_artifacts": shared_artifacts,
@@ -3661,7 +3723,7 @@ class WorkspaceStore:
         if not isinstance(shared_artifacts, dict):
             return
         for key, value in shared_artifacts.items():
-            if str(key).startswith("_"):
+            if str(key).startswith("_") and key != "_raw_input_predictor":
                 # Metadata key, e.g. "_source_map"
                 continue
             if isinstance(value, list):
@@ -4000,16 +4062,19 @@ class WorkspaceStore:
             KeyError: If the chain does not exist.
             RuntimeError: If the chain has no model step.
         """
+        self._validate_chain_export(chain_id)
+        predictor = self.get_raw_input_predictor(chain_id)
+        if predictor is not None:
+            return cast(np.ndarray, predictor.predict(X))
         chain = self.get_chain(chain_id)
-        if chain is None:
-            raise KeyError(f"Chain not found: {chain_id}")
+        assert chain is not None
 
         steps = chain["steps"]
         model_step_idx = chain["model_step_idx"]
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
 
-        pipeline = self.get_pipeline(chain["pipeline_id"])
+        pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") if pipeline else None
         configured_steps = expanded.get("steps", []) if isinstance(expanded, dict) else (expanded or [])
         target_steps = {idx + 1 for idx, config in enumerate(configured_steps)
@@ -4020,6 +4085,16 @@ class WorkspaceStore:
         from nirs4all.pipeline.execution.preprocessing import FoldPreprocessedModel
 
         models = {key: self.load_artifact(artifact_id) for key, artifact_id in fold_artifacts.items()}
+        model_ids = set(fold_artifacts.values())
+        model_positions = [position for position, step in enumerate(steps)
+                           if model_ids.intersection(step.get("artifact_ids") or [step.get("artifact_id")])]
+        if not model_positions:
+            # Direct save_chain callers may declare a simple step index without
+            # per-step artifact IDs. That declaration must be unambiguous.
+            model_positions = [position for position, step in enumerate(steps) if step["step_idx"] == model_step_idx]
+        if len(model_positions) != 1:
+            raise RuntimeError("Chain must identify exactly one fitted model step")
+        model_position = model_positions[0]
         cv_start = next((model.preprocessing.start_step for model in models.values()
                          if isinstance(model, FoldPreprocessedModel)), None)
 
@@ -4052,10 +4127,10 @@ class WorkspaceStore:
 
             return normalize(transformer.transform(X_in))
 
-        for step in steps:
+        for position, step in enumerate(steps):
             idx = step["step_idx"]
 
-            if idx == model_step_idx:
+            if position == model_position:
                 # Refit model: single canonical refit artifact, direct prediction
                 refit_artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 if refit_artifact_id:
@@ -4073,7 +4148,7 @@ class WorkspaceStore:
                     return _restore_targets(EnsembleUtils.compute_hard_voting(fold_preds))
                 return _restore_targets(np.mean(fold_preds, axis=0))
 
-            if cv_start is not None and cv_start <= idx < model_step_idx and idx not in target_steps:
+            if cv_start is not None and cv_start <= idx <= model_step_idx and idx not in target_steps:
                 # The fitted fold model owns these stages and expects their raw input.
                 continue
 
@@ -4083,6 +4158,10 @@ class WorkspaceStore:
                 # shared_artifacts values are lists of artifact IDs
                 if isinstance(artifact_ids, str):
                     artifact_ids = [artifact_ids]
+                if "artifact_ids" in step:
+                    artifact_ids = [artifact_id for artifact_id in step["artifact_ids"] if artifact_id in artifact_ids]
+                elif step.get("artifact_id"):
+                    artifact_ids = [artifact_id for artifact_id in artifact_ids if artifact_id == step["artifact_id"]]
                 for artifact_id in artifact_ids:
                     transformer = self.load_artifact(artifact_id)
                     if idx in target_steps:
@@ -4166,7 +4245,7 @@ class WorkspaceStore:
         if isinstance(shared_artifacts, dict):
             for key, v in shared_artifacts.items():
                 # Metadata keys (e.g. "_source_map") carry dict payloads, not artifact IDs.
-                if str(key).startswith("_"):
+                if str(key).startswith("_") and key != "_raw_input_predictor":
                     continue
                 if isinstance(v, list):
                     for aid in v:

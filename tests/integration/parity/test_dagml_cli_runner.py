@@ -3341,7 +3341,7 @@ def test_stacking_branch_detection() -> None:
     assert _detect_duplication_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge()}]) is None
 
 
-def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested_validation() -> None:
+def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested_validation(tmp_path: Path) -> None:
     """Keep the historical CV views while correcting nesting and capturing real REFIT."""
     from sklearn.linear_model import Ridge
 
@@ -3364,7 +3364,9 @@ def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested
 
     assert native._is_dagml_engine()  # noqa: SLF001
     assert not legacy._is_dagml_engine()  # noqa: SLF001
-    assert legacy.num_predictions == 45
+    legacy_cv = [row for row in legacy.predictions.filter_predictions() if str(row["fold_id"]) != "final"]
+    assert len(legacy_cv) == 45
+    assert legacy.num_predictions == len(legacy_cv) + 5
     native_cv = [row for row in native.predictions.filter_predictions() if row["fold_id"] != "final"]
     meta_cv = [row for row in native_cv if row["branch_name"] is None]
     assert len(meta_cv) == 5
@@ -3373,12 +3375,15 @@ def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested
         for partition in ("train", "val", "test"):
             assert len([row for row in native_cv if row["branch_name"] == branch and row["partition"] == partition]) == 5
     assert native.predictions.filter_predictions(fold_id="final", load_arrays=False)
-    assert legacy.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
+    from ._legacy_final_profile import assert_final_replay
+
+    assert_final_replay(legacy, DatasetConfigs(dataset_path("regression")), tmp_path / "legacy-final-replay", 5)
 
     native_rows = native.predictions.filter_predictions(load_arrays=False)
     legacy_rows = legacy.predictions.filter_predictions(load_arrays=False)
     assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final", "w_avg"]
-    assert sorted({str(row.get("fold_id")) for row in legacy_rows}) == ["0", "1", "2", "avg", "w_avg"]
+    assert sorted({str(row.get("fold_id")) for row in legacy_cv}) == ["0", "1", "2", "avg", "w_avg"]
+    assert sorted({str(row.get("fold_id")) for row in legacy_rows}) == ["0", "1", "2", "avg", "final", "w_avg"]
     assert {row["branch_name"] for row in native_rows} == {"pls", "ridge", None}
     # Legacy's meta CV-only projection fitted a different, non-nested protocol.
     # Its exact score is not a scientific oracle. Named/list syntax must instead

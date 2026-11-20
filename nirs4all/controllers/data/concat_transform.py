@@ -469,9 +469,13 @@ class ConcatAugmentationController(OperatorController):
         else:
             # Fit new transformer
             fitted = clone(transformer)
-            fitted.fit(train_data)
+            fitted.fit(train_data.astype(np.result_type(train_data.dtype, np.float64), copy=False))
 
-        transformed = fitted.transform(all_data)
+        # Float32 matrix products depend on batch size and fitted-array layout,
+        # which can change after serialization. Fit and transform with double
+        # working precision; feature storage retains its declared dtype.
+        transform_data = all_data.astype(np.result_type(all_data.dtype, np.float64), copy=False)
+        transformed = fitted.transform(transform_data)
 
         artifact = None
         if mode == "train":
@@ -533,10 +537,10 @@ class ConcatAugmentationController(OperatorController):
                     raise ValueError(f"Transformer '{binary_key}' not found at step {runtime_context.step_number}")
             else:
                 fitted = clone(transformer)
-                fitted.fit(current_train)
+                fitted.fit(current_train.astype(np.result_type(current_train.dtype, np.float64), copy=False))
 
-            current_train = fitted.transform(current_train)
-            current_all = fitted.transform(current_all)
+            current_train = fitted.transform(current_train.astype(np.result_type(current_train.dtype, np.float64), copy=False))
+            current_all = fitted.transform(current_all.astype(np.result_type(current_all.dtype, np.float64), copy=False))
 
             if mode == "train":
                 artifact = (fitted, binary_key, "sklearn")

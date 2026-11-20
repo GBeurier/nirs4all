@@ -11,6 +11,7 @@ Supports two modes for preprocessing generation:
 """
 
 import time
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, Optional
 
@@ -18,7 +19,7 @@ import numpy as np
 from sklearn.pipeline import make_pipeline
 
 from nirs4all.analysis.presets import PRESETS
-from nirs4all.analysis.results import TransferResult, TransferSelectionResults
+from nirs4all.analysis.results import TransferCandidateRecord, TransferResult, TransferSelectionError, TransferSelectionResults
 from nirs4all.analysis.transfer_metrics import (
     TransferMetrics,
     TransferMetricsComputer,
@@ -104,6 +105,10 @@ class TransferPreprocessingSelector:
         Other:
             verbose: Verbosity level (0=silent, 1=progress, 2=detailed).
             random_state: Random seed for reproducibility.
+            applicability_checks: Candidate-name mapping of declared checks run
+                before computation. A check returns an exclusion reason, or
+                None when the candidate is applicable. Unexpected exceptions
+                and non-finite scores always fail the selection.
 
     Example:
         >>> # Quick usage with default fast preset
@@ -168,6 +173,7 @@ class TransferPreprocessingSelector:
         # Other
         verbose: int = 1,
         random_state: int = 0,
+        applicability_checks: dict[str, Callable[[np.ndarray, np.ndarray], str | None]] | None = None,
     ):
         # Apply preset if specified
         if preset is not None:
@@ -212,6 +218,7 @@ class TransferPreprocessingSelector:
         self.metric_weights = metric_weights
         self.verbose = verbose
         self.random_state = random_state
+        self.applicability_checks = applicability_checks or {}
 
         # Parallelization
         self.n_jobs = n_jobs
@@ -241,6 +248,12 @@ class TransferPreprocessingSelector:
         # Results storage
         self.results_: TransferSelectionResults | None = None
         self.raw_metrics_: TransferMetrics | None = None
+        self.candidate_records_: list[TransferCandidateRecord] = []
+
+    def _require_completed_candidates(self) -> None:
+        """Stop before generating a recommendation from an incomplete search."""
+        if any(record.status in ("failed", "non_finite") for record in self.candidate_records_):
+            raise TransferSelectionError("Transfer preprocessing selection failed", self.candidate_records_)
 
     def _log(self, msg: str, level: int = 1) -> None:
         """Log message if verbosity level is sufficient."""
@@ -301,12 +314,18 @@ class TransferPreprocessingSelector:
             List of TransferResult for each preprocessing.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        from typing import Optional as Opt
 
-        def evaluate_single(args: tuple[str, Any]) -> TransferResult | None:
+        def evaluate_single(args: tuple[str, Any]) -> tuple[TransferResult | None, TransferCandidateRecord]:
             """Worker function to evaluate a single preprocessing."""
             pp_name, pp_item = args
             try:
+                applicability_check = self.applicability_checks.get(pp_name)
+                if applicability_check is not None:
+                    reason = applicability_check(X_source, X_target)
+                    if reason is not None:
+                        if not isinstance(reason, str) or not reason.strip():
+                            raise ValueError("An applicability check must return None or a nonempty exclusion reason")
+                        return None, TransferCandidateRecord(pp_name, pipeline_type, "excluded", reason=reason)
                 # Track the actual transforms used for storing in result
                 actual_transforms: list[Any] = []
 
@@ -382,6 +401,8 @@ class TransferPreprocessingSelector:
                     raw_metrics=self.raw_metrics_,
                     weights=self.metric_weights,
                 )
+                if not np.isfinite(score):
+                    return None, TransferCandidateRecord(pp_name, pipeline_type, "non_finite", message=f"transfer score is {score!r}")
 
                 # Compute improvement percentage
                 assert self.raw_metrics_ is not None
@@ -391,7 +412,7 @@ class TransferPreprocessingSelector:
                     / (raw_centroid + 1e-10)
                 ) * 100
 
-                return TransferResult(
+                result = TransferResult(
                     name=pp_name,
                     pipeline_type=pipeline_type,
                     components=comp_names,
@@ -400,39 +421,35 @@ class TransferPreprocessingSelector:
                     improvement_pct=improvement_pct,
                     transforms=actual_transforms if actual_transforms else None,
                 )
+                return result, TransferCandidateRecord(pp_name, pipeline_type, "completed", score=float(score))
 
             except Exception as e:
-                self._log(f"  Warning: Failed to evaluate {pp_name}: {e}", level=2)
-                return None
+                return None, TransferCandidateRecord(pp_name, pipeline_type, "failed", exception_type=type(e).__name__, message=str(e))
 
         results: list[TransferResult] = []
+        records: dict[int, TransferCandidateRecord] = {}
 
         # Use sequential execution if n_jobs=1
         if self._effective_n_jobs == 1:
-            for pp_item in pp_items:
+            for index, pp_item in enumerate(pp_items):
                 self._log(f"  Evaluating: {pp_item[0]}", level=2)
-                result = evaluate_single(pp_item)
+                result, records[index] = evaluate_single(pp_item)
                 if result is not None:
                     results.append(result)
         else:
             # Parallel execution with ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=self._effective_n_jobs) as executor:
                 futures = {
-                    executor.submit(evaluate_single, pp_item): pp_item[0]
-                    for pp_item in pp_items
+                    executor.submit(evaluate_single, pp_item): index
+                    for index, pp_item in enumerate(pp_items)
                 }
                 for future in as_completed(futures):
-                    pp_name = futures[future]
-                    try:
-                        result = future.result()
-                        if result is not None:
-                            results.append(result)
-                    except Exception as e:
-                        self._log(
-                            f"  Warning: Failed to evaluate {pp_name}: {e}",
-                            level=2
-                        )
+                    result, records[futures[future]] = future.result()
+                    if result is not None:
+                        results.append(result)
 
+        self.candidate_records_.extend(records[index] for index in range(len(pp_items)))
+        self._require_completed_candidates()
         return results
 
     def _expand_preprocessing_spec(
@@ -608,6 +625,11 @@ class TransferPreprocessingSelector:
             >>> # Using raw arrays
             >>> results = selector.fit(X_train, X_test, y_train)
         """
+        # A failed second fit must never expose a previous successful search.
+        self.results_ = None
+        self.raw_metrics_ = None
+        self.candidate_records_ = []
+
         # Determine calling convention
         if X_target is None:
             # DatasetConfigs mode
@@ -624,141 +646,148 @@ class TransferPreprocessingSelector:
         timing: dict[str, float] = {}
         all_results: list[TransferResult] = []
 
-        # Prepare generator-based preprocessings if enabled
-        if self.use_generator:
-            t0 = time.time()
-            self._prepare_generator_preprocessings()
-            timing["generator"] = time.time() - t0
-
-        # Compute raw baseline metrics
-        self._log("Computing baseline (raw) metrics...")
-        t0 = time.time()
-        self.raw_metrics_ = self.metrics_computer.compute(
-            X_source, X_target, compute_trust=True
-        )
-        raw_metrics_dict = self.raw_metrics_.to_dict()
-        timing["baseline"] = time.time() - t0
-
-        # Stage 1: Single preprocessing evaluation
-        self._log("\n=== Stage 1: Single Preprocessing Evaluation ===")
-        t0 = time.time()
-        stage1_results = self._stage1_single_evaluation(X_source, X_target)
-        timing["stage1"] = time.time() - t0
-        all_results.extend(stage1_results)
-        self._log(
-            f"Stage 1 complete: {len(stage1_results)} preprocessings "
-            f"in {timing['stage1']:.2f}s"
-        )
-
-        # Generator mode: Evaluate pre-generated stacked pipelines
-        gen_stacked_results: list[TransferResult] = []
-        if self.use_generator and self._expanded_stacked:
-            self._log("\n=== Stage 1b: Generator-Based Stacked Evaluation ===")
-            t0 = time.time()
-            gen_stacked_results = self._evaluate_generator_stacked(
-                X_source, X_target
-            )
-            timing["stage1b_gen_stacked"] = time.time() - t0
-            all_results.extend(gen_stacked_results)
-            self._log(
-                f"Stage 1b complete: {len(gen_stacked_results)} generator-stacked "
-                f"in {timing['stage1b_gen_stacked']:.2f}s"
-            )
-
-        # Stage 2: Stacking evaluation
-        if self.run_stage2:
-            if not (self.use_generator and self._expanded_stacked):
-                # Combinatoric mode
-                self._log("\n=== Stage 2: Stacking Evaluation ===")
+        try:
+            # Prepare generator-based preprocessings if enabled
+            if self.use_generator:
                 t0 = time.time()
-                stage2_results = self._stage2_stacking_evaluation(
-                    X_source, X_target, stage1_results
-                )
-                timing["stage2"] = time.time() - t0
-                all_results.extend(stage2_results)
-                self._log(
-                    f"Stage 2 complete: {len(stage2_results)} stacked "
-                    f"in {timing['stage2']:.2f}s"
-                )
-            else:
-                # Generator mode with stage2 enabled: extend with top-K
-                self._log("\n=== Stage 2: Extended Stacking Evaluation ===")
+                self._prepare_generator_preprocessings()
+                timing["generator"] = time.time() - t0
+
+            # Compute raw baseline metrics
+            self._log("Computing baseline (raw) metrics...")
+            t0 = time.time()
+            self.raw_metrics_ = self.metrics_computer.compute(
+                X_source, X_target, compute_trust=True
+            )
+            raw_metrics_dict = self.raw_metrics_.to_dict()
+            timing["baseline"] = time.time() - t0
+
+            # Stage 1: Single preprocessing evaluation
+            self._log("\n=== Stage 1: Single Preprocessing Evaluation ===")
+            t0 = time.time()
+            stage1_results = self._stage1_single_evaluation(X_source, X_target)
+            timing["stage1"] = time.time() - t0
+            all_results.extend(stage1_results)
+            self._log(
+                f"Stage 1 complete: {len(stage1_results)} preprocessings "
+                f"in {timing['stage1']:.2f}s"
+            )
+
+            # Generator mode: Evaluate pre-generated stacked pipelines
+            gen_stacked_results: list[TransferResult] = []
+            if self.use_generator and self._expanded_stacked:
+                self._log("\n=== Stage 1b: Generator-Based Stacked Evaluation ===")
                 t0 = time.time()
-                stage2_results = self._stage2_stacking_evaluation(
-                    X_source, X_target, stage1_results + gen_stacked_results
+                gen_stacked_results = self._evaluate_generator_stacked(
+                    X_source, X_target
                 )
-                timing["stage2"] = time.time() - t0
-                all_results.extend(stage2_results)
+                timing["stage1b_gen_stacked"] = time.time() - t0
+                all_results.extend(gen_stacked_results)
                 self._log(
-                    f"Stage 2 complete: {len(stage2_results)} additional stacked "
-                    f"in {timing['stage2']:.2f}s"
+                    f"Stage 1b complete: {len(gen_stacked_results)} generator-stacked "
+                    f"in {timing['stage1b_gen_stacked']:.2f}s"
                 )
 
-        # Generator mode: Evaluate pre-generated augmentation combinations
-        if self.use_generator and self._expanded_augmented:
-            self._log("\n=== Stage 2b: Generator-Based Augmentation Evaluation ===")
-            t0 = time.time()
-            gen_aug_results = self._evaluate_generator_augmented(
-                X_source, X_target
+            # Stage 2: Stacking evaluation
+            if self.run_stage2:
+                if not (self.use_generator and self._expanded_stacked):
+                    # Combinatoric mode
+                    self._log("\n=== Stage 2: Stacking Evaluation ===")
+                    t0 = time.time()
+                    stage2_results = self._stage2_stacking_evaluation(
+                        X_source, X_target, stage1_results
+                    )
+                    timing["stage2"] = time.time() - t0
+                    all_results.extend(stage2_results)
+                    self._log(
+                        f"Stage 2 complete: {len(stage2_results)} stacked "
+                        f"in {timing['stage2']:.2f}s"
+                    )
+                else:
+                    # Generator mode with stage2 enabled: extend with top-K
+                    self._log("\n=== Stage 2: Extended Stacking Evaluation ===")
+                    t0 = time.time()
+                    stage2_results = self._stage2_stacking_evaluation(
+                        X_source, X_target, stage1_results + gen_stacked_results
+                    )
+                    timing["stage2"] = time.time() - t0
+                    all_results.extend(stage2_results)
+                    self._log(
+                        f"Stage 2 complete: {len(stage2_results)} additional stacked "
+                        f"in {timing['stage2']:.2f}s"
+                    )
+
+            # Generator mode: Evaluate pre-generated augmentation combinations
+            if self.use_generator and self._expanded_augmented:
+                self._log("\n=== Stage 2b: Generator-Based Augmentation Evaluation ===")
+                t0 = time.time()
+                gen_aug_results = self._evaluate_generator_augmented(
+                    X_source, X_target
+                )
+                timing["stage2b_gen_aug"] = time.time() - t0
+                all_results.extend(gen_aug_results)
+                self._log(
+                    f"Stage 2b complete: {len(gen_aug_results)} generator-augmented "
+                    f"in {timing['stage2b_gen_aug']:.2f}s"
+                )
+
+            # Stage 3: Augmentation evaluation
+            if self.run_stage3:
+                self._log("\n=== Stage 3: Augmentation Evaluation ===")
+                t0 = time.time()
+                stage3_results = self._stage3_augmentation_evaluation(
+                    X_source, X_target, all_results
+                )
+                timing["stage3"] = time.time() - t0
+                all_results.extend(stage3_results)
+                self._log(
+                    f"Stage 3 complete: {len(stage3_results)} augmented "
+                    f"in {timing['stage3']:.2f}s"
+                )
+
+            # Stage 4: Supervised validation
+            if self.run_stage4 and y_source is not None:
+                self._log("\n=== Stage 4: Supervised Validation ===")
+                t0 = time.time()
+                all_results = self._stage4_supervised_validation(
+                    X_source, y_source, all_results
+                )
+                timing["stage4"] = time.time() - t0
+                self._log(f"Stage 4 complete in {timing['stage4']:.2f}s")
+
+            self._require_completed_candidates()
+            if not all_results:
+                raise TransferSelectionError("No completed transfer preprocessing candidates available", self.candidate_records_)
+
+            # Sort by transfer score (higher is better)
+            all_results.sort(key=lambda r: r.transfer_score, reverse=True)
+
+            # Create results object
+            self.results_ = TransferSelectionResults(
+                ranking=all_results,
+                raw_metrics=raw_metrics_dict,
+                timing=timing,
+                candidate_records=list(self.candidate_records_),
             )
-            timing["stage2b_gen_aug"] = time.time() - t0
-            all_results.extend(gen_aug_results)
-            self._log(
-                f"Stage 2b complete: {len(gen_aug_results)} generator-augmented "
-                f"in {timing['stage2b_gen_aug']:.2f}s"
-            )
 
-        # Stage 3: Augmentation evaluation
-        if self.run_stage3:
-            self._log("\n=== Stage 3: Augmentation Evaluation ===")
-            t0 = time.time()
-            stage3_results = self._stage3_augmentation_evaluation(
-                X_source, X_target, all_results
-            )
-            timing["stage3"] = time.time() - t0
-            all_results.extend(stage3_results)
-            self._log(
-                f"Stage 3 complete: {len(stage3_results)} augmented "
-                f"in {timing['stage3']:.2f}s"
-            )
+            # Print summary
+            if self.verbose >= 1:
+                self._log("\n" + self.results_.summary())
 
-        # Stage 4: Supervised validation
-        if self.run_stage4 and y_source is not None:
-            self._log("\n=== Stage 4: Supervised Validation ===")
-            t0 = time.time()
-            all_results = self._stage4_supervised_validation(
-                X_source, y_source, all_results
-            )
-            timing["stage4"] = time.time() - t0
-            self._log(f"Stage 4 complete in {timing['stage4']:.2f}s")
+            return self.results_
+        except TransferSelectionError:
+            raise
+        except Exception as error:
+            # Generation and baseline failures also invalidate the search; generic
+            # host continuation policies must not replace this step with raw X.
+            name = str(error.args[0]) if isinstance(error, KeyError) and error.args else "selection"
+            self.candidate_records_.append(TransferCandidateRecord(
+                name, "selection", "failed", stage="selection",
+                exception_type=type(error).__name__, message=str(error),
+            ))
+            self.results_ = None
+            raise TransferSelectionError("Transfer preprocessing selection failed", self.candidate_records_) from error
 
-        # Filter out results with NaN transfer scores (invalid preprocessing results)
-        valid_results = [
-            r for r in all_results
-            if r.transfer_score is not None and not np.isnan(r.transfer_score)
-        ]
-        invalid_count = len(all_results) - len(valid_results)
-        if invalid_count > 0:
-            self._log(
-                f"  Filtered {invalid_count} results with invalid transfer scores"
-            )
-        all_results = valid_results
-
-        # Sort by transfer score (higher is better)
-        all_results.sort(key=lambda r: r.transfer_score, reverse=True)
-
-        # Create results object
-        self.results_ = TransferSelectionResults(
-            ranking=all_results,
-            raw_metrics=raw_metrics_dict,
-            timing=timing,
-        )
-
-        # Print summary
-        if self.verbose >= 1:
-            self._log("\n" + self.results_.summary())
-
-        return self.results_
 
     def _stage1_single_evaluation(
         self,
@@ -1013,126 +1042,92 @@ class TransferPreprocessingSelector:
         n_unique = len(np.unique(y_source))
         is_classification = n_unique < 10
 
+        from importlib.util import find_spec
+
+        unknown_models = set(self.stage4_models) - {"ridge", "pls", "knn", "xgb"}
+        if unknown_models:
+            raise ValueError(f"Unknown transfer validation models: {sorted(unknown_models)}")
+        xgb_available = "xgb" not in self.stage4_models or find_spec("xgboost") is not None
         validated_results = []
 
         for result in candidates:
             self._log(f"  Validating: {result.name}", level=2)
-
             try:
-                # Apply preprocessing to source data
-                X_pp = apply_augmentation(X_source, result.components, self.preprocessings) if result.pipeline_type == "augmented" else apply_stacked_pipeline(X_source, result.name, self.preprocessings)
-
-                # Standardize features
+                if self.use_generator and result.transforms is not None:
+                    X_pp = apply_augmentation(X_source, result.get_transforms(), self.preprocessings) if result.pipeline_type == "augmented" else apply_pipeline(X_source, result.get_transforms())
+                else:
+                    X_pp = apply_augmentation(X_source, result.components, self.preprocessings) if result.pipeline_type == "augmented" else apply_stacked_pipeline(X_source, result.name, self.preprocessings)
                 scaler = StandardScaler()
                 X_scaled = scaler.fit_transform(X_pp)
-
-                # Reduce dimensionality if needed
                 if X_scaled.shape[1] > X_scaled.shape[0]:
                     n_comp = min(50, X_scaled.shape[0] - 1)
                     pca = PCA(n_components=n_comp, random_state=self.random_state)
                     X_scaled = pca.fit_transform(X_scaled)
+            except Exception as error:
+                self.candidate_records_.append(TransferCandidateRecord(
+                    result.name, result.pipeline_type, "failed", stage="validation:preprocessing",
+                    exception_type=type(error).__name__, message=str(error),
+                ))
+                continue
 
-                # Evaluate with proxy models
-                scores = []
+            scores = []
+            for model_name in ("ridge", "pls", "knn", "xgb"):
+                if model_name not in self.stage4_models:
+                    continue
+                stage = f"validation:{model_name}"
+                if model_name == "xgb" and not xgb_available:
+                    self.candidate_records_.append(TransferCandidateRecord(
+                        result.name, result.pipeline_type, "excluded", stage=stage,
+                        reason="Optional xgboost package is not installed (checked before validation)",
+                    ))
+                    continue
+                try:
+                    model: Any
+                    scoring = "r2"
+                    if model_name == "ridge":
+                        model = RidgeCV(alphas=[0.1, 1.0, 10.0, 100.0])
+                    elif model_name == "pls":
+                        n_components = min(10, X_scaled.shape[1], X_scaled.shape[0] - 1)
+                        model = PLSRegression(n_components=n_components)
+                    elif model_name == "knn":
+                        from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 
-                # Ridge regression
-                if "ridge" in self.stage4_models:
-                    try:
-                        ridge = RidgeCV(alphas=[0.1, 1.0, 10.0, 100.0])
-                        cv_scores = cross_val_score(
-                            ridge, X_scaled, y_source,
-                            cv=self.stage4_cv_folds, scoring="r2"
-                        )
-                        scores.append(float(np.clip(np.mean(cv_scores), 0, 1)))
-                    except Exception:
-                        pass
-
-                # PLS regression
-                if "pls" in self.stage4_models:
-                    try:
-                        n_components = min(
-                            10, X_scaled.shape[1], X_scaled.shape[0] - 1
-                        )
-                        pls = PLSRegression(n_components=n_components)
-                        cv_scores = cross_val_score(
-                            pls, X_scaled, y_source,
-                            cv=self.stage4_cv_folds, scoring="r2"
-                        )
-                        scores.append(float(np.clip(np.mean(cv_scores), 0, 1)))
-                    except Exception:
-                        pass
-
-                # KNN (optional)
-                if "knn" in self.stage4_models:
-                    try:
-                        from sklearn.neighbors import (
-                            KNeighborsClassifier,
-                            KNeighborsRegressor,
-                        )
-                        if is_classification:
-                            knn = KNeighborsClassifier(n_neighbors=5)
-                            scoring = "accuracy"
-                        else:
-                            knn = KNeighborsRegressor(n_neighbors=5)
-                            scoring = "r2"
-                        cv_scores = cross_val_score(
-                            knn, X_scaled, y_source,
-                            cv=self.stage4_cv_folds, scoring=scoring
-                        )
-                        scores.append(float(np.clip(np.mean(cv_scores), 0, 1)))
-                    except Exception:
-                        pass
-
-                # XGBoost (optional)
-                if "xgb" in self.stage4_models:
-                    try:
+                        model = KNeighborsClassifier(n_neighbors=5) if is_classification else KNeighborsRegressor(n_neighbors=5)
+                        scoring = "accuracy" if is_classification else "r2"
+                    else:
                         from xgboost import XGBClassifier, XGBRegressor
-                        if is_classification:
-                            xgb = XGBClassifier(
-                                n_estimators=50, max_depth=3,
-                                verbosity=0, n_jobs=1,
-                                random_state=self.random_state
-                            )
-                            scoring = "accuracy"
-                        else:
-                            xgb = XGBRegressor(
-                                n_estimators=50, max_depth=3,
-                                verbosity=0, n_jobs=1,
-                                random_state=self.random_state
-                            )
-                            scoring = "r2"
-                        cv_scores = cross_val_score(
-                            xgb, X_scaled, y_source,
-                            cv=self.stage4_cv_folds, scoring=scoring
-                        )
-                        scores.append(float(np.clip(np.mean(cv_scores), 0, 1)))
-                    except ImportError:
-                        pass
-                    except Exception:
-                        pass
 
-                # Compute composite signal score
-                signal_score = float(np.mean(scores)) if scores else 0.0
+                        model_class = XGBClassifier if is_classification else XGBRegressor
+                        model = model_class(n_estimators=50, max_depth=3, verbosity=0, n_jobs=1, random_state=self.random_state)
+                        scoring = "accuracy" if is_classification else "r2"
+                    cv_scores = cross_val_score(
+                        model, X_scaled, y_source, cv=self.stage4_cv_folds, scoring=scoring, error_score="raise",
+                    )
+                    if not np.all(np.isfinite(cv_scores)):
+                        self.candidate_records_.append(TransferCandidateRecord(
+                            result.name, result.pipeline_type, "non_finite", stage=stage,
+                            message=f"validation scores are {cv_scores.tolist()!r}",
+                        ))
+                        continue
+                    score = float(np.clip(np.mean(cv_scores), 0, 1))
+                    scores.append(score)
+                    self.candidate_records_.append(TransferCandidateRecord(
+                        result.name, result.pipeline_type, "completed", stage=stage, score=score,
+                    ))
+                except Exception as error:
+                    self.candidate_records_.append(TransferCandidateRecord(
+                        result.name, result.pipeline_type, "failed", stage=stage,
+                        exception_type=type(error).__name__, message=str(error),
+                    ))
 
-                # Create updated result with signal score
-                validated_result = TransferResult(
-                    name=result.name,
-                    pipeline_type=result.pipeline_type,
-                    components=result.components,
-                    transfer_score=result.transfer_score,
-                    metrics=result.metrics,
-                    improvement_pct=result.improvement_pct,
-                    signal_score=signal_score,
-                    transforms=result.transforms,
-                )
-                validated_results.append(validated_result)
+            signal_score = float(np.mean(scores)) if scores else 0.0
+            validated_results.append(TransferResult(
+                name=result.name, pipeline_type=result.pipeline_type, components=result.components,
+                transfer_score=result.transfer_score, metrics=result.metrics, improvement_pct=result.improvement_pct,
+                signal_score=signal_score, transforms=result.transforms,
+            ))
 
-            except Exception as e:
-                self._log(
-                    f"  Warning: Failed to validate {result.name}: {e}",
-                    level=2
-                )
-                validated_results.append(result)
+        self._require_completed_candidates()
 
         # Add remaining non-validated results
         non_validated = sorted_results[top_k:]

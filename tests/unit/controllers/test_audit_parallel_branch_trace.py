@@ -1,6 +1,7 @@
 """Parallel workers retain isolated runtimes, strict traces and replayable models."""
 
 import copy
+import json
 import threading
 
 import numpy as np
@@ -89,7 +90,10 @@ def test_tuple_and_transform_workers_have_single_active_trace_owner(tmp_path, pa
     dataset = _dataset()
     raw = dataset.x({}).copy()
     train = dataset.x({"partition": "train"}).copy()
-    expected = [np.hstack([StandardScaler().fit(train).transform(raw), PCA(2).fit(train).transform(raw)]),
+    # Concat components use double working precision, then the declared float32
+    # feature storage; the independent ordinary scaler branch keeps its dtype.
+    concat_train, concat_raw = train.astype(np.float64), raw.astype(np.float64)
+    expected = [np.hstack([StandardScaler().fit(concat_train).transform(concat_raw), PCA(2).fit(concat_train).transform(concat_raw)]).astype(np.float32),
                 StandardScaler().fit(train).transform(raw)]
     registry = ArtifactRegistry(tmp_path, dataset.name, pipeline_id="parallel_trace")
     recorder = TraceRecorder(pipeline_uid="parallel_trace")
@@ -172,6 +176,17 @@ def test_parallel_supervised_models_match_fold_oracles_and_archive(tmp_path, par
         archive = result.export(tmp_path / "parallel.n4a")
         replay = nirs4all.predict(archive, X[24:], engine="legacy", verbose=0)
         np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-5, atol=1e-6)
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        with WorkspaceStore(tmp_path / "workspace") as store:
+            chains = store.get_chains_for_pipeline(result.best["pipeline_uid"]).to_dicts()
+            if refit:
+                assert len(chains) == 1  # Standalone refit flattens only the selected branch.
+                chain = chains[0]
+                assert result.best["model_artifact_id"] in json.loads(chain["fold_artifacts"]).values()
+            else:
+                chain = next(item for item in chains if item["branch_path"] == f"[{best_branch}]")
+            np.testing.assert_allclose(store.replay_chain(chain["chain_id"], X[24:]), expected, rtol=1e-5, atol=1e-6)
 
 
 @pytest.mark.parametrize("parallel", [False, True])

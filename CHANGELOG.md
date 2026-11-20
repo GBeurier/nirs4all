@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] — 2026-11-19
+
+### Changed
+
+- Adopt the Methods 1.5 series (ABI 2.24) and matching `pls4all` distribution
+  across base/native requirements, installed-package checks and Docker inputs.
+  This explicit native-cohort transition carries the owner's corrected weak
+  Preflight PCA scores, its previously released autoscaling correction and
+  exact zero endpoints for odd Savitzky-Golay derivatives in mirror mode.
+  Existing Methods-backed numerical outputs can consequently change; wide
+  Preflight PCA requests also account for projection work at admission.
+- Qualify the native aggregate with DAG-ML 0.5.0 and Core 0.6.0. The supported
+  dependency ranges remain limited to one tested minor series.
+- Automatic transfer preprocessing selection fails on every unexpected candidate
+  exception or non-finite score, including supervised validation. Results retain
+  every candidate outcome; declared pre-computation applicability exclusions are
+  explicit. Recommendations and archived run metadata preserve these records,
+  and incomplete searches cannot produce automatic pipelines.
+- Require Methods/pls4all 1.5.1, whose Python binding fixes concurrent first
+  imports of transform modules without changing numerical kernels or ABI.
+  Preserve serialized preprocessing constructor parameters before selection;
+  unresolved generator combinations and recommendation application failures
+  refuse explicitly, including with generic continuation or refit policies.
+
+### Fixed
+
+- Fit and evaluate concatenated transforms with at least float64 working
+  precision before the existing feature-storage conversion. This prevents
+  float32 PCA/SVD batch-size and serialized-array-layout rounding from changing
+  saved PLS/META predictions when held-out samples are replayed separately;
+  constructor parameters and data partitions retain their declared contracts.
+- Capture complete sequential MetaModel CV and standalone FINAL raw-input
+  dependencies with exact fitted fold identities, declared TEST aggregation,
+  probabilities and sample IDs. Probability TEST reconstruction now uses the
+  declared probability features instead of a precomputed hard-label average.
+  Incomplete branch/merge CV bundles continue to refuse explicitly.
+- Refuse incomplete cross-validation meta-model bundles before export or prediction.
+  Supported final stacking refits now capture their complete Python-host raw-input
+  dependency graph: fitted feature paths and inverse target scaling, original
+  columns, named branches, ordered models and validation-selected models/weights.
+  Persist and reload this closure without fitting or accessing the source workspace;
+  associate every prediction with its exact fitted model chain. These trusted
+  Python-host bundles do not imply native or Web portability; captured closures
+  export as `.n4a`, with unsupported standalone Python-script export refused.
+- Keep binary positive-class and multiclass probability columns through declared
+  global/per-branch merges and MetaModel final refits. Capture the final
+  classifier's probabilities, numeric classes and original target vocabulary;
+  detect its task from training predictions during final refit, preserving the
+  existing validation-only detection during cross-validation.
+
 ## [1.5.0] — 2026-11-19
 
 ### Changed

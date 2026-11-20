@@ -8,7 +8,6 @@ import json
 import os
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -111,7 +110,7 @@ def _oracle(dataset: dict[str, Any], library: str, tmp_path: Path, *, train: dic
     result = json.loads(completed.stdout)
     assert result["library"] == library
     # Qualified public Methods wheels retain their exact native version and ABI.
-    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0", "1.3.2+abi.2.17.0", "1.3.4+abi.2.17.0"}
+    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0", "1.3.2+abi.2.17.0", "1.3.4+abi.2.17.0", "1.5.1+abi.2.24.0"}
     return result
 
 
@@ -158,10 +157,12 @@ def _inspect(archive: Path, library: str, expected: dict[str, Any], *, steps: in
         smooth_params = model["steps"][1]["params"]
         assert smooth_params["window_length"] == 5 and smooth_params["polyorder"] == 2
         assert smooth_params["deriv"] == 0 and smooth_params["mode"] == "interp"
-    with zipfile.ZipFile(archive) as container:
-        manifest = json.loads(container.read("manifest.json"))
-    assert len(manifest["payloads"]["methods"]["role_pipelines"]) == 1
-    assert not manifest["payloads"]["methods"].get("n4mm")
+    package = nirs4all.read_portable_predictor_archive_v2(archive).to_dict()
+    bundle = package["execution_bundle"]
+    assert len(bundle["refit_artifacts"]) == 1
+    artifact = bundle["refit_artifacts"][0]["artifact"]
+    assert artifact["kind"] == "methods_role_pipeline" and artifact["backend"] == "raw"
+    assert set(bundle["raw_artifact_payloads"]) == {artifact["id"]}
     return inspection
 
 
@@ -366,10 +367,12 @@ def test_historical_default_archive_remains_n4mm(library: str, tmp_path: Path) -
 
     with nirs4all.run(_pipeline(), _dataset(), engine="native", save_charts=False, verbose=0, methods_library_path=library) as result:
         archive = result.export(tmp_path / "historical-profile.n4a")
-    with zipfile.ZipFile(archive) as container:
-        manifest = json.loads(container.read("manifest.json"))
-    assert len(manifest["payloads"]["methods"]["n4mm"]) == 1
-    assert not manifest["payloads"]["methods"].get("role_pipelines")
+    package = nirs4all.read_portable_predictor_archive_v2(archive).to_dict()
+    bundle = package["execution_bundle"]
+    assert len(bundle["refit_artifacts"]) == 1
+    artifact = bundle["refit_artifacts"][0]["artifact"]
+    assert artifact["kind"] == "n4m_model" and artifact["backend"] == "raw"
+    assert set(bundle["raw_artifact_payloads"]) == {artifact["id"]}
 
 
 def test_detached_predictor_uses_saved_state_after_training_arrays_are_gone(library: str, tmp_path: Path) -> None:

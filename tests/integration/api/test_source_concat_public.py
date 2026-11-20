@@ -28,13 +28,12 @@ def test_source_merge_matches_independent_fold_local_oracle(tmp_path, merge, mon
         for train, validation in KFold(3).split(X):
             first = StandardScaler().fit(X[train, :3])
             second = MinMaxScaler().fit(X[train, 3:])
-            # The historical source merge replaces source 0 with the merged
-            # block while retaining source 1. Preserve that published V1
-            # contract here; changing the model design matrix is a separate fix.
+            # SDK 1.6 concatenates each declared source exactly once. Historical
+            # retained-tail fitted wrappers have a separate explicit True test.
             train_second = second.transform(X[train, 3:])
             val_second = second.transform(X[validation, 3:])
-            model = Ridge().fit(np.hstack([first.transform(X[train, :3]), train_second, train_second]), y[train])
-            predicted = model.predict(np.hstack([first.transform(X[validation, :3]), val_second, val_second]))
+            model = Ridge().fit(np.hstack([first.transform(X[train, :3]), train_second]), y[train])
+            predicted = model.predict(np.hstack([first.transform(X[validation, :3]), val_second]))
             expected_errors.extend((predicted - y[validation]) ** 2)
         assert result.execution_engine == "dag-ml"
         # cv_best's avg entry scores the pooled OOF rows, not a mean of RMSEs.
@@ -43,18 +42,52 @@ def test_source_merge_matches_independent_fold_local_oracle(tmp_path, merge, mon
         archive = result.export(tmp_path / "sources.n4a")
         first, second = StandardScaler().fit(X[:, :3]), MinMaxScaler().fit(X[:, 3:])
         second_block = second.transform(X[:, 3:])
-        final_X = np.hstack([first.transform(X[:, :3]), second_block, second_block])
+        final_X = np.hstack([first.transform(X[:, :3]), second_block])
         final_model = Ridge().fit(final_X, y)
         expected_final = final_model.predict(final_X)
         predicted_final = nirs4all.predict(archive, dataset, verbose=0)
         np.testing.assert_allclose(np.asarray(predicted_final.y_pred).ravel(), expected_final, rtol=1e-5, atol=1e-6)
         unseen_X = np.random.default_rng(83).normal(size=(7, 8)).astype(np.float32)
         unseen_second = second.transform(unseen_X[:, 3:])
-        expected_unseen = final_model.predict(np.hstack([first.transform(unseen_X[:, :3]), unseen_second, unseen_second]))
+        expected_unseen = final_model.predict(np.hstack([first.transform(unseen_X[:, :3]), unseen_second]))
         predicted_unseen = nirs4all.predict(archive, unseen_X, verbose=0)
         np.testing.assert_allclose(np.asarray(predicted_unseen.y_pred).ravel(), expected_unseen, rtol=1e-5, atol=1e-6)
     finally:
         result.close()
+
+
+def test_historical_retained_source_wrapper_keeps_thirteen_column_oracle(tmp_path):
+    """Previously fitted True wrappers retain the explicit historical design."""
+    import joblib
+
+    from nirs4all.pipeline.dagml.node_runner import _SourceConcatEstimator
+
+    X = np.random.default_rng(82).normal(size=(36, 8)).astype(np.float32)
+    y = 2.5 * X[:, 0] - X[:, 7] + np.arange(36) * 0.001
+    for train, validation in KFold(3).split(X):
+        first, second = StandardScaler().fit(X[train, :3]), MinMaxScaler().fit(X[train, 3:])
+        train_second, val_second = second.transform(X[train, 3:]), second.transform(X[validation, 3:])
+        model = Ridge().fit(np.hstack([first.transform(X[train, :3]), train_second, train_second]), y[train])
+        expected = model.predict(np.hstack([first.transform(X[validation, :3]), val_second, val_second]))
+        old = _SourceConcatEstimator(Ridge(), [[StandardScaler()], [MinMaxScaler()]], preserve_legacy_sources_after_merge=True)
+        old.fit([X[train, :3], X[train, 3:]], y[train])
+        assert old._model.n_features_in_ == 13
+        np.testing.assert_allclose(old.predict(X[validation]), expected, rtol=1e-5, atol=1e-6)
+    first, second = StandardScaler().fit(X[:, :3]), MinMaxScaler().fit(X[:, 3:])
+    second_block = second.transform(X[:, 3:])
+    model = Ridge().fit(np.hstack([first.transform(X[:, :3]), second_block, second_block]), y)
+    old = _SourceConcatEstimator(Ridge(), [[StandardScaler()], [MinMaxScaler()]], preserve_legacy_sources_after_merge=True)
+    old.fit([X[:, :3], X[:, 3:]], y)
+    archive = tmp_path / "historical-thirteen-columns.joblib"
+    joblib.dump(old, archive)
+    restored = joblib.load(archive)
+    assert restored._preserve_legacy_sources_after_merge is True
+    assert restored._model.n_features_in_ == 13
+    np.testing.assert_allclose(restored.predict(X), model.predict(np.hstack([first.transform(X[:, :3]), second_block, second_block])), rtol=1e-5, atol=1e-6)
+    unseen = np.random.default_rng(83).normal(size=(7, 8)).astype(np.float32)
+    unseen_second = second.transform(unseen[:, 3:])
+    expected_unseen = model.predict(np.hstack([first.transform(unseen[:, :3]), unseen_second, unseen_second]))
+    np.testing.assert_allclose(restored.predict(unseen), expected_unseen, rtol=1e-5, atol=1e-6)
 
 
 def test_source_merge_does_not_admit_extra_unconsumed_options_or_row_separation():
