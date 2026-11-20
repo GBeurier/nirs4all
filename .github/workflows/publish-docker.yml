@@ -79,6 +79,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         ref: ${{ needs.release-preflight.outputs.tag_sha }}
+        persist-credentials: false
     - name: Verify Docker source tag
       shell: bash
       env:
