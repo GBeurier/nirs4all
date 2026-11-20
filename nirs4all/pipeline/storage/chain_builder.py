@@ -144,6 +144,23 @@ class ChainBuilder:
                 model_step.branch_path,
             )
 
+            # The raw-input closure is an independently persisted fitted object,
+            # linked by the exact numerical model ID, never by a model name.
+            if self._artifact_registry is not None:
+                for model_id in fold_artifacts.values():
+                    original = self._artifact_registry.resolve(model_id)
+                    if original is None:
+                        continue
+                    candidates = self._artifact_registry.get_artifacts_for_step(
+                        original.pipeline_id, original.step_index, original.branch_path,
+                    )
+                    closures = [record.artifact_id for record in candidates
+                                if record.params.get("raw_input_closure_for") == model_id]
+                    if len(closures) > 1:
+                        raise ValueError(f"Multiple raw-input closures for fitted model {model_id!r}")
+                    if closures:
+                        shared_artifacts["_raw_input_predictor"] = closures
+
             chains.append({
                 "steps": chain_steps,
                 "model_step_idx": model_step.step_index,

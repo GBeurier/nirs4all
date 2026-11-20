@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -470,6 +470,7 @@ class _StackingPrep:
     prev_refit_fold_id: Any
     prev_refit_context_name: Any
     refit_pipeline_name: str
+    fitted_branch_nodes: dict[int, Any] = field(default_factory=dict)
 
 
 def _prepare_stacking_refit(
@@ -674,6 +675,7 @@ def _refit_nested_stacking_branch(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
+        capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
     )
 
     try:
@@ -718,6 +720,9 @@ def _refit_nested_stacking_branch(
             base_features_list.append(in_sample)
         else:
             base_predictions_list.append(in_sample)
+        selected = next(row for row in nested_predictions.iter_entries()
+                        if row.get("partition") == "train" and (row.get("metadata") or {}).get("stacking_role") == "meta_model")
+        prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
 
     if nested_predictions.num_predictions > 0:
         prediction_store.merge_predictions(
@@ -803,6 +808,7 @@ def _refit_base_branch(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
+        capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
     )
 
     try:
@@ -833,6 +839,8 @@ def _refit_base_branch(
             base_features_list.append(in_sample_preds)
         else:
             base_predictions_list.append(in_sample_preds)
+        selected = next(row for row in branch_predictions.iter_entries() if row.get("partition") == "train")
+        prep.fitted_branch_nodes[branch_i] = runtime_context.fitted_predictors[selected["model_artifact_id"]]
 
     # Merge branch predictions into the main store
     if branch_predictions.num_predictions > 0:
@@ -967,6 +975,7 @@ def _train_stacking_meta_model(
 
     # Build meta-feature matrix (Task 3.4: combine features + predictions)
     all_meta_features = base_predictions_list + base_features_list
+    fitted_nodes = [prep.fitted_branch_nodes[index] for index in sorted(prep.fitted_branch_nodes)]
     merge_config = prep.merge_step.get("merge") if prep.merge_step else None
     if isinstance(merge_config, dict) and merge_config.get("include_original", False):
         # Match CV: originals are the train-only features at the branch entry,
@@ -982,6 +991,7 @@ def _train_stacking_meta_model(
             refit_fold_id="final",
             refit_context_name=REFIT_CONTEXT_STACKING,
             random_state=runtime_context.random_state,
+            capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
         )
         executor.execute(
             steps=_replace_splitter(copy.deepcopy(prep.pre_branch_steps), original_dataset),
@@ -993,6 +1003,7 @@ def _train_stacking_meta_model(
             generator_choices=refit_config.generator_choices,
         )
         all_meta_features.insert(0, np.asarray(original_dataset.x({"partition": "train"}, layout="2d")))
+        fitted_nodes.insert(0, original_runtime.fitted_feature_output)
     if not all_meta_features:
         logger.warning("No base model predictions collected. Cannot train meta-model.")
         result.success = False
@@ -1020,6 +1031,9 @@ def _train_stacking_meta_model(
     # Create a synthetic dataset with meta-features
     meta_dataset = _create_meta_dataset(meta_X, prep.refit_dataset)
     meta_context = executor.initialize_context(meta_dataset)
+    from nirs4all.pipeline.execution.fitted import FittedNode
+
+    meta_context.custom["_fitted_input"] = FittedNode("concat", tuple(fitted_nodes), meta_dataset.x(meta_context.selector, layout="2d").dtype)
 
     meta_runtime = RuntimeContext(
         store=runtime_context.store,
@@ -1031,6 +1045,7 @@ def _train_stacking_meta_model(
         refit_fold_id="final",
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
+        capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
     )
 
     try:
@@ -1091,6 +1106,8 @@ def _execute_structured_stacking_refit(
     _inject_best_params(steps, refit_config.best_params)
     steps = _replace_splitter(steps, refit_dataset)
     predictions = Predictions()
+    previous_capture = runtime_context.capture_fitted_predictor
+    runtime_context.capture_fitted_predictor = True
     previous_selection = runtime_context.refit_selection_predictions
     previous_pipeline = runtime_context.refit_selection_pipeline_id
     runtime_context.refit_selection_predictions = prediction_store
@@ -1124,6 +1141,7 @@ def _execute_structured_stacking_refit(
             test_score=meta_test.get("test_score") if meta_test else None,
         )
     finally:
+        runtime_context.capture_fitted_predictor = previous_capture
         runtime_context.refit_selection_predictions = previous_selection
         runtime_context.refit_selection_pipeline_id = previous_pipeline
         runtime_context.phase = ExecutionPhase.CV

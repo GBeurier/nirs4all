@@ -3044,6 +3044,29 @@ class WorkspaceStore:
     # Export operations (produce files on demand)
     # =====================================================================
 
+    def get_raw_input_predictor(self, chain_id: str) -> Any | None:
+        """Load an exact, persisted FINAL Python-host dependency closure.
+
+        A metadata claim is insufficient: the referenced artifact must contain
+        the actual fitted predictor and identify this chain's numerical model.
+        """
+        from nirs4all.pipeline.execution.fitted import FittedPredictor
+
+        chain = self.get_chain(chain_id)
+        if chain is None:
+            raise KeyError(f"Chain not found: {chain_id}")
+        references = (chain.get("shared_artifacts") or {}).get("_raw_input_predictor")
+        if not references:
+            return None
+        folds = chain.get("fold_artifacts") or {}
+        model_id = folds.get("fold_final") or folds.get("final")
+        if not model_id or not isinstance(references, list) or len(references) != 1:
+            raise ValueError("Raw-input fitted closure requires one exact FINAL model and predictor")
+        predictor = self.load_artifact(references[0])
+        if not isinstance(predictor, FittedPredictor) or predictor.root.artifact_id != model_id:
+            raise ValueError("Raw-input fitted closure does not match the selected FINAL model")
+        return predictor
+
     def _validate_chain_export(self, chain_id: str) -> None:
         """Reject legacy stacking chains without an ordered raw-input closure."""
         from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
@@ -3051,6 +3074,8 @@ class WorkspaceStore:
         chain = self.get_chain(chain_id)
         if chain is None:
             raise KeyError(f"Chain not found: {chain_id}")
+        if self.get_raw_input_predictor(chain_id) is not None:
+            return
         pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") or []
         steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
@@ -3107,6 +3132,24 @@ class WorkspaceStore:
         from nirs4all.pipeline.dagml.host_container import write_host_container
 
         self._validate_chain_export(chain_id)
+        predictor = self.get_raw_input_predictor(chain_id)
+        if predictor is not None:
+            if format != "n4a":
+                raise NotImplementedError("Captured FINAL Python-host dependency closures export as n4a bundles")
+            if relation_replay_manifest is not None:
+                raise NotImplementedError("Captured FINAL Python-host dependency closures do not support relational replay")
+            from nirs4all.pipeline.bundle.generator import write_single_model_bundle
+
+            chain = self.get_chain(chain_id)
+            assert chain is not None
+            pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
+            expanded = pipeline.get("expanded_config") or []
+            train_steps = expanded.get("steps", []) if isinstance(expanded, dict) else expanded
+            return write_single_model_bundle(
+                predictor, output_path, model_label="FittedPredictor", pipeline_uid=chain["pipeline_id"],
+                preprocessing_chain=chain.get("preprocessings", ""), train_steps=train_steps,
+                provenance={"execution_profile": predictor.profile, "origin_chain_id": chain_id},
+            )
         if format == "n4a.py":
             if relation_replay_manifest is not None:
                 raise ValueError("Relational replay manifests require the n4a archive format")
@@ -3166,7 +3209,7 @@ class WorkspaceStore:
                 fold = str(fold_id).removeprefix("fold_")
                 artifact_names[f"step_{chain['model_step_idx']}_fold{fold}"] = aid
 
-        pipeline = self.get_pipeline(chain["pipeline_id"])
+        pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") if pipeline else None
         pipeline_config = expanded if isinstance(expanded, dict) else {"steps": expanded or []}
 
@@ -3666,7 +3709,7 @@ class WorkspaceStore:
         if not isinstance(shared_artifacts, dict):
             return
         for key, value in shared_artifacts.items():
-            if str(key).startswith("_"):
+            if str(key).startswith("_") and key != "_raw_input_predictor":
                 # Metadata key, e.g. "_source_map"
                 continue
             if isinstance(value, list):
@@ -4006,6 +4049,9 @@ class WorkspaceStore:
             RuntimeError: If the chain has no model step.
         """
         self._validate_chain_export(chain_id)
+        predictor = self.get_raw_input_predictor(chain_id)
+        if predictor is not None:
+            return cast(np.ndarray, predictor.predict(X))
         chain = self.get_chain(chain_id)
         assert chain is not None
 
@@ -4014,7 +4060,7 @@ class WorkspaceStore:
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
 
-        pipeline = self.get_pipeline(chain["pipeline_id"])
+        pipeline = self.get_pipeline(chain["pipeline_id"]) or {}
         expanded = pipeline.get("expanded_config") if pipeline else None
         configured_steps = expanded.get("steps", []) if isinstance(expanded, dict) else (expanded or [])
         target_steps = {idx + 1 for idx, config in enumerate(configured_steps)
@@ -4171,7 +4217,7 @@ class WorkspaceStore:
         if isinstance(shared_artifacts, dict):
             for key, v in shared_artifacts.items():
                 # Metadata keys (e.g. "_source_map") carry dict payloads, not artifact IDs.
-                if str(key).startswith("_"):
+                if str(key).startswith("_") and key != "_raw_input_predictor":
                     continue
                 if isinstance(v, list):
                     for aid in v:

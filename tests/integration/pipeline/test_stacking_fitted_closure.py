@@ -1,0 +1,83 @@
+"""FINAL Python-host bundles retain the fitted raw-input dependency closure."""
+
+import json
+import os
+import subprocess
+import sys
+
+import numpy as np
+import pytest
+from sklearn.decomposition import PCA
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import StandardScaler
+
+import nirs4all
+from nirs4all.pipeline.bundle import BundleLoader
+from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_final_closure_reopens_and_predicts_cold_without_workspace_or_fit(tmp_path, mixed):
+    rng = np.random.default_rng(29)
+    x = rng.normal(size=(30, 5)).astype(np.float32)
+    y = (x @ np.arange(1., 6.) + rng.normal(scale=.1, size=30)).astype(np.float32)
+    data = {"train_x": x[:24], "train_y": y[:24], "test_x": x[24:], "test_y": y[24:]}
+    branches = {"second": [StandardScaler(), {"model": Ridge(alpha=.5), "name": "A"}],
+                "first": [{"model": Ridge(alpha=2.), "name": "B"}, PCA(n_components=2),
+                          {"model": Ridge(alpha=1.), "name": "C"}]}
+    if not mixed:
+        branches["first"] = [{"model": Ridge(alpha=2.), "name": "B"}]
+    merge = {"predictions": [{"branch": 1, "select": "best", "metric": "rmse"}, {"branch": 0}],
+             "features": [1], "include_original": True} if mixed else {"predictions": [0, 1], "include_original": True}
+    steps = [StandardScaler(), KFold(3, shuffle=True, random_state=42), {"branch": branches},
+             {"merge": merge}, {"model": Ridge(alpha=.1), "name": "FINAL"}]
+    workspace = tmp_path / "workspace"
+    with nirs4all.run(steps, data, engine="legacy", refit=True, workspace_path=workspace,
+                      save_charts=False, save_artifacts=True, verbose=0) as result:
+        rows = [row for row in result.predictions.iter_entries()
+                if str(row["fold_id"]) == "final" and row["model_name"] == "FINAL"]
+        train = next(row for row in rows if row["partition"] == "train")
+        test = next((row for row in rows if row["partition"] == "test"), None)
+        expected = np.asarray(train["y_pred"]).reshape(-1)
+        raw_x = x[:24]
+        if test is not None:
+            expected = np.concatenate([expected, np.asarray(test["y_pred"]).reshape(-1)])
+            raw_x = x
+        model_id = train["model_artifact_id"]
+    # Reopen after run cleanup: no registry or in-memory graph can fill gaps.
+    with WorkspaceStore(workspace) as store:
+        chains = store.get_chains_for_pipeline(train["pipeline_uid"])
+        chain_id = next(row["chain_id"] for row in chains.iter_rows(named=True)
+                        if model_id in json.loads(row["fold_artifacts"]).values())
+        np.testing.assert_allclose(store.replay_chain(chain_id, raw_x), expected, rtol=1e-5, atol=1e-5)
+        bundle = store.export_chain(chain_id, tmp_path / "final.n4a")
+    with BundleLoader(bundle) as loader:
+        np.testing.assert_allclose(loader.predict(raw_x), expected, rtol=1e-5, atol=1e-5)
+    np.save(tmp_path / "raw.npy", raw_x)
+    np.save(tmp_path / "expected.npy", expected)
+    probe = r'''
+import pathlib, sys
+import numpy as np
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from nirs4all.pipeline.bundle import BundleLoader
+blocked = pathlib.Path(sys.argv[1]).resolve()
+def audit(event, args):
+    if event == 'open' and isinstance(args[0], (str, bytes)):
+        path = pathlib.Path(args[0]).resolve()
+        if path == blocked or blocked in path.parents:
+            raise AssertionError('Cold prediction accessed its source workspace')
+sys.addaudithook(audit)
+def no_fit(*args, **kwargs):
+    raise AssertionError('Cold prediction attempted to fit')
+for cls in (Ridge, StandardScaler, PCA):
+    cls.fit = no_fit
+with BundleLoader(sys.argv[2]) as loader:
+    actual = loader.predict(np.load(sys.argv[3]))
+np.testing.assert_allclose(actual, np.load(sys.argv[4]), rtol=1e-5, atol=1e-5)
+'''
+    completed = subprocess.run([sys.executable, "-c", probe, str(workspace), str(bundle), str(tmp_path / "raw.npy"),
+                                str(tmp_path / "expected.npy")], cwd=tmp_path, env=os.environ.copy(), capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stdout + completed.stderr

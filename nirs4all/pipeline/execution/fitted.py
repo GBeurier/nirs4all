@@ -167,7 +167,7 @@ def capture_fitted_step(
             raise ValueError("Final fitted stacking capture has no declared merge inputs")
         node = FittedNode("concat", tuple(blocks), np.asarray(dataset.x(after.selector, layout="2d")).dtype)
     for record in records:
-        if not is_model or record.artifact_type != ArtifactType.MODEL:
+        if not is_model or record.artifact_type not in (ArtifactType.MODEL, ArtifactType.META_MODEL):
             continue
         model_input = input_node
         if is_meta:
