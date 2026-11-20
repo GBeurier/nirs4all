@@ -573,6 +573,15 @@ class BundleLoader:
         names = container.namelist()
         if "pipeline.json" in names:
             self.pipeline_config = container.read_json("pipeline.json")
+        # Refuse old partial legacy meta bundles before loading any fitted
+        # artifacts. Native host models use the separately verified general
+        # archive contract in BundleArtifactProvider._load_artifact.
+        if manifest_data.get("source_type") != "dagml_native":
+            from nirs4all.pipeline.analysis.topology import require_legacy_raw_input_closure
+
+            require_legacy_raw_input_closure(
+                self.pipeline_config.get("steps", []), self.metadata.model_step_index, manifest_data,
+            )
         # The captured training declaration is distinct from the prediction label.
         if "train_pipeline.json" in names:
             self.train_pipeline_config = container.read_json("train_pipeline.json")

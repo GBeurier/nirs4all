@@ -315,8 +315,31 @@ Combine original features with stacked predictions:
 The meta-model sees both base predictions AND original features.
 """)
 
-# Skip this example as it uses advanced merge syntax
-print("(Skipped - advanced merge syntax demonstration)")
+pipeline_augmented_stacking = [
+    MinMaxScaler(),
+    KFold(n_splits=3, shuffle=True, random_state=42),
+    {"branch": {
+        "pls": [SNV(), PLSRegression(n_components=5)],
+        "rf": [RandomForestRegressor(n_estimators=50, random_state=42)],
+    }},
+    {"merge": {"predictions": [0, 1], "include_original": True}},
+    {"model": Ridge(alpha=0.1), "name": "AugmentedMeta"},
+]
+result_augmented = nirs4all.run(
+    engine="legacy",
+    pipeline=pipeline_augmented_stacking,
+    dataset="sample_data/regression",
+    name="OriginalFeaturesStacking",
+    verbose=1,
+    save_charts=args.plots or args.show,
+    plots_visible=args.show,
+)
+augmented_meta = [entry for entry in result_augmented.predictions.iter_entries()
+                  if entry.get("model_name") == "AugmentedMeta"]
+assert augmented_meta
+assert any(str(entry.get("fold_id")) == "final" for entry in augmented_meta)
+assert all(entry.get("n_features") == augmented_meta[0]["n_features"] for entry in augmented_meta)
+print(f"Augmented meta-model: {augmented_meta[0]['n_features']} features; CV and final refit executed")
 
 # =============================================================================
 # Section 7: Multi-Dataset Stacking Concept

@@ -12,9 +12,9 @@ into a feature matrix, train the meta-model on that matrix, evaluate on
 the test set (if available), and persist the result with
 ``fold_id="final"`` and ``refit_context="stacking"``.
 
-This module also handles *mixed merge* pipelines (Task 3.4) where some
-branches contribute features and others contribute predictions, as well
-as GPU-aware serialization (Task 3.5) to avoid OOM when multiple GPU
+The qualified refit profile uses every branch prediction in declared order,
+with optional original pre-branch features. Other merge contracts are refused
+before fitting. GPU-aware serialization (Task 3.5) avoids OOM when multiple GPU
 models are refit concurrently.
 """
 
@@ -30,6 +30,7 @@ import numpy as np
 from nirs4all.core.logging import get_logger
 from nirs4all.core.metrics import infer_ascending as _infer_ascending_for_metric
 from nirs4all.pipeline.analysis.topology import PipelineTopology
+from nirs4all.pipeline.config.component_serialization import deserialize_component
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
 from nirs4all.pipeline.execution.refit.executor import (
@@ -258,8 +259,9 @@ def _extract_model_from_steps(steps: list[Any]) -> Any:
     for step in steps:
         if isinstance(step, dict) and "model" in step:
             return step["model"]
-        if not isinstance(step, dict) and hasattr(step, "fit") and hasattr(step, "predict") and not _step_is_splitter(step):
-            return step
+        component = deserialize_component(step) if isinstance(step, str) or (isinstance(step, dict) and "class" in step) else step
+        if not isinstance(component, dict) and hasattr(component, "fit") and hasattr(component, "predict") and not _step_is_splitter(component):
+            return component
     return None
 
 def _extract_preprocessing_from_branch(branch_steps: list[Any]) -> list[Any]:
@@ -278,7 +280,8 @@ def _extract_preprocessing_from_branch(branch_steps: list[Any]) -> list[Any]:
     for step in branch_steps:
         if isinstance(step, dict) and "model" in step:
             continue
-        if not isinstance(step, dict) and hasattr(step, "fit") and hasattr(step, "predict") and not _step_is_splitter(step):
+        component = deserialize_component(step) if isinstance(step, str) or (isinstance(step, dict) and "class" in step) else step
+        if not isinstance(component, dict) and hasattr(component, "fit") and hasattr(component, "predict") and not _step_is_splitter(component):
             continue
         result.append(step)
     return result
@@ -457,10 +460,12 @@ class _StackingPrep:
 
     refit_dataset: Any
     branch_value: list[Any]
+    branch_names: list[str]
     merge_step: dict[str, Any] | None
     pre_branch_steps: list[Any]
     post_merge_steps: list[Any]
     meta_model_config: Any
+    meta_model_step: dict[str, Any] | None
     prev_refit_fold_id: Any
     prev_refit_context_name: Any
     refit_pipeline_name: str
@@ -513,9 +518,38 @@ def _prepare_stacking_refit(
     branch_value = branch_step.get("branch", [])
     merge_step = _find_merge_step(steps, branch_idx)
 
-    if not isinstance(branch_value, list):
-        logger.warning("Stacking refit expects duplication branches (list). Skipping.")
-        return None
+    from nirs4all.controllers.data.branch import BranchController
+    from nirs4all.pipeline.steps.parser import StepParser
+
+    controller = BranchController()
+    if controller._detect_branch_mode(branch_value) != "duplication":
+        raise NotImplementedError("Stacking refit requires duplication branches; separation refit uses its declared routing contract.")
+    branches = controller._parse_branch_definitions(StepParser().parse(branch_step))
+    branch_value = [branch["steps"] for branch in branches]
+    branch_names = [branch["name"] for branch in branches]
+
+    # The current refit collects one prediction per branch in declared order.
+    # Refuse other merge contracts before fitting, rather than silently train
+    # the final meta-model on different columns from its CV declaration.
+    merge_value = merge_step.get("merge") if merge_step else None
+    if isinstance(merge_value, dict):
+        refs = merge_value.get("predictions")
+        supported_refs = refs == "all" or refs == list(range(len(branches)))
+        supported = (
+            supported_refs
+            and set(merge_value) <= {"predictions", "include_original"}
+            and isinstance(merge_value.get("include_original", False), bool)
+        )
+        if supported:
+            merge_value["predictions"] = list(range(len(branches)))
+    else:
+        supported = merge_value == "predictions"
+    if not supported:
+        raise NotImplementedError(
+            f"Stacking refit cannot preserve declared merge configuration {merge_value!r}. "
+            "The supported refit profile uses every branch's prediction in declared branch order, "
+            "with optional include_original=True; selected, reordered, filtered, or mixed merge refit is unsupported."
+        )
 
     # Extract structural components
     pre_branch_steps = _extract_pre_branch_steps(steps, branch_idx)
@@ -539,10 +573,12 @@ def _prepare_stacking_refit(
     return _StackingPrep(
         refit_dataset=refit_dataset,
         branch_value=branch_value,
+        branch_names=branch_names,
         merge_step=merge_step,
         pre_branch_steps=pre_branch_steps,
         post_merge_steps=post_merge_steps,
         meta_model_config=meta_model_config,
+        meta_model_step=next((copy.deepcopy(step) for step in post_merge_steps if isinstance(step, dict) and "model" in step), None),
         prev_refit_fold_id=prev_refit_fold_id,
         prev_refit_context_name=prev_refit_context_name,
         refit_pipeline_name=refit_pipeline_name,
@@ -745,11 +781,14 @@ def _refit_base_branch(
 
     # Add the model step back
     if model_config is not None:
-        sub_steps.append({"model": copy.deepcopy(model_config)})
+        model_step = next((step for step in branch_steps if isinstance(step, dict) and "model" in step), {"model": model_config})
+        sub_steps.append(copy.deepcopy(model_step))
 
     # Execute the sub-pipeline
     branch_predictions = Predictions()
-    branch_context = executor.initialize_context(copy.deepcopy(prep.refit_dataset))
+    branch_context = executor.initialize_context(copy.deepcopy(prep.refit_dataset)).with_branch(
+        branch_i, prep.branch_names[branch_i],
+    )
 
     branch_runtime = RuntimeContext(
         store=runtime_context.store,
@@ -782,6 +821,7 @@ def _refit_base_branch(
 
     # Relabel branch predictions
     _relabel_stacking_predictions(branch_predictions, branch_i)
+    branch_predictions.mutate_entries({"branch_id": branch_i, "branch_name": prep.branch_names[branch_i]})
 
     # Collect in-sample predictions as meta-features
     in_sample_preds = _extract_in_sample_predictions(branch_predictions)
@@ -838,7 +878,7 @@ def _refit_stacking_base_models(
 
         logger.info(
             f"Stacking refit: branch {branch_i} "
-            f"(type={branch_type}, gpu={_is_gpu_model(model_config) if model_config else False})"
+            f"(type={branch_type}, gpu={_is_gpu_model(model_config) if model_config is not None else False})"
         )
 
         # Task 4.1: Check if this branch contains nested stacking
@@ -924,6 +964,32 @@ def _train_stacking_meta_model(
 
     # Build meta-feature matrix (Task 3.4: combine features + predictions)
     all_meta_features = base_predictions_list + base_features_list
+    merge_config = prep.merge_step.get("merge") if prep.merge_step else None
+    if isinstance(merge_config, dict) and merge_config.get("include_original", False):
+        # Match CV: originals are the train-only features at the branch entry,
+        # after fitting the declared prefix on all training rows. They precede
+        # every branch prediction, not the other way around.
+        original_dataset = copy.deepcopy(prep.refit_dataset)
+        original_runtime = RuntimeContext(
+            store=runtime_context.store,
+            artifact_registry=artifact_registry,
+            step_runner=executor.step_runner,
+            run_id=runtime_context.run_id,
+            phase=ExecutionPhase.REFIT,
+            refit_fold_id="final",
+            refit_context_name=REFIT_CONTEXT_STACKING,
+            random_state=runtime_context.random_state,
+        )
+        executor.execute(
+            steps=_replace_splitter(copy.deepcopy(prep.pre_branch_steps), original_dataset),
+            config_name=f"{prep.refit_pipeline_name}_original_features",
+            dataset=original_dataset,
+            context=executor.initialize_context(original_dataset),
+            runtime_context=original_runtime,
+            prediction_store=Predictions(),
+            generator_choices=refit_config.generator_choices,
+        )
+        all_meta_features.insert(0, np.asarray(original_dataset.x({"partition": "train"}, layout="2d")))
     if not all_meta_features:
         logger.warning("No base model predictions collected. Cannot train meta-model.")
         result.success = False
@@ -939,7 +1005,7 @@ def _train_stacking_meta_model(
 
     # Add the meta-model
     if prep.meta_model_config is not None:
-        meta_steps.append({"model": copy.deepcopy(prep.meta_model_config)})
+        meta_steps.append(copy.deepcopy(prep.meta_model_step or {"model": prep.meta_model_config}))
     else:
         logger.warning("No meta-model found in post-merge steps.")
         result.success = False
@@ -1025,9 +1091,9 @@ def execute_stacking_refit(
     train the meta-model, and persist with ``fold_id="final"`` and
     ``refit_context="stacking"``.
 
-    For mixed merge pipelines (Task 3.4), feature branches use simple
-    refit (transform only), while prediction branches use the full
-    stacking refit flow.
+    Selected, reordered, filtered, and mixed feature/prediction merge
+    contracts are refused before fitting because this refit profile cannot
+    preserve their declared meta-feature matrix.
 
     GPU-backed models (Task 3.5) are detected and refit sequentially
     with memory cleanup between each, while CPU models can be refit

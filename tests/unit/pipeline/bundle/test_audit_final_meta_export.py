@@ -207,6 +207,20 @@ def test_cv_meta_equal_raw_width_refuses_incomplete_export_and_replay(tmp_path):
             store.replay_chain(chain_id, x[32:])
         with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
             nirs4all.predict(chain_id=chain_id, data=x[32:], workspace_path=workspace, engine="legacy", verbose=0)
+        # Reconstruct an old producer's incomplete archive from the genuine
+        # fitted CV artifacts. Only the private writer bypasses admission here;
+        # no numerical operation, estimator, or prediction is mocked.
+        unsafe_resolved = resolver._resolve_from_store(selected)
+        assert unsafe_resolved is not None
+        old_archive = BundleGenerator(workspace, store=store)._export_n4a(unsafe_resolved, tmp_path / "old-partial.n4a", True)
+        with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+            BundleLoader(old_archive)
+        with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+            nirs4all.predict(old_archive, x[32:], engine="legacy", verbose=0)
+        with nirs4all.session(workspace_path=workspace, verbose=0) as session:
+            for model_source in (selected, old_archive):
+                with pytest.raises(NotImplementedError, match="raw-input dependency closure was not captured"):
+                    nirs4all.explain(model_source, data, session=session, engine="legacy", verbose=0)
         # A selected base branch remains a valid model; a later merge does not
         # retroactively turn it into a meta-model.
         base = next(row for row in rows if row["model_name"] == "BASE_A" and row["partition"] == "test" and str(row["fold_id"]) == "0")
