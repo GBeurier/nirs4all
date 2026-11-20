@@ -1102,7 +1102,6 @@ class MergeController(OperatorController):
         Returns:
             Tuple of (updated_context, StepOutput)
         """
-        context.custom["_runtime_context"] = runtime_context
         # Parse configuration (with auto-detection for "auto", True, {"branch": ...})
         raw_config = step_info.original_step.get("merge")
         raw_config = self._resolve_auto_merge(raw_config, context)
@@ -1110,6 +1109,7 @@ class MergeController(OperatorController):
 
         if config.collect_predictions:
             validate_scalar_prediction_targets(dataset)
+        context.custom["_runtime_context"] = runtime_context
 
         # Phase 5: Handle source merge within merge keyword
         # {"merge": {"sources": "concat"|"stack"|"dict"}}
@@ -3849,6 +3849,11 @@ class MergeController(OperatorController):
             f"using strategy '{branch_config.get_selection_strategy().value}'"
         )
 
+        # The per-branch declaration selects the actual reconstructed value
+        # block; it must not merely label aggregation of hard predictions.
+        from dataclasses import replace
+
+        prediction_config = replace(config, use_proba=config.use_proba or branch_config.proba)
         # Collect OOF predictions for selected models
         branch_predictions = self._collect_branch_predictions(
             dataset=dataset,
@@ -3856,7 +3861,7 @@ class MergeController(OperatorController):
             prediction_store=prediction_store,
             model_names=selected_models,
             branch_id=branch_id,
-            config=config,
+            config=prediction_config,
             mode=mode,
         )
 
@@ -3884,7 +3889,7 @@ class MergeController(OperatorController):
                 predictions=branch_predictions,
                 strategy=aggregation_strategy,
                 model_scores=model_scores,
-                proba=branch_config.proba,
+                proba=prediction_config.use_proba,
                 metric=branch_config.weight_metric or branch_config.metric,
             )
 
@@ -3910,7 +3915,8 @@ class MergeController(OperatorController):
             "aggregation_strategy": aggregation_strategy.value,
             "model_scores": model_scores,
             "metric": branch_config.weight_metric or branch_config.metric,
-            "proba": branch_config.proba,
+            "proba": prediction_config.use_proba,
+            "use_proba": prediction_config.use_proba and dataset.is_classification and not prediction_config.unsafe,
         }
 
         return branch_prediction, actual_idx, selected_models, selection_entry
@@ -4115,7 +4121,8 @@ class MergeController(OperatorController):
 
                 # Combine train (OOF) and test predictions
                 n_total = dataset.num_samples
-                combined = np.full(n_total, np.nan)
+                n_columns = result.X_train_meta.shape[1] if result.X_train_meta.ndim > 1 else 1
+                combined = np.full(n_total, np.nan) if n_columns == 1 else np.full((n_total, n_columns), np.nan)
 
                 # Get train and test sample indices
                 # IMPORTANT: Use include_augmented=False for train because OOF predictions
@@ -4136,14 +4143,14 @@ class MergeController(OperatorController):
 
                 # Fill train (OOF) predictions
                 if result.X_train_meta.size > 0:
-                    train_preds = result.X_train_meta[:, 0] if result.X_train_meta.ndim > 1 else result.X_train_meta
+                    train_preds = result.X_train_meta[:, 0] if n_columns == 1 and result.X_train_meta.ndim > 1 else result.X_train_meta
                     if len(train_preds) == len(train_ids):
                         for i, sample_id in enumerate(train_ids):
                             combined[sample_id] = train_preds[i]
 
                 # Fill test predictions
                 if result.X_test_meta.size > 0:
-                    test_preds = result.X_test_meta[:, 0] if result.X_test_meta.ndim > 1 else result.X_test_meta
+                    test_preds = result.X_test_meta[:, 0] if n_columns == 1 and result.X_test_meta.ndim > 1 else result.X_test_meta
                     if len(test_preds) == len(test_ids):
                         for i, sample_id in enumerate(test_ids):
                             combined[sample_id] = test_preds[i]
@@ -4157,7 +4164,7 @@ class MergeController(OperatorController):
                     )
                     for aug_id in augmented_ids:
                         origin_id = dataset._indexer._augmentation_tracker.get_origin_for_sample(aug_id)
-                        if origin_id is not None and not np.isnan(combined[origin_id]):
+                        if origin_id is not None and not np.any(np.isnan(combined[origin_id])):
                             combined[aug_id] = combined[origin_id]
 
                 model_predictions[model_name] = combined

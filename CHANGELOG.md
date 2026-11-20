@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   associate every prediction with its exact fitted model chain. These trusted
   Python-host bundles do not imply native or Web portability; captured closures
   export as `.n4a`, with unsupported standalone Python-script export refused.
+- Keep binary positive-class and multiclass probability columns through declared
+  global/per-branch merges and MetaModel final refits. Capture the final
+  classifier's probabilities, numeric classes and original target vocabulary;
+  detect its task from training predictions during final refit, preserving the
+  existing validation-only detection during cross-validation.
 
 ## [1.5.0] — 2026-11-19
 

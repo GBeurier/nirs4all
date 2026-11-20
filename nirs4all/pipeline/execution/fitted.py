@@ -46,6 +46,10 @@ class FittedNode:
                 shape = result.shape
                 values = result.reshape(-1, 1) if result.ndim == 1 else result
                 result = self.target_transformer.transform(values, self.target_processing, "numeric", {}).reshape(shape)
+        elif self.operation == "probability_features":
+            producer = self.inputs[0]
+            values = producer.state.predict_proba(producer.inputs[0].evaluate(X, cache))
+            result = self.state.extract_features({"y_proba": values}, len(X))
         elif self.operation == "source_mean":
             from nirs4all.controllers.models.stacking.reconstructor import aggregate_test_fold_predictions
             from nirs4all.operators.models.meta import TestAggregation
@@ -91,6 +95,23 @@ class FittedPredictor:
         """Predict raw rows without fitting, selecting models, or reading a workspace."""
         return self.root.evaluate(np.asarray(X), {})
 
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Keep the fitted final classifier's probability columns and vocabulary."""
+        return cast(np.ndarray, np.asarray(self.root.state.predict_proba(self.root.inputs[0].evaluate(np.asarray(X), {}))))
+
+    @property
+    def classes_(self) -> np.ndarray:
+        """Expose the exact fitted final classifier column vocabulary."""
+        return cast(np.ndarray, np.asarray(self.root.state.classes_))
+
+    @property
+    def class_labels_(self) -> np.ndarray:
+        """Decode that numeric vocabulary with the captured original target codec."""
+        classes = self.classes_
+        if self.root.target_transformer is None:
+            return classes
+        return cast(np.ndarray, self.root.target_transformer.transform(classes.reshape(-1, 1), "numeric", "raw", {}).reshape(-1))
+
 
 def prepare_fitted_input(dataset: Any, context: Any, runtime: Any) -> FittedNode | None:
     """Start capture only for explicitly requested final stacking refits."""
@@ -105,7 +126,7 @@ def prepare_fitted_input(dataset: Any, context: Any, runtime: Any) -> FittedNode
 
 
 def _source_node(predictions: Any, runtime: Any, name: str, branch: int | None, max_step: int,
-                 exact_step: int | None = None) -> FittedNode:
+                 exact_step: int | None = None, *, use_proba: bool = False) -> FittedNode:
     """Resolve the exact fitted producer identity selected during this execution."""
     ids = list(dict.fromkeys(
         row["model_artifact_id"] for row in predictions.iter_entries()
@@ -117,6 +138,18 @@ def _source_node(predictions: Any, runtime: Any, name: str, branch: int | None, 
     if not ids:
         raise ValueError(f"Cannot capture fitted source {name!r} in branch {branch}: no exact fitted producer")
     nodes = tuple(runtime.fitted_predictors[artifact_id] for artifact_id in ids)
+    if use_proba:
+        from nirs4all.controllers.models.stacking.classification import ClassificationFeatureExtractor, ClassificationInfo, StackingTaskType
+
+        probability_nodes = []
+        for node in nodes:
+            classes = np.asarray(node.state.classes_)
+            info = ClassificationInfo(
+                StackingTaskType.BINARY_CLASSIFICATION if len(classes) == 2 else StackingTaskType.MULTICLASS_CLASSIFICATION,
+                n_classes=len(classes), class_labels=classes.tolist(), has_probabilities=True,
+            )
+            probability_nodes.append(FittedNode("probability_features", (node,), ClassificationFeatureExtractor(info, use_proba=True)))
+        nodes = tuple(probability_nodes)
     return cast(FittedNode, nodes[0]) if len(nodes) == 1 else FittedNode("source_mean", nodes)
 
 
@@ -184,7 +217,7 @@ def capture_fitted_step(
         for branch in info.get("feature_branches_used", []):
             blocks.append(branches[branch]["context"].custom["_fitted_input"])
         for selection in info.get("prediction_selection", []):
-            sources = tuple(_source_node(predictions, runtime, name, selection["branch"], runtime.step_number)
+            sources = tuple(_source_node(predictions, runtime, name, selection["branch"], runtime.step_number, use_proba=selection.get("use_proba", False))
                             for name in selection["selected_models"])
             blocks.append(FittedNode("aggregate", sources, {
                 "names": tuple(selection["selected_models"]), "strategy": selection["aggregation_strategy"],
@@ -204,12 +237,12 @@ def capture_fitted_step(
             if not candidates:
                 raise ValueError("Final MetaModel capture requires its actual ordered source candidates")
             _names, mapping = build_unique_source_names(candidates)
-            sources = tuple(_source_node(predictions, runtime, original_name, branch, runtime.step_number)
+            sources = tuple(_source_node(predictions, runtime, original_name, branch, runtime.step_number, use_proba=after.custom["meta_operator"].use_proba and dataset.is_classification)
                             for original_name, branch in mapping.values())
             model_input = FittedNode("concat", sources, after.custom["_reconstruction_result"].X_train_meta.dtype)
         model = runtime.artifact_registry.load_artifact(record)
         processing = after.state.y_processing
-        inverse = deepcopy(dataset._targets._transformer) if processing != "numeric" else None
+        inverse = deepcopy(dataset._targets._transformer) if processing != "numeric" or dataset.is_classification else None
         model_node = FittedNode("model", (model_input,), model, record.artifact_id, inverse, processing)
         runtime.fitted_predictors[record.artifact_id] = model_node
         _register_predictor(record, model_node, runtime)
