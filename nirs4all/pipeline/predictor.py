@@ -496,9 +496,9 @@ class Predictor:
             "step_idx": tm.get("step_idx"),
         }
 
-        if self._resolved is not None and self._resolved.raw_input_predictor is not None and tm.get("partition") is not None:
-            filter_kwargs["partition"] = tm["partition"]
-
+        # Captured replay already selects explicit dataset partition sample IDs.
+        # A new raw matrix has no inherited training partition and predicts all
+        # supplied rows; its result must not be filtered by the source record.
         if not is_aggregated_fold and not is_refit_fold:
             filter_kwargs["fold_id"] = target_fold_id
 

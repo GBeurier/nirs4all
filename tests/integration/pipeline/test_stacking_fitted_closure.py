@@ -1,9 +1,6 @@
 """FINAL Python-host bundles retain the fitted raw-input dependency closure."""
 
 import json
-import os
-import subprocess
-import sys
 
 import numpy as np
 import pytest
@@ -16,6 +13,8 @@ import nirs4all
 from nirs4all.operators.models import MetaModel
 from nirs4all.pipeline.bundle import BundleGenerator, BundleLoader
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+from ._cold_replay import run_cold_replay
 
 
 @pytest.mark.parametrize("mixed,branch_meta,scaled_targets,weighted,concat,homonyms", [
@@ -118,6 +117,5 @@ with BundleLoader(sys.argv[2]) as loader:
     actual = loader.predict(np.load(sys.argv[3]))
 np.testing.assert_allclose(actual, np.load(sys.argv[4]), rtol=1e-5, atol=1e-5)
 '''
-    completed = subprocess.run([sys.executable, "-c", probe, str(workspace), str(bundle), str(tmp_path / "raw.npy"),
-                                str(tmp_path / "expected.npy")], cwd=tmp_path, env=os.environ.copy(), capture_output=True, text=True)
+    completed = run_cold_replay(probe, [str(workspace), str(bundle), str(tmp_path / "raw.npy"), str(tmp_path / "expected.npy")], tmp_path)
     assert completed.returncode == 0, completed.stdout + completed.stderr

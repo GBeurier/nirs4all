@@ -1,9 +1,5 @@
 """Sequential META CV and standalone FINAL retain their actual raw-input function."""
 
-import os
-import subprocess
-import sys
-
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -16,6 +12,8 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.models import MetaModel, StackingConfig, TestAggregation
 from nirs4all.pipeline.bundle import BundleGenerator, BundleLoader
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+from ._cold_replay import run_cold_replay
 
 
 @pytest.mark.parametrize("profile", ["mean", "weighted", "binary", "multiclass"])
@@ -129,8 +127,7 @@ with BundleLoader(sys.argv[2]) as loader:
         np.testing.assert_array_equal(model.class_labels_,arrays['raw_classes'])
 '''
     for index in range(2):
-        completed = subprocess.run([sys.executable, "-c", probe, str(workspace), str(tmp_path / f"{index}.n4a"),
-                                    str(tmp_path / f"{index}.npz")], cwd=tmp_path, env=os.environ.copy(), capture_output=True, text=True)
+        completed = run_cold_replay(probe, [str(workspace), str(tmp_path / f"{index}.n4a"), str(tmp_path / f"{index}.npz")], tmp_path)
         assert completed.returncode == 0, completed.stdout + completed.stderr
 
 

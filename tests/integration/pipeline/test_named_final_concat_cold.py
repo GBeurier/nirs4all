@@ -1,8 +1,5 @@
 """Named FINAL exports preserve fitted concat features across inference batches."""
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +9,8 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.bundle import BundleGenerator
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 from tests.integration.parity.cases_branches_merges import _factory_dup_named_with_metamodel
+
+from ._cold_replay import run_cold_replay
 
 
 def test_named_final_concat_replays_cold_across_batch_sizes(tmp_path):
@@ -59,6 +58,5 @@ for index in range(5):
         for start,stop in ((0,split),(split,len(x)),(0,1),(len(x)-1,len(x))):
             np.testing.assert_allclose(loader.predict(x[start:stop]).ravel(),expected[start:stop],rtol=1e-5,atol=1e-8)
 '''
-    completed = subprocess.run([sys.executable, "-c", probe, str(workspace), str(tmp_path)],
-                               cwd=tmp_path, env=os.environ.copy(), capture_output=True, text=True)
+    completed = run_cold_replay(probe, [str(workspace), str(tmp_path)], tmp_path)
     assert completed.returncode == 0, completed.stdout + completed.stderr
