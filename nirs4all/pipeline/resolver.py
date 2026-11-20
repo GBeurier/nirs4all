@@ -249,6 +249,7 @@ class ResolvedPrediction:
     run_dir: Path | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
 
+    raw_input_predictor: Any = None  # Actual validated FINAL closure, never a metadata claim
     bundle_loader: BundleLoader | None = None
 
     def close(self) -> None:
@@ -415,7 +416,8 @@ class PredictionResolver:
                 f"artifact_id string, bundle path, trace_id string, model file"
             )
 
-        require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, resolved.target_model)
+        if resolved.raw_input_predictor is None:
+            require_legacy_raw_input_closure(resolved.minimal_pipeline, resolved.model_step_index, resolved.target_model)
         return resolved
 
     def _detect_source_type(self, source: Any) -> SourceType:
@@ -1252,6 +1254,20 @@ class PredictionResolver:
         result = ResolvedPrediction(source_type=SourceType.PREDICTION)
         result.pipeline_uid = pipeline_uid
         result.model_step_index = chain["model_step_idx"]
+        assert self.store is not None and chain_id is not None
+        predictor = (self.store.get_raw_input_predictor(chain_id)
+                     if (chain.get("shared_artifacts") or {}).get("_raw_input_predictor") else None)
+        if predictor is not None and str(prediction.get("fold_id")) == "final":
+            result.raw_input_predictor = predictor
+            result.train_pipeline = predictor.training_steps
+            result.minimal_pipeline = [{"model": predictor, "name": prediction.get("model_name", "FittedPredictor")}]
+            model_id = predictor.root.artifact_id
+            result.artifact_provider = MapArtifactProvider({1: [(model_id, predictor)]})
+            result.model_step_index = 1
+            result.fold_strategy = FoldStrategy.SINGLE
+            result.target_model = {key: value for key, value in prediction.items() if key not in ("y_pred", "y_true", "X")}
+            result.target_model.update(step_idx=1, branch_id=None, branch_name=None, branch_path=[])
+            return result
 
         # Build artifact map from the target chain, plus source model chains
         # (chains with a lower model_step_idx) needed for meta-model stacking.

@@ -1258,6 +1258,7 @@ class RuntimeContext:
     refit_selection_pipeline_id: str | None = None  # Winning CV variant; never the new refit pipeline
     capture_fitted_predictor: bool = False  # Capture only the requested final stacking closure
     fitted_predictors: dict[str, Any] = field(default_factory=dict)  # Exact fitted artifact ID -> raw-input node
+    fitted_training_steps: list[Any] | None = None  # Original recipe retained separately from predict replay
     fitted_feature_output: Any = None  # Final feature node of the current refit sub-pipeline
     cache_config: Any = None  # CacheConfig for step-level caching settings
     step_cache: Any = None  # StepCache instance (set when cache_config.step_cache_enabled)

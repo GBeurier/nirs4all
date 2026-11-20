@@ -66,7 +66,12 @@ class FittedPredictor:
     """Self-contained Python-host predictor over an actually captured fitted graph."""
 
     root: FittedNode
+    training_steps: list[Any] | None = None
     profile: str = field(default="nirs4all.python.fitted_predictor.v1", init=False)
+
+    def fit(self, X: Any, y: Any = None) -> None:
+        """Refuse refitting a captured predictor; replay its original training recipe."""
+        raise NotImplementedError("A captured fitted predictor is predict-only; retrain its original training recipe")
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict raw rows without fitting, selecting models, or reading a workspace."""
@@ -113,7 +118,7 @@ def _register_predictor(record: Any, node: FittedNode, runtime: Any) -> None:
     path = chain.to_path()
     artifact_id = registry.generate_id(path, record.fold_id, record.pipeline_id)
     registry.register(
-        obj=FittedPredictor(node), artifact_id=artifact_id, artifact_type=ArtifactType.MODEL,
+        obj=FittedPredictor(node, runtime.fitted_training_steps), artifact_id=artifact_id, artifact_type=ArtifactType.MODEL,
         params={"raw_input_closure_for": record.artifact_id}, format_hint="joblib",
         chain_path=path, custom_name=f"{record.custom_name} raw-input predictor",
     )

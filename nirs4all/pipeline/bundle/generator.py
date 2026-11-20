@@ -482,6 +482,16 @@ class BundleGenerator:
         # Resolve the prediction source
         resolved = self.resolver.resolve(source, verbose=self.verbose)
 
+        if resolved.raw_input_predictor is not None:
+            if format != BundleFormat.N4A:
+                raise NotImplementedError("Captured FINAL Python-host dependency closures export as n4a bundles")
+            return write_single_model_bundle(
+                resolved.raw_input_predictor, output_path, model_label="FittedPredictor", pipeline_uid=resolved.pipeline_uid,
+                train_steps=resolved.train_pipeline,
+                provenance={"execution_profile": resolved.raw_input_predictor.profile,
+                            "source_model_artifact_id": resolved.raw_input_predictor.root.artifact_id},
+            )
+
         # A selected prediction must export its own fitted model, never an
         # earlier base model left behind by incomplete artifact resolution.
         target = resolved.target_model

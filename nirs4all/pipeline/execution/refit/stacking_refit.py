@@ -30,7 +30,7 @@ import numpy as np
 from nirs4all.core.logging import get_logger
 from nirs4all.core.metrics import infer_ascending as _infer_ascending_for_metric
 from nirs4all.pipeline.analysis.topology import PipelineTopology
-from nirs4all.pipeline.config.component_serialization import deserialize_component
+from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
 from nirs4all.pipeline.execution.refit.executor import (
@@ -676,6 +676,7 @@ def _refit_nested_stacking_branch(
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
         capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+        fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
     try:
@@ -809,6 +810,7 @@ def _refit_base_branch(
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
         capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+        fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
     try:
@@ -992,6 +994,7 @@ def _train_stacking_meta_model(
             refit_context_name=REFIT_CONTEXT_STACKING,
             random_state=runtime_context.random_state,
             capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+            fitted_training_steps=serialize_component(refit_config.expanded_steps),
         )
         executor.execute(
             steps=_replace_splitter(copy.deepcopy(prep.pre_branch_steps), original_dataset),
@@ -1046,6 +1049,7 @@ def _train_stacking_meta_model(
         refit_context_name=REFIT_CONTEXT_STACKING,
         random_state=runtime_context.random_state,
         capture_fitted_predictor=True, fitted_predictors=runtime_context.fitted_predictors,
+        fitted_training_steps=serialize_component(refit_config.expanded_steps),
     )
 
     try:
@@ -1106,6 +1110,8 @@ def _execute_structured_stacking_refit(
     _inject_best_params(steps, refit_config.best_params)
     steps = _replace_splitter(steps, refit_dataset)
     predictions = Predictions()
+    previous_training = runtime_context.fitted_training_steps
+    runtime_context.fitted_training_steps = serialize_component(refit_config.expanded_steps)
     previous_capture = runtime_context.capture_fitted_predictor
     runtime_context.capture_fitted_predictor = True
     previous_selection = runtime_context.refit_selection_predictions
@@ -1141,6 +1147,7 @@ def _execute_structured_stacking_refit(
             test_score=meta_test.get("test_score") if meta_test else None,
         )
     finally:
+        runtime_context.fitted_training_steps = previous_training
         runtime_context.capture_fitted_predictor = previous_capture
         runtime_context.refit_selection_predictions = previous_selection
         runtime_context.refit_selection_pipeline_id = previous_pipeline
