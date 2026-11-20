@@ -23,6 +23,7 @@ def test_gpu_scope_rejects_ambiguous_or_non_cuda_allocations(devices: list[str])
         pass
 
 
+@pytest.mark.gpu
 def test_gpu_scope_runs_real_pytorch_operation_on_requested_device() -> None:
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():

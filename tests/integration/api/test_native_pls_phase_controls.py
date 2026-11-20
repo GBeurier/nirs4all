@@ -111,7 +111,7 @@ def _oracle(dataset: dict[str, Any], library: str, tmp_path: Path, *, train: dic
     result = json.loads(completed.stdout)
     assert result["library"] == library
     # Qualified public Methods wheels retain their exact native version and ABI.
-    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0", "1.3.2+abi.2.17.0", "1.3.4+abi.2.17.0"}
+    assert result["version"] in {"1.2.1+abi.2.14.0", "1.2.1+abi.2.15.0", "1.2.1+abi.2.16.0", "1.2.1+abi.2.17.0", "1.3.2+abi.2.17.0", "1.3.4+abi.2.17.0", "1.5.1+abi.2.24.0"}
     return result
 
 
