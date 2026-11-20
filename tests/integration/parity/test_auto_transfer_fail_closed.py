@@ -524,3 +524,45 @@ def test_same_class_selected_recipes_fit_all_channels_without_losing_parameters(
     np.testing.assert_allclose(local.transform(predict_x), np.hstack(expected_parts), rtol=1e-5, atol=1e-8)
     chains = local._chains if use_augmentation else local._channel_chains[0]
     assert [serialize_component(chain[0]) for chain in chains] == specs
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
+@pytest.mark.parametrize("use_augmentation", [False, True])
+def test_real_generated_selection_pipeline_and_archive_preserve_recipes(transfer_views, tmp_path, monkeypatch, engine: str, use_augmentation: bool) -> None:
+    """A successful generated search must be executable, archived and replayable."""
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    dataset = _candidate_failure_dataset(transfer_views)
+    config = {"preset": "fast", "top_k": 2, "use_augmentation": use_augmentation, "verbose": 0,
+              "preprocessing_spec": {"_or_": [StandardScaler(with_mean=False), StandardScaler(with_std=False)]}}
+    with nirs4all.run(
+        [{"auto_transfer_preproc": config}, PLSRegression(3)], dataset, engine=engine,
+        workspace_path=tmp_path / "workspace", save_artifacts=True, save_charts=False, refit=False, verbose=0,
+    ) as result:
+        rows = result.predictions.filter_predictions(partition="test", load_arrays=True)
+        assert len(rows) == 1
+        expected = np.asarray(rows[0]["y_pred"]).ravel()
+        assert np.isfinite(expected).all()
+        archive = result.export(tmp_path / "generated.n4a")
+
+    def forbidden_fit(*args, **kwargs):
+        raise AssertionError("replay must not repeat selection or fit a preprocessing")
+
+    monkeypatch.setattr(TransferPreprocessingSelector, "fit", forbidden_fit)
+    monkeypatch.setattr(StandardScaler, "fit", forbidden_fit)
+    replay = nirs4all.predict(archive, dataset.x({"partition": "test"}), engine=engine, verbose=0)
+    np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, rtol=1e-5, atol=1e-8)
+
+
+def test_outer_generator_preserves_controller_owned_candidate_search() -> None:
+    """Outer alternatives vary pipelines, not the candidates within a search."""
+    from nirs4all.pipeline.config.generator import count_combinations, expand_spec, expand_spec_with_choices
+
+    search = {"_or_": [StandardScaler(with_mean=False), PCA(n_components=3)]}
+    spec = [{"auto_transfer_preproc": {"top_k": {"_or_": [1, 2]}, "preprocessing_spec": search}}]
+    assert count_combinations(spec) == 2
+    plain = expand_spec(spec)
+    tracked = expand_spec_with_choices(spec)
+    assert [variant for variant, _ in tracked] == plain
+    assert [variant[0]["auto_transfer_preproc"]["top_k"] for variant in plain] == [1, 2]
+    assert all(variant[0]["auto_transfer_preproc"]["preprocessing_spec"] == search for variant in plain)
+    assert all(len(choices) == 1 for _, choices in tracked)

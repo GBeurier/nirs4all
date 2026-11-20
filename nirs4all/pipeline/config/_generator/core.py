@@ -332,6 +332,14 @@ def _expand_mixed_or_node(node: dict[str, Any], seed: int | None) -> ExpandedRes
 
     return results
 
+def _split_transfer_search(key: str, value: Any) -> tuple[Any, dict[str, Any]]:
+    """Keep the controller-owned candidate generator out of the outer sweep."""
+    if key == "auto_transfer_preproc" and isinstance(value, Mapping) and "preprocessing_spec" in value:
+        return ({name: item for name, item in value.items() if name != "preprocessing_spec"},
+                {"preprocessing_spec": value["preprocessing_spec"]})
+    return value, {}
+
+
 def _expand_dict(node: dict[str, Any], seed: int | None) -> ExpandedResult:
     """Expand a regular dict by taking Cartesian product of values.
 
@@ -354,7 +362,9 @@ def _expand_dict(node: dict[str, Any], seed: int | None) -> ExpandedResult:
     value_options = []
     for k, v in node.items():
         keys.append(k)
-        value_options.append(_expand_value(v, seed))
+        value, deferred = _split_transfer_search(k, v)
+        expanded = _expand_value(value, seed)
+        value_options.append([{**config, **deferred} for config in expanded] if deferred else expanded)
 
     # Take Cartesian product over values
     results = []
@@ -587,7 +597,9 @@ def _expand_dict_with_choices(
     value_options = []
     for k, v in node.items():
         keys.append(k)
-        value_options.append(_expand_value_with_choices(v, seed))
+        value, deferred = _split_transfer_search(k, v)
+        expanded = _expand_value_with_choices(value, seed)
+        value_options.append([({**config, **deferred}, choices) for config, choices in expanded] if deferred else expanded)
 
     # Cartesian product with merged choices
     results = []
@@ -722,8 +734,9 @@ def _count_dict(node: dict[str, Any]) -> int:
         return 1
 
     total = 1
-    for v in node.values():
-        total *= _count_value(v)
+    for k, v in node.items():
+        value, _ = _split_transfer_search(k, v)
+        total *= _count_value(value)
     return total
 
 def _count_value(v: Any) -> int:
