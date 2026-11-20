@@ -873,7 +873,8 @@ class TestMethodInventory:
         "update_artifact_cache_key",
         "find_cached_artifact",
         "invalidate_dataset_cache",
-        # Chain replay
+        # Chain replay and persisted raw-input fitted closures
+        "get_raw_input_predictor",
         "replay_chain",
         # Resource management
         "open_readonly",
