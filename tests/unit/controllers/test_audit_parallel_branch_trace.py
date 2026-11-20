@@ -89,7 +89,10 @@ def test_tuple_and_transform_workers_have_single_active_trace_owner(tmp_path, pa
     dataset = _dataset()
     raw = dataset.x({}).copy()
     train = dataset.x({"partition": "train"}).copy()
-    expected = [np.hstack([StandardScaler().fit(train).transform(raw), PCA(2).fit(train).transform(raw)]),
+    # Concat components use double working precision, then the declared float32
+    # feature storage; the independent ordinary scaler branch keeps its dtype.
+    concat_train, concat_raw = train.astype(np.float64), raw.astype(np.float64)
+    expected = [np.hstack([StandardScaler().fit(concat_train).transform(concat_raw), PCA(2).fit(concat_train).transform(concat_raw)]).astype(np.float32),
                 StandardScaler().fit(train).transform(raw)]
     registry = ArtifactRegistry(tmp_path, dataset.name, pipeline_id="parallel_trace")
     recorder = TraceRecorder(pipeline_uid="parallel_trace")
