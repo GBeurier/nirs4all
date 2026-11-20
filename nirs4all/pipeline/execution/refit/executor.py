@@ -117,9 +117,11 @@ def execute_simple_refit(
         result.success = True
         return result
 
-    from nirs4all.pipeline.execution.fitted import is_sequential_meta_pipeline
+    from nirs4all.pipeline.execution.fitted import is_sequential_meta_pipeline, is_source_concat_pipeline
 
-    capture_required = artifact_registry is not None and getattr(executor, "save_artifacts", False) and is_sequential_meta_pipeline(original_steps)
+    capture_required = artifact_registry is not None and getattr(executor, "save_artifacts", False) and (
+        is_sequential_meta_pipeline(original_steps) or is_source_concat_pipeline(original_steps)
+    )
     previous_training = runtime_context.fitted_training_steps
     if capture_required:
         from nirs4all.pipeline.config.component_serialization import serialize_component

@@ -1595,6 +1595,7 @@ class MergeController(OperatorController):
         merged_parts = []
         source_shapes = []
         source_names = []
+        source_indices = []
 
         # When output_as="sources", preserve the preprocessing dimension (3D layout)
         # Otherwise flatten to 2D for horizontal concatenation
@@ -1623,6 +1624,7 @@ class MergeController(OperatorController):
 
                 merged_parts.append(features)
                 source_shapes.append(features.shape)
+                source_indices.append(src_idx)
 
                 # Get source name from contexts or generate default
                 name = source_contexts[src_idx].get("source_name", f"source_{src_idx}") if src_idx < len(source_contexts) else f"source_{src_idx}"
@@ -1694,6 +1696,7 @@ class MergeController(OperatorController):
 
         metadata = {
             "source_branch_merge": True,
+            "feature_branches_used": source_indices,
             "output_as": config.output_as,
             "merge_config": config.to_dict(),
             **merge_info,

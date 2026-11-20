@@ -145,11 +145,26 @@ def is_sequential_meta_pipeline(steps: list[Any]) -> bool:
     return False
 
 
+def is_source_concat_pipeline(steps: list[Any]) -> bool:
+    """Identify one declared by-source feature concat with its exact source graph."""
+    branches = [(index, step["branch"]) for index, step in enumerate(steps) if isinstance(step, dict) and "branch" in step]
+    merges = [(index, step["merge"]) for index, step in enumerate(steps) if isinstance(step, dict) and "merge" in step]
+    if len(branches) != 1 or len(merges) != 1:
+        return False
+    branch_index, branch = branches[0]
+    merge_index, merge = merges[0]
+    return (
+        isinstance(branch, dict) and branch.get("by_source") in (True, "auto")
+        and not set(branch) - {"by_source", "steps"} and merge_index == branch_index + 1
+        and (merge == "concat" or merge == {"sources": "concat"})
+    )
+
+
 def prepare_sequential_fitted_capture(steps: list[Any], runtime: Any) -> bool:
     """Start a pipeline-local inference capture, independently of CV fitting."""
     from nirs4all.pipeline.config.component_serialization import serialize_component
 
-    if runtime.capture_fitted_predictor or not is_sequential_meta_pipeline(steps):
+    if runtime.capture_fitted_predictor or not (is_sequential_meta_pipeline(steps) or is_source_concat_pipeline(steps)):
         return False
     if runtime.fitted_training_steps is None:
         runtime.fitted_training_steps = serialize_component(steps)

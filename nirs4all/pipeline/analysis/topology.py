@@ -152,7 +152,7 @@ def require_legacy_raw_input_closure(
     model_step_index: int | None,
     target: dict[str, Any],
 ) -> None:
-    """Refuse legacy meta-model replay without an ordered fitted base closure.
+    """Refuse dependency-sensitive legacy replay without its fitted raw closure.
 
     A trace or a collection of sibling artifacts does not establish that
     closure. Inspect only the selected model's active branch and prefix, so
@@ -201,6 +201,18 @@ def require_legacy_raw_input_closure(
     # the branch's local recipe: a branch containing a prediction merge has
     # no unambiguous captured raw-input closure for an individual component.
     prefix = active if branch_path else (active[:model_step_index] if model_step_index else active)
+    if not branch_path:
+        source_branch = False
+        for step in prefix:
+            if not isinstance(step, dict):
+                continue
+            branch = step.get("branch")
+            source_branch = source_branch or (isinstance(branch, dict) and "by_source" in branch)
+            if source_branch and (step.get("merge") == "concat" or step.get("merge") == {"sources": "concat"}):
+                raise NotImplementedError(
+                    "Cannot export or replay selected legacy source-concat model: its source-local "
+                    "raw-input dependency closure was not captured."
+                )
     if is_meta or _prefix_uses_predictions(prefix):
         raise NotImplementedError(
             "Cannot export or replay selected legacy stacking meta-model: its fitted base-model "
