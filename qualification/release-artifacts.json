@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "version": "1.6.0",
-  "source_sha": "318a2f5853f99aed26c7968c5be5a7f1fe00e7f0",
-  "source_date_epoch": 1795139771,
+  "source_sha": "a92528600f6c6763c6206a2b55788db6ba1a6c75",
+  "source_date_epoch": 1795162466,
   "build_requirements": [
     "build==1.6.1",
     "setuptools==84.2.1",
@@ -10,7 +10,7 @@
   ],
   "wheel": {
     "filename": "nirs4all-1.6.0-py3-none-any.whl",
-    "bytes": 3335821,
-    "sha256": "c3fa70ce07275caa577a887830a1030b4a9489db97f2514535f6e00fedaf1adc"
+    "bytes": 3340026,
+    "sha256": "75f3d0c3b6c18cc34ae39e7fcd172041b4b82120e8e005940b08832029034e96"
   }
 }
