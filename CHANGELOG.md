@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## 1.7.0
+
+- Admit the IO 0.4 and Core 0.7 series. Imported WinISI constituents encoded as zero are represented as missing targets by Formats 0.3.
+
+## [1.7.0] — 2026-11-26
+
+- Use IO 0.4 and Core 0.7 with Formats 0.3 for vendor decoding. WinISI and ISIscan constituents recorded as zero are read as missing.
+
 ## [1.6.1] — 2026-11-20
 
 ### Fixed
