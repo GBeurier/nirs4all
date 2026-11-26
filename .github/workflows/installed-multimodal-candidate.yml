@@ -6,7 +6,7 @@ name: Installed multimodal package build
       io_ref:
         description: nirs4all-io commit to qualify
         required: true
-        default: 284f50609212456e3275567f25dc0234e58333f6
+        default: c1c3cdfa0e394ef696c56ac65bfabdef1b65a468
       dag_ref:
         description: DAG-ML commit to qualify
         required: true
@@ -25,7 +25,7 @@ jobs:
     - uses: actions/checkout@v7
       with:
         repository: GBeurier/nirs4all-io
-        ref: ${{ inputs.io_ref || '284f50609212456e3275567f25dc0234e58333f6' }}
+        ref: ${{ inputs.io_ref || 'c1c3cdfa0e394ef696c56ac65bfabdef1b65a468' }}
         path: candidate-io
     - uses: actions/checkout@v7
       with:
